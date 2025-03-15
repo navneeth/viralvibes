@@ -1,4 +1,10 @@
 from fasthtml.common import *
+import yt_dlp
+import pandas as pd
+import squarify
+import matplotlib.pyplot as plt
+import io
+import base64
 
 app, rt = fast_app(hdrs=(picolink))
 
