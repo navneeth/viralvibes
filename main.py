@@ -1,4 +1,6 @@
 from fasthtml.common import *
+from monsterui.all import *
+
 import yt_dlp
 import pandas as pd
 import squarify
@@ -6,7 +8,11 @@ import matplotlib.pyplot as plt
 import io
 import base64
 
-app, rt = fast_app(hdrs=(picolink))
+# Choose a theme color (blue, green, red, etc)
+hdrs = Theme.blue.headers()
+
+# Create your app with the theme
+app, rt = fast_app(hdrs=hdrs)
 
 def get_playlist_videos(playlist_url):
     """Extracts video data from a YouTube playlist."""
