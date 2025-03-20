@@ -8,20 +8,6 @@ app, rt = fast_app()
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
 
-@dataclass
-class User:
-    username: str
-    email: str
-    password: str
-def validate_user(user: User):
-    errors = []
-    if len(user.username) < 3:
-        errors.append("Username must be at least 3 characters long")
-        if '@' not in user.email:
-            errors.append("Invalid email address")
-            if len(user.password) < 8:
-                errors.append("Password must be at least 8 characters long")
-                return errors
             
 @dataclass
 class YoutubePlaylist:
@@ -67,9 +53,8 @@ def get():
                        Div(id="result")
                        )
 
-@rt("/validate", method="POST")
-def validate(playlist_url: str):
-    playlist = YoutubePlaylist(playlist_url)
+@rt("/validate")
+def validate(playlist: YoutubePlaylist):
     errors = validate_youtube_playlist(playlist)
     if errors:
         return Div(Ul(*[Li(error) for error in errors]), id="result", style="color: red;")
