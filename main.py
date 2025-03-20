@@ -58,21 +58,22 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
 
 @rt("/")
 def get():
-    return Titled("User Registration",
-                  Form(Input(type="text", name="username", placeholder="Username"),
-                       Input(type="email", name="email", placeholder="Email"),
-                       Input(type="password", name="password", placeholder="Password"),
-                       Button("Register", type="submit"),
-                       hx_post="/register",
+    return Titled("Youtube Playlist Validator",
+                  Form(Input(type="text", name="playlist_url", placeholder="Youtube Playlist URL"),
+                       Button("Validate", type="submit"),
+                       hx_post="/validate",
                        hx_target="#result"
                        ),
                        Div(id="result")
                        )
-@rt("/register")
-def post(user: User):
-    errors = validate_user(user)
+
+@rt("/validate", method="POST")
+def validate(playlist_url: str):
+    playlist = YoutubePlaylist(playlist_url)
+    errors = validate_youtube_playlist(playlist)
     if errors:
         return Div(Ul(*[Li(error) for error in errors]), id="result", style="color: red;")
-    return Div(f"Registered: {user.username} ({user.email})", id="result", style="color: green;")
+    return Div("Valid YouTube Playlist URL", id="result", style="color: green;")
+
 
 serve()
