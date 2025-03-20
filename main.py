@@ -44,14 +44,15 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
 
 @rt("/")
 def get():
-    return Titled("Youtube Playlist Validator",
-                  Form(Input(type="text", name="playlist_url", placeholder="Youtube Playlist URL"),
+    prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
+    return Titled("YouTube Playlist Validator",
+                  Form(Input(type="text", name="playlist_url", placeholder="Youtube Playlist URL", value=prefill_url),
                        Button("Validate", type="submit"),
                        hx_post="/validate",
                        hx_target="#result"
                        ),
-                       Div(id="result")
-                       )
+                  Div(id="result")
+                  )
 
 @rt("/validate")
 def validate(playlist: YoutubePlaylist):
