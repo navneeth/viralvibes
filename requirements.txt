@@ -3,6 +3,6 @@ sqlite_minutils==4.0.3
 uvicorn==0.30.1
 # MonsterUI
 #matplotlib
-#yt-dlp
+yt-dlp
 #pandas
 #squarify
