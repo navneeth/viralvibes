@@ -1,8 +1,8 @@
-python-fasthtml==0.4.4
+python-fasthtml
 sqlite_minutils==4.0.3
 uvicorn==0.30.1
 # MonsterUI
-matplotlib
-yt-dlp
-pandas
-squarify
+#matplotlib
+#yt-dlp
+#pandas
+#squarify
