@@ -1,5 +1,7 @@
 from fasthtml.common import *
 from dataclasses import dataclass
+from urllib.parse import urlparse, parse_qs
+
 
 app, rt = fast_app()
 
@@ -20,6 +22,40 @@ def validate_user(user: User):
             if len(user.password) < 8:
                 errors.append("Password must be at least 8 characters long")
                 return errors
+            
+@dataclass
+class YoutubePlaylist:
+    playlist_url: str
+
+def validate_youtube_playlist(playlist: YoutubePlaylist):
+    errors = []
+    try:
+        parsed_url = urlparse(playlist.playlist_url)
+        if parsed_url.netloc != "www.youtube.com" and parsed_url.netloc != "youtube.com":
+            errors.append("Invalid YouTube URL: Domain is not youtube.com")
+            return errors
+
+        if parsed_url.path != "/playlist":
+            errors.append("Invalid YouTube URL: Not a playlist URL")
+            return errors
+
+        query_params = parse_qs(parsed_url.query)
+        if "list" not in query_params:
+            errors.append("Invalid YouTube URL: Missing playlist ID")
+            return errors
+
+        playlist_id = query_params["list"][0]
+
+        if not playlist_id:
+            errors.append("Invalid YouTube URL: Empty playlist ID")
+            return errors
+
+    except ValueError:
+        errors.append("Invalid URL format")
+        return errors
+
+    return errors
+
 @rt("/")
 def get():
     return Titled("User Registration",
