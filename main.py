@@ -104,23 +104,18 @@ def validate(playlist: YoutubePlaylist):
         return Div(
             Ul(*[Li(error) for error in errors]), id="result", style="color: red;"
         )
-
+    
     df = get_playlist_videos(playlist.playlist_url)
     if df is not None:
         table_html = df.to_html(index=False, classes="table table-striped")
         return Div(
             "Valid YouTube Playlist URL",
             Br(),
-            Div(Raw(table_html)),
+            NotStr(table_html),  # Use NotStr to render raw HTML
             id="result",
-            style="color: green;",
+            style="color: green;"
         )
-
-    return Div(
-        "Valid YouTube Playlist URL but failed to fetch videos.",
-        id="result",
-        style="color: green;",
-    )
-
+    
+    return Div("Valid YouTube Playlist URL but failed to fetch videos.", id="result", style="color: green;")
 
 serve()
