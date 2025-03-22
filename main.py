@@ -81,7 +81,7 @@ def get():
         "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     )
     return Titled(
-        "YouTube Playlist Validator",
+        "Ever wondered what REALLY makes YouTube videos go viral? Meet ViralVibes – your trend-tracking superpower.",
         Form(
             Input(
                 type="text",
