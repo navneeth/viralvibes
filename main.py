@@ -8,11 +8,15 @@ from fasthtml.common import *
 # MonsterUI shadows fasthtml components with the same name
 from monsterui.all import *
 
+from utils import calculate_engagement_rate, format_duration, format_number
+
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.blue.headers()
 
-app, rt = fast_app(hdrs=hdrs, title="ViralVibes", static_dir="static")
+app, rt = fast_app(
+    hdrs=hdrs, title="ViralVibes - YouTube Playlist Analyzer", static_dir="static"
+)
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
@@ -83,6 +87,8 @@ def get_playlist_videos(playlist_url):
                     "Uploader": video.get("uploader", "N/A"),
                     "Creator": video.get("creator", "N/A"),
                     "Channel ID": video.get("channel_id", "N/A"),
+                    "Duration": video.get("duration", 0),
+                    "Thumbnail": video.get("thumbnail", ""),
                 }
                 for rank, video in enumerate(videos, start=1)
             ]
@@ -90,14 +96,20 @@ def get_playlist_videos(playlist_url):
             return pd.DataFrame(data)
 
 
-@rt("/")
-def get():
+# @rt("/")
+@rt
+def index():
     prefill_url = (
         "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     )
     return Titled(
-        "ViralVibes – Discover what makes YouTube videos go viral!",
-        Center(
+        "ViralVibes",
+        Container(
+            DivCentered(
+                H1("Welcome to ViralVibes !"),
+                Subtitle("Discover what makes YouTube videos go viral!"),
+                id="welcome-section",
+            ),
             Card(
                 Img(
                     src="/static/celebration.webp",
@@ -129,7 +141,7 @@ def get():
                 ),
                 Div(id="result", style="margin-top:2rem;"),
                 style="max-width: 420px; margin: 3rem auto; padding: 2rem 2rem 1.5rem 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
-            )
+            ),
         ),
     )
 
@@ -152,6 +164,36 @@ def validate(playlist: YoutubePlaylist):
         )
 
     if df is not None and not df.empty:
+        # Apply formatting functions to the DataFrame
+        df["View Count"] = df["View Count"].apply(format_number)
+        df["Like Count"] = df["Like Count"].apply(format_number)
+        df["Dislike Count"] = df["Dislike Count"].apply(format_number)
+        df["Duration"] = df["Duration"].apply(format_duration)
+        # Calculate engagement rate and add as a new column
+        df["Engagement Rate (%)"] = [
+            f"{calculate_engagement_rate(vc, lc, dc):.2f}"
+            for vc, lc, dc in zip(
+                df["View Count"]
+                .replace({",": "", "N/A": 0, "": 0}, regex=True)
+                .astype(str)
+                .str.replace(r"[^\d.]", "", regex=True)
+                .replace("", "0")
+                .astype(float),
+                df["Like Count"]
+                .replace({",": "", "N/A": 0, "": 0}, regex=True)
+                .astype(str)
+                .str.replace(r"[^\d.]", "", regex=True)
+                .replace("", "0")
+                .astype(float),
+                df["Dislike Count"]
+                .replace({",": "", "N/A": 0, "": 0}, regex=True)
+                .astype(str)
+                .str.replace(r"[^\d.]", "", regex=True)
+                .replace("", "0")
+                .astype(float),
+            )
+        ]
+
         table_html = df.to_html(index=False, classes="table table-striped")
         return Div(
             "Valid YouTube Playlist URL",
