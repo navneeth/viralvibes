@@ -12,7 +12,9 @@ from monsterui.all import *
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.blue.headers()
 
-app, rt = fast_app(hdrs=hdrs, title="ViralVibes", static_dir="static")
+app, rt = fast_app(
+    hdrs=hdrs, title="ViralVibes - YouTube Playlist Analyzer", static_dir="static"
+)
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
@@ -83,11 +85,42 @@ def get_playlist_videos(playlist_url):
                     "Uploader": video.get("uploader", "N/A"),
                     "Creator": video.get("creator", "N/A"),
                     "Channel ID": video.get("channel_id", "N/A"),
+                    "Duration": video.get("duration", 0),
+                    "Thumbnail": video.get("thumbnail", ""),
                 }
                 for rank, video in enumerate(videos, start=1)
             ]
 
             return pd.DataFrame(data)
+
+
+def calculate_engagement_rate(view_count, like_count, dislike_count):
+    if view_count == 0:
+        return 0
+    return ((like_count + dislike_count) / view_count) * 100
+
+
+def format_number(number):
+    if number >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.1f}B"
+    elif number >= 1_000_000:
+        return f"{number / 1_000_000:.1f}M"
+    elif number >= 1_000:
+        return f"{number / 1_000:.1f}K"
+    return str(number)
+
+
+def format_duration(seconds):
+    if not seconds:
+        return "N/A"
+
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    else:
+        return f"{minutes}:{seconds:02d}"
 
 
 @rt("/")
