@@ -29,11 +29,17 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     errors = []
     try:
         parsed_url = urlparse(playlist.playlist_url)
-        if (
-            parsed_url.netloc != "www.youtube.com"
-            and parsed_url.netloc != "youtube.com"
-        ):
-            errors.append("Invalid YouTube URL: Domain is not youtube.com")
+        # Accept www.youtube.com, youtube.com, m.youtube.com, and music.youtube.com
+        allowed_domains = {
+            "www.youtube.com",
+            "youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+        }
+        if parsed_url.netloc not in allowed_domains:
+            errors.append(
+                "Invalid YouTube URL: Domain is not a recognized youtube.com domain"
+            )
             return errors
 
         if parsed_url.path != "/playlist":
@@ -136,8 +142,16 @@ def validate(playlist: YoutubePlaylist):
             Ul(*[Li(error) for error in errors]), id="result", style="color: red;"
         )
 
-    df = get_playlist_videos(playlist.playlist_url)
-    if df is not None:
+    try:
+        df = get_playlist_videos(playlist.playlist_url)
+    except Exception as e:
+        return Div(
+            "Valid YouTube Playlist URL, but failed to fetch videos: " + str(e),
+            id="result",
+            style="color: orange;",
+        )
+
+    if df is not None and not df.empty:
         table_html = df.to_html(index=False, classes="table table-striped")
         return Div(
             "Valid YouTube Playlist URL",
@@ -148,9 +162,9 @@ def validate(playlist: YoutubePlaylist):
         )
 
     return Div(
-        "Valid YouTube Playlist URL but failed to fetch videos.",
+        "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
         id="result",
-        style="color: green;",
+        style="color: orange;",
     )
 
 
