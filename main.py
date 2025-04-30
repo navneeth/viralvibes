@@ -96,14 +96,20 @@ def get_playlist_videos(playlist_url):
             return pd.DataFrame(data)
 
 
-@rt("/")
-def get():
+# @rt("/")
+@rt
+def index():
     prefill_url = (
         "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     )
     return Titled(
-        "ViralVibes – Discover what makes YouTube videos go viral!",
-        Center(
+        "ViralVibes",
+        Container(
+            DivCentered(
+                H1("Welcome to ViralVibes !"),
+                Subtitle("Discover what makes YouTube videos go viral!"),
+                id="welcome-section",
+            ),
             Card(
                 Img(
                     src="/static/celebration.webp",
@@ -135,7 +141,7 @@ def get():
                 ),
                 Div(id="result", style="margin-top:2rem;"),
                 style="max-width: 420px; margin: 3rem auto; padding: 2rem 2rem 1.5rem 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
-            )
+            ),
         ),
     )
 
