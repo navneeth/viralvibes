@@ -5,7 +5,16 @@ import pandas as pd
 import yt_dlp
 from fasthtml.common import *
 
-app, rt = fast_app()
+# MonsterUI shadows fasthtml components with the same name
+from monsterui.all import *
+
+# Get frankenui and tailwind headers via CDN using Theme.blue.headers()
+# Choose a theme color (blue, green, red, etc)
+hdrs = Theme.blue.headers()
+
+app, rt = fast_app(hdrs=hdrs, title="ViralVibes", static_dir="static")
+# Set the favicon
+app.favicon = "/static/favicon.ico"
 
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
@@ -81,19 +90,41 @@ def get():
         "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     )
     return Titled(
-        "Ever wondered what REALLY makes YouTube videos go viral? Meet ViralVibes – your trend-tracking superpower.",
-        Form(
-            Input(
-                type="text",
-                name="playlist_url",
-                placeholder="Youtube Playlist URL",
-                value=prefill_url,
-            ),
-            Button("Validate", type="submit"),
-            hx_post="/validate",
-            hx_target="#result",
+        "ViralVibes – Discover what makes YouTube videos go viral!",
+        Center(
+            Card(
+                Img(
+                    src="/static/celebration.webp",
+                    style="width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
+                    alt="Celebration",
+                ),
+                H1("ViralVibes", style="text-align:center; margin-bottom:0.5rem;"),
+                H4(
+                    "Discover what makes YouTube videos go viral! Paste a playlist and get instant stats.",
+                    style="text-align:center; color:#555; margin-bottom:1.5rem;",
+                ),
+                Form(
+                    Input(
+                        type="text",
+                        name="playlist_url",
+                        placeholder="Paste YouTube Playlist URL",
+                        value=prefill_url,
+                        style="width:100%; margin-bottom:1rem;",
+                    ),
+                    Button("Analyze", type="submit", style="width:100%;"),
+                    Div(
+                        id="loading",
+                        style="display:none; color: #393e6e; font-weight: bold; margin-top:1rem;",
+                        children=["Loading..."],
+                    ),
+                    hx_post="/validate",
+                    hx_target="#result",
+                    hx_indicator="#loading",
+                ),
+                Div(id="result", style="margin-top:2rem;"),
+                style="max-width: 420px; margin: 3rem auto; padding: 2rem 2rem 1.5rem 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
+            )
         ),
-        Div(id="result"),
     )
 
 
@@ -104,7 +135,7 @@ def validate(playlist: YoutubePlaylist):
         return Div(
             Ul(*[Li(error) for error in errors]), id="result", style="color: red;"
         )
-    
+
     df = get_playlist_videos(playlist.playlist_url)
     if df is not None:
         table_html = df.to_html(index=False, classes="table table-striped")
@@ -113,9 +144,14 @@ def validate(playlist: YoutubePlaylist):
             Br(),
             NotStr(table_html),  # Use NotStr to render raw HTML
             id="result",
-            style="color: green;"
+            style="color: green;",
         )
-    
-    return Div("Valid YouTube Playlist URL but failed to fetch videos.", id="result", style="color: green;")
+
+    return Div(
+        "Valid YouTube Playlist URL but failed to fetch videos.",
+        id="result",
+        style="color: green;",
+    )
+
 
 serve()
