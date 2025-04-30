@@ -8,6 +8,8 @@ from fasthtml.common import *
 # MonsterUI shadows fasthtml components with the same name
 from monsterui.all import *
 
+from utils import calculate_engagement_rate, format_duration, format_number
+
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.blue.headers()
@@ -94,35 +96,6 @@ def get_playlist_videos(playlist_url):
             return pd.DataFrame(data)
 
 
-def calculate_engagement_rate(view_count, like_count, dislike_count):
-    if view_count == 0:
-        return 0
-    return ((like_count + dislike_count) / view_count) * 100
-
-
-def format_number(number):
-    if number >= 1_000_000_000:
-        return f"{number / 1_000_000_000:.1f}B"
-    elif number >= 1_000_000:
-        return f"{number / 1_000_000:.1f}M"
-    elif number >= 1_000:
-        return f"{number / 1_000:.1f}K"
-    return str(number)
-
-
-def format_duration(seconds):
-    if not seconds:
-        return "N/A"
-
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-
-    if hours > 0:
-        return f"{hours}:{minutes:02d}:{seconds:02d}"
-    else:
-        return f"{minutes}:{seconds:02d}"
-
-
 @rt("/")
 def get():
     prefill_url = (
@@ -185,6 +158,36 @@ def validate(playlist: YoutubePlaylist):
         )
 
     if df is not None and not df.empty:
+        # Apply formatting functions to the DataFrame
+        df["View Count"] = df["View Count"].apply(format_number)
+        df["Like Count"] = df["Like Count"].apply(format_number)
+        df["Dislike Count"] = df["Dislike Count"].apply(format_number)
+        df["Duration"] = df["Duration"].apply(format_duration)
+        # Calculate engagement rate and add as a new column
+        df["Engagement Rate (%)"] = [
+            f"{calculate_engagement_rate(vc, lc, dc):.2f}"
+            for vc, lc, dc in zip(
+                df["View Count"]
+                .replace({",": "", "N/A": 0, "": 0}, regex=True)
+                .astype(str)
+                .str.replace(r"[^\d.]", "", regex=True)
+                .replace("", "0")
+                .astype(float),
+                df["Like Count"]
+                .replace({",": "", "N/A": 0, "": 0}, regex=True)
+                .astype(str)
+                .str.replace(r"[^\d.]", "", regex=True)
+                .replace("", "0")
+                .astype(float),
+                df["Dislike Count"]
+                .replace({",": "", "N/A": 0, "": 0}, regex=True)
+                .astype(str)
+                .str.replace(r"[^\d.]", "", regex=True)
+                .replace("", "0")
+                .astype(float),
+            )
+        ]
+
         table_html = df.to_html(index=False, classes="table table-striped")
         return Div(
             "Valid YouTube Playlist URL",

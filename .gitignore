@@ -1,2 +1,52 @@
 .vercel
 .sesskey
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Python egg
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Local files
+*.sqlite3
+*.db
+
+# System files
+Thumbs.db
+ehthumbs.db
+
+# yt-dlp cache
+*.part
+*.ytdl
+*.temp
+
+# Static/media/user uploads (if any)
+static/uploads/
