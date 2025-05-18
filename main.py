@@ -149,13 +149,16 @@ def index():
                 style="max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
             ),
             # What is ViralVibes?
-            Section(
-                H2("What is ViralVibes?", className="text-2xl font-semibold mb-4"),
-                P(
-                    "ViralVibes helps creators and marketers analyze why YouTube videos go viral — instantly. Just paste a playlist, and get actionable metrics like views, engagement rate, duration, and creator stats.",
-                    className="text-lg text-gray-700",
+            Card(
+                Section(
+                    H2("What is ViralVibes?", className="text-2xl font-semibold mb-4"),
+                    P(
+                        "ViralVibes helps creators and marketers analyze why YouTube videos go viral — instantly. Just paste a playlist, and get actionable metrics like views, engagement rate, duration, and creator stats.",
+                        className="text-lg text-gray-700",
+                    ),
+                    className="mb-6",
                 ),
-                className="mb-10 max-w-4xl mx-auto px-4 py-10",
+                style="max-width: 4xl; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
             ),
             # Why You'll Love It
             Section(
