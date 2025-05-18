@@ -156,6 +156,7 @@ def index():
                     ),
                     className="mb-6",
                 ),
+                Div(id="result", style="margin-top:2rem;"),
                 style="max-width: 4xl; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
             ),
             # Why You'll Love It
