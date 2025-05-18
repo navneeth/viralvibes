@@ -254,12 +254,15 @@ def validate(playlist: YoutubePlaylist):
         ]
 
         table_html = df.to_html(index=False, classes="table table-striped")
-        return Div(
-            "Valid YouTube Playlist URL",
-            Br(),
-            NotStr(table_html),  # Use NotStr to render raw HTML
-            id="result",
-            style="color: green;",
+        return Card(
+            Div(
+                "Valid YouTube Playlist URL",
+                Br(),
+                NotStr(table_html),  # Use NotStr to render raw HTML
+                id="result",
+                style="color: green;",
+            ),
+            style="max-width: 1000px; margin: 2rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
         )
 
     return Div(
