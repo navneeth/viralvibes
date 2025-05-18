@@ -15,7 +15,7 @@ from utils import calculate_engagement_rate, format_duration, format_number
 hdrs = Theme.blue.headers()
 
 app, rt = fast_app(
-    hdrs=Theme.blue.headers(),
+    hdrs=hdrs,
     title="ViralVibes - YouTube Trends, Decoded",
     static_dir="static",
 )
@@ -62,17 +62,14 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
         if not playlist_id:
             errors.append("Invalid YouTube URL: Empty playlist ID")
             return errors
-
-    except ValueError:
+    except Exception:
         errors.append("Invalid URL format")
         return errors
-
     return errors
 
 
 def get_playlist_videos(playlist_url):
     ydl_opts = {"quiet": True, "extract_flat": True, "force_generic_extractor": True}
-
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         playlist_info = ydl.extract_info(playlist_url, download=False)
 
@@ -96,6 +93,7 @@ def get_playlist_videos(playlist_url):
             ]
 
             return pd.DataFrame(data)
+    return pd.DataFrame([])
 
 
 @rt
@@ -148,7 +146,7 @@ def index():
                 Div(id="result", style="margin-top:2rem;"),
                 style="max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
             ),
-            # What is ViralVibes?
+            # What is ViralVibes? (wrapped in Card)
             Card(
                 Section(
                     H2("What is ViralVibes?", className="text-2xl font-semibold mb-4"),
