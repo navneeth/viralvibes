@@ -15,7 +15,9 @@ from utils import calculate_engagement_rate, format_duration, format_number
 hdrs = Theme.blue.headers()
 
 app, rt = fast_app(
-    hdrs=hdrs, title="ViralVibes - YouTube Playlist Analyzer", static_dir="static"
+    hdrs=Theme.blue.headers(),
+    title="ViralVibes - YouTube Trends, Decoded",
+    static_dir="static",
 )
 # Set the favicon
 app.favicon = "/static/favicon.ico"
@@ -96,7 +98,6 @@ def get_playlist_videos(playlist_url):
             return pd.DataFrame(data)
 
 
-# @rt("/")
 @rt
 def index():
     prefill_url = (
@@ -105,21 +106,21 @@ def index():
     return Titled(
         "ViralVibes",
         Container(
-            DivCentered(
-                H1("Welcome to ViralVibes !"),
-                Subtitle("Discover what makes YouTube videos go viral!"),
-                id="welcome-section",
+            # Header
+            Div(
+                H1("ViralVibes", className="text-4xl font-bold text-white"),
+                P(
+                    "Decode YouTube virality. Instantly.",
+                    className="text-lg mt-2 text-white",
+                ),
+                className="bg-blue-600 text-white py-6 px-4 text-center",
             ),
+            # Main Form Card
             Card(
                 Img(
                     src="/static/celebration.webp",
                     style="width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
                     alt="Celebration",
-                ),
-                H1("ViralVibes", style="text-align:center; margin-bottom:0.5rem;"),
-                H4(
-                    "Discover what makes YouTube videos go viral! Paste a playlist and get instant stats.",
-                    style="text-align:center; color:#555; margin-bottom:1.5rem;",
                 ),
                 Form(
                     Input(
@@ -127,20 +128,76 @@ def index():
                         name="playlist_url",
                         placeholder="Paste YouTube Playlist URL",
                         value=prefill_url,
-                        style="width:100%; margin-bottom:1rem;",
+                        className="px-4 py-2 w-full border rounded mb-4",
                     ),
-                    Button("Analyze Now", type="submit", style="width:100%;"),
-                    Div(
+                    Button(
+                        "Analyze Now",
+                        type="submit",
+                        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 w-full",
+                    ),
+                    Loading(
                         id="loading",
-                        style="display:none; color: #393e6e; font-weight: bold; margin-top:1rem;",
-                        children=["Loading..."],
+                        cls=(LoadingT.bars, LoadingT.lg),
+                        style="margin-top:1rem; display:none; color:#393e6e;",
+                        htmx_indicator=True,
                     ),
                     hx_post="/validate",
                     hx_target="#result",
                     hx_indicator="#loading",
                 ),
                 Div(id="result", style="margin-top:2rem;"),
-                style="max-width: 420px; margin: 3rem auto; padding: 2rem 2rem 1.5rem 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
+                style="max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff;",
+            ),
+            # What is ViralVibes?
+            Section(
+                H2("What is ViralVibes?", className="text-2xl font-semibold mb-4"),
+                P(
+                    "ViralVibes helps creators and marketers analyze why YouTube videos go viral — instantly. Just paste a playlist, and get actionable metrics like views, engagement rate, duration, and creator stats.",
+                    className="text-lg text-gray-700",
+                ),
+                className="mb-10 max-w-4xl mx-auto px-4 py-10",
+            ),
+            # Why You'll Love It
+            Section(
+                H2("Why You'll Love It", className="text-2xl font-semibold mb-4"),
+                Ul(
+                    Li("Instantly analyze trending videos by playlist or keyword"),
+                    Li("View engagement metrics and viral triggers"),
+                    Li("Spot top-performing creators and channels"),
+                    Li("Export tables, thumbnails, and insights"),
+                    Li("No login required — just paste a link"),
+                    className="list-disc list-inside text-lg text-gray-700 space-y-2",
+                ),
+                className="mb-10 max-w-4xl mx-auto px-4",
+            ),
+            # Email Signup
+            Section(
+                H3("Be the first to try it", className="text-xl font-bold mb-4"),
+                P(
+                    "Enter your email to get early access and updates. No spam ever.",
+                    className="mb-4",
+                ),
+                Form(
+                    Input(
+                        type="email",
+                        name="email",
+                        required=True,
+                        placeholder="you@example.com",
+                        className="px-4 py-2 w-full max-w-sm border rounded",
+                    ),
+                    Button(
+                        "Notify Me",
+                        type="submit",
+                        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700",
+                    ),
+                    className="flex flex-col items-center space-y-4",
+                ),
+                className="bg-gray-100 p-6 rounded shadow-md text-center max-w-4xl mx-auto mb-10",
+            ),
+            # Footer
+            Footer(
+                "© 2025 ViralVibes. Built for creators.",
+                className="text-center text-gray-500 py-6",
             ),
         ),
     )
