@@ -129,7 +129,7 @@ def index():
                         value=prefill_url,
                         style="width:100%; margin-bottom:1rem;",
                     ),
-                    Button("Analyze", type="submit", style="width:100%;"),
+                    Button("Analyze Now", type="submit", style="width:100%;"),
                     Div(
                         id="loading",
                         style="display:none; color: #393e6e; font-weight: bold; margin-top:1rem;",
