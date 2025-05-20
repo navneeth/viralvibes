@@ -22,6 +22,13 @@ app, rt = fast_app(
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
+# Navigation links
+scrollspy_links = (A("Home", href="#home-section"),
+                   A("Analyze", href="#analyze-section"),
+                   A("Features", href="#features-section"),
+                   A("Benefits", href="#benefits-section"),
+                   A("Newsletter", href="#newsletter-section"))
+
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
 
@@ -106,9 +113,7 @@ def HeaderCard():
 
 
 def AnalysisFormCard():
-    prefill_url = (
-        "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    )
+    prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     return Card(
         Img(src="/static/celebration.webp",
             style=
@@ -197,13 +202,32 @@ def NewsletterCard():
 
 @rt
 def index():
+
+    def _Section(*c, **kwargs):
+        return Section(*c, cls='space-y-3 my-48', **kwargs)
+
     return Titled(
         "ViralVibes",
         Container(
-            HeaderCard(), AnalysisFormCard(), FeaturesCard(), BenefitsCard(),
-            NewsletterCard(),
-            Footer("© 2025 ViralVibes. Built for creators.",
-                   className="text-center text-gray-500 py-6")))
+            NavBar(*scrollspy_links,
+                   brand=DivLAligned(H3("ViralVibes"),
+                                     UkIcon('chart-line', height=30,
+                                            width=30)),
+                   sticky=True,
+                   uk_scrollspy_nav=True,
+                   scrollspy_cls=ScrollspyT.bold),
+            NavContainer(*map(Li, scrollspy_links),
+                         uk_scrollspy_nav=True,
+                         sticky=True,
+                         cls=(NavT.primary, 'pt-20 px-5 pr-10')),
+            Container(_Section(HeaderCard(), id="home-section"),
+                      _Section(AnalysisFormCard(), id="analyze-section"),
+                      _Section(FeaturesCard(), id="features-section"),
+                      _Section(BenefitsCard(), id="benefits-section"),
+                      _Section(NewsletterCard(), id="newsletter-section"),
+                      Footer("© 2025 ViralVibes. Built for creators.",
+                             className="text-center text-gray-500 py-6"),
+                      cls=(ContainerT.xl, 'uk-container-expand'))))
 
 
 @rt("/validate")
