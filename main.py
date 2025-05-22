@@ -162,7 +162,7 @@ def FeaturesCard():
     return Card(
         Img(src="/static/virality.webp",
             style="width:120px; margin: 0 auto 2rem auto; display:block;",
-            alt="Virality"),
+            alt="Illustration of video viral insights"),
         Grid(*feature_cards),
         header=CardTitle("What is ViralVibes?",
                          cls="text-2xl font-semibold mb-4 text-center"),
