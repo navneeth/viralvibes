@@ -4,12 +4,17 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 import yt_dlp
 from fasthtml.common import *
-#from fasthtml.html import H1, H2, H3, P, Div, Ul, Li, Section, Footer, Img, Br, Form, Input, Button, Card, Container
-#from fasthtml.components import LabelInput
 from monsterui.all import *
 
 from utils import calculate_engagement_rate, format_duration, format_number
 
+# CSS Classes
+CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
+HEADER_CARD_CLS = "bg-blue-600 text-white py-6 px-4 text-center"
+FORM_CARD_CLS = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
+NEWSLETTER_CARD_CLS = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
+
+# --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.blue.headers()
@@ -33,11 +38,13 @@ scrollspy_links = (A("Home", href="#home-section"),
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
 
 
+# --- Data Models ---
 @dataclass
 class YoutubePlaylist:
     playlist_url: str
 
 
+# --- Utility Functions ---
 def validate_youtube_playlist(playlist: YoutubePlaylist):
     errors = []
     try:
@@ -75,7 +82,8 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     return errors
 
 
-def get_playlist_videos(playlist_url):
+def get_playlist_videos(playlist_url: str) -> pd.DataFrame:
+    """Fetches video information from a YouTube playlist URL."""
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
@@ -105,40 +113,40 @@ def get_playlist_videos(playlist_url):
     return pd.DataFrame([])
 
 
-def HeaderCard():
+def HeaderCard() -> Card:
     return Card(H1("ViralVibes", className="text-4xl font-bold text-white"),
                 P("Decode YouTube virality. Instantly.",
                   className="text-lg mt-2 text-white"),
-                className="bg-blue-600 text-white py-6 px-4 text-center")
+                className=HEADER_CARD_CLS)
 
 
-def AnalysisFormCard():
+def AnalysisFormCard() -> Card:
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    return Card(
-        Img(src="/static/celebration.webp",
-            style=
-            "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
-            alt="Celebration"),
-        Form(LabelInput("Playlist URL",
-                        type="text",
-                        name="playlist_url",
-                        placeholder="Paste YouTube Playlist URL",
-                        value=prefill_url,
-                        className="px-4 py-2 w-full border rounded mb-4"),
-             Button("Analyze Now",
-                    type="submit",
-                    className=ButtonT.destructive),
-             Loading(id="loading",
-                     cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:1rem; display:none; color:#393e6e;",
-                     htmx_indicator=True),
-             hx_post="/validate",
-             hx_target="#result",
-             hx_indicator="#loading"),
-        Div(id="result", style="margin-top:2rem;"),
+    return Card(Img(
+        src="/static/celebration.webp",
         style=
-        "max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-    )
+        "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
+        alt="Celebration"),
+                Form(LabelInput(
+                    "Playlist URL",
+                    type="text",
+                    name="playlist_url",
+                    placeholder="Paste YouTube Playlist URL",
+                    value=prefill_url,
+                    className="px-4 py-2 w-full border rounded mb-4"),
+                     Button("Analyze Now",
+                            type="submit",
+                            className=ButtonT.destructive),
+                     Loading(
+                         id="loading",
+                         cls=(LoadingT.bars, LoadingT.lg),
+                         style="margin-top:1rem; display:none; color:#393e6e;",
+                         htmx_indicator=True),
+                     hx_post="/validate",
+                     hx_target="#result",
+                     hx_indicator="#loading"),
+                Div(id="result", style="margin-top:2rem;"),
+                style=FORM_CARD_CLS)
 
 
 def FeaturesCard():
