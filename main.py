@@ -119,26 +119,22 @@ def AnalysisFormCard():
             style=
             "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
             alt="Celebration"),
-        Form(
-            LabelInput("Playlist URL",
-                       type="text",
-                       name="playlist_url",
-                       placeholder="Paste YouTube Playlist URL",
-                       value=prefill_url,
-                       className="px-4 py-2 w-full border rounded mb-4"),
-            Button(
-                "Analyze Now",
-                type="submit",
-                className=
-                "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 w-full"
-            ),
-            Loading(id="loading",
-                    cls=(LoadingT.bars, LoadingT.lg),
-                    style="margin-top:1rem; display:none; color:#393e6e;",
-                    htmx_indicator=True),
-            hx_post="/validate",
-            hx_target="#result",
-            hx_indicator="#loading"),
+        Form(LabelInput("Playlist URL",
+                        type="text",
+                        name="playlist_url",
+                        placeholder="Paste YouTube Playlist URL",
+                        value=prefill_url,
+                        className="px-4 py-2 w-full border rounded mb-4"),
+             Button("Analyze Now",
+                    type="submit",
+                    className=ButtonT.destructive),
+             Loading(id="loading",
+                     cls=(LoadingT.bars, LoadingT.lg),
+                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     htmx_indicator=True),
+             hx_post="/validate",
+             hx_target="#result",
+             hx_indicator="#loading"),
         Div(id="result", style="margin-top:2rem;"),
         style=
         "max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
@@ -146,30 +142,60 @@ def AnalysisFormCard():
 
 
 def FeaturesCard():
-    return Card(Section(
-        H2("What is ViralVibes?", className="text-2xl font-semibold mb-4"),
-        P("ViralVibes helps creators and marketers analyze why YouTube videos go viral — instantly. Just paste a playlist, and get actionable metrics like views, engagement rate, duration, and creator stats.",
-          className="text-lg text-gray-700"),
-        className="mb-6"),
-                style=
-                "max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-                )
+    # Define feature items and their icons
+    features = [
+        ("Uncover Viral Secrets",
+         "Paste a playlist and uncover the secrets behind viral videos.",
+         UkIcon("search", cls="text-red-500 text-3xl mb-2")),
+        ("Instant Playlist Insights", "Get instant info on trending videos.",
+         UkIcon("zap", cls="text-red-500 text-3xl mb-2")),
+        ("No Login Required", "Just paste a link and go. No signup needed!",
+         UkIcon("unlock", cls="text-red-500 text-3xl mb-2")),
+    ]
+    feature_cards = [
+        Div(icon,
+            H4(title, cls="mb-2 mt-2"),
+            P(desc, cls="text-gray-600 text-sm text-center"),
+            cls="flex flex-col items-center px-4")
+        for title, desc, icon in features
+    ]
+    return Card(
+        Img(src="/static/virality.webp",
+            style="width:120px; margin: 0 auto 2rem auto; display:block;",
+            alt="Illustration of video viral insights"),
+        Grid(*feature_cards),
+        header=CardTitle("What is ViralVibes?",
+                         cls="text-2xl font-semibold mb-4 text-center"),
+        cls=
+        "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
+    )
 
 
 def BenefitsCard():
+    # Define benefit items and their icons
+    benefits = [
+        ("Real-time Analysis", "Get instant insights into trending videos.",
+         UkIcon("activity", cls="text-red-500 text-3xl mb-2")),
+        ("Engagement Metrics",
+         "Understand what drives likes, shares, and comments.",
+         UkIcon("heart", cls="text-red-500 text-3xl mb-2")),
+        ("Top Creator Insights", "Identify breakout content and rising stars.",
+         UkIcon("star", cls="text-red-500 text-3xl mb-2")),
+    ]
+    # Create a grid of Divs, each with an icon, title, and description
+    benefit_cards = [
+        Div(icon,
+            H4(title, cls="mb-2 mt-2"),
+            P(desc, cls="text-gray-600 text-sm text-center"),
+            cls="flex flex-col items-center px-4")
+        for title, desc, icon in benefits
+    ]
     return Card(
-        Section(
-            H2("Why You'll Love It", className="text-2xl font-semibold mb-4"),
-            Ul(Li("Instantly analyze trending videos by playlist or keyword"),
-               Li("View engagement metrics and viral triggers"),
-               Li("Spot top-performing creators and channels"),
-               Li("Export tables, thumbnails, and insights"),
-               Li("No login required — just paste a link"),
-               className="list-disc list-inside text-lg text-gray-700 space-y-2"
-               ),
-            className="mb-10"),
-        style=
-        "max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
+        Grid(*benefit_cards),
+        header=CardTitle("Why You'll Love It",
+                         cls="text-2xl font-semibold mb-4 text-center"),
+        cls=
+        "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
     )
 
 
