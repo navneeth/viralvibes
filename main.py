@@ -11,8 +11,9 @@ from utils import calculate_engagement_rate, format_duration, format_number
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
 HEADER_CARD_CLS = "bg-blue-600 text-white py-6 px-4 text-center"
-FORM_CARD_CLS = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-NEWSLETTER_CARD_CLS = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
+CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
+FORM_CARD_CLS = CARD_INLINE_STYLE
+NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
