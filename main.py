@@ -14,6 +14,7 @@ HEADER_CARD_CLS = "bg-blue-600 text-white py-6 px-4 text-center"
 CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
 FORM_CARD_CLS = CARD_INLINE_STYLE
 NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE
+FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4"
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
@@ -159,8 +160,7 @@ def create_info_card(title: str,
         Div(icon,
             H4(item_title, cls="mb-2 mt-2"),
             P(desc, cls="text-gray-600 text-sm text-center"),
-            cls="flex flex-col items-center px-4")
-        for item_title, desc, icon in items
+            cls=FLEX_COL_CENTER_CLS) for item_title, desc, icon in items
     ]
     img_component = Img(
         src=img_src,
@@ -190,7 +190,7 @@ def FeaturesCard() -> Card:
 
 def BenefitsCard() -> Card:
     benefits = [
-        ("Real-time Analysis", "Get instant insights into trending videos.",
+        ("Real-time Analysis", "Track trends as they emerge.",
          UkIcon("activity", cls="text-red-500 text-3xl mb-2")),
         ("Engagement Metrics",
          "Understand what drives likes, shares, and comments.",
