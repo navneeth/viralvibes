@@ -4,12 +4,19 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 import yt_dlp
 from fasthtml.common import *
-#from fasthtml.html import H1, H2, H3, P, Div, Ul, Li, Section, Footer, Img, Br, Form, Input, Button, Card, Container
-#from fasthtml.components import LabelInput
 from monsterui.all import *
 
 from utils import calculate_engagement_rate, format_duration, format_number
 
+# CSS Classes
+CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
+HEADER_CARD_CLS = "bg-blue-600 text-white py-6 px-4 text-center"
+CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
+FORM_CARD_CLS = CARD_INLINE_STYLE
+NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE
+FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4"
+
+# --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.blue.headers()
@@ -33,11 +40,13 @@ scrollspy_links = (A("Home", href="#home-section"),
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
 
 
+# --- Data Models ---
 @dataclass
 class YoutubePlaylist:
     playlist_url: str
 
 
+# --- Utility Functions ---
 def validate_youtube_playlist(playlist: YoutubePlaylist):
     errors = []
     try:
@@ -75,7 +84,8 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     return errors
 
 
-def get_playlist_videos(playlist_url):
+def get_playlist_videos(playlist_url: str) -> pd.DataFrame:
+    """Fetches video information from a YouTube playlist URL."""
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
@@ -105,44 +115,65 @@ def get_playlist_videos(playlist_url):
     return pd.DataFrame([])
 
 
-def HeaderCard():
+def HeaderCard() -> Card:
     return Card(H1("ViralVibes", className="text-4xl font-bold text-white"),
                 P("Decode YouTube virality. Instantly.",
                   className="text-lg mt-2 text-white"),
-                className="bg-blue-600 text-white py-6 px-4 text-center")
+                className=HEADER_CARD_CLS)
 
 
-def AnalysisFormCard():
+def AnalysisFormCard() -> Card:
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    return Card(
-        Img(src="/static/celebration.webp",
-            style=
-            "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
-            alt="Celebration"),
-        Form(LabelInput("Playlist URL",
-                        type="text",
-                        name="playlist_url",
-                        placeholder="Paste YouTube Playlist URL",
-                        value=prefill_url,
-                        className="px-4 py-2 w-full border rounded mb-4"),
-             Button("Analyze Now",
-                    type="submit",
-                    className=ButtonT.destructive),
-             Loading(id="loading",
-                     cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:1rem; display:none; color:#393e6e;",
-                     htmx_indicator=True),
-             hx_post="/validate",
-             hx_target="#result",
-             hx_indicator="#loading"),
-        Div(id="result", style="margin-top:2rem;"),
+    return Card(Img(
+        src="/static/celebration.webp",
         style=
-        "max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-    )
+        "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
+        alt="Celebration"),
+                Form(LabelInput(
+                    "Playlist URL",
+                    type="text",
+                    name="playlist_url",
+                    placeholder="Paste YouTube Playlist URL",
+                    value=prefill_url,
+                    className="px-4 py-2 w-full border rounded mb-4"),
+                     Button("Analyze Now",
+                            type="submit",
+                            className=ButtonT.destructive),
+                     Loading(
+                         id="loading",
+                         cls=(LoadingT.bars, LoadingT.lg),
+                         style="margin-top:1rem; display:none; color:#393e6e;",
+                         htmx_indicator=True),
+                     hx_post="/validate",
+                     hx_target="#result",
+                     hx_indicator="#loading"),
+                Div(id="result", style="margin-top:2rem;"),
+                style=FORM_CARD_CLS)
 
 
-def FeaturesCard():
-    # Define feature items and their icons
+def create_info_card(title: str,
+                     items: list[tuple],
+                     img_src: str = None,
+                     img_alt: str = None) -> Card:
+    """Helper function to create Feature and Benefit cards."""
+    cards = [
+        Div(icon,
+            H4(item_title, cls="mb-2 mt-2"),
+            P(desc, cls="text-gray-600 text-sm text-center"),
+            cls=FLEX_COL_CENTER_CLS) for item_title, desc, icon in items
+    ]
+    img_component = Img(
+        src=img_src,
+        style="width:120px; margin: 0 auto 2rem auto; display:block;",
+        alt=img_alt) if img_src else ""
+    return Card(img_component,
+                Grid(*cards),
+                header=CardTitle(
+                    title, cls="text-2xl font-semibold mb-4 text-center"),
+                cls=CARD_BASE_CLS)
+
+
+def FeaturesCard() -> Card:
     features = [
         ("Uncover Viral Secrets",
          "Paste a playlist and uncover the secrets behind viral videos.",
@@ -152,29 +183,14 @@ def FeaturesCard():
         ("No Login Required", "Just paste a link and go. No signup needed!",
          UkIcon("unlock", cls="text-red-500 text-3xl mb-2")),
     ]
-    feature_cards = [
-        Div(icon,
-            H4(title, cls="mb-2 mt-2"),
-            P(desc, cls="text-gray-600 text-sm text-center"),
-            cls="flex flex-col items-center px-4")
-        for title, desc, icon in features
-    ]
-    return Card(
-        Img(src="/static/virality.webp",
-            style="width:120px; margin: 0 auto 2rem auto; display:block;",
-            alt="Illustration of video viral insights"),
-        Grid(*feature_cards),
-        header=CardTitle("What is ViralVibes?",
-                         cls="text-2xl font-semibold mb-4 text-center"),
-        cls=
-        "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
-    )
+    return create_info_card("What is ViralVibes?", features,
+                            "/static/virality.webp",
+                            "Illustration of video viral insights")
 
 
-def BenefitsCard():
-    # Define benefit items and their icons
+def BenefitsCard() -> Card:
     benefits = [
-        ("Real-time Analysis", "Get instant insights into trending videos.",
+        ("Real-time Analysis", "Track trends as they emerge.",
          UkIcon("activity", cls="text-red-500 text-3xl mb-2")),
         ("Engagement Metrics",
          "Understand what drives likes, shares, and comments.",
@@ -182,48 +198,28 @@ def BenefitsCard():
         ("Top Creator Insights", "Identify breakout content and rising stars.",
          UkIcon("star", cls="text-red-500 text-3xl mb-2")),
     ]
-    # Create a grid of Divs, each with an icon, title, and description
-    benefit_cards = [
-        Div(icon,
-            H4(title, cls="mb-2 mt-2"),
-            P(desc, cls="text-gray-600 text-sm text-center"),
-            cls="flex flex-col items-center px-4")
-        for title, desc, icon in benefits
-    ]
-    return Card(
-        Grid(*benefit_cards),
-        header=CardTitle("Why You'll Love It",
-                         cls="text-2xl font-semibold mb-4 text-center"),
-        cls=
-        "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
-    )
+    return create_info_card("Why You'll Love It", benefits)
 
 
-def NewsletterCard():
-    return Card(
-        Section(
-            H3("Be the first to try it", className="text-xl font-bold mb-4"),
-            P("Enter your email to get early access and updates. No spam ever.",
-              className="mb-4"),
-            Form(
-                LabelInput(
-                    "Email",
-                    type="email",
-                    name="email",
-                    required=True,
-                    placeholder="you@example.com",
-                    className="px-4 py-2 w-full max-w-sm border rounded"),
-                Button(
-                    "Notify Me",
-                    type="submit",
-                    className=
-                    "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-                ),
-                className="flex flex-col items-center space-y-4"),
-            className="bg-gray-100 p-6 rounded shadow-md text-center"),
-        style=
-        "max-width: 420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-    )
+def NewsletterCard() -> Card:
+    return Card(Section(
+        H3("Be the first to try it", className="text-xl font-bold mb-4"),
+        P("Enter your email to get early access and updates. No spam ever.",
+          className="mb-4"),
+        Form(LabelInput("Email",
+                        type="email",
+                        name="email",
+                        required=True,
+                        placeholder="you@example.com",
+                        className="px-4 py-2 w-full max-w-sm border rounded"),
+             Button(
+                 "Notify Me",
+                 type="submit",
+                 className=
+                 "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"),
+             className="flex flex-col items-center space-y-4"),
+        className="bg-gray-100 p-6 rounded shadow-md text-center"),
+                style=NEWSLETTER_CARD_CLS)
 
 
 @rt
@@ -256,6 +252,24 @@ def index():
                       cls=(ContainerT.xl, 'uk-container-expand'))))
 
 
+def process_numeric_column(series: pd.Series) -> pd.Series:
+    """Helper to convert formatted string numbers to floats."""
+
+    def convert_to_number(value):
+        if isinstance(value, (int, float)):
+            return float(value)
+        value = str(value).upper()
+        if 'B' in value:
+            return float(value.replace('B', '')) * 1_000_000_000
+        if 'M' in value:
+            return float(value.replace('M', '')) * 1_000_000
+        if 'K' in value:
+            return float(value.replace('K', '')) * 1_000
+        return float(value.replace(',', ''))
+
+    return series.apply(convert_to_number)
+
+
 @rt("/validate")
 def validate(playlist: YoutubePlaylist):
     errors = validate_youtube_playlist(playlist)
@@ -278,47 +292,50 @@ def validate(playlist: YoutubePlaylist):
         df["Like Count"] = df["Like Count"].apply(format_number)
         df["Dislike Count"] = df["Dislike Count"].apply(format_number)
         df["Duration"] = df["Duration"].apply(format_duration)
-        # Calculate engagement rate and add as a new column
+
+        # Calculate engagement rate
+        view_counts_numeric = process_numeric_column(df["View Count"])
+        like_counts_numeric = process_numeric_column(df["Like Count"])
+        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
+
         df["Engagement Rate (%)"] = [
             f"{calculate_engagement_rate(vc, lc, dc):.2f}"
-            for vc, lc, dc in zip(
-                df["View Count"].
-                replace({
-                    ",": "",
-                    "N/A": 0,
-                    "": 0
-                }, regex=True).astype(str).str.replace(
-                    r"[^\d.]", "", regex=True).replace("", "0").astype(float),
-                df["Like Count"].replace(
-                    {
-                        ",": "",
-                        "N/A": 0,
-                        "": 0
-                    }, regex=True).astype(
-                        str).str.replace(r"[^\d.]", "", regex=True).replace(
-                            "", "0").astype(float),
-                df["Dislike Count"].replace(
-                    {
-                        ",": "",
-                        "N/A": 0,
-                        "": 0
-                    }, regex=True).astype(
-                        str).str.replace(r"[^\d.]", "", regex=True).replace(
-                            "", "0").astype(float),
-            )
+            for vc, lc, dc in zip(view_counts_numeric, like_counts_numeric,
+                                  dislike_counts_numeric)
         ]
 
-        table_html = df.to_html(index=False, classes="table table-striped")
-        return Card(
-            Div(
-                "Valid YouTube Playlist URL",
-                Br(),
-                NotStr(table_html),  # Use NotStr to render raw HTML
-                id="result",
-                style="color: green;"),
-            style=
-            "max-width: 420px; margin: 2rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-        )
+        # Create table header
+        headers = [
+            "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
+            "Engagement Rate"
+        ]
+        thead = Thead(Tr(*[Th(h) for h in headers]))
+
+        # Create table body
+        tbody_rows = []
+        for _, row in df.iterrows():
+            tbody_rows.append(
+                Tr(Td(row["Rank"]), Td(row["Title"]), Td(row["View Count"]),
+                   Td(row["Like Count"]), Td(row["Dislike Count"]),
+                   Td(row["Duration"]), Td(row["Engagement Rate (%)"])))
+        tbody = Tbody(*tbody_rows)
+
+        # Create table footer with summary
+        total_views = view_counts_numeric.sum()
+        total_likes = like_counts_numeric.sum()
+        avg_engagement = df["Engagement Rate (%)"].astype(float).mean()
+
+        tfoot = Tfoot(
+            Tr(Td("Total/Average"), Td(""), Td(format_number(total_views)),
+               Td(format_number(total_likes)), Td(""), Td(""),
+               Td(f"{avg_engagement:.2f}%")))
+
+        return Card(Div("Valid YouTube Playlist URL",
+                        Br(),
+                        Table(thead, tbody, tfoot, cls="w-full"),
+                        id="result",
+                        style="color: green;"),
+                    style=FORM_CARD_CLS)
 
     return Div(
         "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
