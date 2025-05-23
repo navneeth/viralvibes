@@ -254,8 +254,20 @@ def index():
 
 def process_numeric_column(series: pd.Series) -> pd.Series:
     """Helper to convert formatted string numbers to floats."""
-    return series.astype(str).str.replace(",", "", regex=False).str.replace(
-        r"[^\d.]", "", regex=True).replace("", "0").astype(float)
+
+    def convert_to_number(value):
+        if isinstance(value, (int, float)):
+            return float(value)
+        value = str(value).upper()
+        if 'B' in value:
+            return float(value.replace('B', '')) * 1_000_000_000
+        if 'M' in value:
+            return float(value.replace('M', '')) * 1_000_000
+        if 'K' in value:
+            return float(value.replace('K', '')) * 1_000
+        return float(value.replace(',', ''))
+
+    return series.apply(convert_to_number)
 
 
 @rt("/validate")
@@ -292,15 +304,38 @@ def validate(playlist: YoutubePlaylist):
                                   dislike_counts_numeric)
         ]
 
-        table_html = df.to_html(index=False, classes="table table-striped")
-        return Card(
-            Div(
-                "Valid YouTube Playlist URL",
-                Br(),
-                NotStr(table_html),  # Use NotStr to render raw HTML
-                id="result",
-                style="color: green;"),
-            style=FORM_CARD_CLS)
+        # Create table header
+        headers = [
+            "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
+            "Engagement Rate"
+        ]
+        thead = Thead(Tr(*[Th(h) for h in headers]))
+
+        # Create table body
+        tbody_rows = []
+        for _, row in df.iterrows():
+            tbody_rows.append(
+                Tr(Td(row["Rank"]), Td(row["Title"]), Td(row["View Count"]),
+                   Td(row["Like Count"]), Td(row["Dislike Count"]),
+                   Td(row["Duration"]), Td(row["Engagement Rate (%)"])))
+        tbody = Tbody(*tbody_rows)
+
+        # Create table footer with summary
+        total_views = view_counts_numeric.sum()
+        total_likes = like_counts_numeric.sum()
+        avg_engagement = df["Engagement Rate (%)"].astype(float).mean()
+
+        tfoot = Tfoot(
+            Tr(Td("Total/Average"), Td(""), Td(format_number(total_views)),
+               Td(format_number(total_likes)), Td(""), Td(""),
+               Td(f"{avg_engagement:.2f}%")))
+
+        return Card(Div("Valid YouTube Playlist URL",
+                        Br(),
+                        Table(thead, tbody, tfoot, cls="w-full"),
+                        id="result",
+                        style="color: green;"),
+                    style=FORM_CARD_CLS)
 
     return Div(
         "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
