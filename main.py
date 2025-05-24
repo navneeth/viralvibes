@@ -19,7 +19,7 @@ FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
-hdrs = Theme.blue.headers()
+hdrs = Theme.red.headers()
 
 app, rt = fast_app(
     hdrs=hdrs,
@@ -136,7 +136,7 @@ def AnalysisFormCard() -> Card:
             placeholder="Paste YouTube Playlist URL",
             value=prefill_url,
             className=
-            "px-4 py-2 w-full border rounded mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+            "px-4 py-2 w-full border rounded mb-4 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
         ),
              Button(
                  "Analyze Now",
@@ -217,14 +217,12 @@ def NewsletterCard() -> Card:
             required=True,
             placeholder="you@example.com",
             className=
-            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
         ),
-             Button(
-                 "Notify Me",
-                 type="submit",
-                 className=
-                 "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 hover:scale-105 transition-all"
-             ),
+             Button("Notify Me",
+                    type="submit",
+                    className=
+                    f"{ButtonT.primary} hover:scale-105 transition-transform"),
              className="flex flex-col items-center space-y-4"),
         className="bg-gray-100 p-6 rounded shadow-md text-center"),
                 style=NEWSLETTER_CARD_CLS)
