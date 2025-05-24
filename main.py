@@ -124,31 +124,35 @@ def HeaderCard() -> Card:
 
 def AnalysisFormCard() -> Card:
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    return Card(Img(
-        src="/static/celebration.webp",
-        style=
-        "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
-        alt="Celebration"),
-                Form(LabelInput(
-                    "Playlist URL",
-                    type="text",
-                    name="playlist_url",
-                    placeholder="Paste YouTube Playlist URL",
-                    value=prefill_url,
-                    className="px-4 py-2 w-full border rounded mb-4"),
-                     Button("Analyze Now",
-                            type="submit",
-                            className=ButtonT.destructive),
-                     Loading(
-                         id="loading",
-                         cls=(LoadingT.bars, LoadingT.lg),
-                         style="margin-top:1rem; display:none; color:#393e6e;",
-                         htmx_indicator=True),
-                     hx_post="/validate",
-                     hx_target="#result",
-                     hx_indicator="#loading"),
-                Div(id="result", style="margin-top:2rem;"),
-                style=FORM_CARD_CLS)
+    return Card(
+        Img(src="/static/celebration.webp",
+            style=
+            "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
+            alt="Celebration"),
+        Form(LabelInput(
+            "Playlist URL",
+            type="text",
+            name="playlist_url",
+            placeholder="Paste YouTube Playlist URL",
+            value=prefill_url,
+            className=
+            "px-4 py-2 w-full border rounded mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+        ),
+             Button(
+                 "Analyze Now",
+                 type="submit",
+                 className=
+                 f"{ButtonT.destructive} hover:scale-105 transition-transform"
+             ),
+             Loading(id="loading",
+                     cls=(LoadingT.bars, LoadingT.lg),
+                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     htmx_indicator=True),
+             hx_post="/validate",
+             hx_target="#result",
+             hx_indicator="#loading"),
+        Div(id="result", style="margin-top:2rem;"),
+        style=FORM_CARD_CLS)
 
 
 def create_info_card(title: str,
@@ -206,17 +210,21 @@ def NewsletterCard() -> Card:
         H3("Be the first to try it", className="text-xl font-bold mb-4"),
         P("Enter your email to get early access and updates. No spam ever.",
           className="mb-4"),
-        Form(LabelInput("Email",
-                        type="email",
-                        name="email",
-                        required=True,
-                        placeholder="you@example.com",
-                        className="px-4 py-2 w-full max-w-sm border rounded"),
+        Form(LabelInput(
+            "Email",
+            type="email",
+            name="email",
+            required=True,
+            placeholder="you@example.com",
+            className=
+            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+        ),
              Button(
                  "Notify Me",
                  type="submit",
                  className=
-                 "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"),
+                 "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 hover:scale-105 transition-all"
+             ),
              className="flex flex-col items-center space-y-4"),
         className="bg-gray-100 p-6 rounded shadow-md text-center"),
                 style=NEWSLETTER_CARD_CLS)
