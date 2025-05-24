@@ -9,17 +9,17 @@ from monsterui.all import *
 from utils import calculate_engagement_rate, format_duration, format_number
 
 # CSS Classes
-CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900"
-HEADER_CARD_CLS = "bg-blue-600 text-white py-6 px-4 text-center"
-CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333;"
-FORM_CARD_CLS = CARD_INLINE_STYLE
-NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE
-FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4"
+CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
+HEADER_CARD_CLS = "bg-gradient-to-r from-rose-500 via-red-600 to-red-700 text-white py-8 px-6 text-center rounded-xl"
+CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333; transition: all 0.3s ease;"
+FORM_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
+NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
+FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
-hdrs = Theme.blue.headers()
+hdrs = Theme.red.headers()
 
 app, rt = fast_app(
     hdrs=hdrs,
@@ -116,39 +116,45 @@ def get_playlist_videos(playlist_url: str) -> pd.DataFrame:
 
 
 def HeaderCard() -> Card:
-    return Card(H1("ViralVibes", className="text-4xl font-bold text-white"),
-                P("Decode YouTube virality. Instantly.",
-                  className="text-lg mt-2 text-white"),
-                className=HEADER_CARD_CLS)
+    return Card(P("Decode YouTube virality. Instantly.",
+                  cls="text-lg mt-2 text-white"),
+                header=CardTitle("ViralVibes",
+                                 cls="text-4xl font-bold text-white"),
+                cls=HEADER_CARD_CLS)
 
 
 def AnalysisFormCard() -> Card:
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    return Card(Img(
-        src="/static/celebration.webp",
-        style=
-        "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
-        alt="Celebration"),
-                Form(LabelInput(
-                    "Playlist URL",
-                    type="text",
-                    name="playlist_url",
-                    placeholder="Paste YouTube Playlist URL",
-                    value=prefill_url,
-                    className="px-4 py-2 w-full border rounded mb-4"),
-                     Button("Analyze Now",
-                            type="submit",
-                            className=ButtonT.destructive),
-                     Loading(
-                         id="loading",
-                         cls=(LoadingT.bars, LoadingT.lg),
-                         style="margin-top:1rem; display:none; color:#393e6e;",
-                         htmx_indicator=True),
-                     hx_post="/validate",
-                     hx_target="#result",
-                     hx_indicator="#loading"),
-                Div(id="result", style="margin-top:2rem;"),
-                style=FORM_CARD_CLS)
+    return Card(
+        Img(src="/static/celebration.webp",
+            style=
+            "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
+            alt="Celebration"),
+        Form(LabelInput(
+            "Playlist URL",
+            type="text",
+            name="playlist_url",
+            placeholder="Paste YouTube Playlist URL",
+            value=prefill_url,
+            className=
+            "px-4 py-2 w-full border rounded mb-4 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+        ),
+             Button(
+                 "Analyze Now",
+                 type="submit",
+                 className=
+                 f"{ButtonT.destructive} hover:scale-105 transition-transform"
+             ),
+             Loading(id="loading",
+                     cls=(LoadingT.bars, LoadingT.lg),
+                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     htmx_indicator=True),
+             hx_post="/validate",
+             hx_target="#result",
+             hx_indicator="#loading"),
+        Div(id="result", style="margin-top:2rem;"),
+        cls=FORM_CARD_CLS,
+        body_cls="space-y-6")
 
 
 def create_info_card(title: str,
@@ -170,7 +176,8 @@ def create_info_card(title: str,
                 Grid(*cards),
                 header=CardTitle(
                     title, cls="text-2xl font-semibold mb-4 text-center"),
-                cls=CARD_BASE_CLS)
+                cls=CARD_BASE_CLS,
+                body_cls="space-y-6")
 
 
 def FeaturesCard() -> Card:
@@ -202,24 +209,27 @@ def BenefitsCard() -> Card:
 
 
 def NewsletterCard() -> Card:
-    return Card(Section(
-        H3("Be the first to try it", className="text-xl font-bold mb-4"),
+    return Card(
         P("Enter your email to get early access and updates. No spam ever.",
-          className="mb-4"),
-        Form(LabelInput("Email",
-                        type="email",
-                        name="email",
-                        required=True,
-                        placeholder="you@example.com",
-                        className="px-4 py-2 w-full max-w-sm border rounded"),
-             Button(
-                 "Notify Me",
-                 type="submit",
-                 className=
-                 "bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"),
+          cls="mb-4"),
+        Form(LabelInput(
+            "Email",
+            type="email",
+            name="email",
+            required=True,
+            placeholder="you@example.com",
+            className=
+            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+        ),
+             Button("Notify Me",
+                    type="submit",
+                    className=
+                    f"{ButtonT.primary} hover:scale-105 transition-transform"),
              className="flex flex-col items-center space-y-4"),
-        className="bg-gray-100 p-6 rounded shadow-md text-center"),
-                style=NEWSLETTER_CARD_CLS)
+        header=CardTitle("Be the first to try it",
+                         cls="text-xl font-bold mb-4"),
+        cls=NEWSLETTER_CARD_CLS,
+        body_cls="space-y-6")
 
 
 @rt
