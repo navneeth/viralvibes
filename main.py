@@ -10,7 +10,7 @@ from utils import calculate_engagement_rate, format_duration, format_number
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
-HEADER_CARD_CLS = "bg-gradient-to-r from-blue-600 to-blue-800 text-white py-8 px-6 text-center rounded-xl"
+HEADER_CARD_CLS = "bg-gradient-to-r from-rose-500 via-red-600 to-red-700 text-white py-8 px-6 text-center rounded-xl"
 CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333; transition: all 0.3s ease;"
 FORM_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
 NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
