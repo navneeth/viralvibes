@@ -116,10 +116,11 @@ def get_playlist_videos(playlist_url: str) -> pd.DataFrame:
 
 
 def HeaderCard() -> Card:
-    return Card(H1("ViralVibes", className="text-4xl font-bold text-white"),
-                P("Decode YouTube virality. Instantly.",
-                  className="text-lg mt-2 text-white"),
-                className=HEADER_CARD_CLS)
+    return Card(P("Decode YouTube virality. Instantly.",
+                  cls="text-lg mt-2 text-white"),
+                header=CardTitle("ViralVibes",
+                                 cls="text-4xl font-bold text-white"),
+                cls=HEADER_CARD_CLS)
 
 
 def AnalysisFormCard() -> Card:
@@ -152,7 +153,8 @@ def AnalysisFormCard() -> Card:
              hx_target="#result",
              hx_indicator="#loading"),
         Div(id="result", style="margin-top:2rem;"),
-        style=FORM_CARD_CLS)
+        cls=FORM_CARD_CLS,
+        body_cls="space-y-6")
 
 
 def create_info_card(title: str,
@@ -174,7 +176,8 @@ def create_info_card(title: str,
                 Grid(*cards),
                 header=CardTitle(
                     title, cls="text-2xl font-semibold mb-4 text-center"),
-                cls=CARD_BASE_CLS)
+                cls=CARD_BASE_CLS,
+                body_cls="space-y-6")
 
 
 def FeaturesCard() -> Card:
@@ -206,10 +209,9 @@ def BenefitsCard() -> Card:
 
 
 def NewsletterCard() -> Card:
-    return Card(Section(
-        H3("Be the first to try it", className="text-xl font-bold mb-4"),
+    return Card(
         P("Enter your email to get early access and updates. No spam ever.",
-          className="mb-4"),
+          cls="mb-4"),
         Form(LabelInput(
             "Email",
             type="email",
@@ -224,8 +226,10 @@ def NewsletterCard() -> Card:
                     className=
                     f"{ButtonT.primary} hover:scale-105 transition-transform"),
              className="flex flex-col items-center space-y-4"),
-        className="bg-gray-100 p-6 rounded shadow-md text-center"),
-                style=NEWSLETTER_CARD_CLS)
+        header=CardTitle("Be the first to try it",
+                         cls="text-xl font-bold mb-4"),
+        cls=NEWSLETTER_CARD_CLS,
+        body_cls="space-y-6")
 
 
 @rt
