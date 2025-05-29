@@ -6,3 +6,6 @@ MonsterUI
 yt-dlp
 pandas
 #squarify
+supabase
+python-dotenv
+httpx

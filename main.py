@@ -1,12 +1,51 @@
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
+from datetime import datetime
 
 import pandas as pd
 import yt_dlp
+import httpx
+import os
 from fasthtml.common import *
 from monsterui.all import *
+from supabase import create_client, Client
 
 from utils import calculate_engagement_rate, format_duration, format_number
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Supabase configuration
+SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+SUPABASE_API_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+
+# Verify environment variables
+if not SUPABASE_URL or not SUPABASE_API_KEY:
+    print("WARNING: Missing Supabase environment variables!")
+    print(f"SUPABASE_URL: {'Present' if SUPABASE_URL else 'Missing'}")
+    print(f"SUPABASE_API_KEY: {'Present' if SUPABASE_API_KEY else 'Missing'}")
+
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+
+# Supabase configuration
+SUPABASE_SIGNUPS_ENDPOINT = f"{SUPABASE_URL}/rest/v1/signups"
+
+headers = {
+    "apikey": SUPABASE_API_KEY,
+    "Authorization": f"Bearer {SUPABASE_API_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal",
+    "X-Client-Info": "supabase-py/0.0.1",
+    "X-Supabase-Client": "supabase-py/0.0.1"
+}
+
+# Print headers for debugging (without the API key)
+debug_headers = headers.copy()
+debug_headers["apikey"] = "***"
+debug_headers["Authorization"] = "Bearer ***"
+print("Debug headers:", debug_headers)
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
@@ -25,6 +64,9 @@ app, rt = fast_app(
     hdrs=hdrs,
     title="ViralVibes - YouTube Trends, Decoded",
     static_dir="static",
+    favicon="/static/favicon.ico",
+    apple_touch_icon=
+    "/static/favicon.jpeg"  # Using favicon.jpeg as apple touch icon
 )
 # Set the favicon
 app.favicon = "/static/favicon.ico"
@@ -225,7 +267,15 @@ def NewsletterCard() -> Card:
                     type="submit",
                     className=
                     f"{ButtonT.primary} hover:scale-105 transition-transform"),
-             className="flex flex-col items-center space-y-4"),
+             Loading(id="loading",
+                     cls=(LoadingT.bars, LoadingT.lg),
+                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     htmx_indicator=True),
+             className="flex flex-col items-center space-y-4",
+             hx_post="/newsletter",
+             hx_target="#newsletter-result",
+             hx_indicator="#loading"),
+        Div(id="newsletter-result", style="margin-top:1rem;"),
         header=CardTitle("Be the first to try it",
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD_CLS,
@@ -351,6 +401,29 @@ def validate(playlist: YoutubePlaylist):
         "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
         id="result",
         style="color: orange;")
+
+
+@rt("/newsletter", methods=["POST"])
+def newsletter(email: str):
+    # Basic validation
+    if "@" not in email:
+        return Div("Please enter a valid email.", style="color: red")
+
+    # Send to Supabase
+    payload = {"email": email, "created_at": datetime.utcnow().isoformat()}
+    try:
+        print(f"Attempting to insert into Supabase: {payload}")
+        response = supabase.table("signups").insert(payload).execute()
+        print(f"Response: {response}")
+
+        if response.data:
+            return Div("Thanks for signing up! 🎉", style="color: green")
+        else:
+            return Div("Something went wrong. Please try again.",
+                       style="color: orange")
+    except Exception as e:
+        print(f"Exception occurred: {str(e)}")
+        return Div(f"Error: {str(e)}", style="color: red")
 
 
 serve()
