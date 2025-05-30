@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime
+import logging
 
 import pandas as pd
 import yt_dlp
@@ -14,41 +15,29 @@ from utils import calculate_engagement_rate, format_duration, format_number
 
 from dotenv import load_dotenv
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
 load_dotenv()
 
-# Supabase configuration
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_API_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-
-# Verify environment variables
-if not SUPABASE_URL or not SUPABASE_API_KEY:
-    print("WARNING: Missing Supabase environment variables!")
-    print(f"SUPABASE_URL: {'Present' if SUPABASE_URL else 'Missing'}")
-    print(f"SUPABASE_API_KEY: {'Present' if SUPABASE_API_KEY else 'Missing'}")
 
 # Initialize Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+def init_supabase():
+    try:
+        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+        supabase_key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
-# Supabase configuration
-SUPABASE_SIGNUPS_ENDPOINT = f"{SUPABASE_URL}/rest/v1/signups"
+        if not supabase_url or not supabase_key:
+            logger.error("Missing Supabase environment variables")
+            raise ValueError("Missing Supabase configuration")
 
-headers = {
-    "apikey": SUPABASE_API_KEY,
-    "Authorization": f"Bearer {SUPABASE_API_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=minimal",
-    "X-Client-Info": "supabase-py/0.0.1",
-    "X-Supabase-Client": "supabase-py/0.0.1"
-}
+        return create_client(supabase_url, supabase_key)
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        raise
 
-import os
-
-# Print headers for debugging (without the API key) if SUPABASE_DEBUG is set
-if os.environ.get("SUPABASE_DEBUG", "0") == "1":
-    debug_headers = headers.copy()
-    debug_headers["apikey"] = "***"
-    debug_headers["Authorization"] = "Bearer ***"
-    print("Debug headers:", debug_headers)
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
@@ -63,16 +52,19 @@ FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.red.headers()
 
-app, rt = fast_app(
-    hdrs=hdrs,
-    title="ViralVibes - YouTube Trends, Decoded",
-    static_dir="static",
-    favicon="/static/favicon.ico",
-    apple_touch_icon=
-    "/static/favicon.jpeg"  # Using favicon.jpeg as apple touch icon
-)
-# Set the favicon
-app.favicon = "/static/favicon.ico"
+app, rt = fast_app(hdrs=hdrs,
+                   title="ViralVibes - YouTube Trends, Decoded",
+                   static_dir="static",
+                   favicon="/static/favicon.ico",
+                   apple_touch_icon="/static/favicon.jpeg")
+
+# Initialize Supabase client after app creation
+try:
+    supabase = init_supabase()
+    logger.info("Supabase client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Supabase client: {str(e)}")
+    raise
 
 # Navigation links
 scrollspy_links = (A("Home", href="#home-section"),
@@ -416,23 +408,27 @@ def newsletter(email: str):
     # Comprehensive email validation using regex
     email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
     if not re.match(email_regex, email):
-        return Div("Please enter a valid email.", style="color: red")
+        return Div("Please enter a valid email address.", style="color: red")
 
     # Send to Supabase
     payload = {"email": email, "created_at": datetime.utcnow().isoformat()}
     try:
-        print(f"Attempting to insert into Supabase: {payload}")
+        logger.info(f"Attempting to insert newsletter signup for: {email}")
         response = supabase.table("signups").insert(payload).execute()
-        print(f"Response: {response}")
 
         if response.data:
+            logger.info(f"Successfully added newsletter signup for: {email}")
             return Div("Thanks for signing up! 🎉", style="color: green")
         else:
-            return Div("Something went wrong. Please try again.",
-                       style="color: orange")
+            logger.warning(f"Empty response from Supabase for: {email}")
+            return Div(
+                "Unable to process your signup. Please try again later.",
+                style="color: orange")
     except Exception as e:
-        print(f"Exception occurred: {str(e)}")
-        return Div(f"Error: {str(e)}", style="color: red")
+        logger.error(f"Newsletter signup failed for {email}: {str(e)}")
+        return Div(
+            "We're having trouble processing your signup. Please try again later.",
+            style="color: orange")
 
 
 serve()
