@@ -41,11 +41,14 @@ headers = {
     "X-Supabase-Client": "supabase-py/0.0.1"
 }
 
-# Print headers for debugging (without the API key)
-debug_headers = headers.copy()
-debug_headers["apikey"] = "***"
-debug_headers["Authorization"] = "Bearer ***"
-print("Debug headers:", debug_headers)
+import os
+
+# Print headers for debugging (without the API key) if SUPABASE_DEBUG is set
+if os.environ.get("SUPABASE_DEBUG", "0") == "1":
+    debug_headers = headers.copy()
+    debug_headers["apikey"] = "***"
+    debug_headers["Authorization"] = "Bearer ***"
+    print("Debug headers:", debug_headers)
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
