@@ -406,10 +406,13 @@ def validate(playlist: YoutubePlaylist):
         style="color: orange;")
 
 
+import re
+
 @rt("/newsletter", methods=["POST"])
 def newsletter(email: str):
-    # Basic validation
-    if "@" not in email:
+    # Comprehensive email validation using regex
+    email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+    if not re.match(email_regex, email):
         return Div("Please enter a valid email.", style="color: red")
 
     # Send to Supabase
