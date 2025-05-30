@@ -262,9 +262,11 @@ def NewsletterCard() -> Card:
             type="email",
             name="email",
             required=True,
+            pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+            title="Please enter a valid email address",
             placeholder="you@example.com",
             className=
-            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500"
         ),
              Button("Notify Me",
                     type="submit",
@@ -407,6 +409,7 @@ def validate(playlist: YoutubePlaylist):
 
 
 import re
+
 
 @rt("/newsletter", methods=["POST"])
 def newsletter(email: str):
