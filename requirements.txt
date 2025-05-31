@@ -6,3 +6,4 @@ MonsterUI
 yt-dlp
 polars
 #squarify
+supabase
