@@ -1,34 +1,19 @@
 {
+  "version": 2,
   "builds": [
     {
       "src": "main.py",
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "250mb",
-        "runtime": "python3.9",
-        "excludeFiles": [
-          "**/*.pyc",
-          "**/*.pyo",
-          "**/*.pyd",
-          "**/*.so",
-          "**/*.dylib",
-          "**/*.dll",
-          "**/*.pyi",
-          "**/__pycache__/**",
-          "**/.pytest_cache/**",
-          "**/.coverage",
-          "**/.DS_Store",
-          "**/.env",
-          "**/.git/**",
-          "**/.github/**",
-          "**/.vscode/**",
-          "**/tests/**",
-          "**/docs/**",
-          "**/examples/**",
-          "**/static/images/**",
-          "**/static/videos/**"
-        ]
+        "runtime": "python3.9"
       }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "main.py"
     }
   ],
   "env": {
