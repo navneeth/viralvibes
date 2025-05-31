@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 from typing import Optional
 
-import pandas as pd
+import polars as pl
 import yt_dlp
 import httpx
 import os
@@ -123,7 +123,7 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     return errors
 
 
-def get_playlist_videos(playlist_url: str) -> pd.DataFrame:
+def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
     """Fetches video information from a YouTube playlist URL."""
     ydl_opts = {
         "quiet": True,
@@ -150,8 +150,8 @@ def get_playlist_videos(playlist_url: str) -> pd.DataFrame:
                 "Thumbnail": video.get("thumbnail", ""),
             } for rank, video in enumerate(videos, start=1)]
 
-            return pd.DataFrame(data)
-    return pd.DataFrame([])
+            return pl.DataFrame(data)
+    return pl.DataFrame()
 
 
 def HeaderCard() -> Card:
@@ -311,7 +311,7 @@ def index():
                       cls=(ContainerT.xl, 'uk-container-expand'))))
 
 
-def process_numeric_column(series: pd.Series) -> pd.Series:
+def process_numeric_column(series: pl.Series) -> pl.Series:
     """Helper to convert formatted string numbers to floats."""
 
     def convert_to_number(value):
@@ -326,7 +326,7 @@ def process_numeric_column(series: pd.Series) -> pd.Series:
             return float(value.replace('K', '')) * 1_000
         return float(value.replace(',', ''))
 
-    return series.apply(convert_to_number)
+    return series.map_elements(convert_to_number)
 
 
 @rt("/validate")
@@ -345,23 +345,29 @@ def validate(playlist: YoutubePlaylist):
                    id="result",
                    style="color: orange;")
 
-    if df is not None and not df.empty:
+    if df.height > 0:
         # Apply formatting functions to the DataFrame
-        df["View Count"] = df["View Count"].apply(format_number)
-        df["Like Count"] = df["Like Count"].apply(format_number)
-        df["Dislike Count"] = df["Dislike Count"].apply(format_number)
-        df["Duration"] = df["Duration"].apply(format_duration)
+        df = df.with_columns([
+            pl.col("View Count").map_elements(format_number),
+            pl.col("Like Count").map_elements(format_number),
+            pl.col("Dislike Count").map_elements(format_number),
+            pl.col("Duration").map_elements(format_duration)
+        ])
 
         # Calculate engagement rate
         view_counts_numeric = process_numeric_column(df["View Count"])
         like_counts_numeric = process_numeric_column(df["Like Count"])
         dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
 
-        df["Engagement Rate (%)"] = [
-            f"{calculate_engagement_rate(vc, lc, dc):.2f}"
-            for vc, lc, dc in zip(view_counts_numeric, like_counts_numeric,
-                                  dislike_counts_numeric)
-        ]
+        df = df.with_columns([
+            pl.Series(name="Engagement Rate (%)",
+                      values=[
+                          f"{calculate_engagement_rate(vc, lc, dc):.2f}"
+                          for vc, lc, dc in
+                          zip(view_counts_numeric, like_counts_numeric,
+                              dislike_counts_numeric)
+                      ])
+        ])
 
         # Create table header
         headers = [
@@ -372,7 +378,7 @@ def validate(playlist: YoutubePlaylist):
 
         # Create table body
         tbody_rows = []
-        for _, row in df.iterrows():
+        for row in df.iter_rows(named=True):
             tbody_rows.append(
                 Tr(Td(row["Rank"]), Td(row["Title"]), Td(row["View Count"]),
                    Td(row["Like Count"]), Td(row["Dislike Count"]),
@@ -382,7 +388,7 @@ def validate(playlist: YoutubePlaylist):
         # Create table footer with summary
         total_views = view_counts_numeric.sum()
         total_likes = like_counts_numeric.sum()
-        avg_engagement = df["Engagement Rate (%)"].astype(float).mean()
+        avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
 
         tfoot = Tfoot(
             Tr(Td("Total/Average"), Td(""), Td(format_number(total_views)),
