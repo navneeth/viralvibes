@@ -8,4 +8,4 @@ pandas
 #squarify
 supabase
 python-dotenv
-httpx
+#httpx
