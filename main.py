@@ -416,7 +416,12 @@ def newsletter(email: str):
         logger.info(f"Attempting to insert newsletter signup for: {email}")
         response = supabase.table("signups").insert(payload).execute()
 
-        if response.data:
+        if response.error:
+            logger.error(f"Supabase error while adding newsletter signup for {email}: {response.error}")
+            return Div(
+                "There was an error processing your signup. Please try again later.",
+                style="color: orange")
+        elif response.data:
             logger.info(f"Successfully added newsletter signup for: {email}")
             return Div("Thanks for signing up! 🎉", style="color: green")
         else:
