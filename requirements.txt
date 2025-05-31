@@ -4,5 +4,5 @@ uvicorn==0.30.1
 MonsterUI
 #matplotlib
 yt-dlp
-pandas
+polars
 #squarify
