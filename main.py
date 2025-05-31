@@ -52,11 +52,11 @@ FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.red.headers()
 
-app, rt = fast_app(
-    hdrs=hdrs,
-    title="ViralVibes - YouTube Trends, Decoded",
-    static_dir="static",
-)
+app, rt = fast_app(hdrs=hdrs,
+                   title="ViralVibes - YouTube Trends, Decoded",
+                   static_dir="static",
+                   favicon="/static/favicon.ico",
+                   apple_touch_icon="/static/favicon.jpeg")
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
@@ -69,6 +69,14 @@ scrollspy_links = (A("Home", href="#home-section"),
 
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
+
+# Initialize Supabase client after app creation
+try:
+    supabase: Client = init_supabase()
+    logger.info("Supabase client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Supabase client: {str(e)}")
+    raise
 
 
 # --- Data Models ---
