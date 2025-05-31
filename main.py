@@ -3,7 +3,9 @@ from urllib.parse import parse_qs, urlparse
 from typing import List, Optional, Tuple, Union
 
 from dotenv import load_dotenv
+from supabase import create_client, Client
 import logging
+import os
 import polars as pl
 import yt_dlp
 from fasthtml.common import *
