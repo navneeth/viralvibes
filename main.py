@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime
 import logging
+from typing import Optional
 
 import pandas as pd
 import yt_dlp
@@ -24,7 +25,8 @@ load_dotenv()
 
 
 # Initialize Supabase client
-def init_supabase():
+def init_supabase() -> Optional[Client]:
+    """Initialize Supabase client with proper error handling."""
     try:
         url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
         key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
@@ -421,15 +423,8 @@ def newsletter(email: str):
         # Insert data using Supabase client
         data = supabase.table("signups").insert(payload).execute()
 
-        # Assert we got a response
-        if not data:
-            logger.warning(f"Empty response from Supabase for: {email}")
-            return Div(
-                "Unable to process your signup. Please try again later.",
-                style="color: orange")
-
         # Check if we have data in the response
-        if len(data.data) > 0:
+        if data.data:
             logger.info(f"Successfully added newsletter signup for: {email}")
             return Div("Thanks for signing up! 🎉", style="color: green")
         else:
