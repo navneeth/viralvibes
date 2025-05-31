@@ -24,7 +24,7 @@ A powerful web application that analyzes YouTube playlists to uncover viral tren
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/viralvibes.git
+git clone https://github.com/navneeth/viralvibes.git
 cd viralvibes
 ```
 
@@ -47,26 +47,27 @@ The development server will start at http://0.0.0.0:5001
 
 ## Architecture
 
-The application follows a modern serverless architecture:
+The application follows a modern serverless architecture with three main layers:
+
+### Frontend Layer
+- FastHTML for server-side rendering
+- MonsterUI components for modern UI
+- Responsive design with TailwindCSS
+- Real-time updates with HTMX
+
+### Backend Layer
+- Python-based API endpoints
+- YouTube data processing with yt-dlp
+- Polars for efficient data manipulation
+- Supabase integration for data storage
+
+### Data Layer
+- Supabase for user data and analytics
+- Real-time data processing
+- Secure data storage
+- Efficient caching mechanisms
 
 ![App Architecture](static/diagram.png)
-
-### Key Components:
-
-1. **Frontend Layer**
-   - FastHTML for server-side rendering
-   - MonsterUI components for modern UI
-   - Responsive design with TailwindCSS
-
-2. **Backend Layer**
-   - Python-based API endpoints
-   - YouTube data processing with yt-dlp
-   - Supabase integration for data storage
-
-3. **Data Layer**
-   - Supabase for user data and analytics
-   - Real-time data processing
-   - Secure data storage
 
 ## Deployment
 
@@ -91,9 +92,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [MonsterUI](https://monsterui.dev/) for UI components
 - [Supabase](https://supabase.io/) for backend services
 - [Vercel](https://vercel.com) for deployment
-
-# App Design
-
-See the architecture diagram below:
-
-![App Architecture](static/diagram.png)

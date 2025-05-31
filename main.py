@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
+from typing import List, Optional, Tuple, Union
 
 import polars as pl
 import yt_dlp
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import calculate_engagement_rate, format_duration, format_number
+from utils import (calculate_engagement_rate, format_duration, format_number,
+                   process_numeric_column)
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
@@ -85,7 +87,28 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
 
 
 def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
-    """Fetches video information from a YouTube playlist URL."""
+    """Fetches video information from a YouTube playlist URL.
+    
+    Args:
+        playlist_url (str): The URL of the YouTube playlist to analyze.
+        
+    Returns:
+        pl.DataFrame: A Polars DataFrame containing video information with columns:
+            - Rank (int): Position in playlist
+            - Title (str): Video title
+            - Views (Billions) (float): View count in billions
+            - View Count (int): Raw view count
+            - Like Count (int): Number of likes
+            - Dislike Count (int): Number of dislikes
+            - Uploader (str): Channel name
+            - Creator (str): Video creator
+            - Channel ID (str): YouTube channel ID
+            - Duration (int): Video length in seconds
+            - Thumbnail (str): URL to video thumbnail
+            
+    Note:
+        Returns an empty Polars DataFrame if no videos are found or if the playlist is invalid.
+    """
     ydl_opts = {
         "quiet": True,
         "extract_flat": True,
@@ -158,10 +181,20 @@ def AnalysisFormCard() -> Card:
 
 
 def create_info_card(title: str,
-                     items: list[tuple],
-                     img_src: str = None,
-                     img_alt: str = None) -> Card:
-    """Helper function to create Feature and Benefit cards."""
+                     items: List[Tuple[str, str, str]],
+                     img_src: Optional[str] = None,
+                     img_alt: Optional[str] = None) -> Card:
+    """Helper function to create Feature and Benefit cards.
+    
+    Args:
+        title (str): The title of the card
+        items (List[Tuple[str, str, str]]): List of (title, description, icon) tuples
+        img_src (Optional[str]): Optional path to card image
+        img_alt (Optional[str]): Optional alt text for card image
+        
+    Returns:
+        Card: A MonsterUI Card component with the specified content
+    """
     cards = [
         Div(icon,
             H4(item_title, cls="mb-2 mt-2"),
@@ -262,24 +295,6 @@ def index():
                       cls=(ContainerT.xl, 'uk-container-expand'))))
 
 
-def process_numeric_column(series: pl.Series) -> pl.Series:
-    """Helper to convert formatted string numbers to floats."""
-
-    def convert_to_number(value):
-        if isinstance(value, (int, float)):
-            return float(value)
-        value = str(value).upper()
-        if 'B' in value:
-            return float(value.replace('B', '')) * 1_000_000_000
-        if 'M' in value:
-            return float(value.replace('M', '')) * 1_000_000
-        if 'K' in value:
-            return float(value.replace('K', '')) * 1_000
-        return float(value.replace(',', ''))
-
-    return series.map_elements(convert_to_number)
-
-
 @rt("/validate")
 def validate(playlist: YoutubePlaylist):
     errors = validate_youtube_playlist(playlist)
@@ -297,11 +312,7 @@ def validate(playlist: YoutubePlaylist):
                    style="color: orange;")
 
     if df.height > 0:
-        # Apply formatting functions to the DataFrame
-        #df["View Count"] = df["View Count"].apply(format_number)
-        #df["Like Count"] = df["Like Count"].apply(format_number)
-        #df["Dislike Count"] = df["Dislike Count"].apply(format_number)
-        #df["Duration"] = df["Duration"].apply(format_duration)
+        # Apply formatting functions or formulae to the DataFrame
         df = df.with_columns([
             pl.col("View Count").map_elements(format_number),
             pl.col("Like Count").map_elements(format_number),
@@ -314,11 +325,6 @@ def validate(playlist: YoutubePlaylist):
         like_counts_numeric = process_numeric_column(df["Like Count"])
         dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
 
-        #df["Engagement Rate (%)"] = [
-        #    f"{calculate_engagement_rate(vc, lc, dc):.2f}"
-        #    for vc, lc, dc in zip(view_counts_numeric, like_counts_numeric,
-        #                          dislike_counts_numeric)
-        #]
         df = df.with_columns([
             pl.Series(name="Engagement Rate (%)",
                       values=[
@@ -338,7 +344,6 @@ def validate(playlist: YoutubePlaylist):
 
         # Create table body
         tbody_rows = []
-        #for _, row in df.iterrows():
         for row in df.iter_rows(named=True):
             tbody_rows.append(
                 Tr(Td(row["Rank"]), Td(row["Title"]), Td(row["View Count"]),
@@ -349,7 +354,6 @@ def validate(playlist: YoutubePlaylist):
         # Create table footer with summary
         total_views = view_counts_numeric.sum()
         total_likes = like_counts_numeric.sum()
-        #avg_engagement = df["Engagement Rate (%)"].astype(float).mean()
         avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
 
         tfoot = Tfoot(
