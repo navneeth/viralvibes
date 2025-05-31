@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+
+# Initialize Supabase client
+def init_supabase() -> Optional[Client]:
+    """Initialize Supabase client with proper error handling."""
+    try:
+        url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+        key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+
+        if not url or not key:
+            logger.error("Missing Supabase environment variables")
+            raise ValueError("Missing Supabase configuration")
+
+        return create_client(url, key)
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        raise
+
+
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
 HEADER_CARD_CLS = "bg-gradient-to-r from-rose-500 via-red-600 to-red-700 text-white py-8 px-6 text-center rounded-xl"
