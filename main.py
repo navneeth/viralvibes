@@ -72,7 +72,7 @@ scrollspy_links = (A("Home", href="#home-section"),
 
 # Initialize Supabase client after app creation
 try:
-    supabase: Client = init_supabase()
+    #supabase: Client = init_supabase()
     logger.info("Supabase client initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {str(e)}")
