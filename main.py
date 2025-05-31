@@ -26,14 +26,14 @@ load_dotenv()
 # Initialize Supabase client
 def init_supabase():
     try:
-        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-        supabase_key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+        url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+        key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
-        if not supabase_url or not supabase_key:
+        if not url or not key:
             logger.error("Missing Supabase environment variables")
             raise ValueError("Missing Supabase configuration")
 
-        return create_client(supabase_url, supabase_key)
+        return create_client(url, key)
     except Exception as e:
         logger.error(f"Failed to initialize Supabase client: {str(e)}")
         raise
@@ -60,7 +60,7 @@ app, rt = fast_app(hdrs=hdrs,
 
 # Initialize Supabase client after app creation
 try:
-    supabase = init_supabase()
+    supabase: Client = init_supabase()
     logger.info("Supabase client initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {str(e)}")
@@ -407,6 +407,7 @@ import re
 def newsletter(email: str):
     # Normalize email input by trimming whitespace and lowercasing
     email = email.strip().lower()
+
     # Comprehensive email validation using regex
     email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
     if not re.match(email_regex, email):
@@ -416,21 +417,27 @@ def newsletter(email: str):
     payload = {"email": email, "created_at": datetime.utcnow().isoformat()}
     try:
         logger.info(f"Attempting to insert newsletter signup for: {email}")
-        response = supabase.table("signups").insert(payload).execute()
 
-        if response.error:
-            logger.error(f"Supabase error while adding newsletter signup for {email}: {response.error}")
-            return Div(
-                "There was an error processing your signup. Please try again later.",
-                style="color: orange")
-        elif response.data:
-            logger.info(f"Successfully added newsletter signup for: {email}")
-            return Div("Thanks for signing up! 🎉", style="color: green")
-        else:
+        # Insert data using Supabase client
+        data = supabase.table("signups").insert(payload).execute()
+
+        # Assert we got a response
+        if not data:
             logger.warning(f"Empty response from Supabase for: {email}")
             return Div(
                 "Unable to process your signup. Please try again later.",
                 style="color: orange")
+
+        # Check if we have data in the response
+        if len(data.data) > 0:
+            logger.info(f"Successfully added newsletter signup for: {email}")
+            return Div("Thanks for signing up! 🎉", style="color: green")
+        else:
+            logger.warning(f"No data returned from Supabase for: {email}")
+            return Div(
+                "Unable to process your signup. Please try again later.",
+                style="color: orange")
+
     except Exception as e:
         logger.error(f"Newsletter signup failed for {email}: {str(e)}")
         return Div(
