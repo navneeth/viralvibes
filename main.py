@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 from typing import List, Optional, Tuple, Union
 
+from dotenv import load_dotenv
+import logging
 import polars as pl
 import yt_dlp
 from fasthtml.common import *
@@ -9,6 +11,13 @@ from monsterui.all import *
 
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
