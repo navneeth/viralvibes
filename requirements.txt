@@ -5,5 +5,4 @@ MonsterUI
 #matplotlib
 yt-dlp
 polars
-#pandas
 #squarify
