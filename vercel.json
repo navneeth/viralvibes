@@ -1,11 +1,14 @@
 {
-  "functions": {
-    "main.py": {
-      "memory": 1024,
-      "maxDuration": 10,
-      "excludeFiles": "{.next,*.cache,node_modules,public,app,__pycache__,*.pyc,*.pyo,*.pyd,.Python,env,venv,.env,*.log,*.pyi,*.so,*.dylib,*.dll}/**"
+  "builds": [
+    {
+      "src": "main.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "250mb",
+        "runtime": "python3.9"
+      }
     }
-  },
+  ],
   "env": {
     "PYTHONPATH": "."
   }
