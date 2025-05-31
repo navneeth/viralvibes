@@ -68,8 +68,21 @@ def format_duration(seconds: int) -> str:
         return "00:00"
 
 
-def process_numeric_column(series: pl.Series) -> pl.Series:
-    """Helper to convert formatted string numbers to floats."""
+def process_numeric_column(series: 'pl.Series') -> 'pl.Series':
+    """Helper to convert formatted string numbers to floats.
+    
+    Args:
+        series (pl.Series): A Polars Series containing numeric values or formatted strings
+        
+    Returns:
+        pl.Series: A Polars Series with all values converted to float
+        
+    Note:
+        Handles various number formats:
+        - Plain numbers (int/float)
+        - Numbers with B/M/K suffixes (e.g., 1.2B, 3.4M, 5.6K)
+        - Numbers with commas (e.g., 1,234,567)
+    """
 
     def convert_to_number(value):
         if isinstance(value, (int, float)):
@@ -83,4 +96,4 @@ def process_numeric_column(series: pl.Series) -> pl.Series:
             return float(value.replace('K', '')) * 1_000
         return float(value.replace(',', ''))
 
-    return series.map_elements(convert_to_number)
+    return series.map_elements(convert_to_number, return_dtype=pl.Float64)

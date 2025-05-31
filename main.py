@@ -314,10 +314,14 @@ def validate(playlist: YoutubePlaylist):
     if df.height > 0:
         # Apply formatting functions or formulae to the DataFrame
         df = df.with_columns([
-            pl.col("View Count").map_elements(format_number),
-            pl.col("Like Count").map_elements(format_number),
-            pl.col("Dislike Count").map_elements(format_number),
-            pl.col("Duration").map_elements(format_duration)
+            pl.col("View Count").map_elements(format_number,
+                                              return_dtype=pl.String),
+            pl.col("Like Count").map_elements(format_number,
+                                              return_dtype=pl.String),
+            pl.col("Dislike Count").map_elements(format_number,
+                                                 return_dtype=pl.String),
+            pl.col("Duration").map_elements(format_duration,
+                                            return_dtype=pl.String)
         ])
 
         # Calculate engagement rate
