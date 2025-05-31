@@ -1,30 +1,31 @@
-def calculate_engagement_rate(view_count, like_count, dislike_count):
-    if view_count == 0:
-        return 0
-    return ((like_count + dislike_count) / view_count) * 100
+def calculate_engagement_rate(view_count: float, like_count: float,
+                              dislike_count: float) -> float:
+    """Calculate engagement rate as a percentage."""
+    if not view_count or view_count == 0:
+        return 0.0
+    return ((like_count or 0) + (dislike_count or 0)) / view_count * 100
 
 
-def format_number(number):
-    if number >= 1_000_000_000:
-        return f"{number / 1_000_000_000:.1f}B"
-    elif number >= 1_000_000:
-        return f"{number / 1_000_000:.1f}M"
-    elif number >= 1_000:
-        return f"{number / 1_000:.1f}K"
-    return str(number)
+def format_number(num: float) -> str:
+    """Format number to human-readable format."""
+    if not num:
+        return "0"
+    if num >= 1_000_000_000:
+        return f"{num/1_000_000_000:.1f}B"
+    elif num >= 1_000_000:
+        return f"{num/1_000_000:.1f}M"
+    elif num >= 1_000:
+        return f"{num/1_000:.1f}K"
+    return f"{num:,.0f}"
 
 
-def format_duration(seconds):
-    try:
-        seconds = float(seconds)
-        if seconds <= 0:
-            return "N/A"
-        minutes, seconds = divmod(int(seconds), 60)
-        hours, minutes = divmod(minutes, 60)
-
-        if hours > 0:
-            return f"{int(hours)}:{int(minutes):02d}:{int(seconds):02d}"
-        else:
-            return f"{int(minutes)}:{int(seconds):02d}"
-    except Exception:
-        return "N/A"
+def format_duration(seconds: int) -> str:
+    """Format duration in seconds to HH:MM:SS format."""
+    if not seconds:
+        return "00:00"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
