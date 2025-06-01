@@ -7,6 +7,8 @@ from supabase import create_client, Client
 import logging
 import os
 import polars as pl
+import re
+from datetime import datetime
 import yt_dlp
 from fasthtml.common import *
 from monsterui.all import *
@@ -322,15 +324,25 @@ def NewsletterCard() -> Card:
             type="email",
             name="email",
             required=True,
+            pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+            title="Please enter a valid email address",
             placeholder="you@example.com",
             className=
-            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500"
         ),
              Button("Notify Me",
                     type="submit",
                     className=
                     f"{ButtonT.primary} hover:scale-105 transition-transform"),
-             className="flex flex-col items-center space-y-4"),
+             Loading(id="loading",
+                     cls=(LoadingT.bars, LoadingT.lg),
+                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     htmx_indicator=True),
+             className="flex flex-col items-center space-y-4",
+             hx_post="/newsletter",
+             hx_target="#newsletter-result",
+             hx_indicator="#loading"),
+        Div(id="newsletter-result", style="margin-top:1rem;"),
         header=CardTitle("Be the first to try it",
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD_CLS,
@@ -448,6 +460,48 @@ def validate(playlist: YoutubePlaylist):
         "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
         id="result",
         style="color: orange;")
+
+
+@rt("/newsletter", methods=["POST"])
+def newsletter(email: str):
+    # Normalize email input by trimming whitespace and lowercasing
+    email = email.strip().lower()
+
+    # Comprehensive email validation using regex
+    email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+    if not re.match(email_regex, email):
+        return Div("Please enter a valid email address.", style="color: red")
+
+    # Check if Supabase client is available
+    if supabase_client is None:
+        logger.warning("Supabase client not available for newsletter signup")
+        return Div(
+            "Newsletter signup is temporarily unavailable. Please try again later.",
+            style="color: orange")
+
+    # Send to Supabase
+    payload = {"email": email, "created_at": datetime.utcnow().isoformat()}
+    try:
+        logger.info(f"Attempting to insert newsletter signup for: {email}")
+
+        # Insert data using Supabase client
+        data = supabase_client.table("signups").insert(payload).execute()
+
+        # Check if we have data in the response
+        if data.data:
+            logger.info(f"Successfully added newsletter signup for: {email}")
+            return Div("Thanks for signing up! 🎉", style="color: green")
+        else:
+            logger.warning(f"No data returned from Supabase for: {email}")
+            return Div(
+                "Unable to process your signup. Please try again later.",
+                style="color: orange")
+
+    except Exception as e:
+        logger.error(f"Newsletter signup failed for {email}: {str(e)}")
+        return Div(
+            "We're having trouble processing your signup. Please try again later.",
+            style="color: orange")
 
 
 serve()
