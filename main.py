@@ -2,13 +2,87 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 from typing import List, Optional, Tuple, Union
 
+from dotenv import load_dotenv
+from supabase import create_client, Client
+import logging
+import os
 import polars as pl
+import re
+from datetime import datetime
 import yt_dlp
 from fasthtml.common import *
 from monsterui.all import *
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
+
+# Get logger instance
+logger = logging.getLogger(__name__)
+
+
+def setup_logging():
+    """Configure logging for the application.
+    
+    This function should be called at application startup.
+    It configures the logging format and level.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+
+
+# Load environment variables
+load_dotenv()
+
+# Global Supabase client
+supabase_client: Optional[Client] = None
+
+
+@retry(stop=stop_after_attempt(3),
+       wait=wait_exponential(multiplier=1, min=4, max=10),
+       reraise=True)
+def init_supabase() -> Optional[Client]:
+    """Initialize Supabase client with retry logic and proper error handling.
+    
+    Returns:
+        Optional[Client]: Supabase client if initialization succeeds, None otherwise
+        
+    Note:
+        - Retries up to 3 times with exponential backoff
+        - Returns None instead of raising exceptions
+        - Logs errors for debugging
+    """
+    global supabase_client
+
+    # Return existing client if already initialized
+    if supabase_client is not None:
+        return supabase_client
+
+    try:
+        url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+        key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+
+        if not url or not key:
+            logger.warning(
+                "Missing Supabase environment variables - running without Supabase"
+            )
+            return None
+
+        client = create_client(url, key)
+
+        # Test the connection
+        client.auth.get_session()
+
+        supabase_client = client
+        logger.info("Supabase client initialized successfully")
+        return client
+
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        return None
+
 
 # CSS Classes
 CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
@@ -23,11 +97,11 @@ FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.red.headers()
 
-app, rt = fast_app(
-    hdrs=hdrs,
-    title="ViralVibes - YouTube Trends, Decoded",
-    static_dir="static",
-)
+app, rt = fast_app(hdrs=hdrs,
+                   title="ViralVibes - YouTube Trends, Decoded",
+                   static_dir="static",
+                   favicon="/static/favicon.ico",
+                   apple_touch_icon="/static/favicon.jpeg")
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
@@ -40,6 +114,33 @@ scrollspy_links = (A("Home", href="#home-section"),
 
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
+
+
+# Initialize application components
+def init_app():
+    """Initialize application components.
+    
+    This function should be called at application startup.
+    It sets up logging and initializes the Supabase client.
+    """
+    # Configure logging
+    setup_logging()
+
+    # Initialize Supabase client
+    try:
+        global supabase_client
+        supabase_client = init_supabase()
+        if supabase_client is None:
+            logger.warning("Running without Supabase integration")
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during Supabase initialization: {str(e)}")
+        # Continue running without Supabase
+        supabase_client = None
+
+
+# Initialize the application
+init_app()
 
 
 # --- Data Models ---
@@ -250,15 +351,25 @@ def NewsletterCard() -> Card:
             type="email",
             name="email",
             required=True,
+            pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+            title="Please enter a valid email address",
             placeholder="you@example.com",
             className=
-            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500"
         ),
              Button("Notify Me",
                     type="submit",
                     className=
                     f"{ButtonT.primary} hover:scale-105 transition-transform"),
-             className="flex flex-col items-center space-y-4"),
+             Loading(id="loading",
+                     cls=(LoadingT.bars, LoadingT.lg),
+                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     htmx_indicator=True),
+             className="flex flex-col items-center space-y-4",
+             hx_post="/newsletter",
+             hx_target="#newsletter-result",
+             hx_indicator="#loading"),
+        Div(id="newsletter-result", style="margin-top:1rem;"),
         header=CardTitle("Be the first to try it",
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD_CLS,
@@ -376,6 +487,48 @@ def validate(playlist: YoutubePlaylist):
         "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
         id="result",
         style="color: orange;")
+
+
+@rt("/newsletter", methods=["POST"])
+def newsletter(email: str):
+    # Normalize email input by trimming whitespace and lowercasing
+    email = email.strip().lower()
+
+    # Comprehensive email validation using regex
+    email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+    if not re.match(email_regex, email):
+        return Div("Please enter a valid email address.", style="color: red")
+
+    # Check if Supabase client is available
+    if supabase_client is None:
+        logger.warning("Supabase client not available for newsletter signup")
+        return Div(
+            "Newsletter signup is temporarily unavailable. Please try again later.",
+            style="color: orange")
+
+    # Send to Supabase
+    payload = {"email": email, "created_at": datetime.utcnow().isoformat()}
+    try:
+        logger.info(f"Attempting to insert newsletter signup for: {email}")
+
+        # Insert data using Supabase client
+        data = supabase_client.table("signups").insert(payload).execute()
+
+        # Check if we have data in the response
+        if data.data:
+            logger.info(f"Successfully added newsletter signup for: {email}")
+            return Div("Thanks for signing up! 🎉", style="color: green")
+        else:
+            logger.warning(f"No data returned from Supabase for: {email}")
+            return Div(
+                "Unable to process your signup. Please try again later.",
+                style="color: orange")
+
+    except Exception as e:
+        logger.exception(f"Newsletter signup failed for {email}")
+        return Div(
+            "We're having trouble processing your signup. Please try again later.",
+            style="color: orange")
 
 
 serve()
