@@ -17,11 +17,21 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Get logger instance
 logger = logging.getLogger(__name__)
+
+
+def setup_logging():
+    """Configure logging for the application.
+    
+    This function should be called at application startup.
+    It configures the logging format and level.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+
 
 # Load environment variables
 load_dotenv()
@@ -105,15 +115,32 @@ scrollspy_links = (A("Home", href="#home-section"),
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
 
-# Initialize Supabase client after app creation
-try:
-    supabase_client = init_supabase()
-    if supabase_client is None:
-        logger.warning("Running without Supabase integration")
-except Exception as e:
-    logger.error(f"Unexpected error during Supabase initialization: {str(e)}")
-    # Continue running without Supabase
-    supabase_client = None
+
+# Initialize application components
+def init_app():
+    """Initialize application components.
+    
+    This function should be called at application startup.
+    It sets up logging and initializes the Supabase client.
+    """
+    # Configure logging
+    setup_logging()
+
+    # Initialize Supabase client
+    try:
+        global supabase_client
+        supabase_client = init_supabase()
+        if supabase_client is None:
+            logger.warning("Running without Supabase integration")
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during Supabase initialization: {str(e)}")
+        # Continue running without Supabase
+        supabase_client = None
+
+
+# Initialize the application
+init_app()
 
 
 # --- Data Models ---
@@ -498,7 +525,7 @@ def newsletter(email: str):
                 style="color: orange")
 
     except Exception as e:
-        logger.error(f"Newsletter signup failed for {email}: {str(e)}")
+        logger.exception(f"Newsletter signup failed for {email}")
         return Div(
             "We're having trouble processing your signup. Please try again later.",
             style="color: orange")
