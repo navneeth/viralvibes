@@ -4,6 +4,9 @@ A powerful web application that analyzes YouTube playlists to uncover viral tren
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/vercel/examples/tree/main/framework-boilerplates/fasthtml&template=fasthtml)
 
+_Live Example: https://www.viralvibes.fyi_
+
+
 ## Features
 
 - 🔍 Analyze any YouTube playlist for viral trends
@@ -67,7 +70,7 @@ The application follows a modern serverless architecture with three main layers:
 - Secure data storage
 - Efficient caching mechanisms
 
-![App Architecture](static/diagram.png)
+![App Architecture](static/Diagram.png)
 
 ## Deployment
 
