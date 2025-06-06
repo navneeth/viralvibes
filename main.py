@@ -247,13 +247,52 @@ def HeaderCard() -> Card:
                 cls=HEADER_CARD_CLS)
 
 
+def PlaylistSteps() -> Steps:
+    """Create a Steps component explaining the playlist submission process.
+    
+    Returns:
+        Steps: A MonsterUI Steps component showing the playlist analysis workflow
+    """
+    return Steps(LiStep("Paste Playlist URL",
+                        cls=StepT.success,
+                        data_content="📋",
+                        description="Copy and paste any YouTube playlist URL"),
+                 LiStep("Validate URL",
+                        cls=StepT.success,
+                        data_content="✓",
+                        description="We verify it's a valid YouTube playlist"),
+                 LiStep("Fetch Video Data",
+                        cls=StepT.primary,
+                        data_content="📊",
+                        description="Retrieve video statistics and metadata"),
+                 LiStep(
+                     "Calculate Metrics",
+                     cls=StepT.primary,
+                     data_content="🔢",
+                     description="Process views, likes, and engagement rates"),
+                 LiStep("Display Results",
+                        cls=StepT.neutral,
+                        data_content="📈",
+                        description="View comprehensive analysis in a table"),
+                 cls=(StepsT.vertical,
+                      "min-h-[400px] my-8 mx-auto max-w-2xl text-center"))
+
+
 def AnalysisFormCard() -> Card:
+    """Create the analysis form card component.
+    
+    Returns:
+        Card: A MonsterUI Card component containing the analysis form
+    """
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     return Card(
         Img(src="/static/celebration.webp",
             style=
             "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
             alt="Celebration"),
+        P("Follow these steps to analyze any YouTube playlist:",
+          cls="text-lg font-semibold text-center mb-4"),
+        PlaylistSteps(),
         Form(LabelInput(
             "Playlist URL",
             type="text",
