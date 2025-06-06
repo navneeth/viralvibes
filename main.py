@@ -284,10 +284,14 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
                    data_content=icon,
                    description=description))
 
+STEPS_CLS = (
+    "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl "
+    "text-center flex justify-center items-center"
+)
+
     return Steps(
         *steps,
-        cls=
-        "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl text-center flex justify-center items-center"
+        cls=STEPS_CLS
     )
 
 
