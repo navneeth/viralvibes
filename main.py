@@ -253,29 +253,30 @@ def PlaylistSteps() -> Steps:
     Returns:
         Steps: A MonsterUI Steps component showing the playlist analysis workflow
     """
-    return Steps(LiStep("Paste Playlist URL",
-                        cls=StepT.success,
-                        data_content="📋",
-                        description="Copy and paste any YouTube playlist URL"),
-                 LiStep("Validate URL",
-                        cls=StepT.success,
-                        data_content="✓",
-                        description="We verify it's a valid YouTube playlist"),
-                 LiStep("Fetch Video Data",
-                        cls=StepT.primary,
-                        data_content="📊",
-                        description="Retrieve video statistics and metadata"),
-                 LiStep(
-                     "Calculate Metrics",
-                     cls=StepT.primary,
-                     data_content="🔢",
-                     description="Process views, likes, and engagement rates"),
-                 LiStep("Display Results",
-                        cls=StepT.neutral,
-                        data_content="📈",
-                        description="View comprehensive analysis in a table"),
-                 cls=(StepsT.vertical,
-                      "min-h-[400px] my-8 mx-auto max-w-2xl text-center"))
+    return Steps(
+        LiStep("Paste Playlist URL",
+               cls=StepT.success,
+               data_content="📋",
+               description="Copy and paste any YouTube playlist URL"),
+        LiStep("Validate URL",
+               cls=StepT.success,
+               data_content="✓",
+               description="We verify it's a valid YouTube playlist"),
+        LiStep("Fetch Video Data",
+               cls=StepT.primary,
+               data_content="📊",
+               description="Retrieve video statistics and metadata"),
+        LiStep("Calculate Metrics",
+               cls=StepT.primary,
+               data_content="🔢",
+               description="Process views, likes, and engagement rates"),
+        LiStep("Display Results",
+               cls=StepT.neutral,
+               data_content="📈",
+               description="View comprehensive analysis in a table"),
+        cls=
+        ("uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-2xl text-center"
+         ))
 
 
 def AnalysisFormCard() -> Card:
@@ -292,7 +293,7 @@ def AnalysisFormCard() -> Card:
             alt="Celebration"),
         P("Follow these steps to analyze any YouTube playlist:",
           cls="text-lg font-semibold text-center mb-4"),
-        PlaylistSteps(),
+        Div(id="playlist-steps", _=PlaylistSteps()),
         Form(LabelInput(
             "Playlist URL",
             type="text",
@@ -313,7 +314,7 @@ def AnalysisFormCard() -> Card:
                      style="margin-top:1rem; display:none; color:#393e6e;",
                      htmx_indicator=True),
              hx_post="/validate",
-             hx_target="#result",
+             hx_target="#playlist-steps",
              hx_indicator="#loading"),
         Div(id="result", style="margin-top:2rem;"),
         cls=FORM_CARD_CLS,
@@ -462,6 +463,32 @@ def validate(playlist: YoutubePlaylist):
                    style="color: orange;")
 
     if df.height > 0:
+        # Update steps to show completion
+        steps = Steps(
+            LiStep("Paste Playlist URL",
+                   cls=StepT.success,
+                   data_content="📋",
+                   description="Copy and paste any YouTube playlist URL"),
+            LiStep("Validate URL",
+                   cls=StepT.success,
+                   data_content="✓",
+                   description="We verify it's a valid YouTube playlist"),
+            LiStep("Fetch Video Data",
+                   cls=StepT.success,
+                   data_content="📊",
+                   description="Retrieve video statistics and metadata"),
+            LiStep("Calculate Metrics",
+                   cls=StepT.success,
+                   data_content="🔢",
+                   description="Process views, likes, and engagement rates"),
+            LiStep("Display Results",
+                   cls=StepT.success,
+                   data_content="📈",
+                   description="View comprehensive analysis in a table"),
+            cls=
+            ("uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-2xl text-center"
+             ))
+
         # Apply formatting functions or formulae to the DataFrame
         df = df.with_columns([
             pl.col("View Count").map_elements(format_number,
@@ -515,12 +542,13 @@ def validate(playlist: YoutubePlaylist):
                Td(format_number(total_likes)), Td(""), Td(""),
                Td(f"{avg_engagement:.2f}%")))
 
-        return Card(Div("Valid YouTube Playlist URL",
-                        Br(),
-                        Table(thead, tbody, tfoot, cls="w-full"),
-                        id="result",
-                        style="color: green;"),
-                    style=FORM_CARD_CLS)
+        return Div(
+            steps,
+            Div("Valid YouTube Playlist URL",
+                Br(),
+                Table(thead, tbody, tfoot, cls="w-full"),
+                id="result",
+                style="color: green;"))
 
     return Div(
         "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
