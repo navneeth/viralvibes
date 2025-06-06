@@ -247,36 +247,48 @@ def HeaderCard() -> Card:
                 cls=HEADER_CARD_CLS)
 
 
-def PlaylistSteps() -> Steps:
+def PlaylistSteps(completed_steps: int = 0) -> Steps:
     """Create a Steps component explaining the playlist submission process.
+    
+    Args:
+        completed_steps (int): Number of completed steps (0-5)
     
     Returns:
         Steps: A MonsterUI Steps component showing the playlist analysis workflow
     """
+    # Define step configurations
+    step_configs = [
+        ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
+        ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
+        ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
+        ("Calculate Metrics", "🔢",
+         "Process views, likes, and engagement rates"),
+        ("Display Results", "📈", "View comprehensive analysis in a table"),
+    ]
+
+    steps = []
+    for i, (title, icon, description) in enumerate(step_configs):
+        if i < completed_steps:
+            # Completed steps
+            step_cls = StepT.success
+        elif i == completed_steps:
+            # Current active step
+            step_cls = StepT.primary
+        else:
+            # Future steps
+            step_cls = StepT.neutral
+
+        steps.append(
+            LiStep(title,
+                   cls=step_cls,
+                   data_content=icon,
+                   description=description))
+
     return Steps(
-        LiStep("Paste Playlist URL",
-               cls=StepT.success,
-               data_content="📋",
-               description="Copy and paste any YouTube playlist URL"),
-        LiStep("Validate URL",
-               cls=StepT.success,
-               data_content="✓",
-               description="We verify it's a valid YouTube playlist"),
-        LiStep("Fetch Video Data",
-               cls=StepT.primary,
-               data_content="📊",
-               description="Retrieve video statistics and metadata"),
-        LiStep("Calculate Metrics",
-               cls=StepT.primary,
-               data_content="🔢",
-               description="Process views, likes, and engagement rates"),
-        LiStep("Display Results",
-               cls=StepT.neutral,
-               data_content="📈",
-               description="View comprehensive analysis in a table"),
+        *steps,
         cls=
-        ("uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-2xl text-center"
-         ))
+        "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl text-center flex justify-center items-center"
+    )
 
 
 def AnalysisFormCard() -> Card:
@@ -293,7 +305,10 @@ def AnalysisFormCard() -> Card:
             alt="Celebration"),
         P("Follow these steps to analyze any YouTube playlist:",
           cls="text-lg font-semibold text-center mb-4"),
-        Div(id="playlist-steps", _=PlaylistSteps()),
+        # Center the steps container
+        Div(PlaylistSteps(),
+            id="playlist-steps",
+            cls="flex justify-center w-full"),
         Form(LabelInput(
             "Playlist URL",
             type="text",
@@ -450,46 +465,28 @@ def index():
 def validate(playlist: YoutubePlaylist):
     errors = validate_youtube_playlist(playlist)
     if errors:
-        return Div(Ul(*[Li(error) for error in errors]),
-                   id="result",
-                   style="color: red;")
+        return Div(
+            PlaylistSteps(0),  # Reset to initial state on error
+            Ul(*[Li(error) for error in errors]),
+            style="color: red;")
+
+    # Step 2: URL validated
+    steps_after_validation = PlaylistSteps(2)
 
     try:
         df = get_playlist_videos(playlist.playlist_url)
     except Exception as e:
-        return Div("Valid YouTube Playlist URL, but failed to fetch videos: " +
-                   str(e),
-                   id="result",
-                   style="color: orange;")
+        return Div(
+            steps_after_validation,
+            P("Valid YouTube Playlist URL, but failed to fetch videos: " +
+              str(e)),
+            style="color: orange;")
 
     if df.height > 0:
-        # Update steps to show completion
-        steps = Steps(
-            LiStep("Paste Playlist URL",
-                   cls=StepT.success,
-                   data_content="📋",
-                   description="Copy and paste any YouTube playlist URL"),
-            LiStep("Validate URL",
-                   cls=StepT.success,
-                   data_content="✓",
-                   description="We verify it's a valid YouTube playlist"),
-            LiStep("Fetch Video Data",
-                   cls=StepT.success,
-                   data_content="📊",
-                   description="Retrieve video statistics and metadata"),
-            LiStep("Calculate Metrics",
-                   cls=StepT.success,
-                   data_content="🔢",
-                   description="Process views, likes, and engagement rates"),
-            LiStep("Display Results",
-                   cls=StepT.success,
-                   data_content="📈",
-                   description="View comprehensive analysis in a table"),
-            cls=
-            ("uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-2xl text-center"
-             ))
+        # Step 3: Data fetched successfully
+        steps_after_fetch = PlaylistSteps(5)  # Complete all steps
 
-        # Apply formatting functions or formulae to the DataFrame
+        # Apply formatting functions to the DataFrame
         df = df.with_columns([
             pl.col("View Count").map_elements(format_number,
                                               return_dtype=pl.String),
@@ -516,14 +513,13 @@ def validate(playlist: YoutubePlaylist):
                       ])
         ])
 
-        # Create table header
+        # Create table
         headers = [
             "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
             "Engagement Rate"
         ]
         thead = Thead(Tr(*[Th(h) for h in headers]))
 
-        # Create table body
         tbody_rows = []
         for row in df.iter_rows(named=True):
             tbody_rows.append(
@@ -543,17 +539,61 @@ def validate(playlist: YoutubePlaylist):
                Td(f"{avg_engagement:.2f}%")))
 
         return Div(
-            steps,
-            Div("Valid YouTube Playlist URL",
+            steps_after_fetch,
+            Div("Analysis Complete! ✅",
                 Br(),
-                Table(thead, tbody, tfoot, cls="w-full"),
-                id="result",
-                style="color: green;"))
+                Table(thead, tbody, tfoot, cls="w-full mt-4"),
+                style="color: green; margin-top: 2rem;"))
 
     return Div(
-        "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
-        id="result",
+        steps_after_validation,
+        P("Valid YouTube Playlist URL, but no videos were found or could not be retrieved."
+          ),
         style="color: orange;")
+
+
+# Alternative approach: Progressive step updates
+@rt("/update-steps/<int:step>")
+def update_steps_progressive(step: int):
+    """Progressively update steps to show completion"""
+    steps_config = [
+        ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
+        ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
+        ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
+        ("Calculate Metrics", "🔢",
+         "Process views, likes, and engagement rates"),
+        ("Display Results", "📈", "View comprehensive analysis in a table"),
+    ]
+
+    steps = []
+    for i, (title, icon, desc) in enumerate(steps_config):
+        if i <= step:
+            step_cls = StepT.success
+        elif i == step + 1:
+            step_cls = StepT.primary  # Next step is active
+        else:
+            step_cls = StepT.neutral
+
+        steps.append(
+            LiStep(title, cls=step_cls, data_content=icon, description=desc))
+
+    response = Steps(
+        *steps,
+        cls=
+        ("uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-2xl text-center"
+         ))
+
+    # If not the last step, trigger the next update
+    if step < 4:
+        response = Div(
+            response,
+            Script(f"""
+                setTimeout(() => {{
+                    htmx.ajax('GET', '/update-steps/{step + 1}', {{target: '#playlist-steps'}});
+                }}, 800);
+            """))
+
+    return response
 
 
 @rt("/newsletter", methods=["POST"])
