@@ -91,6 +91,18 @@ CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 
 FORM_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
 NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
 FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
+STEPS_CLS = (
+    "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl "
+    "text-center flex justify-center items-center")
+
+# Step configurations
+PLAYLIST_STEPS_CONFIG = [
+    ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
+    ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
+    ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
+    ("Calculate Metrics", "🔢", "Process views, likes, and engagement rates"),
+    ("Display Results", "📈", "View comprehensive analysis in a table"),
+]
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
@@ -187,28 +199,16 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     return errors
 
 
-def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
+def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
     """Fetches video information from a YouTube playlist URL.
     
     Args:
         playlist_url (str): The URL of the YouTube playlist to analyze.
         
     Returns:
-        pl.DataFrame: A Polars DataFrame containing video information with columns:
-            - Rank (int): Position in playlist
-            - Title (str): Video title
-            - Views (Billions) (float): View count in billions
-            - View Count (int): Raw view count
-            - Like Count (int): Number of likes
-            - Dislike Count (int): Number of dislikes
-            - Uploader (str): Channel name
-            - Creator (str): Video creator
-            - Channel ID (str): YouTube channel ID
-            - Duration (int): Video length in seconds
-            - Thumbnail (str): URL to video thumbnail
-            
-    Note:
-        Returns an empty Polars DataFrame if no videos are found or if the playlist is invalid.
+        Tuple[pl.DataFrame, str]: A tuple containing:
+            - A Polars DataFrame with video information
+            - The playlist name
     """
     ydl_opts = {
         "quiet": True,
@@ -217,6 +217,7 @@ def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         playlist_info = ydl.extract_info(playlist_url, download=False)
+        playlist_name = playlist_info.get("title", "Untitled Playlist")
 
         if "entries" in playlist_info:
             videos = playlist_info["entries"]
@@ -235,8 +236,8 @@ def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
                 "Thumbnail": video.get("thumbnail", ""),
             } for rank, video in enumerate(videos, start=1)]
 
-            return pl.DataFrame(data)
-    return pl.DataFrame()
+            return pl.DataFrame(data), playlist_name
+    return pl.DataFrame(), "Untitled Playlist"
 
 
 def HeaderCard() -> Card:
@@ -247,13 +248,63 @@ def HeaderCard() -> Card:
                 cls=HEADER_CARD_CLS)
 
 
+def PlaylistSteps(completed_steps: int = 0) -> Steps:
+    """Create a Steps component explaining the playlist submission process.
+    
+    Args:
+        completed_steps (int): Number of completed steps (0-5)
+    
+    Returns:
+        Steps: A MonsterUI Steps component showing the playlist analysis workflow
+        
+    Raises:
+        ValueError: If completed_steps is outside the valid range [0, len(PLAYLIST_STEPS_CONFIG)]
+    """
+    # Validate completed_steps is within bounds
+    if not 0 <= completed_steps <= len(PLAYLIST_STEPS_CONFIG):
+        raise ValueError(
+            f"completed_steps must be between 0 and {len(PLAYLIST_STEPS_CONFIG)}, got {completed_steps}"
+        )
+
+    steps = []
+    for i, (title, icon, description) in enumerate(PLAYLIST_STEPS_CONFIG):
+        if i < completed_steps:
+            # Completed steps
+            step_cls = StepT.success
+        elif i == completed_steps:
+            # Current active step
+            step_cls = StepT.primary
+        else:
+            # Future steps
+            step_cls = StepT.neutral
+
+        steps.append(
+            LiStep(title,
+                   cls=step_cls,
+                   data_content=icon,
+                   description=description))
+
+    return Steps(*steps, cls=STEPS_CLS)
+
+
 def AnalysisFormCard() -> Card:
+    """Create the analysis form card component.
+    
+    Returns:
+        Card: A MonsterUI Card component containing the analysis form
+    """
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
     return Card(
         Img(src="/static/celebration.webp",
             style=
             "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
             alt="Celebration"),
+        P("Follow these steps to analyze any YouTube playlist:",
+          cls="text-lg font-semibold text-center mb-4"),
+        # Center the steps container
+        Div(PlaylistSteps(),
+            id="playlist-steps",
+            cls="flex justify-center w-full"),
         Form(LabelInput(
             "Playlist URL",
             type="text",
@@ -274,7 +325,7 @@ def AnalysisFormCard() -> Card:
                      style="margin-top:1rem; display:none; color:#393e6e;",
                      htmx_indicator=True),
              hx_post="/validate",
-             hx_target="#result",
+             hx_target="#playlist-steps",
              hx_indicator="#loading"),
         Div(id="result", style="margin-top:2rem;"),
         cls=FORM_CARD_CLS,
@@ -410,20 +461,29 @@ def index():
 def validate(playlist: YoutubePlaylist):
     errors = validate_youtube_playlist(playlist)
     if errors:
-        return Div(Ul(*[Li(error) for error in errors]),
-                   id="result",
-                   style="color: red;")
+        return Div(
+            PlaylistSteps(0),  # Reset to initial state on error
+            Ul(*[Li(error) for error in errors]),
+            style="color: red;")
+
+    # Step 2: URL validated
+    steps_after_validation = PlaylistSteps(2)
 
     try:
-        df = get_playlist_videos(playlist.playlist_url)
+        df, playlist_name = get_playlist_videos(playlist.playlist_url)
     except Exception as e:
-        return Div("Valid YouTube Playlist URL, but failed to fetch videos: " +
-                   str(e),
-                   id="result",
-                   style="color: orange;")
+        return Div(
+            steps_after_validation,
+            P("Valid YouTube Playlist URL, but failed to fetch videos: " +
+              str(e)),
+            style="color: orange;")
 
     if df.height > 0:
-        # Apply formatting functions or formulae to the DataFrame
+        # Step 3: Data fetched successfully
+        steps_after_fetch = PlaylistSteps(
+            len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
+
+        # Apply formatting functions to the DataFrame
         df = df.with_columns([
             pl.col("View Count").map_elements(format_number,
                                               return_dtype=pl.String),
@@ -450,14 +510,13 @@ def validate(playlist: YoutubePlaylist):
                       ])
         ])
 
-        # Create table header
+        # Create table
         headers = [
             "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
             "Engagement Rate"
         ]
         thead = Thead(Tr(*[Th(h) for h in headers]))
 
-        # Create table body
         tbody_rows = []
         for row in df.iter_rows(named=True):
             tbody_rows.append(
@@ -476,17 +535,50 @@ def validate(playlist: YoutubePlaylist):
                Td(format_number(total_likes)), Td(""), Td(""),
                Td(f"{avg_engagement:.2f}%")))
 
-        return Card(Div("Valid YouTube Playlist URL",
-                        Br(),
-                        Table(thead, tbody, tfoot, cls="w-full"),
-                        id="result",
-                        style="color: green;"),
-                    style=FORM_CARD_CLS)
+        return Div(
+            steps_after_fetch,
+            Div(H3(f"Analysis Complete! ✅", cls="text-xl font-bold mb-2"),
+                P(f"Playlist: {playlist_name}",
+                  cls="text-lg text-gray-700 mb-4"),
+                Table(thead, tbody, tfoot, cls="w-full mt-4"),
+                style="color: green; margin-top: 2rem;"))
 
     return Div(
-        "Valid YouTube Playlist URL, but no videos were found or could not be retrieved.",
-        id="result",
+        steps_after_validation,
+        P("Valid YouTube Playlist URL, but no videos were found or could not be retrieved."
+          ),
         style="color: orange;")
+
+
+# Alternative approach: Progressive step updates
+@rt("/update-steps/<int:step>")
+def update_steps_progressive(step: int):
+    """Progressively update steps to show completion"""
+    steps = []
+    for i, (title, icon, desc) in enumerate(PLAYLIST_STEPS_CONFIG):
+        if i <= step:
+            step_cls = StepT.success
+        elif i == step + 1:
+            step_cls = StepT.primary  # Next step is active
+        else:
+            step_cls = StepT.neutral
+
+        steps.append(
+            LiStep(title, cls=step_cls, data_content=icon, description=desc))
+
+    response = Steps(*steps, cls=STEPS_CLS)
+
+    # If not the last step, trigger the next update
+    if step < len(PLAYLIST_STEPS_CONFIG) - 1:
+        response = Div(
+            response,
+            Script(f"""
+                setTimeout(() => {{
+                    htmx.ajax('GET', '/update-steps/{step + 1}', {{target: '#playlist-steps'}});
+                }}, 800);
+            """))
+
+    return response
 
 
 @rt("/newsletter", methods=["POST"])
