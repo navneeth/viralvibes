@@ -322,7 +322,7 @@ def AnalysisFormCard() -> Card:
              ),
              Loading(id="loading",
                      cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:1rem; display:none; color:#393e6e;",
+                     style="margin-top:1rem; color:#393e6e;",
                      htmx_indicator=True),
              hx_post="/validate",
              hx_target="#playlist-steps",

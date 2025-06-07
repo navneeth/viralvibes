@@ -33,7 +33,9 @@ cd viralvibes
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+uv venv --python 3.11.6
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
 3. Set up environment variables:
