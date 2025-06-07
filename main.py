@@ -91,6 +91,18 @@ CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 
 FORM_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
 NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
 FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
+STEPS_CLS = (
+    "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl "
+    "text-center flex justify-center items-center")
+
+# Step configurations
+PLAYLIST_STEPS_CONFIG = [
+    ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
+    ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
+    ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
+    ("Calculate Metrics", "🔢", "Process views, likes, and engagement rates"),
+    ("Display Results", "📈", "View comprehensive analysis in a table"),
+]
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
@@ -255,19 +267,18 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
     
     Returns:
         Steps: A MonsterUI Steps component showing the playlist analysis workflow
+        
+    Raises:
+        ValueError: If completed_steps is outside the valid range [0, len(PLAYLIST_STEPS_CONFIG)]
     """
-    # Define step configurations
-    step_configs = [
-        ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
-        ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
-        ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
-        ("Calculate Metrics", "🔢",
-         "Process views, likes, and engagement rates"),
-        ("Display Results", "📈", "View comprehensive analysis in a table"),
-    ]
+    # Validate completed_steps is within bounds
+    if not 0 <= completed_steps <= len(PLAYLIST_STEPS_CONFIG):
+        raise ValueError(
+            f"completed_steps must be between 0 and {len(PLAYLIST_STEPS_CONFIG)}, got {completed_steps}"
+        )
 
     steps = []
-    for i, (title, icon, description) in enumerate(step_configs):
+    for i, (title, icon, description) in enumerate(PLAYLIST_STEPS_CONFIG):
         if i < completed_steps:
             # Completed steps
             step_cls = StepT.success
@@ -284,15 +295,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
                    data_content=icon,
                    description=description))
 
-STEPS_CLS = (
-    "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl "
-    "text-center flex justify-center items-center"
-)
-
-    return Steps(
-        *steps,
-        cls=STEPS_CLS
-    )
+    return Steps(*steps, cls=STEPS_CLS)
 
 
 def AnalysisFormCard() -> Card:
@@ -560,17 +563,8 @@ def validate(playlist: YoutubePlaylist):
 @rt("/update-steps/<int:step>")
 def update_steps_progressive(step: int):
     """Progressively update steps to show completion"""
-    steps_config = [
-        ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
-        ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
-        ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
-        ("Calculate Metrics", "🔢",
-         "Process views, likes, and engagement rates"),
-        ("Display Results", "📈", "View comprehensive analysis in a table"),
-    ]
-
     steps = []
-    for i, (title, icon, desc) in enumerate(steps_config):
+    for i, (title, icon, desc) in enumerate(PLAYLIST_STEPS_CONFIG):
         if i <= step:
             step_cls = StepT.success
         elif i == step + 1:
@@ -581,14 +575,10 @@ def update_steps_progressive(step: int):
         steps.append(
             LiStep(title, cls=step_cls, data_content=icon, description=desc))
 
-    response = Steps(
-        *steps,
-        cls=
-        ("uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-2xl text-center"
-         ))
+    response = Steps(*steps, cls=STEPS_CLS)
 
     # If not the last step, trigger the next update
-    if step < 4:
+    if step < len(PLAYLIST_STEPS_CONFIG) - 1:
         response = Div(
             response,
             Script(f"""
