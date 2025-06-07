@@ -491,7 +491,8 @@ def validate(playlist: YoutubePlaylist):
 
     if df.height > 0:
         # Step 3: Data fetched successfully
-        steps_after_fetch = PlaylistSteps(5)  # Complete all steps
+        steps_after_fetch = PlaylistSteps(
+            len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
 
         # Apply formatting functions to the DataFrame
         df = df.with_columns([
