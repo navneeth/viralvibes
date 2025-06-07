@@ -199,28 +199,16 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     return errors
 
 
-def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
+def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
     """Fetches video information from a YouTube playlist URL.
     
     Args:
         playlist_url (str): The URL of the YouTube playlist to analyze.
         
     Returns:
-        pl.DataFrame: A Polars DataFrame containing video information with columns:
-            - Rank (int): Position in playlist
-            - Title (str): Video title
-            - Views (Billions) (float): View count in billions
-            - View Count (int): Raw view count
-            - Like Count (int): Number of likes
-            - Dislike Count (int): Number of dislikes
-            - Uploader (str): Channel name
-            - Creator (str): Video creator
-            - Channel ID (str): YouTube channel ID
-            - Duration (int): Video length in seconds
-            - Thumbnail (str): URL to video thumbnail
-            
-    Note:
-        Returns an empty Polars DataFrame if no videos are found or if the playlist is invalid.
+        Tuple[pl.DataFrame, str]: A tuple containing:
+            - A Polars DataFrame with video information
+            - The playlist name
     """
     ydl_opts = {
         "quiet": True,
@@ -229,6 +217,7 @@ def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         playlist_info = ydl.extract_info(playlist_url, download=False)
+        playlist_name = playlist_info.get("title", "Untitled Playlist")
 
         if "entries" in playlist_info:
             videos = playlist_info["entries"]
@@ -247,8 +236,8 @@ def get_playlist_videos(playlist_url: str) -> pl.DataFrame:
                 "Thumbnail": video.get("thumbnail", ""),
             } for rank, video in enumerate(videos, start=1)]
 
-            return pl.DataFrame(data)
-    return pl.DataFrame()
+            return pl.DataFrame(data), playlist_name
+    return pl.DataFrame(), "Untitled Playlist"
 
 
 def HeaderCard() -> Card:
@@ -481,7 +470,7 @@ def validate(playlist: YoutubePlaylist):
     steps_after_validation = PlaylistSteps(2)
 
     try:
-        df = get_playlist_videos(playlist.playlist_url)
+        df, playlist_name = get_playlist_videos(playlist.playlist_url)
     except Exception as e:
         return Div(
             steps_after_validation,
@@ -548,8 +537,9 @@ def validate(playlist: YoutubePlaylist):
 
         return Div(
             steps_after_fetch,
-            Div("Analysis Complete! ✅",
-                Br(),
+            Div(H3(f"Analysis Complete! ✅", cls="text-xl font-bold mb-2"),
+                P(f"Playlist: {playlist_name}",
+                  cls="text-lg text-gray-700 mb-4"),
                 Table(thead, tbody, tfoot, cls="w-full mt-4"),
                 style="color: green; margin-top: 2rem;"))
 
