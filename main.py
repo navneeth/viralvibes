@@ -16,6 +16,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
+from components import (HeaderCard, AnalysisFormCard, FeaturesCard,
+                        BenefitsCard, NewsletterCard, PlaylistSteps)
+from constants import (PLAYLIST_STEPS_CONFIG, FLEX_COL, FLEX_CENTER,
+                       FLEX_BETWEEN, GAP_2, GAP_4, SECTION_BASE, CARD_BASE,
+                       HEADER_CARD, FORM_CARD, NEWSLETTER_CARD)
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -85,24 +90,12 @@ def init_supabase() -> Optional[Client]:
 
 
 # CSS Classes
-CARD_BASE_CLS = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
-HEADER_CARD_CLS = "bg-gradient-to-r from-rose-500 via-red-600 to-red-700 text-white py-8 px-6 text-center rounded-xl"
-CARD_INLINE_STYLE = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333; transition: all 0.3s ease;"
-FORM_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
-NEWSLETTER_CARD_CLS = CARD_INLINE_STYLE + " hover:shadow-xl"
-FLEX_COL_CENTER_CLS = "flex flex-col items-center px-4 space-y-4"
-STEPS_CLS = (
-    "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl "
-    "text-center flex justify-center items-center")
-
-# Step configurations
-PLAYLIST_STEPS_CONFIG = [
-    ("Paste Playlist URL", "📋", "Copy and paste any YouTube playlist URL"),
-    ("Validate URL", "✓", "We verify it's a valid YouTube playlist"),
-    ("Fetch Video Data", "📊", "Retrieve video statistics and metadata"),
-    ("Calculate Metrics", "🔢", "Process views, likes, and engagement rates"),
-    ("Display Results", "📈", "View comprehensive analysis in a table"),
-]
+CARD_BASE_CLS = CARD_BASE
+HEADER_CARD_CLS = HEADER_CARD
+CARD_INLINE_STYLE = FORM_CARD
+FORM_CARD_CLS = FORM_CARD
+NEWSLETTER_CARD_CLS = NEWSLETTER_CARD
+FLEX_COL_CENTER_CLS = FLEX_COL + " " + FLEX_CENTER
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
@@ -240,198 +233,11 @@ def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
     return pl.DataFrame(), "Untitled Playlist"
 
 
-def HeaderCard() -> Card:
-    return Card(P("Decode YouTube virality. Instantly.",
-                  cls="text-lg mt-2 text-white"),
-                header=CardTitle("ViralVibes",
-                                 cls="text-4xl font-bold text-white"),
-                cls=HEADER_CARD_CLS)
-
-
-def PlaylistSteps(completed_steps: int = 0) -> Steps:
-    """Create a Steps component explaining the playlist submission process.
-    
-    Args:
-        completed_steps (int): Number of completed steps (0-5)
-    
-    Returns:
-        Steps: A MonsterUI Steps component showing the playlist analysis workflow
-        
-    Raises:
-        ValueError: If completed_steps is outside the valid range [0, len(PLAYLIST_STEPS_CONFIG)]
-    """
-    # Validate completed_steps is within bounds
-    if not 0 <= completed_steps <= len(PLAYLIST_STEPS_CONFIG):
-        raise ValueError(
-            f"completed_steps must be between 0 and {len(PLAYLIST_STEPS_CONFIG)}, got {completed_steps}"
-        )
-
-    steps = []
-    for i, (title, icon, description) in enumerate(PLAYLIST_STEPS_CONFIG):
-        if i < completed_steps:
-            # Completed steps
-            step_cls = StepT.success
-        elif i == completed_steps:
-            # Current active step
-            step_cls = StepT.primary
-        else:
-            # Future steps
-            step_cls = StepT.neutral
-
-        steps.append(
-            LiStep(title,
-                   cls=step_cls,
-                   data_content=icon,
-                   description=description))
-
-    return Steps(*steps, cls=STEPS_CLS)
-
-
-def AnalysisFormCard() -> Card:
-    """Create the analysis form card component.
-    
-    Returns:
-        Card: A MonsterUI Card component containing the analysis form
-    """
-    prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    return Card(
-        Img(src="/static/celebration.webp",
-            style=
-            "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
-            alt="Celebration"),
-        P("Follow these steps to analyze any YouTube playlist:",
-          cls="text-lg font-semibold text-center mb-4"),
-        # Center the steps container
-        Div(PlaylistSteps(),
-            id="playlist-steps",
-            cls="flex justify-center w-full"),
-        Form(LabelInput(
-            "Playlist URL",
-            type="text",
-            name="playlist_url",
-            placeholder="Paste YouTube Playlist URL",
-            value=prefill_url,
-            className=
-            "px-4 py-2 w-full border rounded mb-4 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
-        ),
-             Button(
-                 "Analyze Now",
-                 type="submit",
-                 className=
-                 f"{ButtonT.destructive} hover:scale-105 transition-transform"
-             ),
-             Loading(id="loading",
-                     cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:1rem; color:#393e6e;",
-                     htmx_indicator=True),
-             hx_post="/validate",
-             hx_target="#playlist-steps",
-             hx_indicator="#loading"),
-        Div(id="result", style="margin-top:2rem;"),
-        cls=FORM_CARD_CLS,
-        body_cls="space-y-6")
-
-
-def create_info_card(title: str,
-                     items: List[Tuple[str, str, str]],
-                     img_src: Optional[str] = None,
-                     img_alt: Optional[str] = None) -> Card:
-    """Helper function to create Feature and Benefit cards.
-    
-    Args:
-        title (str): The title of the card
-        items (List[Tuple[str, str, str]]): List of (title, description, icon) tuples
-        img_src (Optional[str]): Optional path to card image
-        img_alt (Optional[str]): Optional alt text for card image
-        
-    Returns:
-        Card: A MonsterUI Card component with the specified content
-    """
-    cards = [
-        Div(icon,
-            H4(item_title, cls="mb-2 mt-2"),
-            P(desc, cls="text-gray-600 text-sm text-center"),
-            cls=FLEX_COL_CENTER_CLS) for item_title, desc, icon in items
-    ]
-    img_component = Img(
-        src=img_src,
-        style="width:120px; margin: 0 auto 2rem auto; display:block;",
-        alt=img_alt) if img_src else ""
-    return Card(img_component,
-                Grid(*cards),
-                header=CardTitle(
-                    title, cls="text-2xl font-semibold mb-4 text-center"),
-                cls=CARD_BASE_CLS,
-                body_cls="space-y-6")
-
-
-def FeaturesCard() -> Card:
-    features = [
-        ("Uncover Viral Secrets",
-         "Paste a playlist and uncover the secrets behind viral videos.",
-         UkIcon("search", cls="text-red-500 text-3xl mb-2")),
-        ("Instant Playlist Insights", "Get instant info on trending videos.",
-         UkIcon("zap", cls="text-red-500 text-3xl mb-2")),
-        ("No Login Required", "Just paste a link and go. No signup needed!",
-         UkIcon("unlock", cls="text-red-500 text-3xl mb-2")),
-    ]
-    return create_info_card("What is ViralVibes?", features,
-                            "/static/virality.webp",
-                            "Illustration of video viral insights")
-
-
-def BenefitsCard() -> Card:
-    benefits = [
-        ("Real-time Analysis", "Track trends as they emerge.",
-         UkIcon("activity", cls="text-red-500 text-3xl mb-2")),
-        ("Engagement Metrics",
-         "Understand what drives likes, shares, and comments.",
-         UkIcon("heart", cls="text-red-500 text-3xl mb-2")),
-        ("Top Creator Insights", "Identify breakout content and rising stars.",
-         UkIcon("star", cls="text-red-500 text-3xl mb-2")),
-    ]
-    return create_info_card("Why You'll Love It", benefits)
-
-
-def NewsletterCard() -> Card:
-    return Card(
-        P("Enter your email to get early access and updates. No spam ever.",
-          cls="mb-4"),
-        Form(LabelInput(
-            "Email",
-            type="email",
-            name="email",
-            required=True,
-            pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
-            title="Please enter a valid email address",
-            placeholder="you@example.com",
-            className=
-            "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500"
-        ),
-             Button("Notify Me",
-                    type="submit",
-                    className=
-                    f"{ButtonT.primary} hover:scale-105 transition-transform"),
-             Loading(id="loading",
-                     cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:1rem; display:none; color:#393e6e;",
-                     htmx_indicator=True),
-             className="flex flex-col items-center space-y-4",
-             hx_post="/newsletter",
-             hx_target="#newsletter-result",
-             hx_indicator="#loading"),
-        Div(id="newsletter-result", style="margin-top:1rem;"),
-        header=CardTitle("Be the first to try it",
-                         cls="text-xl font-bold mb-4"),
-        cls=NEWSLETTER_CARD_CLS,
-        body_cls="space-y-6")
-
-
 @rt
 def index():
 
     def _Section(*c, **kwargs):
-        return Section(*c, cls='space-y-3 my-48', **kwargs)
+        return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
     return Titled(
         "ViralVibes",
