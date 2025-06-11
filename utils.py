@@ -10,7 +10,13 @@ def calculate_engagement_rate(view_count: float, like_count: float,
 
 
 def format_number(num: float) -> str:
-    """Format number to human-readable format."""
+    """
+    Convert a large number into a human-readable string (e.g., 1.2M, 3.4K).
+    Args:
+        num (float): The input number.
+    Returns:
+        str: Human-readable formatted string.
+    """
     if not num:
         return "0"
     if num >= 1_000_000_000:
@@ -23,17 +29,12 @@ def format_number(num: float) -> str:
 
 
 def format_duration(seconds: int) -> str:
-    """Format duration in seconds to HH:MM:SS format.
-    
+    """
+    Convert seconds into a human-readable duration string (e.g., 1:30, 2:15:45).
     Args:
-        seconds (int): Duration in seconds
-        
+        seconds (int): Duration in seconds.
     Returns:
-        str: Formatted duration string in HH:MM:SS or MM:SS format
-        
-    Raises:
-        ValueError: If seconds is negative or not an integer
-        TypeError: If seconds is not a number
+        str: Formatted duration string in MM:SS or HH:MM:SS format.
     """
     try:
         # Convert to integer if float
