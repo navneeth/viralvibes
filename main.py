@@ -216,6 +216,7 @@ def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
             videos = playlist_info["entries"]
             data = [{
                 "Rank": rank,
+                "id": video.get("id", ""),  # Ensure id is present for clickable title
                 "Title": video.get("title", "N/A"),
                 "Views (Billions)":
                 (video.get("view_count") or 0) / 1_000_000_000,
@@ -325,8 +326,12 @@ def validate(playlist: YoutubePlaylist):
 
         tbody_rows = []
         for row in df.iter_rows(named=True):
+            # Use the 'id' field for the YouTube video ID (yt-dlp flat extraction)
+            video_id = row.get("id")
+            yt_link = f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+            title_cell = A(row["Title"], href=yt_link, target="_blank", style="color:#2563eb;text-decoration:underline;") if yt_link else row["Title"]
             tbody_rows.append(
-                Tr(Td(row["Rank"]), Td(row["Title"]), Td(row["View Count"]),
+                Tr(Td(row["Rank"]), Td(title_cell), Td(row["View Count"]),
                    Td(row["Like Count"]), Td(row["Dislike Count"]),
                    Td(row["Duration"]), Td(row["Engagement Rate (%)"])))
         tbody = Tbody(*tbody_rows)
