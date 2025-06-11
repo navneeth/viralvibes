@@ -39,10 +39,10 @@ def AnalysisFormCard() -> Card:
     return Card(
         Img(src="/static/celebration.webp",
             style=
-            "width: 100%; max-width: 320px; margin: 0 auto 1.5rem auto; display: block;",
+            "width: 100%; max-width: 320px; margin: 0 auto 1rem auto; display: block;",
             alt="Celebration"),
         P("Follow these steps to analyze any YouTube playlist:",
-          cls="text-lg font-semibold text-center mb-4"),
+          cls="text-lg font-semibold text-center mb-2"),
         Div(PlaylistSteps(), id="playlist-steps", cls=f"{FLEX_CENTER} w-full"),
         Form(LabelInput(
             "Playlist URL",
@@ -51,7 +51,7 @@ def AnalysisFormCard() -> Card:
             placeholder="Paste YouTube Playlist URL",
             value=prefill_url,
             className=
-            "px-4 py-2 w-full border rounded mb-4 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+            "px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
         ),
              Button(
                  "Analyze Now",
@@ -61,14 +61,14 @@ def AnalysisFormCard() -> Card:
              ),
              Loading(id="loading",
                      cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:1rem; color:#393e6e;",
+                     style="margin-top:0.5rem; color:#393e6e;",
                      htmx_indicator=True),
              hx_post="/validate",
              hx_target="#playlist-steps",
              hx_indicator="#loading"),
-        Div(id="result", style="margin-top:2rem;"),
+        Div(id="result", style="margin-top:1rem;"),
         cls=FORM_CARD,
-        body_cls="space-y-6")
+        body_cls="space-y-4")
 
 
 def create_info_card(title: str,

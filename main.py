@@ -192,16 +192,19 @@ def validate_youtube_playlist(playlist: YoutubePlaylist):
     return errors
 
 
-def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
+def get_playlist_videos(
+        playlist_url: str) -> Tuple[pl.DataFrame, str, str, str]:
     """Fetches video information from a YouTube playlist URL.
     
     Args:
         playlist_url (str): The URL of the YouTube playlist to analyze.
         
     Returns:
-        Tuple[pl.DataFrame, str]: A tuple containing:
+        Tuple[pl.DataFrame, str, str, str]: A tuple containing:
             - A Polars DataFrame with video information
             - The playlist name
+            - The channel name
+            - The channel thumbnail URL
     """
     ydl_opts = {
         "quiet": True,
@@ -210,13 +213,38 @@ def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         playlist_info = ydl.extract_info(playlist_url, download=False)
+
+        # Debug logging
+        logger.info("Playlist Info Keys: %s", playlist_info.keys())
+        logger.info("Uploader Info: %s", playlist_info.get("uploader"))
+        logger.info("Channel Info: %s", playlist_info.get("channel"))
+        logger.info("Channel URL: %s", playlist_info.get("channel_url"))
+
         playlist_name = playlist_info.get("title", "Untitled Playlist")
+        channel_name = playlist_info.get("uploader", "Unknown Channel")
+
+        # Extract channel thumbnail from thumbnails
+        channel_thumbnail = ""
+        if "thumbnails" in playlist_info:
+            thumbnails = playlist_info["thumbnails"]
+            # Try to get the highest quality thumbnail
+            for thumb in thumbnails:
+                if thumb.get(
+                        "width", 0
+                ) >= 48:  # Look for thumbnail that's at least 48px wide
+                    channel_thumbnail = thumb.get("url", "")
+                    break
+            # If no suitable thumbnail found, use the first one
+            if not channel_thumbnail and thumbnails:
+                channel_thumbnail = thumbnails[0].get("url", "")
+
+        logger.info("Selected Channel Thumbnail: %s", channel_thumbnail)
 
         if "entries" in playlist_info:
             videos = playlist_info["entries"]
             data = [{
                 "Rank": rank,
-                "id": video.get("id", ""),  # Ensure id is present for clickable title
+                "id": video.get("id", ""),
                 "Title": video.get("title", "N/A"),
                 "Views (Billions)":
                 (video.get("view_count") or 0) / 1_000_000_000,
@@ -230,8 +258,9 @@ def get_playlist_videos(playlist_url: str) -> Tuple[pl.DataFrame, str]:
                 "Thumbnail": video.get("thumbnail", ""),
             } for rank, video in enumerate(videos, start=1)]
 
-            return pl.DataFrame(data), playlist_name
-    return pl.DataFrame(), "Untitled Playlist"
+            return pl.DataFrame(
+                data), playlist_name, channel_name, channel_thumbnail
+    return pl.DataFrame(), "Untitled Playlist", "Unknown Channel", ""
 
 
 @rt
@@ -277,8 +306,15 @@ def validate(playlist: YoutubePlaylist):
     steps_after_validation = PlaylistSteps(2)
 
     try:
-        df, playlist_name = get_playlist_videos(playlist.playlist_url)
+        df, playlist_name, channel_name, channel_thumbnail = get_playlist_videos(
+            playlist.playlist_url)
+
+        # Debug logging
+        logger.info("Channel Name: %s", channel_name)
+        logger.info("Channel Thumbnail URL: %s", channel_thumbnail)
+
     except Exception as e:
+        logger.exception("Error fetching playlist data")
         return Div(
             steps_after_validation,
             P("Valid YouTube Playlist URL, but failed to fetch videos: " +
@@ -329,7 +365,11 @@ def validate(playlist: YoutubePlaylist):
             # Use the 'id' field for the YouTube video ID (yt-dlp flat extraction)
             video_id = row.get("id")
             yt_link = f"https://www.youtube.com/watch?v={video_id}" if video_id else None
-            title_cell = A(row["Title"], href=yt_link, target="_blank", style="color:#2563eb;text-decoration:underline;") if yt_link else row["Title"]
+            title_cell = A(row["Title"],
+                           href=yt_link,
+                           target="_blank",
+                           style="color:#2563eb;text-decoration:underline;"
+                           ) if yt_link else row["Title"]
             tbody_rows.append(
                 Tr(Td(row["Rank"]), Td(title_cell), Td(row["View Count"]),
                    Td(row["Like Count"]), Td(row["Dislike Count"]),
@@ -346,13 +386,38 @@ def validate(playlist: YoutubePlaylist):
                Td(format_number(total_likes)), Td(""), Td(""),
                Td(f"{avg_engagement:.2f}%")))
 
+        # Create channel info section with thumbnail
+        channel_info = Div(Div(
+            Img(src=channel_thumbnail,
+                alt=f"{channel_name} channel thumbnail",
+                style=
+                "width: 48px; height: 48px; border-radius: 50%; margin-right: 1rem;"
+                ),
+            Div(A(
+                channel_name,
+                href=
+                f"https://www.youtube.com/channel/{df['Channel ID'].item(0)}",
+                target="_blank",
+                style="color:#2563eb;text-decoration:underline;",
+                cls="text-sm text-gray-600"),
+                cls="flex flex-col justify-center"),
+            cls="flex items-center mb-2") if channel_thumbnail else "",
+                           cls="mb-2")
+
+        # Debug logging for channel info
+        logger.info("Channel Info Component: %s", channel_info)
+
         return Div(
             steps_after_fetch,
-            Div(H3(f"Analysis Complete! ✅", cls="text-xl font-bold mb-2"),
-                P(f"Playlist: {playlist_name}",
-                  cls="text-lg text-gray-700 mb-4"),
-                Table(thead, tbody, tfoot, cls="w-full mt-4"),
-                style="color: green; margin-top: 2rem;"))
+            Div(H3(f"Analysis Complete! ✅", cls="text-xl font-bold mb-1"),
+                P(A(f"Playlist: {playlist_name}",
+                    href=playlist.playlist_url,
+                    target="_blank",
+                    style="color:#2563eb;text-decoration:underline;"),
+                  cls="text-lg text-gray-700 mb-2"),
+                channel_info,
+                Table(thead, tbody, tfoot, cls="w-full mt-2"),
+                style="color: green; margin-top: 1rem;"))
 
     return Div(
         steps_after_validation,

@@ -10,7 +10,7 @@ HEADER_CARD = "bg-gradient-to-r from-rose-500 via-red-600 to-red-700 text-white 
 FORM_CARD = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333; transition: all 0.3s ease; hover:shadow-xl"
 NEWSLETTER_CARD = "max-w-420px; margin: 3rem auto; padding: 2rem; box-shadow: 0 4px 24px #0001; border-radius: 1.2rem; background: #fff; color: #333; transition: all 0.3s ease; hover:shadow-xl"
 STEPS_CLS = (
-    "uk-steps uk-steps-horizontal min-h-[400px] my-8 mx-auto max-w-4xl "
+    "uk-steps uk-steps-horizontal min-h-[200px] my-4 mx-auto max-w-4xl "
     "text-center flex justify-center items-center")
 
 # Step configurations
