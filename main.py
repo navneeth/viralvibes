@@ -148,11 +148,8 @@ def init_app():
 # Initialize the application
 init_app()
 
-
 # --- Data Models ---
-@dataclass
-class YoutubePlaylist:
-    playlist_url: str
+# YoutubePlaylist dataclass is now imported from validators.py
 
 
 # --- Utility Functions ---
