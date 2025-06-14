@@ -1,0 +1,22 @@
+# Allow all crawlers
+User-agent: *
+Allow: /
+Allow: /analyze
+Allow: /validate
+Allow: /fetch-content
+
+# Disallow admin and API endpoints
+Disallow: /admin/
+Disallow: /api/
+Disallow: /private/
+
+# Disallow temporary files and logs
+Disallow: /*.tmp$
+Disallow: /*.log$
+Disallow: /*.json$
+
+# Crawl delay to prevent server overload
+Crawl-delay: 10
+
+# Sitemap location
+Sitemap: https://viralvibes.fyi/sitemap.xml
