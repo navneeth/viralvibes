@@ -21,6 +21,7 @@ from components import (HeaderCard, AnalysisFormCard, FeaturesCard,
 from constants import (PLAYLIST_STEPS_CONFIG, FLEX_COL, FLEX_CENTER,
                        FLEX_BETWEEN, GAP_2, GAP_4, SECTION_BASE, CARD_BASE,
                        HEADER_CARD, FORM_CARD, NEWSLETTER_CARD)
+from validators import YoutubePlaylist, YoutubePlaylistValidator
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -155,43 +156,6 @@ class YoutubePlaylist:
 
 
 # --- Utility Functions ---
-def validate_youtube_playlist(playlist: YoutubePlaylist):
-    errors = []
-    try:
-        parsed_url = urlparse(playlist.playlist_url)
-        # Accept www.youtube.com, youtube.com, m.youtube.com, and music.youtube.com
-        allowed_domains = {
-            "www.youtube.com",
-            "youtube.com",
-            "m.youtube.com",
-            "music.youtube.com",
-        }
-        if parsed_url.netloc not in allowed_domains:
-            errors.append(
-                "Invalid YouTube URL: Domain is not a recognized youtube.com domain"
-            )
-            return errors
-
-        if parsed_url.path != "/playlist":
-            errors.append("Invalid YouTube URL: Not a playlist URL")
-            return errors
-
-        query_params = parse_qs(parsed_url.query)
-        if "list" not in query_params:
-            errors.append("Invalid YouTube URL: Missing playlist ID")
-            return errors
-
-        playlist_id = query_params["list"][0]
-
-        if not playlist_id:
-            errors.append("Invalid YouTube URL: Empty playlist ID")
-            return errors
-    except Exception:
-        errors.append("Invalid URL format")
-        return errors
-    return errors
-
-
 def get_playlist_videos(
         playlist_url: str) -> Tuple[pl.DataFrame, str, str, str]:
     """Fetches video information from a YouTube playlist URL.
@@ -295,12 +259,52 @@ def index():
 
 @rt("/validate")
 def validate(playlist: YoutubePlaylist):
-    errors = validate_youtube_playlist(playlist)
+    """
+    This route now renders a full HTML page for playlist analysis results,
+    including success, validation errors, data fetch errors, or no videos found.
+    It uses a minimal header and footer.
+    """
+    # Common header for the analysis result page
+    analysis_result_page_header = NavBar(
+        A("Home", href="/"),  # Link back to the main home page
+        brand=DivLAligned(H3("ViralVibes"),
+                          UkIcon('chart-line', height=30, width=30)),
+        sticky=True)
+
+    # Common footer for the analysis result page
+    analysis_result_page_footer = Footer(
+        "© 2025 ViralVibes. Built for creators.",
+        className="text-center text-gray-500 py-6")
+
+    # --- Step 1: Validate YouTube Playlist URL ---
+    errors = YoutubePlaylistValidator.validate(playlist)
     if errors:
-        return Div(
-            PlaylistSteps(0),  # Reset to initial state on error
-            Ul(*[Li(error) for error in errors]),
-            style="color: red;")
+        return Titled(
+            "Validation Error - ViralVibes",
+            Container(
+                analysis_result_page_header,
+                Section(
+                    H1("Input Error",
+                       cls="text-3xl font-bold text-red-700 mb-4 text-center"),
+                    Div(
+                        PlaylistSteps(0),  # Reset to initial state on error
+                        Ul(*[
+                            Li(error, cls="text-red-600 list-disc ml-5")
+                            for error in errors
+                        ],
+                           cls="space-y-2"),
+                        cls=
+                        f"{CARD_BASE_CLS} p-6 shadow-lg rounded-lg max-w-lg mx-auto bg-red-50 border border-red-300"
+                    ),
+                    A("Try Again",
+                      href="/analyze",
+                      cls=
+                      "uk-button uk-button-primary mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300"
+                      ),
+                    cls=f"{SECTION_BASE} space-y-3 my-20 {FLEX_COL_CENTER_CLS}"
+                ),
+                analysis_result_page_footer,
+                cls=(ContainerT.xl, 'uk-container-expand')))
 
     # Step 2: URL validated
     steps_after_validation = PlaylistSteps(2)
