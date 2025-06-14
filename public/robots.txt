@@ -2,7 +2,6 @@
 User-agent: *
 Allow: /
 Allow: /analyze
-Allow: /validate
 Allow: /fetch-content
 
 # Disallow endpoints

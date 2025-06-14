@@ -33,10 +33,18 @@ def generate_sitemap():
     urlset = ET.Element("urlset",
                         xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
 
-    # Get the last modified time of the main application file
-    main_file = "main.py"
-    last_modified = datetime.fromtimestamp(os.path.getmtime(main_file))
-    last_modified_str = last_modified.strftime("%Y-%m-%d")
+    # Get the script's directory and resolve main.py path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    main_file = os.path.join(script_dir, "main.py")
+
+    # Get the last modified time of the main application file, handle missing file gracefully
+    try:
+        last_modified = datetime.fromtimestamp(os.path.getmtime(main_file))
+        last_modified_str = last_modified.strftime("%Y-%m-%d")
+    except FileNotFoundError:
+        print(
+            f"Warning: {main_file} not found, using current date for lastmod")
+        last_modified_str = datetime.now().strftime("%Y-%m-%d")
 
     # Add each route to the sitemap
     for route in ROUTES:
@@ -58,12 +66,22 @@ def generate_sitemap():
         priority = ET.SubElement(url, "priority")
         priority.text = "0.8" if route == "/" else "0.6"
 
-    # Create the sitemap file
-    sitemap_path = os.path.join("public", "sitemap.xml")
-    with open(sitemap_path, "w", encoding="utf-8") as f:
-        f.write(prettify(urlset))
+    # Create the sitemap file in the public directory
+    public_dir = os.path.join(script_dir, "public")
+    sitemap_path = os.path.join(public_dir, "sitemap.xml")
 
-    print(f"Sitemap generated at {sitemap_path}")
+    try:
+        # Ensure public directory exists
+        os.makedirs(public_dir, exist_ok=True)
+
+        with open(sitemap_path, "w", encoding="utf-8") as f:
+            f.write(prettify(urlset))
+        print(f"Sitemap generated at {sitemap_path}")
+    except IOError as e:
+        print(f"Error writing sitemap: {e}")
+        return False
+
+    return True
 
 
 if __name__ == "__main__":

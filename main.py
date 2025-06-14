@@ -416,7 +416,9 @@ def validate(playlist: YoutubePlaylist):
 
         return Div(
             steps_after_fetch,
-            Div(Alert("Analysis Complete! ✅", cls=AlertT.success),
+            Div(Alert(DivLAligned(UkIcon('check-circle'),
+                                  P("Analysis Complete! ✅")),
+                      cls=AlertT.success),
                 P(A(f"Playlist: {playlist_name}",
                     href=playlist.playlist_url,
                     target="_blank",
