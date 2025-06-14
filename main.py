@@ -21,6 +21,7 @@ from constants import (PLAYLIST_STEPS_CONFIG, FLEX_COL, FLEX_CENTER,
                        HEADER_CARD, FORM_CARD, NEWSLETTER_CARD)
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from db import setup_logging, init_supabase, supabase_client
+from step_components import StepProgress
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -220,7 +221,7 @@ def validate(playlist: YoutubePlaylist):
                     H1("Input Error",
                        cls="text-3xl font-bold text-red-700 mb-4 text-center"),
                     Div(
-                        PlaylistSteps(0),  # Reset to initial state on error
+                        StepProgress(0),  # Reset to initial state on error
                         Ul(*[
                             Li(error, cls="text-red-600 list-disc ml-5")
                             for error in errors
@@ -240,7 +241,7 @@ def validate(playlist: YoutubePlaylist):
                 cls=(ContainerT.xl, 'uk-container-expand')))
 
     # Step 2: URL validated
-    steps_after_validation = PlaylistSteps(2)
+    steps_after_validation = StepProgress(2)
 
     try:
         df, playlist_name, channel_name, channel_thumbnail = get_playlist_videos(
@@ -263,7 +264,7 @@ def validate(playlist: YoutubePlaylist):
 
     if df.height > 0:
         # Step 3: Data fetched successfully
-        steps_after_fetch = PlaylistSteps(
+        steps_after_fetch = StepProgress(
             len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
 
         # Apply formatting functions to the DataFrame
@@ -372,19 +373,7 @@ def validate(playlist: YoutubePlaylist):
 @rt("/update-steps/<int:step>")
 def update_steps_progressive(step: int):
     """Progressively update steps to show completion"""
-    steps = []
-    for i, (title, icon, desc) in enumerate(PLAYLIST_STEPS_CONFIG):
-        if i <= step:
-            step_cls = StepT.success
-        elif i == step + 1:
-            step_cls = StepT.primary  # Next step is active
-        else:
-            step_cls = StepT.neutral
-
-        steps.append(
-            LiStep(title, cls=step_cls, data_content=icon, description=desc))
-
-    response = Steps(*steps, cls=STEPS_CLS)
+    response = StepProgress(step)
 
     # If not the last step, trigger the next update
     if step < len(PLAYLIST_STEPS_CONFIG) - 1:
