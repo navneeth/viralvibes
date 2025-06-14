@@ -5,6 +5,12 @@ Allow: /analyze
 Allow: /validate
 Allow: /fetch-content
 
+# Disallow endpoints
+Disallow: /validate
+Disallow: /newsletter
+Disallow: /update-steps
+Disallow: /static/
+
 # Disallow admin and API endpoints
 Disallow: /admin/
 Disallow: /api/
