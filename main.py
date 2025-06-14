@@ -3,7 +3,6 @@ from urllib.parse import parse_qs, urlparse
 from typing import List, Optional, Tuple, Union
 
 from dotenv import load_dotenv
-from supabase import create_client, Client
 import logging
 import os
 import polars as pl
@@ -12,7 +11,6 @@ from datetime import datetime
 import yt_dlp
 from fasthtml.common import *
 from monsterui.all import *
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
@@ -22,73 +20,13 @@ from constants import (PLAYLIST_STEPS_CONFIG, FLEX_COL, FLEX_CENTER,
                        FLEX_BETWEEN, GAP_2, GAP_4, SECTION_BASE, CARD_BASE,
                        HEADER_CARD, FORM_CARD, NEWSLETTER_CARD)
 from validators import YoutubePlaylist, YoutubePlaylistValidator
+from db import setup_logging, init_supabase, supabase_client
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-
-def setup_logging():
-    """Configure logging for the application.
-    
-    This function should be called at application startup.
-    It configures the logging format and level.
-    """
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S')
-
-
 # Load environment variables
 load_dotenv()
-
-# Global Supabase client
-supabase_client: Optional[Client] = None
-
-
-@retry(stop=stop_after_attempt(3),
-       wait=wait_exponential(multiplier=1, min=4, max=10),
-       reraise=True)
-def init_supabase() -> Optional[Client]:
-    """Initialize Supabase client with retry logic and proper error handling.
-    
-    Returns:
-        Optional[Client]: Supabase client if initialization succeeds, None otherwise
-        
-    Note:
-        - Retries up to 3 times with exponential backoff
-        - Returns None instead of raising exceptions
-        - Logs errors for debugging
-    """
-    global supabase_client
-
-    # Return existing client if already initialized
-    if supabase_client is not None:
-        return supabase_client
-
-    try:
-        url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-        key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
-
-        if not url or not key:
-            logger.warning(
-                "Missing Supabase environment variables - running without Supabase"
-            )
-            return None
-
-        client = create_client(url, key)
-
-        # Test the connection
-        client.auth.get_session()
-
-        supabase_client = client
-        logger.info("Supabase client initialized successfully")
-        return client
-
-    except Exception as e:
-        logger.error(f"Failed to initialize Supabase client: {str(e)}")
-        return None
-
 
 # CSS Classes
 CARD_BASE_CLS = CARD_BASE
@@ -134,25 +72,20 @@ def init_app():
 
     # Initialize Supabase client
     try:
-        global supabase_client
-        supabase_client = init_supabase()
+        init_supabase()
         if supabase_client is None:
             logger.warning("Running without Supabase integration")
     except Exception as e:
         logger.error(
             f"Unexpected error during Supabase initialization: {str(e)}")
         # Continue running without Supabase
-        supabase_client = None
 
 
 # Initialize the application
 init_app()
 
-
 # --- Data Models ---
-@dataclass
-class YoutubePlaylist:
-    playlist_url: str
+# YoutubePlaylist dataclass is now imported from validators.py
 
 
 # --- Utility Functions ---
@@ -321,9 +254,12 @@ def validate(playlist: YoutubePlaylist):
         logger.exception("Error fetching playlist data")
         return Div(
             steps_after_validation,
-            P("Valid YouTube Playlist URL, but failed to fetch videos: " +
-              str(e)),
-            style="color: orange;")
+            Alert(DivLAligned(
+                UkIcon('triangle-alert'),
+                P("Valid YouTube Playlist URL, but failed to fetch videos: " +
+                  str(e))),
+                  cls=AlertT.error),
+            style="margin-top: 1rem;")
 
     if df.height > 0:
         # Step 3: Data fetched successfully
@@ -413,7 +349,9 @@ def validate(playlist: YoutubePlaylist):
 
         return Div(
             steps_after_fetch,
-            Div(H3(f"Analysis Complete! ✅", cls="text-xl font-bold mb-1"),
+            Div(Alert(DivLAligned(UkIcon('check-circle'),
+                                  P("Analysis Complete! ✅")),
+                      cls=AlertT.success),
                 P(A(f"Playlist: {playlist_name}",
                     href=playlist.playlist_url,
                     target="_blank",
@@ -421,7 +359,7 @@ def validate(playlist: YoutubePlaylist):
                   cls="text-lg text-gray-700 mb-2"),
                 channel_info,
                 Table(thead, tbody, tfoot, cls="w-full mt-2"),
-                style="color: green; margin-top: 1rem;"))
+                style="margin-top: 1rem;"))
 
     return Div(
         steps_after_validation,
