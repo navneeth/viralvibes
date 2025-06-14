@@ -321,9 +321,12 @@ def validate(playlist: YoutubePlaylist):
         logger.exception("Error fetching playlist data")
         return Div(
             steps_after_validation,
-            P("Valid YouTube Playlist URL, but failed to fetch videos: " +
-              str(e)),
-            style="color: orange;")
+            Alert(DivLAligned(
+                UkIcon('triangle-alert'),
+                P("Valid YouTube Playlist URL, but failed to fetch videos: " +
+                  str(e))),
+                  cls=AlertT.error),
+            style="margin-top: 1rem;")
 
     if df.height > 0:
         # Step 3: Data fetched successfully
@@ -413,7 +416,7 @@ def validate(playlist: YoutubePlaylist):
 
         return Div(
             steps_after_fetch,
-            Div(H3(f"Analysis Complete! ✅", cls="text-xl font-bold mb-1"),
+            Div(Alert("Analysis Complete! ✅", cls=AlertT.success),
                 P(A(f"Playlist: {playlist_name}",
                     href=playlist.playlist_url,
                     target="_blank",
@@ -421,7 +424,7 @@ def validate(playlist: YoutubePlaylist):
                   cls="text-lg text-gray-700 mb-2"),
                 channel_info,
                 Table(thead, tbody, tfoot, cls="w-full mt-2"),
-                style="color: green; margin-top: 1rem;"))
+                style="margin-top: 1rem;"))
 
     return Div(
         steps_after_validation,
