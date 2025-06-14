@@ -1,8 +1,10 @@
 from fasthtml.common import *
+
 from monsterui.all import *
+from typing import List, Tuple, Optional
 from constants import (FLEX_COL, FLEX_CENTER, FLEX_BETWEEN, GAP_2, GAP_4,
                        CARD_BASE, HEADER_CARD, FORM_CARD, NEWSLETTER_CARD,
-                       PLAYLIST_STEPS_CONFIG, STEPS_CLS)
+                       PLAYLIST_STEPS_CONFIG, STEPS_CLS, FEATURES, BENEFITS)
 
 
 def HeaderCard() -> Card:
@@ -71,18 +73,27 @@ def AnalysisFormCard() -> Card:
         body_cls="space-y-4")
 
 
+def _build_icon(name: str) -> "Component":
+    """Build an icon component with consistent styling."""
+    return UkIcon(name, cls="text-red-500 text-3xl mb-2")
+
+
+def _build_info_items(config: List[Tuple[str, str, str]]) -> List["Component"]:
+    """Build a list of info item components from a configuration."""
+    return [
+        Div(_build_icon(icon),
+            H4(title, cls="mb-2 mt-2"),
+            P(desc, cls="text-gray-600 text-sm text-center"),
+            cls=f"{FLEX_COL} {FLEX_CENTER}") for title, desc, icon in config
+    ]
+
+
 def create_info_card(title: str,
                      items: List[Tuple[str, str, str]],
                      img_src: Optional[str] = None,
                      img_alt: Optional[str] = None) -> Card:
     """Helper function to create Feature and Benefit cards."""
-    cards = [
-        Div(icon,
-            H4(item_title, cls="mb-2 mt-2"),
-            P(desc, cls="text-gray-600 text-sm text-center"),
-            cls=f"{FLEX_COL} {FLEX_CENTER}")
-        for item_title, desc, icon in items
-    ]
+    cards = _build_info_items(items)
     img_component = Img(
         src=img_src,
         style="width:120px; margin: 0 auto 2rem auto; display:block;",
@@ -96,31 +107,15 @@ def create_info_card(title: str,
 
 
 def FeaturesCard() -> Card:
-    features = [
-        ("Uncover Viral Secrets",
-         "Paste a playlist and uncover the secrets behind viral videos.",
-         UkIcon("search", cls="text-red-500 text-3xl mb-2")),
-        ("Instant Playlist Insights", "Get instant info on trending videos.",
-         UkIcon("zap", cls="text-red-500 text-3xl mb-2")),
-        ("No Login Required", "Just paste a link and go. No signup needed!",
-         UkIcon("unlock", cls="text-red-500 text-3xl mb-2")),
-    ]
-    return create_info_card("What is ViralVibes?", features,
+    """Create the features card component."""
+    return create_info_card("What is ViralVibes?", FEATURES,
                             "/static/virality.webp",
                             "Illustration of video viral insights")
 
 
 def BenefitsCard() -> Card:
-    benefits = [
-        ("Real-time Analysis", "Track trends as they emerge.",
-         UkIcon("activity", cls="text-red-500 text-3xl mb-2")),
-        ("Engagement Metrics",
-         "Understand what drives likes, shares, and comments.",
-         UkIcon("heart", cls="text-red-500 text-3xl mb-2")),
-        ("Top Creator Insights", "Identify breakout content and rising stars.",
-         UkIcon("star", cls="text-red-500 text-3xl mb-2")),
-    ]
-    return create_info_card("Why You'll Love It", benefits)
+    """Create the benefits card component."""
+    return create_info_card("Why You'll Love It", BENEFITS)
 
 
 def NewsletterCard() -> Card:

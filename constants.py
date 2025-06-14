@@ -21,3 +21,22 @@ PLAYLIST_STEPS_CONFIG = [
     ("Calculate Metrics", "🔢", "Process views, likes, and engagement rates"),
     ("Display Results", "📈", "View comprehensive analysis in a table"),
 ]
+
+# Feature and Benefit configurations
+FEATURES = [
+    ("Uncover Viral Secrets",
+     "Paste a playlist and uncover the secrets behind viral videos.",
+     "search"),
+    ("Instant Playlist Insights", "Get instant info on trending videos.",
+     "zap"),
+    ("No Login Required", "Just paste a link and go. No signup needed!",
+     "unlock"),
+]
+
+BENEFITS = [
+    ("Real-time Analysis", "Track trends as they emerge.", "activity"),
+    ("Engagement Metrics",
+     "Understand what drives likes, shares, and comments.", "heart"),
+    ("Top Creator Insights", "Identify breakout content and rising stars.",
+     "star"),
+]
