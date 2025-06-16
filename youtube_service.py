@@ -4,11 +4,17 @@ This module provides functionality to fetch and process YouTube playlist data us
 """
 
 import logging
+from typing import Dict, Optional, Tuple
+
 import polars as pl
 import yt_dlp
-from typing import Tuple, Optional, Dict
-from utils import (calculate_engagement_rate, format_duration, format_number,
-                   process_numeric_column)
+
+from utils import (
+    calculate_engagement_rate,
+    format_duration,
+    format_number,
+    process_numeric_column,
+)
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -16,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
+    DISPLAY_HEADERS = [
+        "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
+        "Engagement Rate"
+    ]
 
     def __init__(self, ydl_opts: Optional[dict] = None):
         """Initialize the service with optional yt-dlp options.
@@ -29,6 +39,10 @@ class YoutubePlaylistService:
             "force_generic_extractor": True
         }
         self.ydl_opts = ydl_opts or default_opts
+
+    @classmethod
+    def get_display_headers(cls):
+        return cls.DISPLAY_HEADERS
 
     def get_playlist_data(
             self,
