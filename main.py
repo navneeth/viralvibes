@@ -8,19 +8,20 @@ import os
 import polars as pl
 import re
 from datetime import datetime
-import yt_dlp
 from fasthtml.common import *
 from monsterui.all import *
 
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
 from components import (HeaderCard, AnalysisFormCard, FeaturesCard,
-                        BenefitsCard, NewsletterCard, PlaylistSteps)
-from constants import (PLAYLIST_STEPS_CONFIG, FLEX_COL, FLEX_CENTER,
-                       FLEX_BETWEEN, GAP_2, GAP_4, SECTION_BASE, CARD_BASE,
-                       HEADER_CARD, FORM_CARD, NEWSLETTER_CARD)
+                        BenefitsCard, NewsletterCard)
+from constants import (FLEX_COL, FLEX_CENTER, FLEX_BETWEEN, GAP_2, GAP_4,
+                       SECTION_BASE, CARD_BASE, HEADER_CARD, FORM_CARD,
+                       NEWSLETTER_CARD, PLAYLIST_STEPS_CONFIG)
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from db import setup_logging, init_supabase, supabase_client
+from step_components import StepProgress
+from youtube_service import YoutubePlaylistService
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -84,80 +85,8 @@ def init_app():
 # Initialize the application
 init_app()
 
-# --- Data Models ---
-# YoutubePlaylist dataclass is now imported from validators.py
-
-
-# --- Utility Functions ---
-def get_playlist_videos(
-        playlist_url: str) -> Tuple[pl.DataFrame, str, str, str]:
-    """Fetches video information from a YouTube playlist URL.
-    
-    Args:
-        playlist_url (str): The URL of the YouTube playlist to analyze.
-        
-    Returns:
-        Tuple[pl.DataFrame, str, str, str]: A tuple containing:
-            - A Polars DataFrame with video information
-            - The playlist name
-            - The channel name
-            - The channel thumbnail URL
-    """
-    ydl_opts = {
-        "quiet": True,
-        "extract_flat": True,
-        "force_generic_extractor": True
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        playlist_info = ydl.extract_info(playlist_url, download=False)
-
-        # Debug logging
-        logger.info("Playlist Info Keys: %s", playlist_info.keys())
-        logger.info("Uploader Info: %s", playlist_info.get("uploader"))
-        logger.info("Channel Info: %s", playlist_info.get("channel"))
-        logger.info("Channel URL: %s", playlist_info.get("channel_url"))
-
-        playlist_name = playlist_info.get("title", "Untitled Playlist")
-        channel_name = playlist_info.get("uploader", "Unknown Channel")
-
-        # Extract channel thumbnail from thumbnails
-        channel_thumbnail = ""
-        if "thumbnails" in playlist_info:
-            thumbnails = playlist_info["thumbnails"]
-            # Try to get the highest quality thumbnail
-            for thumb in thumbnails:
-                if thumb.get(
-                        "width", 0
-                ) >= 48:  # Look for thumbnail that's at least 48px wide
-                    channel_thumbnail = thumb.get("url", "")
-                    break
-            # If no suitable thumbnail found, use the first one
-            if not channel_thumbnail and thumbnails:
-                channel_thumbnail = thumbnails[0].get("url", "")
-
-        logger.info("Selected Channel Thumbnail: %s", channel_thumbnail)
-
-        if "entries" in playlist_info:
-            videos = playlist_info["entries"]
-            data = [{
-                "Rank": rank,
-                "id": video.get("id", ""),
-                "Title": video.get("title", "N/A"),
-                "Views (Billions)":
-                (video.get("view_count") or 0) / 1_000_000_000,
-                "View Count": video.get("view_count", 0),
-                "Like Count": video.get("like_count", 0),
-                "Dislike Count": video.get("dislike_count", 0),
-                "Uploader": video.get("uploader", "N/A"),
-                "Creator": video.get("creator", "N/A"),
-                "Channel ID": video.get("channel_id", "N/A"),
-                "Duration": video.get("duration", 0),
-                "Thumbnail": video.get("thumbnail", ""),
-            } for rank, video in enumerate(videos, start=1)]
-
-            return pl.DataFrame(
-                data), playlist_name, channel_name, channel_thumbnail
-    return pl.DataFrame(), "Untitled Playlist", "Unknown Channel", ""
+# Initialize YouTube service
+yt_service = YoutubePlaylistService()
 
 
 @rt
@@ -220,7 +149,7 @@ def validate(playlist: YoutubePlaylist):
                     H1("Input Error",
                        cls="text-3xl font-bold text-red-700 mb-4 text-center"),
                     Div(
-                        PlaylistSteps(0),  # Reset to initial state on error
+                        StepProgress(0),  # Reset to initial state on error
                         Ul(*[
                             Li(error, cls="text-red-600 list-disc ml-5")
                             for error in errors
@@ -240,10 +169,10 @@ def validate(playlist: YoutubePlaylist):
                 cls=(ContainerT.xl, 'uk-container-expand')))
 
     # Step 2: URL validated
-    steps_after_validation = PlaylistSteps(2)
+    steps_after_validation = StepProgress(2)
 
     try:
-        df, playlist_name, channel_name, channel_thumbnail = get_playlist_videos(
+        df, playlist_name, channel_name, channel_thumbnail, summary_stats = yt_service.get_playlist_data(
             playlist.playlist_url)
 
         # Debug logging
@@ -263,35 +192,8 @@ def validate(playlist: YoutubePlaylist):
 
     if df.height > 0:
         # Step 3: Data fetched successfully
-        steps_after_fetch = PlaylistSteps(
+        steps_after_fetch = StepProgress(
             len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
-
-        # Apply formatting functions to the DataFrame
-        df = df.with_columns([
-            pl.col("View Count").map_elements(format_number,
-                                              return_dtype=pl.String),
-            pl.col("Like Count").map_elements(format_number,
-                                              return_dtype=pl.String),
-            pl.col("Dislike Count").map_elements(format_number,
-                                                 return_dtype=pl.String),
-            pl.col("Duration").map_elements(format_duration,
-                                            return_dtype=pl.String)
-        ])
-
-        # Calculate engagement rate
-        view_counts_numeric = process_numeric_column(df["View Count"])
-        like_counts_numeric = process_numeric_column(df["Like Count"])
-        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
-
-        df = df.with_columns([
-            pl.Series(name="Engagement Rate (%)",
-                      values=[
-                          f"{calculate_engagement_rate(vc, lc, dc):.2f}"
-                          for vc, lc, dc in
-                          zip(view_counts_numeric, like_counts_numeric,
-                              dislike_counts_numeric)
-                      ])
-        ])
 
         # Create table
         headers = [
@@ -317,14 +219,11 @@ def validate(playlist: YoutubePlaylist):
         tbody = Tbody(*tbody_rows)
 
         # Create table footer with summary
-        total_views = view_counts_numeric.sum()
-        total_likes = like_counts_numeric.sum()
-        avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
-
         tfoot = Tfoot(
-            Tr(Td("Total/Average"), Td(""), Td(format_number(total_views)),
-               Td(format_number(total_likes)), Td(""), Td(""),
-               Td(f"{avg_engagement:.2f}%")))
+            Tr(Td("Total/Average"), Td(""),
+               Td(format_number(summary_stats["total_views"])),
+               Td(format_number(summary_stats["total_likes"])), Td(""), Td(""),
+               Td(f"{summary_stats['avg_engagement']:.2f}%")))
 
         # Create channel info section with thumbnail
         channel_info = Div(Div(
@@ -372,19 +271,7 @@ def validate(playlist: YoutubePlaylist):
 @rt("/update-steps/<int:step>")
 def update_steps_progressive(step: int):
     """Progressively update steps to show completion"""
-    steps = []
-    for i, (title, icon, desc) in enumerate(PLAYLIST_STEPS_CONFIG):
-        if i <= step:
-            step_cls = StepT.success
-        elif i == step + 1:
-            step_cls = StepT.primary  # Next step is active
-        else:
-            step_cls = StepT.neutral
-
-        steps.append(
-            LiStep(title, cls=step_cls, data_content=icon, description=desc))
-
-    response = Steps(*steps, cls=STEPS_CLS)
+    response = StepProgress(step)
 
     # If not the last step, trigger the next update
     if step < len(PLAYLIST_STEPS_CONFIG) - 1:
