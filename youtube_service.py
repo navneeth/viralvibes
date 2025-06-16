@@ -6,7 +6,7 @@ This module provides functionality to fetch and process YouTube playlist data us
 import logging
 import polars as pl
 import yt_dlp
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 from utils import (calculate_engagement_rate, format_duration, format_number,
                    process_numeric_column)
 
@@ -31,18 +31,20 @@ class YoutubePlaylistService:
         self.ydl_opts = ydl_opts or default_opts
 
     def get_playlist_data(
-            self, playlist_url: str) -> Tuple[pl.DataFrame, str, str, str]:
+            self,
+            playlist_url: str) -> Tuple[pl.DataFrame, str, str, str, Dict]:
         """Fetch and process video information from a YouTube playlist URL.
         
         Args:
             playlist_url (str): The URL of the YouTube playlist to analyze.
             
         Returns:
-            Tuple[pl.DataFrame, str, str, str]: A tuple containing:
+            Tuple[pl.DataFrame, str, str, str, Dict]: A tuple containing:
                 - A Polars DataFrame with video information
                 - The playlist name
                 - The channel name
                 - The channel thumbnail URL
+                - A dictionary of summary statistics
                 
         Raises:
             Exception: If there's an error fetching or processing the playlist data
@@ -68,10 +70,11 @@ class YoutubePlaylistService:
                 # Process video data
                 if "entries" in playlist_info:
                     df = self._process_video_data(playlist_info["entries"])
-                    return df, playlist_name, channel_name, channel_thumbnail
+                    summary_stats = self._calculate_summary_stats(df)
+                    return df, playlist_name, channel_name, channel_thumbnail, summary_stats
 
                 return pl.DataFrame(
-                ), playlist_name, channel_name, channel_thumbnail
+                ), playlist_name, channel_name, channel_thumbnail, {}
 
         except Exception as e:
             logger.error(f"Error fetching playlist data: {str(e)}")
@@ -154,3 +157,28 @@ class YoutubePlaylistService:
         ])
 
         return df
+
+    def _calculate_summary_stats(self, df: pl.DataFrame) -> Dict:
+        """Calculate summary statistics for the playlist.
+        
+        Args:
+            df (pl.DataFrame): The processed video data DataFrame.
+            
+        Returns:
+            Dict: Dictionary containing summary statistics.
+        """
+        # Process numeric columns for summary calculations
+        view_counts_numeric = process_numeric_column(df["View Count"])
+        like_counts_numeric = process_numeric_column(df["Like Count"])
+        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
+
+        # Calculate summary statistics
+        total_views = view_counts_numeric.sum()
+        total_likes = like_counts_numeric.sum()
+        avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
+
+        return {
+            "total_views": total_views,
+            "total_likes": total_likes,
+            "avg_engagement": avg_engagement
+        }

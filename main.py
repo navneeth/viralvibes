@@ -172,7 +172,7 @@ def validate(playlist: YoutubePlaylist):
     steps_after_validation = StepProgress(2)
 
     try:
-        df, playlist_name, channel_name, channel_thumbnail = yt_service.get_playlist_data(
+        df, playlist_name, channel_name, channel_thumbnail, summary_stats = yt_service.get_playlist_data(
             playlist.playlist_url)
 
         # Debug logging
@@ -218,20 +218,12 @@ def validate(playlist: YoutubePlaylist):
                    Td(row["Duration"]), Td(row["Engagement Rate (%)"])))
         tbody = Tbody(*tbody_rows)
 
-        # Process numeric columns for summary calculations
-        view_counts_numeric = process_numeric_column(df["View Count"])
-        like_counts_numeric = process_numeric_column(df["Like Count"])
-        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
-
         # Create table footer with summary
-        total_views = view_counts_numeric.sum()
-        total_likes = like_counts_numeric.sum()
-        avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
-
         tfoot = Tfoot(
-            Tr(Td("Total/Average"), Td(""), Td(format_number(total_views)),
-               Td(format_number(total_likes)), Td(""), Td(""),
-               Td(f"{avg_engagement:.2f}%")))
+            Tr(Td("Total/Average"), Td(""),
+               Td(format_number(summary_stats["total_views"])),
+               Td(format_number(summary_stats["total_likes"])), Td(""), Td(""),
+               Td(f"{summary_stats['avg_engagement']:.2f}%")))
 
         # Create channel info section with thumbnail
         channel_info = Div(Div(

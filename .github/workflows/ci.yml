@@ -35,12 +35,12 @@ jobs:
       - name: Lint with Ruff
         run: |
           pip install ruff
-          ruff . || true  # Remove '|| true' to fail on lint errors
+          ruff .
 
-      - name: Type check with mypy (optional)
+      - name: Type check with mypy
         run: |
           pip install mypy
-          mypy . || true  # Remove '|| true' to fail on type errors
+          mypy .
 
       - name: Run basic smoke test
         run: |
