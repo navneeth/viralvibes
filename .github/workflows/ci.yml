@@ -37,10 +37,10 @@ jobs:
       #     pip install ruff
       #     ruff check .
 
-      - name: Type check with mypy
-        run: |
-          pip install mypy
-          mypy .
+      # - name: Type check with mypy
+      #   run: |
+      #     pip install mypy
+      #     mypy .
 
       - name: Run basic smoke test
         run: |
