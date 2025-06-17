@@ -2,10 +2,11 @@
 YouTube Service for fetching and processing YouTube playlist data.
 This module provides functionality to fetch and process YouTube playlist data using yt-dlp.
 """
-
+import asyncio
 import logging
 from typing import Dict, List, Tuple
 
+import httpx
 import polars as pl
 import requests
 import yt_dlp
@@ -19,6 +20,7 @@ from utils import (
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
 
 
 class YoutubePlaylistService:
@@ -148,6 +150,25 @@ class YoutubePlaylistService:
             logger.warning(f"Failed to expand video {video_url}: {e}")
             return {}
 
+    async def _fetch_dislike_data_async(self, client: httpx.AsyncClient,
+                                        video_id: str) -> tuple[str, dict]:
+        try:
+            response = await client.get(DISLIKE_API_URL.format(video_id))
+            if response.status_code == 200:
+                return video_id, response.json()
+        except Exception as e:
+            logger.warning(f"Failed to fetch dislike data for {video_id}: {e}")
+        return video_id, {}
+
+    async def _gather_dislike_data(self, video_ids: list[str]) -> dict:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            tasks = [
+                self._fetch_dislike_data_async(client, vid)
+                for vid in video_ids
+            ]
+            results = await asyncio.gather(*tasks)
+        return {vid: data for vid, data in results if data}
+
     def _process_video_data(self, videos: List[dict],
                             max_expanded: int) -> pl.DataFrame:
         """Process  and enrich video metadata into a DataFrame.
@@ -159,43 +180,37 @@ class YoutubePlaylistService:
         Returns:
             pl.DataFrame: Processed video data.
         """
+        video_ids = [v.get("id", "") for v in videos if v.get("id")]
+        dislike_data_map = asyncio.run(self._gather_dislike_data(video_ids))
+
         # Create initial DataFrame
         data = []
 
         for rank, video in enumerate(videos[:max_expanded], start=1):
-            full_info = self._expand_video_info(video.get("url"))
-            if not full_info:
-                continue
+            vid = video.get("id", "")
+            dislikes_info = dislike_data_map.get(vid, {})
+            like_count = dislikes_info.get("likes", video.get("like_count", 0))
+            dislike_count = dislikes_info.get("dislikes",
+                                              video.get("dislike_count", 0))
+            rating = dislikes_info.get("rating", None)
 
-            video_id = full_info.get("id", "")
-            dislike_count = self.get_dislike_count(video_id)
-
-            data.append({
-                "Rank":
-                rank,
-                "id":
-                video_id,
-                "Title":
-                full_info.get("title", "N/A"),
+            row = {
+                "Rank": rank,
+                "id": vid,
+                "Title": video.get("title", "N/A"),
                 "Views (Billions)":
-                (full_info.get("view_count") or 0) / 1_000_000_000,
-                "View Count":
-                full_info.get("view_count", 0),
-                "Like Count":
-                full_info.get("like_count", 0),
-                "Dislike Count":
-                dislike_count,
-                "Uploader":
-                full_info.get("uploader", "N/A"),
-                "Creator":
-                full_info.get("creator", "N/A"),
-                "Channel ID":
-                full_info.get("channel_id", "N/A"),
-                "Duration":
-                full_info.get("duration", 0),
-                "Thumbnail":
-                full_info.get("thumbnail", ""),
-            })
+                (video.get("view_count") or 0) / 1_000_000_000,
+                "View Count": video.get("view_count", 0),
+                "Like Count": like_count,
+                "Dislike Count": dislike_count,
+                "Rating": rating,
+                "Uploader": video.get("uploader", "N/A"),
+                "Creator": video.get("creator", "N/A"),
+                "Channel ID": video.get("channel_id", "N/A"),
+                "Duration": video.get("duration", 0),
+                "Thumbnail": video.get("thumbnail", ""),
+            }
+            data.append(row)
 
         df = pl.DataFrame(data)
 
