@@ -27,7 +27,7 @@ class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
     DISPLAY_HEADERS = [
         "Rank", "Title", "Views (Billions)", "Likes", "Dislikes", "Duration",
-        "Engagement Rate"
+        "Engagement Rate", "Controversy"
     ]
 
     def __init__(self, ydl_opts: dict = None):
@@ -46,7 +46,7 @@ class YoutubePlaylistService:
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
-    def get_dislike_count(self, video_id: str) -> int:
+    async def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
         
         Args:
@@ -56,12 +56,11 @@ class YoutubePlaylistService:
             int: Number of dislikes, or 0 if fetch fails
         """
         try:
-            resp = requests.get(
-                f"https://returnyoutubedislikeapi.com/votes?videoId={video_id}",
-                timeout=5)
-            if resp.status_code == 200:
-                return resp.json().get("dislikes", 0)
-        except requests.RequestException as e:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(DISLIKE_API_URL.format(video_id))
+                if resp.status_code == 200:
+                    return resp.json().get("dislikes", 0)
+        except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
         return 0
 
@@ -69,11 +68,10 @@ class YoutubePlaylistService:
     def get_display_headers(cls):
         return cls.DISPLAY_HEADERS
 
-    def get_playlist_data(
-            self,
-            playlist_url: str,
-            max_expanded: int = 20
-    ) -> Tuple[pl.DataFrame, str, str, str, Dict]:
+    async def get_playlist_data(self,
+                                playlist_url: str,
+                                max_expanded: int = 20
+                                ) -> Tuple[pl.DataFrame, str, str, str, Dict]:
         """Fetch and process video information from a YouTube playlist URL.
         
         Args:
@@ -92,7 +90,10 @@ class YoutubePlaylistService:
             Exception: If there's an error fetching or processing the playlist data
         """
         try:
-            playlist_info = self.ydl.extract_info(playlist_url, download=False)
+            #playlist_info = self.ydl.extract_info(playlist_url, download=False)
+            playlist_info = await asyncio.to_thread(self.ydl.extract_info,
+                                                    playlist_url,
+                                                    download=False)
 
             # Debug logging
             logger.info("Playlist Info Keys: %s", playlist_info.keys())
@@ -108,8 +109,8 @@ class YoutubePlaylistService:
 
             # Process video data
             if "entries" in playlist_info:
-                df = self._process_video_data(playlist_info["entries"],
-                                              max_expanded)
+                df = await self._process_video_data(playlist_info["entries"],
+                                                    max_expanded)
                 summary_stats = self._calculate_summary_stats(df)
                 return df, playlist_name, channel_name, channel_thumbnail, summary_stats
 
@@ -169,9 +170,31 @@ class YoutubePlaylistService:
             results = await asyncio.gather(*tasks)
         return {vid: data for vid, data in results if data}
 
-    def _process_video_data(self, videos: List[dict],
-                            max_expanded: int) -> pl.DataFrame:
-        """Process  and enrich video metadata into a DataFrame.
+    def _calculate_controversy_score(self, likes: int | None,
+                                     dislikes: int | None) -> float:
+        """Calculate controversiality score for a video.
+        
+        Args:
+            likes (int | None): Number of likes
+            dislikes (int | None): Number of dislikes
+            
+        Returns:
+            float: Controversy score between 0 and 1, where:
+                  - 0 means no controversy (all likes or all dislikes)
+                  - 1 means maximum controversy (equal likes and dislikes)
+        """
+        # Handle None values
+        likes = likes or 0
+        dislikes = dislikes or 0
+
+        total = likes + dislikes
+        if total == 0:
+            return 0.0
+        return abs(likes - dislikes) / total
+
+    async def _process_video_data(self, videos: List[dict],
+                                  max_expanded: int) -> pl.DataFrame:
+        """Process and enrich video metadata into a DataFrame.
         
         Args:
             videos (list): List of video information dictionaries.
@@ -180,37 +203,52 @@ class YoutubePlaylistService:
         Returns:
             pl.DataFrame: Processed video data.
         """
-        video_ids = [v.get("id", "") for v in videos if v.get("id")]
-        dislike_data_map = asyncio.run(self._gather_dislike_data(video_ids))
-
         # Create initial DataFrame
         data = []
 
         for rank, video in enumerate(videos[:max_expanded], start=1):
-            vid = video.get("id", "")
-            dislikes_info = dislike_data_map.get(vid, {})
-            like_count = dislikes_info.get("likes", video.get("like_count", 0))
-            dislike_count = dislikes_info.get("dislikes",
-                                              video.get("dislike_count", 0))
-            rating = dislikes_info.get("rating", None)
+            # Get full video info using yt-dlp
+            full_info = await asyncio.to_thread(self._expand_video_info,
+                                                video.get("url"))
+            if not full_info:
+                continue
 
-            row = {
-                "Rank": rank,
-                "id": vid,
-                "Title": video.get("title", "N/A"),
+            video_id = full_info.get("id", "")
+            dislike_count = await self.get_dislike_count(video_id)
+            like_count = full_info.get("like_count", 0)
+
+            # Calculate controversy score
+            controversy_score = self._calculate_controversy_score(
+                like_count, dislike_count)
+
+            data.append({
+                "Rank":
+                rank,
+                "id":
+                video_id,
+                "Title":
+                full_info.get("title", "N/A"),
                 "Views (Billions)":
-                (video.get("view_count") or 0) / 1_000_000_000,
-                "View Count": video.get("view_count", 0),
-                "Like Count": like_count,
-                "Dislike Count": dislike_count,
-                "Rating": rating,
-                "Uploader": video.get("uploader", "N/A"),
-                "Creator": video.get("creator", "N/A"),
-                "Channel ID": video.get("channel_id", "N/A"),
-                "Duration": video.get("duration", 0),
-                "Thumbnail": video.get("thumbnail", ""),
-            }
-            data.append(row)
+                (full_info.get("view_count") or 0) / 1_000_000_000,
+                "View Count":
+                full_info.get("view_count", 0),
+                "Like Count":
+                like_count,
+                "Dislike Count":
+                dislike_count,
+                "Controversy":
+                controversy_score,
+                "Uploader":
+                full_info.get("uploader", "N/A"),
+                "Creator":
+                full_info.get("creator", "N/A"),
+                "Channel ID":
+                full_info.get("channel_id", "N/A"),
+                "Duration":
+                full_info.get("duration", 0),
+                "Thumbnail":
+                full_info.get("thumbnail", ""),
+            })
 
         df = pl.DataFrame(data)
 
@@ -223,7 +261,9 @@ class YoutubePlaylistService:
             pl.col("Dislike Count").map_elements(format_number,
                                                  return_dtype=pl.String),
             pl.col("Duration").map_elements(format_duration,
-                                            return_dtype=pl.String)
+                                            return_dtype=pl.String),
+            pl.col("Controversy").map_elements(lambda x: f"{x:.2%}",
+                                               return_dtype=pl.String)
         ])
 
         # Calculate engagement rate
