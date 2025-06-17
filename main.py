@@ -130,7 +130,7 @@ def index():
 
 
 @rt("/validate")
-def validate(playlist: YoutubePlaylist):
+async def validate(playlist: YoutubePlaylist):
     """
     This route now renders a full HTML page for playlist analysis results,
     including success, validation errors, data fetch errors, or no videos found.
@@ -182,7 +182,7 @@ def validate(playlist: YoutubePlaylist):
     steps_after_validation = StepProgress(2)
 
     try:
-        df, playlist_name, channel_name, channel_thumbnail, summary_stats = yt_service.get_playlist_data(
+        df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
             playlist.playlist_url)
 
         # Debug logging

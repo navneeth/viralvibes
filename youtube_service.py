@@ -153,13 +153,26 @@ class YoutubePlaylistService:
 
     async def _fetch_dislike_data_async(self, client: httpx.AsyncClient,
                                         video_id: str) -> tuple[str, dict]:
+        """Fetch dislike data for a video asynchronously.
+        
+        Args:
+            client (httpx.AsyncClient): HTTP client for making requests
+            video_id (str): YouTube video ID
+            
+        Returns:
+            tuple[str, dict]: Tuple of (video_id, dislike_data)
+                If fetch fails, returns {"dislikes": 0}
+        """
         try:
             response = await client.get(DISLIKE_API_URL.format(video_id))
             if response.status_code == 200:
                 return video_id, response.json()
+            logger.warning(
+                f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
+            )
         except Exception as e:
             logger.warning(f"Failed to fetch dislike data for {video_id}: {e}")
-        return video_id, {}
+        return video_id, {"dislikes": 0}
 
     async def _gather_dislike_data(self, video_ids: list[str]) -> dict:
         async with httpx.AsyncClient(timeout=5.0) as client:
