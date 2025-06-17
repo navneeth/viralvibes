@@ -4,7 +4,7 @@ This module provides functionality to fetch and process YouTube playlist data us
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import polars as pl
 import requests
@@ -24,15 +24,15 @@ logger = logging.getLogger(__name__)
 class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
     DISPLAY_HEADERS = [
-        "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
+        "Rank", "Title", "Views (Billions)", "Likes", "Dislikes", "Duration",
         "Engagement Rate"
     ]
 
-    def __init__(self, ydl_opts: Optional[dict] = None):
+    def __init__(self, ydl_opts: dict = None):
         """Initialize the service with optional yt-dlp options.
         
         Args:
-            ydl_opts (Optional[dict]): Custom yt-dlp options. If None, uses default options.
+            ydl_opts (dict): Custom yt-dlp options. If None, uses default options.
         """
         default_opts = {
             "quiet": True,
@@ -42,24 +42,25 @@ class YoutubePlaylistService:
             "force_generic_extractor": True
         }
         self.ydl_opts = ydl_opts or default_opts
+        self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
-    def get_dislike_count(self, video_id: str) -> Optional[int]:
+    def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
         
         Args:
             video_id (str): YouTube video ID
             
         Returns:
-            Optional[int]: Number of dislikes, or 0 if fetch fails
+            int: Number of dislikes, or 0 if fetch fails
         """
         try:
             resp = requests.get(
-                f"https://returnyoutubedislikeapi.com/votes?videoId={video_id}"
-            )
+                f"https://returnyoutubedislikeapi.com/votes?videoId={video_id}",
+                timeout=5)
             if resp.status_code == 200:
                 return resp.json().get("dislikes", 0)
-        except Exception as e:
-            logger.warning(f"Dislike fetch failed: {e}")
+        except requests.RequestException as e:
+            logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
         return 0
 
     @classmethod
@@ -75,6 +76,7 @@ class YoutubePlaylistService:
         
         Args:
             playlist_url (str): The URL of the YouTube playlist to analyze.
+            max_expanded (int): Maximum number of videos to process.
             
         Returns:
             Tuple[pl.DataFrame, str, str, str, Dict]: A tuple containing:
@@ -88,32 +90,29 @@ class YoutubePlaylistService:
             Exception: If there's an error fetching or processing the playlist data
         """
         try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                playlist_info = ydl.extract_info(playlist_url, download=False)
+            playlist_info = self.ydl.extract_info(playlist_url, download=False)
 
-                # Debug logging
-                logger.info("Playlist Info Keys: %s", playlist_info.keys())
-                logger.info("Uploader Info: %s", playlist_info.get("uploader"))
-                logger.info("Channel Info: %s", playlist_info.get("channel"))
-                logger.info("Channel URL: %s",
-                            playlist_info.get("channel_url"))
+            # Debug logging
+            logger.info("Playlist Info Keys: %s", playlist_info.keys())
+            logger.info("Uploader Info: %s", playlist_info.get("uploader"))
+            logger.info("Channel Info: %s", playlist_info.get("channel"))
+            logger.info("Channel URL: %s", playlist_info.get("channel_url"))
 
-                playlist_name = playlist_info.get("title", "Untitled Playlist")
-                channel_name = playlist_info.get("uploader", "Unknown Channel")
+            playlist_name = playlist_info.get("title", "Untitled Playlist")
+            channel_name = playlist_info.get("uploader", "Unknown Channel")
 
-                # Extract channel thumbnail
-                channel_thumbnail = self._extract_channel_thumbnail(
-                    playlist_info)
+            # Extract channel thumbnail
+            channel_thumbnail = self._extract_channel_thumbnail(playlist_info)
 
-                # Process video data
-                if "entries" in playlist_info:
-                    df = self._process_video_data(playlist_info["entries"],
-                                                  max_expanded)
-                    summary_stats = self._calculate_summary_stats(df)
-                    return df, playlist_name, channel_name, channel_thumbnail, summary_stats
+            # Process video data
+            if "entries" in playlist_info:
+                df = self._process_video_data(playlist_info["entries"],
+                                              max_expanded)
+                summary_stats = self._calculate_summary_stats(df)
+                return df, playlist_name, channel_name, channel_thumbnail, summary_stats
 
-                return pl.DataFrame(
-                ), playlist_name, channel_name, channel_thumbnail, {}
+            return pl.DataFrame(
+            ), playlist_name, channel_name, channel_thumbnail, {}
 
         except Exception as e:
             logger.error(f"Error fetching playlist data: {str(e)}")
@@ -141,14 +140,13 @@ class YoutubePlaylistService:
                 return thumbnails[0].get("url", "")
         return ""
 
-    def _expand_video_info(self, video_url: str) -> Optional[dict]:
+    def _expand_video_info(self, video_url: str) -> dict:
         """Fetch full metadata for a single video."""
         try:
-            with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
-                return ydl.extract_info(video_url, download=False)
+            return self.ydl.extract_info(video_url, download=False)
         except Exception as e:
             logger.warning(f"Failed to expand video {video_url}: {e}")
-            return None
+            return {}
 
     def _process_video_data(self, videos: List[dict],
                             max_expanded: int) -> pl.DataFrame:
@@ -156,6 +154,7 @@ class YoutubePlaylistService:
         
         Args:
             videos (list): List of video information dictionaries.
+            max_expanded (int): Maximum number of videos to process.
             
         Returns:
             pl.DataFrame: Processed video data.
