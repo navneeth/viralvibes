@@ -1,26 +1,36 @@
+import logging
+import re
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlparse
+from datetime import datetime
 from typing import List, Optional, Tuple, Union
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
-import logging
-import os
-import polars as pl
-import re
-from datetime import datetime
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import (calculate_engagement_rate, format_duration, format_number,
-                   process_numeric_column)
-from components import (HeaderCard, AnalysisFormCard, FeaturesCard,
-                        BenefitsCard, NewsletterCard)
-from constants import (FLEX_COL, FLEX_CENTER, FLEX_BETWEEN, GAP_2, GAP_4,
-                       SECTION_BASE, CARD_BASE, HEADER_CARD, FORM_CARD,
-                       NEWSLETTER_CARD, PLAYLIST_STEPS_CONFIG)
-from validators import YoutubePlaylist, YoutubePlaylistValidator
-from db import setup_logging, init_supabase, supabase_client
+from components import (
+    AnalysisFormCard,
+    BenefitsCard,
+    FeaturesCard,
+    HeaderCard,
+    NewsletterCard,
+)
+from constants import (
+    CARD_BASE,
+    FLEX_BETWEEN,
+    FLEX_CENTER,
+    FLEX_COL,
+    FORM_CARD,
+    HEADER_CARD,
+    NEWSLETTER_CARD,
+    PLAYLIST_STEPS_CONFIG,
+    SECTION_BASE,
+)
+from db import init_supabase, setup_logging, supabase_client
 from step_components import StepProgress
+from utils import format_number
+from validators import YoutubePlaylist, YoutubePlaylistValidator
 from youtube_service import YoutubePlaylistService
 
 # Get logger instance
@@ -196,10 +206,7 @@ def validate(playlist: YoutubePlaylist):
             len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
 
         # Create table
-        headers = [
-            "Rank", "Title", "Views", "Likes", "Dislikes", "Duration",
-            "Engagement Rate"
-        ]
+        headers = yt_service.get_display_headers()
         thead = Thead(Tr(*[Th(h) for h in headers]))
 
         tbody_rows = []
