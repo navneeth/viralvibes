@@ -265,32 +265,37 @@ class YoutubePlaylistService:
 
         df = pl.DataFrame(data)
 
-        # Apply formatting
+        # Keep original numeric columns for charts and calculations
+        # Create formatted display columns for the table
         df = df.with_columns([
-            pl.col("View Count").map_elements(format_number,
-                                              return_dtype=pl.String),
-            pl.col("Like Count").map_elements(format_number,
-                                              return_dtype=pl.String),
-            pl.col("Dislike Count").map_elements(format_number,
-                                                 return_dtype=pl.String),
+            pl.col("View Count").alias(
+                "View Count Raw"),  # Keep original for charts
+            pl.col("Like Count").alias(
+                "Like Count Raw"),  # Keep original for charts
+            pl.col("Dislike Count").alias(
+                "Dislike Count Raw"),  # Keep original for charts
+            pl.col("Controversy").alias(
+                "Controversy Raw"),  # Keep original for charts
+            pl.col("View Count").map_elements(
+                format_number, return_dtype=pl.String).alias("View Count"),
+            pl.col("Like Count").map_elements(
+                format_number, return_dtype=pl.String).alias("Like Count"),
+            pl.col("Dislike Count").map_elements(
+                format_number, return_dtype=pl.String).alias("Dislike Count"),
             pl.col("Duration").map_elements(format_duration,
                                             return_dtype=pl.String),
             pl.col("Controversy").map_elements(lambda x: f"{x:.2%}",
                                                return_dtype=pl.String)
         ])
 
-        # Calculate engagement rate
-        view_counts_numeric = process_numeric_column(df["View Count"])
-        like_counts_numeric = process_numeric_column(df["Like Count"])
-        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
-
+        # Calculate engagement rate using raw numeric values
         df = df.with_columns([
             pl.Series(name="Engagement Rate (%)",
                       values=[
                           f"{calculate_engagement_rate(vc, lc, dc):.2f}"
                           for vc, lc, dc in
-                          zip(view_counts_numeric, like_counts_numeric,
-                              dislike_counts_numeric)
+                          zip(df["View Count Raw"], df["Like Count Raw"],
+                              df["Dislike Count Raw"])
                       ])
         ])
 
@@ -305,14 +310,9 @@ class YoutubePlaylistService:
         Returns:
             Dict: Dictionary containing summary statistics.
         """
-        # Process numeric columns for summary calculations
-        view_counts_numeric = process_numeric_column(df["View Count"])
-        like_counts_numeric = process_numeric_column(df["Like Count"])
-        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
-
-        # Calculate summary statistics
-        total_views = view_counts_numeric.sum()
-        total_likes = like_counts_numeric.sum()
+        # Use raw numeric columns for summary calculations
+        total_views = df["View Count Raw"].sum()
+        total_likes = df["Like Count Raw"].sum()
         avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
 
         return {

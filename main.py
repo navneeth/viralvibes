@@ -11,6 +11,7 @@ from monsterui.all import *
 
 from components import (
     AnalysisFormCard,
+    AnalyticsDashboardSection,
     BenefitsCard,
     FeaturesCard,
     HeaderCard,
@@ -50,13 +51,14 @@ FLEX_COL_CENTER_CLS = FLEX_COL + " " + FLEX_CENTER
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
-hdrs = Theme.red.headers()
+hdrs = Theme.red.headers(apex_charts=True)
 
 app, rt = fast_app(hdrs=hdrs,
                    title="ViralVibes - YouTube Trends, Decoded",
                    static_dir="static",
                    favicon="/static/favicon.ico",
                    apple_touch_icon="/static/favicon.jpeg")
+
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
@@ -265,6 +267,7 @@ async def validate(playlist: YoutubePlaylist):
                   cls="text-lg text-gray-700 mb-2"),
                 channel_info,
                 Table(thead, tbody, tfoot, cls="w-full mt-2"),
+                AnalyticsDashboardSection(df, summary_stats),
                 style="margin-top: 1rem;"))
 
     return Div(

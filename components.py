@@ -1,10 +1,31 @@
-from fasthtml.common import *
+from typing import Dict, List, Optional, Tuple
 
+import polars as pl
+from fasthtml.common import *
 from monsterui.all import *
-from typing import List, Tuple, Optional
-from constants import (FLEX_COL, FLEX_CENTER, FLEX_BETWEEN, GAP_2, GAP_4,
-                       CARD_BASE, HEADER_CARD, FORM_CARD, NEWSLETTER_CARD,
-                       PLAYLIST_STEPS_CONFIG, STEPS_CLS, FEATURES, BENEFITS)
+
+from charts import (
+    chart_controversy_score,
+    chart_engagement_rate,
+    chart_likes_vs_dislikes,
+    chart_total_engagement,
+    chart_views_by_rank,
+)
+from constants import (
+    BENEFITS,
+    CARD_BASE,
+    FEATURES,
+    FLEX_BETWEEN,
+    FLEX_CENTER,
+    FLEX_COL,
+    FORM_CARD,
+    GAP_2,
+    GAP_4,
+    HEADER_CARD,
+    NEWSLETTER_CARD,
+    PLAYLIST_STEPS_CONFIG,
+    STEPS_CLS,
+)
 
 
 def HeaderCard() -> Card:
@@ -150,3 +171,20 @@ def NewsletterCard() -> Card:
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD,
         body_cls="space-y-6")
+
+
+def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
+    print(df.head())
+    print(summary)
+
+    return Section(
+        H2("📊 Playlist Analytics", cls="text-2xl font-bold mb-4"),
+        P("Visual overview of viewership, engagement, and controversy metrics.",
+          cls="text-gray-600 mb-6"),
+        Grid(chart_views_by_rank(df),
+             chart_engagement_rate(df),
+             chart_likes_vs_dislikes(df),
+             chart_controversy_score(df),
+             chart_total_engagement(summary),
+             cls="grid-cols-1 md:grid-cols-2 gap-6"),
+        cls="mt-12 pt-8 border-t border-gray-200")
