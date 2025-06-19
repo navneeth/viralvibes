@@ -19,7 +19,10 @@ def chart_views_by_rank(df: pl.DataFrame):
         "series": [{
             "name":
             "Views (in Millions)",
-            "data": [round(vc / 1_000_000, 1) for vc in df["View Count Raw"]]
+            "data": [
+                round(vc / 1_000_000, 1)
+                for vc in df["View Count Raw"].fill_null(0)
+            ]
         }],
         "xaxis": {
             "categories": df["Rank"].cast(pl.Int64).to_list(),
@@ -46,8 +49,8 @@ def chart_engagement_rate(df: pl.DataFrame):
             "name":
             "Engagement Rate (%)",
             "data": [
-                float(rate)
-                for rate in df["Engagement Rate (%)"].cast(pl.Float64)
+                float(rate) if rate is not None else 0.0 for rate in
+                df["Engagement Rate (%)"].cast(pl.Float64).fill_null(0)
             ]
         }],
         "xaxis": {
@@ -73,11 +76,11 @@ def chart_likes_vs_dislikes(df: pl.DataFrame):
         "series": [
             {
                 "name": "Likes",
-                "data": df["Like Count Raw"].to_list()
+                "data": df["Like Count Raw"].fill_null(0).to_list()
             },
             {
                 "name": "Dislikes",
-                "data": df["Dislike Count Raw"].to_list()
+                "data": df["Dislike Count Raw"].fill_null(0).to_list()
             },
         ],
         "xaxis": {
@@ -113,7 +116,10 @@ def chart_controversy_score(df: pl.DataFrame):
         "series": [{
             "name":
             "Controversy",
-            "data": [float(score * 100) for score in df["Controversy Raw"]]
+            "data": [
+                float(score * 100) if score is not None else 0.0
+                for score in df["Controversy Raw"].fill_null(0)
+            ]
         }],
         "xaxis": {
             "title": {
@@ -148,8 +154,11 @@ def chart_treemap_views(df: pl.DataFrame):
         },
         "series": [{
             "data": [{
-                "x": row["Title"],
-                "y": row["View Count Raw"]
+                "x":
+                row["Title"],
+                "y":
+                row["View Count Raw"]
+                if row["View Count Raw"] is not None else 0
             } for row in df.iter_rows(named=True)]
         }],
         "legend": {
@@ -199,8 +208,11 @@ def chart_scatter_likes_dislikes(df: pl.DataFrame):
         "series": [{
             "name":
             "Videos",
-            "data": [[row["Like Count Raw"], row["Dislike Count Raw"]]
-                     for row in df.iter_rows(named=True)]
+            "data": [[
+                row["Like Count Raw"] if row["Like Count Raw"] is not None else
+                0, row["Dislike Count Raw"]
+                if row["Dislike Count Raw"] is not None else 0
+            ] for row in df.iter_rows(named=True)]
         }],
         "tooltip": {
             "custom":
@@ -216,7 +228,6 @@ def chart_scatter_likes_dislikes(df: pl.DataFrame):
 
 
 def chart_bubble_engagement_vs_views(df: pl.DataFrame):
-
     return ApexChart(opts={
         "chart": {
             "type": "bubble",
@@ -242,10 +253,17 @@ def chart_bubble_engagement_vs_views(df: pl.DataFrame):
             "name":
             "Videos",
             "data": [{
-                "x": round(row["View Count Raw"] / 1_000_000, 2),
-                "y": float(row["Engagement Rate (%)"]),
-                "z": round(float(row["Controversy Raw"]) * 100, 1),
-                "name": row["Title"]
+                "x":
+                round(row["View Count Raw"] / 1_000_000, 2)
+                if row["View Count Raw"] is not None else 0,
+                "y":
+                float(row["Engagement Rate (%)"])
+                if row["Engagement Rate (%)"] is not None else 0.0,
+                "z":
+                round(float(row["Controversy Raw"]) *
+                      100, 1) if row["Controversy Raw"] is not None else 0.0,
+                "name":
+                row["Title"]
             } for row in df.iter_rows(named=True)]
         }],
         "tooltip": {

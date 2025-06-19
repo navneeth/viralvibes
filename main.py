@@ -180,9 +180,30 @@ async def validate(playlist: YoutubePlaylist):
                 analysis_result_page_footer,
                 cls=(ContainerT.xl, 'uk-container-expand')))
 
-    # Step 2: URL validated
+    # --- Step 2: URL validated. Show fast preview (title + thumbnail) ---
     steps_after_validation = StepProgress(2)
 
+    try:
+        playlist_name, channel_name, channel_thumbnail = await asyncio.to_thread(
+            yt_service.get_playlist_preview, playlist.playlist_url)
+
+        preview_ui = Div(
+            P(f"Analyzing Playlist: {playlist_name}",
+              cls="text-2xl font-semibold text-center"),
+            Div(Img(
+                src=channel_thumbnail,
+                alt="Channel Thumbnail",
+                style=
+                "width: 64px; height: 64px; border-radius: 50%; margin: 1rem auto;"
+            ),
+                cls="flex justify-center"),
+            cls="text-center space-y-4 my-10")
+
+    except Exception as e:
+        logger.warning("Preview fetch failed: %s", e)
+        preview_ui = Div("Fetching playlist info...", cls="text-gray-500")
+
+    # --- Step 3: Deep analysis (yt-dlp + dislikes) ---
     try:
         df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
             playlist.playlist_url)
@@ -235,22 +256,25 @@ async def validate(playlist: YoutubePlaylist):
                Td(f"{summary_stats['avg_engagement']:.2f}%")))
 
         # Create channel info section with thumbnail
-        channel_info = Div(Div(
-            Img(src=channel_thumbnail,
-                alt=f"{channel_name} channel thumbnail",
-                style=
-                "width: 48px; height: 48px; border-radius: 50%; margin-right: 1rem;"
-                ),
-            Div(A(
-                channel_name,
-                href=
-                f"https://www.youtube.com/channel/{df['Channel ID'].item(0)}",
-                target="_blank",
-                style="color:#2563eb;text-decoration:underline;",
-                cls="text-sm text-gray-600"),
-                cls="flex flex-col justify-center"),
-            cls="flex items-center mb-2") if channel_thumbnail else "",
-                           cls="mb-2")
+        if channel_thumbnail:
+            channel_info = Div(Div(
+                Img(src=channel_thumbnail,
+                    alt=f"{channel_name} channel thumbnail",
+                    style=
+                    "width: 48px; height: 48px; border-radius: 50%; margin-right: 1rem;"
+                    ),
+                Div(A(
+                    channel_name,
+                    href=
+                    f"https://www.youtube.com/channel/{df['Channel ID'].item(0)}",
+                    target="_blank",
+                    style="color:#2563eb;text-decoration:underline;",
+                    cls="text-sm text-gray-600"),
+                    cls="flex flex-col justify-center"),
+                cls="flex items-center mb-2"),
+                               cls="mb-2")
+        else:
+            channel_info = None
 
         # Debug logging for channel info
         logger.info("Channel Info Component: %s", channel_info)

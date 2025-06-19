@@ -46,6 +46,14 @@ class YoutubePlaylistService:
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
+    def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
+        """Extract lightweight playlist name, uploader, and thumbnail."""
+        info = self.ydl.extract_info(playlist_url, download=False)
+        title = info.get("title", "Untitled Playlist")
+        uploader = info.get("uploader", "Unknown Channel")
+        thumbnail = self._extract_channel_thumbnail(info)
+        return title, uploader, thumbnail
+
     async def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
         
