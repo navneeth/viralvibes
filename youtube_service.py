@@ -68,10 +68,11 @@ class YoutubePlaylistService:
     def get_display_headers(cls):
         return cls.DISPLAY_HEADERS
 
-    async def get_playlist_data(self,
-                                playlist_url: str,
-                                max_expanded: int = 20
-                                ) -> Tuple[pl.DataFrame, str, str, str, Dict]:
+    async def get_playlist_data(
+        self,
+        playlist_url: str,
+        max_expanded: int = 20
+    ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
         """Fetch and process video information from a YouTube playlist URL.
         
         Args:
@@ -79,7 +80,7 @@ class YoutubePlaylistService:
             max_expanded (int): Maximum number of videos to process.
             
         Returns:
-            Tuple[pl.DataFrame, str, str, str, Dict]: A tuple containing:
+            Tuple[pl.DataFrame, str, str, str, Dict[str, float]]: A tuple containing:
                 - A Polars DataFrame with video information
                 - The playlist name
                 - The channel name
@@ -132,15 +133,11 @@ class YoutubePlaylistService:
         """
         if "thumbnails" in playlist_info:
             thumbnails = playlist_info["thumbnails"]
-            # Try to get the highest quality thumbnail
-            for thumb in thumbnails:
-                if thumb.get(
-                        "width", 0
-                ) >= 48:  # Look for thumbnail that's at least 48px wide
-                    return thumb.get("url", "")
-            # If no suitable thumbnail found, use the first one
-            if thumbnails:
-                return thumbnails[0].get("url", "")
+            # Sort thumbnails by width (descending) to get the highest quality
+            sorted_thumbs = sorted(thumbnails,
+                                   key=lambda x: x.get("width", 0),
+                                   reverse=True)
+            return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
 
     def _expand_video_info(self, video_url: str) -> dict:
@@ -226,6 +223,16 @@ class YoutubePlaylistService:
             if not full_info:
                 continue
 
+            # Schema validation: check for required fields
+            required_keys = [
+                "id", "title", "view_count", "like_count", "duration"
+            ]
+            if not all(k in full_info for k in required_keys):
+                logger.warning(
+                    f"Missing fields in video: {video.get('url')}, got keys: {list(full_info.keys())}"
+                )
+                continue
+
             video_id = full_info.get("id", "")
             dislike_count = await self.get_dislike_count(video_id)
             like_count = full_info.get("like_count", 0)
@@ -257,7 +264,7 @@ class YoutubePlaylistService:
                 full_info.get("creator", "N/A"),
                 "Channel ID":
                 full_info.get("channel_id", "N/A"),
-                "Duration":
+                "Duration Raw":
                 full_info.get("duration", 0),
                 "Thumbnail":
                 full_info.get("thumbnail", ""),
@@ -276,14 +283,14 @@ class YoutubePlaylistService:
                 "Dislike Count Raw"),  # Keep original for charts
             pl.col("Controversy").alias(
                 "Controversy Raw"),  # Keep original for charts
+            pl.col("Duration Raw").map_elements(
+                format_duration, return_dtype=pl.String).alias("Duration"),
             pl.col("View Count").map_elements(
                 format_number, return_dtype=pl.String).alias("View Count"),
             pl.col("Like Count").map_elements(
                 format_number, return_dtype=pl.String).alias("Like Count"),
             pl.col("Dislike Count").map_elements(
                 format_number, return_dtype=pl.String).alias("Dislike Count"),
-            pl.col("Duration").map_elements(format_duration,
-                                            return_dtype=pl.String),
             pl.col("Controversy").map_elements(lambda x: f"{x:.2%}",
                                                return_dtype=pl.String)
         ])

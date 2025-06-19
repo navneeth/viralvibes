@@ -138,3 +138,135 @@ def chart_total_engagement(summary: Dict):
                    int(summary["total_views"] * 0.02)],
     },
                      cls="w-full h-80")
+
+
+def chart_treemap_views(df: pl.DataFrame):
+    return ApexChart(opts={
+        "chart": {
+            "type": "treemap",
+            "height": 350
+        },
+        "series": [{
+            "data": [{
+                "x": row["Title"],
+                "y": row["View Count Raw"]
+            } for row in df.iter_rows(named=True)]
+        }],
+        "legend": {
+            "show": False
+        },
+        "title": {
+            "text": "Views Contribution by Video",
+            "align": "center"
+        },
+        "dataLabels": {
+            "enabled": True,
+            "style": {
+                "fontSize": "11px"
+            }
+        }
+    },
+                     cls="w-full h-[22rem]")
+
+
+def chart_scatter_likes_dislikes(df: pl.DataFrame):
+    return ApexChart(opts={
+        "chart": {
+            "type": "scatter",
+            "zoom": {
+                "enabled": True
+            },
+            "height": 350
+        },
+        "xaxis": {
+            "title": {
+                "text": "Like Count"
+            },
+            "labels": {
+                "formatter":
+                "function(val){ return Math.round(val/1e6) + 'M'; }"
+            }
+        },
+        "yaxis": {
+            "title": {
+                "text": "Dislike Count"
+            },
+            "labels": {
+                "formatter":
+                "function(val){ return Math.round(val/1e6) + 'M'; }"
+            }
+        },
+        "series": [{
+            "name":
+            "Videos",
+            "data": [[row["Like Count Raw"], row["Dislike Count Raw"]]
+                     for row in df.iter_rows(named=True)]
+        }],
+        "tooltip": {
+            "custom":
+            """
+                    function({series, seriesIndex, dataPointIndex, w}) {
+                        const val = w.globals.initialSeries[0].data[dataPointIndex];
+                        return `Likes: ${val[0]}<br>Dislikes: ${val[1]}`;
+                    }
+                """
+        }
+    },
+                     cls="w-full h-[22rem]")
+
+
+def chart_bubble_engagement_vs_views(df: pl.DataFrame):
+
+    return ApexChart(opts={
+        "chart": {
+            "type": "bubble",
+            "height": 350,
+            "toolbar": {
+                "show": True
+            }
+        },
+        "xaxis": {
+            "title": {
+                "text": "View Count (Millions)"
+            },
+            "labels": {
+                "formatter": "function(val){ return val + 'M'; }"
+            }
+        },
+        "yaxis": {
+            "title": {
+                "text": "Engagement Rate (%)"
+            }
+        },
+        "series": [{
+            "name":
+            "Videos",
+            "data": [{
+                "x": round(row["View Count Raw"] / 1_000_000, 2),
+                "y": float(row["Engagement Rate (%)"]),
+                "z": round(float(row["Controversy Raw"]) * 100, 1),
+                "name": row["Title"]
+            } for row in df.iter_rows(named=True)]
+        }],
+        "tooltip": {
+            "custom":
+            """
+                function({ series, seriesIndex, dataPointIndex, w }) {
+                    const pt = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+                    return `
+                        <strong>${pt.name}</strong><br>
+                        Views: ${pt.x}M<br>
+                        Engagement: ${pt.y}%<br>
+                        Controversy: ${pt.z}%
+                    `;
+                }
+            """
+        },
+        "plotOptions": {
+            "bubble": {
+                "minBubbleRadius": 5,
+                "maxBubbleRadius": 30
+            }
+        }
+    },
+                     cls="w-full h-[22rem]")
