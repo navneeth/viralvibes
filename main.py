@@ -182,7 +182,7 @@ async def validate(playlist: YoutubePlaylist):
 
     # --- Step 2: URL validated. Show fast preview (title + thumbnail) ---
     steps_after_validation = StepProgress(2)
-    '''
+    
     try:
         playlist_name, channel_name, channel_thumbnail = await asyncio.to_thread(
             yt_service.get_playlist_preview, playlist.playlist_url)
@@ -202,7 +202,7 @@ async def validate(playlist: YoutubePlaylist):
     except Exception as e:
         logger.warning("Preview fetch failed: %s", e)
         preview_ui = Div("Fetching playlist info...", cls="text-gray-500")
-    '''
+    
     # --- Step 3: Deep analysis (yt-dlp + dislikes) ---
     try:
         df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
