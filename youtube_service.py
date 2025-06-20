@@ -48,13 +48,16 @@ class YoutubePlaylistService:
 
     def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
         """Extract lightweight playlist name, uploader, and thumbnail."""
+       
+        """Use yt-dlp with preview-safe settings to get basic playlist info."""
+        preview_opts = {
+            "quiet": True,
+            "extract_flat": True,  # lightweight mode
+            "force_generic_extractor": True,  # <- force fallback that actually works
+            "nocheckcertificate": True,
+            "skip_download": True,
+        }
         try:
-            """Use yt-dlp with preview-safe settings to get basic playlist info."""
-            preview_opts = {
-                "quiet": True,
-                "extract_flat": True,  # lightweight mode
-                "dump_single_json": True
-            }
             with yt_dlp.YoutubeDL(preview_opts) as ydl:
                 info = ydl.extract_info(playlist_url, download=False)
             
@@ -66,6 +69,8 @@ class YoutubePlaylistService:
             return title, uploader, ""
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
+            logger.error(f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
+
             return "Preview unavailable", "", ""
 
     async def get_dislike_count(self, video_id: str) -> int:
