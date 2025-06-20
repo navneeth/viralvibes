@@ -52,8 +52,8 @@ class YoutubePlaylistService:
             info = self._get_preview_info(playlist_url)
             title = info.get("title", "Untitled Playlist")
             uploader = info.get("uploader", "Unknown Channel")
-            thumbnail = self._extract_channel_thumbnail(info)
-            return title, uploader, thumbnail
+            #thumbnail = self._extract_channel_thumbnail(info)
+            return title, uploader, ""
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
             return "Preview unavailable", "", ""
