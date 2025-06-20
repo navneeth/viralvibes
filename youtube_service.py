@@ -41,7 +41,7 @@ class YoutubePlaylistService:
             # "extract_flat": True,
             "extract_flat":
             "in_playlist",  # allows lightweight fetch with URLs
-            "force_generic_extractor": True
+            #"force_generic_extractor": True
         }
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
