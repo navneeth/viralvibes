@@ -156,8 +156,10 @@ class YoutubePlaylistService:
         """Use yt-dlp with preview-safe settings to get basic playlist info."""
         preview_opts = {
             "quiet": True,
-            "extract_flat": True,  # lightweight mode
-            "force_generic_extractor": False,
+            #"extract_flat": True,  # lightweight mode
+            #"force_generic_extractor": False,
+            "flat_playlist": True,  # get full playlist metadata
+            "dump_single_json": True
         }
         with yt_dlp.YoutubeDL(preview_opts) as ydl:
             return ydl.extract_info(playlist_url, download=False)
