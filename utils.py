@@ -98,3 +98,6 @@ def process_numeric_column(series: 'pl.Series') -> 'pl.Series':
         return float(value.replace(',', ''))
 
     return series.map_elements(convert_to_number, return_dtype=pl.Float64)
+
+def safe_cell(value):
+    return value if value is not None else "N/A"
