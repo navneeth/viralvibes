@@ -48,28 +48,31 @@ class YoutubePlaylistService:
 
     def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
         """Extract lightweight playlist name, uploader, and thumbnail."""
-       
         """Use yt-dlp with preview-safe settings to get basic playlist info."""
         preview_opts = {
             "quiet": True,
             "extract_flat": True,  # lightweight mode
-            "force_generic_extractor": True,  # <- force fallback that actually works
+            "force_generic_extractor":
+            True,  # <- force fallback that actually works
             "nocheckcertificate": True,
             "skip_download": True,
         }
         try:
             with yt_dlp.YoutubeDL(preview_opts) as ydl:
                 info = ydl.extract_info(playlist_url, download=False)
-            
+
             # Fallbacks in case metadata is sparse
-            title = info.get("title") or info.get("playlist_title") or "Untitled Playlist"
-            uploader = info.get("uploader") or info.get("channel") or "Unknown Channel"
+            title = info.get("title") or info.get(
+                "playlist_title") or "Untitled Playlist"
+            uploader = info.get("uploader") or info.get(
+                "channel") or "Unknown Channel"
             #thumbnail = self._extract_channel_thumbnail(info)
-            
+
             return title, uploader, ""
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
-            logger.error(f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
+            logger.error(
+                f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
 
             return "Preview unavailable", "", ""
 
@@ -179,7 +182,6 @@ class YoutubePlaylistService:
         }
         with yt_dlp.YoutubeDL(preview_opts) as ydl:
             return ydl.extract_info(playlist_url, download=False)
-
 
     def _expand_video_info(self, video_url: str) -> dict:
         """Fetch full metadata for a single video."""
@@ -312,6 +314,34 @@ class YoutubePlaylistService:
             })
 
         df = pl.DataFrame(data)
+        if df.is_empty():
+            # Ensure all expected columns exist, even if empty
+            expected_cols = [
+                ("Rank", pl.Int64),
+                ("id", pl.Utf8),
+                ("Title", pl.Utf8),
+                ("Views (Billions)", pl.Float64),
+                ("View Count", pl.Int64),
+                ("Like Count", pl.Int64),
+                ("Dislike Count", pl.Int64),
+                ("Controversy", pl.Float64),
+                ("Uploader", pl.Utf8),
+                ("Creator", pl.Utf8),
+                ("Channel ID", pl.Utf8),
+                ("Duration Raw", pl.Int64),
+                ("Thumbnail", pl.Utf8),
+                ("View Count Raw", pl.Int64),
+                ("Like Count Raw", pl.Int64),
+                ("Dislike Count Raw", pl.Int64),
+                ("Controversy Raw", pl.Float64),
+                ("Duration", pl.Utf8),
+                ("Engagement Rate (%)", pl.Utf8),
+            ]
+            df = pl.DataFrame({
+                col: pl.Series([], dtype=dt)
+                for col, dt in expected_cols
+            })
+            return df
 
         # Keep original numeric columns for charts and calculations
         # Create formatted display columns for the table
