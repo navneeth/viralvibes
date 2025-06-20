@@ -130,7 +130,7 @@ def index():
                              className="text-center text-gray-500 py-6"),
                       cls=(ContainerT.xl, 'uk-container-expand'))))
 
-
+'''
 @rt("/validate")
 async def validate(playlist: YoutubePlaylist):
     """
@@ -299,6 +299,68 @@ async def validate(playlist: YoutubePlaylist):
         P("Valid YouTube Playlist URL, but no videos were found or could not be retrieved."
           ),
         style="color: orange;")
+'''
+@rt("/validate/url", methods=["POST"])
+def validate_url(playlist: YoutubePlaylist):
+    errors = YoutubePlaylistValidator.validate(playlist)
+    if errors:
+        return Div(
+            Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
+            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded"
+        )
+    return Script("htmx.ajax('POST', '/validate/preview', {target: '#preview-box', values: {playlist_url: '%s'}});" % playlist.playlist_url)
+
+@rt("/validate/preview", methods=["POST"])
+async def preview_playlist(playlist_url: str):
+    try:
+        info = await yt_service.get_playlist_data(playlist_url, max_expanded=0)
+        _, playlist_name, channel_name, channel_thumbnail, _ = info
+    except Exception as e:
+        logger.warning("Preview fetch failed: %s", e)
+        return Div("Preview unavailable.", cls="text-gray-400")
+
+    return Div(
+        P(f"Analyzing Playlist: {playlist_name}", cls="text-lg font-semibold"),
+        Img(src=channel_thumbnail, alt="Channel thumbnail",
+            style="width:64px;height:64px;border-radius:50%;margin:auto;"),
+        Button("Start Full Analysis", hx_post="/validate/full", hx_vals={"playlist_url": playlist_url}, hx_target="#results-box", cls="uk-button uk-button-primary mt-4")
+    )
+
+@rt("/validate/full", methods=["POST"])
+async def validate_full(playlist_url: str):
+    try:
+        df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(playlist_url)
+    except Exception as e:
+        logger.error("Deep analysis failed: %s", e)
+        return Alert(P("Failed to fetch playlist data."), cls=AlertT.error)
+
+    if df.height == 0:
+        return Alert(P("No videos found."), cls=AlertT.warning)
+
+    headers = yt_service.get_display_headers()
+    thead = Thead(Tr(*[Th(h) for h in headers]))
+    tbody = Tbody(*[
+        Tr(Td(row["Rank"]),
+           Td(A(row["Title"], href=f"https://youtube.com/watch?v={row['id']}", target="_blank")),
+           Td(row["View Count"]),
+           Td(row["Like Count"]),
+           Td(row["Dislike Count"]),
+           Td(row["Duration"]),
+           Td(row["Engagement Rate (%)"]))
+        for row in df.iter_rows(named=True)
+    ])
+    tfoot = Tfoot(Tr(Td("Total/Average"), Td(""),
+                     Td(format_number(summary_stats["total_views"])),
+                     Td(format_number(summary_stats["total_likes"])),
+                     Td(""), Td(""),
+                     Td(f"{summary_stats['avg_engagement']:.2f}%")))
+
+    return Div(
+        StepProgress(len(PLAYLIST_STEPS_CONFIG)),
+        Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
+        AnalyticsDashboardSection(df, summary_stats),
+        cls="space-y-4"
+    )
 
 
 # Alternative approach: Progressive step updates
