@@ -353,6 +353,16 @@ class YoutubePlaylistService:
         Returns:
             Dict: Dictionary containing summary statistics.
         """
+        required_cols = {"View Count Raw", "Like Count Raw", "Engagement Rate (%)"}
+    
+        if df.is_empty() or not required_cols.issubset(df.columns):
+            logger.warning("Insufficient data for summary stats.")
+            return {
+                "total_views": 0,
+                "total_likes": 0,
+                "avg_engagement": 0.0,
+            }
+
         # Use raw numeric columns for summary calculations
         total_views = df["View Count Raw"].sum()
         total_likes = df["Like Count Raw"].sum()
