@@ -49,10 +49,20 @@ class YoutubePlaylistService:
     def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
         """Extract lightweight playlist name, uploader, and thumbnail."""
         try:
-            info = self._get_preview_info(playlist_url)
-            title = info.get("title", "Untitled Playlist")
-            uploader = info.get("uploader", "Unknown Channel")
+            """Use yt-dlp with preview-safe settings to get basic playlist info."""
+            preview_opts = {
+                "quiet": True,
+                "extract_flat": True,  # lightweight mode
+                "dump_single_json": True
+            }
+            with yt_dlp.YoutubeDL(preview_opts) as ydl:
+                info = ydl.extract_info(playlist_url, download=False)
+            
+            # Fallbacks in case metadata is sparse
+            title = info.get("title") or info.get("playlist_title") or "Untitled Playlist"
+            uploader = info.get("uploader") or info.get("channel") or "Unknown Channel"
             #thumbnail = self._extract_channel_thumbnail(info)
+            
             return title, uploader, ""
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
@@ -160,7 +170,7 @@ class YoutubePlaylistService:
             #"force_generic_extractor": False,
             #"flat_playlist": True,  # get full playlist metadata
             "dump_single_json": True,
-             "skip_playlist_after_errors": -1,  # avoid failures
+            #"skip_playlist_after_errors": -1,  # avoid failures
         }
         with yt_dlp.YoutubeDL(preview_opts) as ydl:
             return ydl.extract_info(playlist_url, download=False)
