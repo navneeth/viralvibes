@@ -48,11 +48,15 @@ class YoutubePlaylistService:
 
     def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
         """Extract lightweight playlist name, uploader, and thumbnail."""
-        info = self.ydl.extract_info(playlist_url, download=False)
-        title = info.get("title", "Untitled Playlist")
-        uploader = info.get("uploader", "Unknown Channel")
-        thumbnail = self._extract_channel_thumbnail(info)
-        return title, uploader, thumbnail
+        try:
+            info = self._get_preview_info(playlist_url)
+            title = info.get("title", "Untitled Playlist")
+            uploader = info.get("uploader", "Unknown Channel")
+            thumbnail = self._extract_channel_thumbnail(info)
+            return title, uploader, thumbnail
+        except Exception as e:
+            logger.warning(f"Failed to fetch playlist preview: {e}")
+            return "Preview unavailable", "", ""
 
     async def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
@@ -147,6 +151,17 @@ class YoutubePlaylistService:
                                    reverse=True)
             return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
+
+    def _get_preview_info(self, playlist_url: str) -> dict:
+        """Use yt-dlp with preview-safe settings to get basic playlist info."""
+        preview_opts = {
+            "quiet": True,
+            "extract_flat": True,  # lightweight mode
+            "force_generic_extractor": False,
+        }
+        with yt_dlp.YoutubeDL(preview_opts) as ydl:
+            return ydl.extract_info(playlist_url, download=False)
+
 
     def _expand_video_info(self, video_url: str) -> dict:
         """Fetch full metadata for a single video."""
