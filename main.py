@@ -336,10 +336,10 @@ async def preview_playlist(playlist_url: str):
                hx_indicator="#loading-bar",
                cls="uk-button uk-button-primary mt-4",
                type="button"),
-        Loading(id="loading-bar",
-                cls=(LoadingT.bars, LoadingT.lg),
-                style="margin-top:1rem; color:#393e6e;"),
-        Div(id="results-box"),
+        Div(Loading(id="loading-bar",
+                    cls=(LoadingT.bars, LoadingT.lg),
+                    style="margin-top:1rem; color:#393e6e;"),
+            id="results-box"),
     )
 
 
