@@ -41,10 +41,32 @@ class YoutubePlaylistService:
             # "extract_flat": True,
             "extract_flat":
             "in_playlist",  # allows lightweight fetch with URLs
-            "force_generic_extractor": True
+            #"force_generic_extractor": True
         }
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
+
+    def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
+        """Extract lightweight playlist name, uploader, and thumbnail."""
+        try:
+            """Use yt-dlp with preview-safe settings to get basic playlist info."""
+            preview_opts = {
+                "quiet": True,
+                "extract_flat": True,  # lightweight mode
+                "dump_single_json": True
+            }
+            with yt_dlp.YoutubeDL(preview_opts) as ydl:
+                info = ydl.extract_info(playlist_url, download=False)
+            
+            # Fallbacks in case metadata is sparse
+            title = info.get("title") or info.get("playlist_title") or "Untitled Playlist"
+            uploader = info.get("uploader") or info.get("channel") or "Unknown Channel"
+            #thumbnail = self._extract_channel_thumbnail(info)
+            
+            return title, uploader, ""
+        except Exception as e:
+            logger.warning(f"Failed to fetch playlist preview: {e}")
+            return "Preview unavailable", "", ""
 
     async def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
@@ -68,10 +90,11 @@ class YoutubePlaylistService:
     def get_display_headers(cls):
         return cls.DISPLAY_HEADERS
 
-    async def get_playlist_data(self,
-                                playlist_url: str,
-                                max_expanded: int = 20
-                                ) -> Tuple[pl.DataFrame, str, str, str, Dict]:
+    async def get_playlist_data(
+        self,
+        playlist_url: str,
+        max_expanded: int = 20
+    ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
         """Fetch and process video information from a YouTube playlist URL.
         
         Args:
@@ -79,7 +102,7 @@ class YoutubePlaylistService:
             max_expanded (int): Maximum number of videos to process.
             
         Returns:
-            Tuple[pl.DataFrame, str, str, str, Dict]: A tuple containing:
+            Tuple[pl.DataFrame, str, str, str, Dict[str, float]]: A tuple containing:
                 - A Polars DataFrame with video information
                 - The playlist name
                 - The channel name
@@ -132,16 +155,26 @@ class YoutubePlaylistService:
         """
         if "thumbnails" in playlist_info:
             thumbnails = playlist_info["thumbnails"]
-            # Try to get the highest quality thumbnail
-            for thumb in thumbnails:
-                if thumb.get(
-                        "width", 0
-                ) >= 48:  # Look for thumbnail that's at least 48px wide
-                    return thumb.get("url", "")
-            # If no suitable thumbnail found, use the first one
-            if thumbnails:
-                return thumbnails[0].get("url", "")
+            # Sort thumbnails by width (descending) to get the highest quality
+            sorted_thumbs = sorted(thumbnails,
+                                   key=lambda x: x.get("width", 0),
+                                   reverse=True)
+            return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
+
+    def _get_preview_info(self, playlist_url: str) -> dict:
+        """Use yt-dlp with preview-safe settings to get basic playlist info."""
+        preview_opts = {
+            "quiet": True,
+            "extract_flat": True,  # lightweight mode
+            #"force_generic_extractor": False,
+            #"flat_playlist": True,  # get full playlist metadata
+            "dump_single_json": True,
+            #"skip_playlist_after_errors": -1,  # avoid failures
+        }
+        with yt_dlp.YoutubeDL(preview_opts) as ydl:
+            return ydl.extract_info(playlist_url, download=False)
+
 
     def _expand_video_info(self, video_url: str) -> dict:
         """Fetch full metadata for a single video."""
@@ -226,6 +259,16 @@ class YoutubePlaylistService:
             if not full_info:
                 continue
 
+            # Schema validation: check for required fields
+            required_keys = [
+                "id", "title", "view_count", "like_count", "duration"
+            ]
+            if not all(k in full_info for k in required_keys):
+                logger.warning(
+                    f"Missing fields in video: {video.get('url')}, got keys: {list(full_info.keys())}"
+                )
+                continue
+
             video_id = full_info.get("id", "")
             dislike_count = await self.get_dislike_count(video_id)
             like_count = full_info.get("like_count", 0)
@@ -257,7 +300,7 @@ class YoutubePlaylistService:
                 full_info.get("creator", "N/A"),
                 "Channel ID":
                 full_info.get("channel_id", "N/A"),
-                "Duration":
+                "Duration Raw":
                 full_info.get("duration", 0),
                 "Thumbnail":
                 full_info.get("thumbnail", ""),
@@ -265,32 +308,37 @@ class YoutubePlaylistService:
 
         df = pl.DataFrame(data)
 
-        # Apply formatting
+        # Keep original numeric columns for charts and calculations
+        # Create formatted display columns for the table
         df = df.with_columns([
-            pl.col("View Count").map_elements(format_number,
-                                              return_dtype=pl.String),
-            pl.col("Like Count").map_elements(format_number,
-                                              return_dtype=pl.String),
-            pl.col("Dislike Count").map_elements(format_number,
-                                                 return_dtype=pl.String),
-            pl.col("Duration").map_elements(format_duration,
-                                            return_dtype=pl.String),
+            pl.col("View Count").alias(
+                "View Count Raw"),  # Keep original for charts
+            pl.col("Like Count").alias(
+                "Like Count Raw"),  # Keep original for charts
+            pl.col("Dislike Count").alias(
+                "Dislike Count Raw"),  # Keep original for charts
+            pl.col("Controversy").alias(
+                "Controversy Raw"),  # Keep original for charts
+            pl.col("Duration Raw").map_elements(
+                format_duration, return_dtype=pl.String).alias("Duration"),
+            pl.col("View Count").map_elements(
+                format_number, return_dtype=pl.String).alias("View Count"),
+            pl.col("Like Count").map_elements(
+                format_number, return_dtype=pl.String).alias("Like Count"),
+            pl.col("Dislike Count").map_elements(
+                format_number, return_dtype=pl.String).alias("Dislike Count"),
             pl.col("Controversy").map_elements(lambda x: f"{x:.2%}",
                                                return_dtype=pl.String)
         ])
 
-        # Calculate engagement rate
-        view_counts_numeric = process_numeric_column(df["View Count"])
-        like_counts_numeric = process_numeric_column(df["Like Count"])
-        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
-
+        # Calculate engagement rate using raw numeric values
         df = df.with_columns([
             pl.Series(name="Engagement Rate (%)",
                       values=[
                           f"{calculate_engagement_rate(vc, lc, dc):.2f}"
                           for vc, lc, dc in
-                          zip(view_counts_numeric, like_counts_numeric,
-                              dislike_counts_numeric)
+                          zip(df["View Count Raw"], df["Like Count Raw"],
+                              df["Dislike Count Raw"])
                       ])
         ])
 
@@ -305,14 +353,9 @@ class YoutubePlaylistService:
         Returns:
             Dict: Dictionary containing summary statistics.
         """
-        # Process numeric columns for summary calculations
-        view_counts_numeric = process_numeric_column(df["View Count"])
-        like_counts_numeric = process_numeric_column(df["Like Count"])
-        dislike_counts_numeric = process_numeric_column(df["Dislike Count"])
-
-        # Calculate summary statistics
-        total_views = view_counts_numeric.sum()
-        total_likes = like_counts_numeric.sum()
+        # Use raw numeric columns for summary calculations
+        total_views = df["View Count Raw"].sum()
+        total_likes = df["Like Count Raw"].sum()
         avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
 
         return {

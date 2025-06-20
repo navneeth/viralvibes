@@ -11,6 +11,7 @@ from monsterui.all import *
 
 from components import (
     AnalysisFormCard,
+    AnalyticsDashboardSection,
     BenefitsCard,
     FeaturesCard,
     HeaderCard,
@@ -50,13 +51,14 @@ FLEX_COL_CENTER_CLS = FLEX_COL + " " + FLEX_CENTER
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
-hdrs = Theme.red.headers()
+hdrs = Theme.red.headers(apex_charts=True)
 
 app, rt = fast_app(hdrs=hdrs,
                    title="ViralVibes - YouTube Trends, Decoded",
                    static_dir="static",
                    favicon="/static/favicon.ico",
                    apple_touch_icon="/static/favicon.jpeg")
+
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
@@ -128,7 +130,7 @@ def index():
                              className="text-center text-gray-500 py-6"),
                       cls=(ContainerT.xl, 'uk-container-expand'))))
 
-
+'''
 @rt("/validate")
 async def validate(playlist: YoutubePlaylist):
     """
@@ -178,9 +180,30 @@ async def validate(playlist: YoutubePlaylist):
                 analysis_result_page_footer,
                 cls=(ContainerT.xl, 'uk-container-expand')))
 
-    # Step 2: URL validated
+    # --- Step 2: URL validated. Show fast preview (title + thumbnail) ---
     steps_after_validation = StepProgress(2)
+    
+    try:
+        playlist_name, channel_name, channel_thumbnail = await asyncio.to_thread(
+            yt_service.get_playlist_preview, playlist.playlist_url)
 
+        preview_ui = Div(
+            P(f"Analyzing Playlist: {playlist_name}",
+              cls="text-2xl font-semibold text-center"),
+            Div(Img(
+                src=channel_thumbnail,
+                alt="Channel Thumbnail",
+                style=
+                "width: 64px; height: 64px; border-radius: 50%; margin: 1rem auto;"
+            ),
+                cls="flex justify-center"),
+            cls="text-center space-y-4 my-10")
+
+    except Exception as e:
+        logger.warning("Preview fetch failed: %s", e)
+        preview_ui = Div("Fetching playlist info...", cls="text-gray-500")
+    
+    # --- Step 3: Deep analysis (yt-dlp + dislikes) ---
     try:
         df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
             playlist.playlist_url)
@@ -233,22 +256,25 @@ async def validate(playlist: YoutubePlaylist):
                Td(f"{summary_stats['avg_engagement']:.2f}%")))
 
         # Create channel info section with thumbnail
-        channel_info = Div(Div(
-            Img(src=channel_thumbnail,
-                alt=f"{channel_name} channel thumbnail",
-                style=
-                "width: 48px; height: 48px; border-radius: 50%; margin-right: 1rem;"
-                ),
-            Div(A(
-                channel_name,
-                href=
-                f"https://www.youtube.com/channel/{df['Channel ID'].item(0)}",
-                target="_blank",
-                style="color:#2563eb;text-decoration:underline;",
-                cls="text-sm text-gray-600"),
-                cls="flex flex-col justify-center"),
-            cls="flex items-center mb-2") if channel_thumbnail else "",
-                           cls="mb-2")
+        if channel_thumbnail:
+            channel_info = Div(Div(
+                Img(src=channel_thumbnail,
+                    alt=f"{channel_name} channel thumbnail",
+                    style=
+                    "width: 48px; height: 48px; border-radius: 50%; margin-right: 1rem;"
+                    ),
+                Div(A(
+                    channel_name,
+                    href=
+                    f"https://www.youtube.com/channel/{df['Channel ID'].item(0)}",
+                    target="_blank",
+                    style="color:#2563eb;text-decoration:underline;",
+                    cls="text-sm text-gray-600"),
+                    cls="flex flex-col justify-center"),
+                cls="flex items-center mb-2"),
+                               cls="mb-2")
+        else:
+            channel_info = None
 
         # Debug logging for channel info
         logger.info("Channel Info Component: %s", channel_info)
@@ -265,6 +291,7 @@ async def validate(playlist: YoutubePlaylist):
                   cls="text-lg text-gray-700 mb-2"),
                 channel_info,
                 Table(thead, tbody, tfoot, cls="w-full mt-2"),
+                AnalyticsDashboardSection(df, summary_stats),
                 style="margin-top: 1rem;"))
 
     return Div(
@@ -272,6 +299,68 @@ async def validate(playlist: YoutubePlaylist):
         P("Valid YouTube Playlist URL, but no videos were found or could not be retrieved."
           ),
         style="color: orange;")
+'''
+@rt("/validate/url", methods=["POST"])
+def validate_url(playlist: YoutubePlaylist):
+    errors = YoutubePlaylistValidator.validate(playlist)
+    if errors:
+        return Div(
+            Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
+            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded"
+        )
+    return Script("htmx.ajax('POST', '/validate/preview', {target: '#preview-box', values: {playlist_url: '%s'}});" % playlist.playlist_url)
+
+@rt("/validate/preview", methods=["POST"])
+async def preview_playlist(playlist_url: str):
+    try:
+        info = await yt_service.get_playlist_data(playlist_url, max_expanded=0)
+        _, playlist_name, channel_name, channel_thumbnail, _ = info
+    except Exception as e:
+        logger.warning("Preview fetch failed: %s", e)
+        return Div("Preview unavailable.", cls="text-gray-400")
+
+    return Div(
+        P(f"Analyzing Playlist: {playlist_name}", cls="text-lg font-semibold"),
+        Img(src=channel_thumbnail, alt="Channel thumbnail",
+            style="width:64px;height:64px;border-radius:50%;margin:auto;"),
+        Button("Start Full Analysis", hx_post="/validate/full", hx_vals={"playlist_url": playlist_url}, hx_target="#results-box", cls="uk-button uk-button-primary mt-4")
+    )
+
+@rt("/validate/full", methods=["POST"])
+async def validate_full(playlist_url: str):
+    try:
+        df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(playlist_url)
+    except Exception as e:
+        logger.error("Deep analysis failed: %s", e)
+        return Alert(P("Failed to fetch playlist data."), cls=AlertT.error)
+
+    if df.height == 0:
+        return Alert(P("No videos found."), cls=AlertT.warning)
+
+    headers = yt_service.get_display_headers()
+    thead = Thead(Tr(*[Th(h) for h in headers]))
+    tbody = Tbody(*[
+        Tr(Td(row["Rank"]),
+           Td(A(row["Title"], href=f"https://youtube.com/watch?v={row['id']}", target="_blank")),
+           Td(row["View Count"]),
+           Td(row["Like Count"]),
+           Td(row["Dislike Count"]),
+           Td(row["Duration"]),
+           Td(row["Engagement Rate (%)"]))
+        for row in df.iter_rows(named=True)
+    ])
+    tfoot = Tfoot(Tr(Td("Total/Average"), Td(""),
+                     Td(format_number(summary_stats["total_views"])),
+                     Td(format_number(summary_stats["total_likes"])),
+                     Td(""), Td(""),
+                     Td(f"{summary_stats['avg_engagement']:.2f}%")))
+
+    return Div(
+        StepProgress(len(PLAYLIST_STEPS_CONFIG)),
+        Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
+        AnalyticsDashboardSection(df, summary_stats),
+        cls="space-y-4"
+    )
 
 
 # Alternative approach: Progressive step updates

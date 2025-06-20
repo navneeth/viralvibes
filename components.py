@@ -1,10 +1,34 @@
-from fasthtml.common import *
+from typing import Dict, List, Optional, Tuple
 
+import polars as pl
+from fasthtml.common import *
 from monsterui.all import *
-from typing import List, Tuple, Optional
-from constants import (FLEX_COL, FLEX_CENTER, FLEX_BETWEEN, GAP_2, GAP_4,
-                       CARD_BASE, HEADER_CARD, FORM_CARD, NEWSLETTER_CARD,
-                       PLAYLIST_STEPS_CONFIG, STEPS_CLS, FEATURES, BENEFITS)
+
+from charts import (
+    chart_bubble_engagement_vs_views,
+    chart_controversy_score,
+    chart_engagement_rate,
+    chart_likes_vs_dislikes,
+    chart_scatter_likes_dislikes,
+    chart_total_engagement,
+    chart_treemap_views,
+    chart_views_by_rank,
+)
+from constants import (
+    BENEFITS,
+    CARD_BASE,
+    FEATURES,
+    FLEX_BETWEEN,
+    FLEX_CENTER,
+    FLEX_COL,
+    FORM_CARD,
+    GAP_2,
+    GAP_4,
+    HEADER_CARD,
+    NEWSLETTER_CARD,
+    PLAYLIST_STEPS_CONFIG,
+    STEPS_CLS,
+)
 
 
 def HeaderCard() -> Card:
@@ -34,7 +58,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
     return Steps(*steps, cls=STEPS_CLS)
 
-
+'''
 def AnalysisFormCard() -> Card:
     """Create the analysis form card component."""
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
@@ -71,6 +95,60 @@ def AnalysisFormCard() -> Card:
         Div(id="result", style="margin-top:1rem;"),
         cls=FORM_CARD,
         body_cls="space-y-4")
+'''
+def AnalysisFormCard() -> Card:
+    """Create the analysis form card component with atomic HTMX triggers."""
+    prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
+
+    return Card(
+        Img(
+            src="/static/celebration.webp",
+            style="width: 100%; max-width: 320px; margin: 0 auto 1rem auto; display: block;",
+            alt="Celebration"
+        ),
+
+        P("Follow these steps to analyze any YouTube playlist:",
+          cls="text-lg font-semibold text-center mb-2"),
+
+        Div(PlaylistSteps(), id="playlist-steps", cls=f"{FLEX_CENTER} w-full"),
+
+        Form(
+            LabelInput(
+                "Playlist URL",
+                type="text",
+                name="playlist_url",
+                placeholder="Paste YouTube Playlist URL",
+                value=prefill_url,
+                className="px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+            ),
+
+            Button(
+                "Analyze Now",
+                type="submit",
+                className=f"{ButtonT.destructive} hover:scale-105 transition-transform"
+            ),
+
+            Loading(
+                id="loading",
+                cls=(LoadingT.bars, LoadingT.lg),
+                style="margin-top:0.5rem; color:#393e6e;",
+                htmx_indicator=True
+            ),
+
+            # HTMX hooks: validation triggers preview, then full analysis
+            hx_post="/validate/url",
+            hx_target="#validation-feedback",
+            hx_swap="innerHTML",
+            hx_indicator="#loading"
+        ),
+
+        Div(id="validation-feedback", cls="mt-4"),
+        Div(id="preview-box", cls="mt-4"),
+        Div(id="result", style="margin-top:1rem;"),
+
+        cls=FORM_CARD,
+        body_cls="space-y-4"
+    )
 
 
 def _build_icon(name: str) -> "Component":
@@ -150,3 +228,36 @@ def NewsletterCard() -> Card:
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD,
         body_cls="space-y-6")
+
+
+def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
+    return Section(
+        H2("📊 Playlist Analytics", cls="text-2xl font-bold mb-4"),
+        P("Visual breakdown of views, engagement, controversy, and performance.",
+          cls="text-gray-600 mb-10"),
+
+        # Group 1: View-based insights
+        H3("👀 Views Overview", cls="text-xl font-semibold mb-2"),
+        Grid(chart_views_by_rank(df),
+             chart_treemap_views(df),
+             cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12"),
+
+        # Group 2: Engagement insights
+        H3("💬 Engagement & Reactions", cls="text-xl font-semibold mb-2"),
+        Grid(chart_engagement_rate(df),
+             chart_total_engagement(summary),
+             cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12"),
+
+        # Group 3: Sentiment & controversy
+        H3("🔥 Controversy & Sentiment", cls="text-xl font-semibold mb-2"),
+        Grid(chart_likes_vs_dislikes(df),
+             chart_controversy_score(df),
+             cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12"),
+
+        # Group 4: Correlation and Multivariate Relationship between likes and dislikes
+        H3("📈 Correlation & Advanced Patterns",
+           cls="text-xl font-semibold mb-2"),
+        Grid(chart_scatter_likes_dislikes(df),
+             chart_bubble_engagement_vs_views(df),
+             cls="grid-cols-1 md:grid-cols-2 gap-8 mb-4"),
+        cls="mt-16 pt-10 border-t border-gray-200 space-y-10")
