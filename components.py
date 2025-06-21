@@ -29,6 +29,7 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
 )
+from utils import format_number
 
 
 def HeaderCard() -> Card:
@@ -36,7 +37,8 @@ def HeaderCard() -> Card:
                   cls="text-lg mt-2 text-white"),
                 header=CardTitle("ViralVibes",
                                  cls="text-4xl font-bold text-white"),
-                cls=HEADER_CARD)
+                cls=HEADER_CARD,
+                uk_scrollspy="cls: uk-animation-slide-bottom-small")
 
 
 def PlaylistSteps(completed_steps: int = 0) -> Steps:
@@ -140,7 +142,8 @@ def AnalysisFormCard() -> Card:
         Div(id="preview-box", cls="mt-4"),
         Div(id="result", style="margin-top:1rem;"),
         cls=FORM_CARD,
-        body_cls="space-y-4")
+        body_cls="space-y-4",
+        uk_scrollspy="cls: uk-animation-slide-bottom-small")
 
 
 def _build_icon(name: str) -> "Component":
@@ -173,7 +176,8 @@ def create_info_card(title: str,
                 header=CardTitle(
                     title, cls="text-2xl font-semibold mb-4 text-center"),
                 cls=CARD_BASE,
-                body_cls="space-y-6")
+                body_cls="space-y-6",
+                uk_scrollspy="cls: uk-animation-slide-bottom-small")
 
 
 def FeaturesCard() -> Card:
@@ -219,7 +223,55 @@ def NewsletterCard() -> Card:
         header=CardTitle("Be the first to try it",
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD,
-        body_cls="space-y-6")
+        body_cls="space-y-6",
+        uk_scrollspy="cls: uk-animation-slide-bottom-small")
+
+
+def SummaryStatsCard(summary: Dict) -> Card:
+    """Create a card to display summary statistics."""
+    stats = Div(Div(UkIcon("eye", cls="text-3xl text-blue-500 mb-2"),
+                    H3(format_number(summary.get("total_views", 0)),
+                       cls="text-2xl font-bold"),
+                    P("Total Views", cls="text-gray-600"),
+                    cls="text-center p-4"),
+                Div(UkIcon("heart", cls="text-3xl text-red-500 mb-2"),
+                    H3(format_number(summary.get("total_likes", 0)),
+                       cls="text-2xl font-bold"),
+                    P("Total Likes", cls="text-gray-600"),
+                    cls="text-center p-4"),
+                Div(UkIcon("percent", cls="text-3xl text-green-500 mb-2"),
+                    H3(f"{summary.get('avg_engagement', 0):.2f}%",
+                       cls="text-2xl font-bold"),
+                    P("Average Engagement", cls="text-gray-600"),
+                    cls="text-center p-4"),
+                cls="grid grid-cols-1 md:grid-cols-3 gap-4")
+
+    return Card(body=stats, cls=f"{CARD_BASE} w-full")
+
+
+def create_tabs(tabs: List[Tuple[str, "Component"]], tabs_id: str) -> Div:
+    """
+    Creates a MonsterUI tab component.
+    Args:
+        tabs: A list of tuples, where each tuple is (tab_title, tab_content_component).
+        tabs_id: A unique id for the tab group.
+    Returns:
+        A Div containing the tab structure.
+    """
+    tab_links = []
+    tab_content = []
+
+    for i, (title, content) in enumerate(tabs):
+        link_class = 'uk-active' if i == 0 else ''
+        tab_links.append(Li(A(title, href='#', cls=link_class)))
+        tab_content.append(Li(content))
+
+    return Container(
+        TabContainer(
+            *tab_links,
+            uk_switcher=f'connect: #{tabs_id}; animation: uk-animation-fade',
+            alt=True),
+        Ul(id=tabs_id, cls="uk-switcher")(*tab_content))
 
 
 def HomepageAccordion() -> Div:
