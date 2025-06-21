@@ -319,16 +319,36 @@ def validate_url(playlist: YoutubePlaylist):
 async def preview_playlist(playlist_url: str):
     try:
         info = await yt_service.get_playlist_data(playlist_url, max_expanded=0)
-        _, playlist_name, channel_name, channel_thumbnail, _ = info
+        playlist_info, playlist_name, channel_name, channel_thumbnail, _ = info
+        # Try to get the number of videos in the playlist
+        playlist_length = 0
+        if isinstance(playlist_info, dict) and 'entries' in playlist_info:
+            playlist_length = len(playlist_info['entries'])
+        elif hasattr(playlist_info, 'height'):
+            playlist_length = playlist_info.height
+        elif hasattr(playlist_info, '__len__'):
+            playlist_length = len(playlist_info)
     except Exception as e:
         logger.warning("Preview fetch failed: %s", e)
         return Div("Preview unavailable.", cls="text-gray-400")
 
     return Div(
-        P(f"Analyzing Playlist: {playlist_name}", cls="text-lg font-semibold"),
+        H2(f"Analyzing Playlist: {playlist_name}",
+           cls="text-lg font-semibold"),
         Img(src=channel_thumbnail,
             alt="Channel thumbnail",
             style="width:64px;height:64px;border-radius:50%;margin:auto;"),
+        P(
+            Data(str(playlist_length), value=str(playlist_length)),
+            " videos in playlist: ",
+            Meter(value=0,
+                  min=0,
+                  max=playlist_length or 1,
+                  low=10,
+                  high=50,
+                  optimum=100,
+                  id="fetch-progress-meter",
+                  cls="w-full h-2 mt-2")) if playlist_length else None,
         Button(
             "Start Full Analysis",
             hx_post="/validate/full",
