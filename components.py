@@ -58,6 +58,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
     return Steps(*steps, cls=STEPS_CLS)
 
+
 '''
 def AnalysisFormCard() -> Card:
     """Create the analysis form card component."""
@@ -96,22 +97,20 @@ def AnalysisFormCard() -> Card:
         cls=FORM_CARD,
         body_cls="space-y-4")
 '''
+
+
 def AnalysisFormCard() -> Card:
     """Create the analysis form card component with atomic HTMX triggers."""
     prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
 
     return Card(
-        Img(
-            src="/static/celebration.webp",
-            style="width: 100%; max-width: 320px; margin: 0 auto 1rem auto; display: block;",
-            alt="Celebration"
-        ),
-
+        Img(src="/static/celebration.webp",
+            style=
+            "width: 100%; max-width: 320px; margin: 0 auto 1rem auto; display: block;",
+            alt="Celebration"),
         P("Follow these steps to analyze any YouTube playlist:",
           cls="text-lg font-semibold text-center mb-2"),
-
         Div(PlaylistSteps(), id="playlist-steps", cls=f"{FLEX_CENTER} w-full"),
-
         Form(
             LabelInput(
                 "Playlist URL",
@@ -119,36 +118,29 @@ def AnalysisFormCard() -> Card:
                 name="playlist_url",
                 placeholder="Paste YouTube Playlist URL",
                 value=prefill_url,
-                className="px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
+                className=
+                "px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
             ),
-
             Button(
                 "Analyze Now",
                 type="submit",
-                className=f"{ButtonT.destructive} hover:scale-105 transition-transform"
-            ),
-
-            Loading(
-                id="loading",
-                cls=(LoadingT.bars, LoadingT.lg),
-                style="margin-top:0.5rem; color:#393e6e;",
-                htmx_indicator=True
-            ),
+                className=
+                f"{ButtonT.destructive} hover:scale-105 transition-transform"),
+            Loading(id="loading",
+                    cls=(LoadingT.bars, LoadingT.lg),
+                    style="margin-top:0.5rem; color:#393e6e;",
+                    htmx_indicator=True),
 
             # HTMX hooks: validation triggers preview, then full analysis
             hx_post="/validate/url",
             hx_target="#validation-feedback",
             hx_swap="innerHTML",
-            hx_indicator="#loading"
-        ),
-
+            hx_indicator="#loading"),
         Div(id="validation-feedback", cls="mt-4"),
         Div(id="preview-box", cls="mt-4"),
         Div(id="result", style="margin-top:1rem;"),
-
         cls=FORM_CARD,
-        body_cls="space-y-4"
-    )
+        body_cls="space-y-4")
 
 
 def _build_icon(name: str) -> "Component":
@@ -228,6 +220,34 @@ def NewsletterCard() -> Card:
                          cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD,
         body_cls="space-y-6")
+
+
+def HomepageAccordion() -> Div:
+    """Create an accordion section containing Features, Benefits, and Newsletter cards."""
+    return Div(
+        H2("Explore ViralVibes", cls="text-3xl font-bold text-center mb-8"),
+        Accordion(
+            AccordionItem(
+                "🔍 What is ViralVibes?",
+                FeaturesCard(),
+                li_kwargs={"id": "features-section"},
+            ),
+            AccordionItem(
+                "💡 Why You'll Love It",
+                BenefitsCard(),
+                li_kwargs={"id": "benefits-section"},
+            ),
+            AccordionItem(
+                "📧 Stay Updated",
+                NewsletterCard(),
+                li_kwargs={"id": "newsletter-section"},
+            ),
+            multiple=False,
+            animation=True,
+            cls="max-w-4xl mx-auto",
+        ),
+        cls="space-y-8",
+    )
 
 
 def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):

@@ -15,6 +15,7 @@ from components import (
     BenefitsCard,
     FeaturesCard,
     HeaderCard,
+    HomepageAccordion,
     NewsletterCard,
 )
 from constants import (
@@ -65,9 +66,7 @@ app.favicon = "/static/favicon.ico"
 # Navigation links
 scrollspy_links = (A("Home", href="#home-section"),
                    A("Analyze", href="#analyze-section"),
-                   A("Features", href="#features-section"),
-                   A("Benefits", href="#benefits-section"),
-                   A("Newsletter", href="#newsletter-section"))
+                   A("Explore", href="#explore-section"))
 
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
@@ -123,9 +122,7 @@ def index():
                          cls=(NavT.primary, 'pt-20 px-5 pr-10')),
             Container(_Section(HeaderCard(), id="home-section"),
                       _Section(AnalysisFormCard(), id="analyze-section"),
-                      _Section(FeaturesCard(), id="features-section"),
-                      _Section(BenefitsCard(), id="benefits-section"),
-                      _Section(NewsletterCard(), id="newsletter-section"),
+                      _Section(HomepageAccordion(), id="explore-section"),
                       Footer("© 2025 ViralVibes. Built for creators.",
                              className="text-center text-gray-500 py-6"),
                       cls=(ContainerT.xl, 'uk-container-expand'))))
