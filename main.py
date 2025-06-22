@@ -15,6 +15,7 @@ from components import (
     BenefitsCard,
     FeaturesCard,
     HeaderCard,
+    HomepageAccordion,
     NewsletterCard,
 )
 from constants import (
@@ -65,9 +66,7 @@ app.favicon = "/static/favicon.ico"
 # Navigation links
 scrollspy_links = (A("Home", href="#home-section"),
                    A("Analyze", href="#analyze-section"),
-                   A("Features", href="#features-section"),
-                   A("Benefits", href="#benefits-section"),
-                   A("Newsletter", href="#newsletter-section"))
+                   A("Explore", href="#explore-section"))
 
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
@@ -123,9 +122,7 @@ def index():
                          cls=(NavT.primary, 'pt-20 px-5 pr-10')),
             Container(_Section(HeaderCard(), id="home-section"),
                       _Section(AnalysisFormCard(), id="analyze-section"),
-                      _Section(FeaturesCard(), id="features-section"),
-                      _Section(BenefitsCard(), id="benefits-section"),
-                      _Section(NewsletterCard(), id="newsletter-section"),
+                      _Section(HomepageAccordion(), id="explore-section"),
                       Footer("© 2025 ViralVibes. Built for creators.",
                              className="text-center text-gray-500 py-6"),
                       cls=(ContainerT.xl, 'uk-container-expand'))))
@@ -318,17 +315,30 @@ def validate_url(playlist: YoutubePlaylist):
 @rt("/validate/preview", methods=["POST"])
 async def preview_playlist(playlist_url: str):
     try:
-        info = await yt_service.get_playlist_data(playlist_url, max_expanded=0)
-        _, playlist_name, channel_name, channel_thumbnail, _ = info
+        playlist_name, channel_name, channel_thumbnail, playlist_length = await yt_service.get_playlist_preview(
+            playlist_url)
+
     except Exception as e:
         logger.warning("Preview fetch failed: %s", e)
         return Div("Preview unavailable.", cls="text-gray-400")
 
     return Div(
-        P(f"Analyzing Playlist: {playlist_name}", cls="text-lg font-semibold"),
+        H2(f"Analyzing Playlist: {playlist_name}",
+           cls="text-lg font-semibold"),
         Img(src=channel_thumbnail,
             alt="Channel thumbnail",
             style="width:64px;height:64px;border-radius:50%;margin:auto;"),
+        P(
+            Data(str(playlist_length), value=str(playlist_length)),
+            " videos in playlist: ",
+            Meter(value=0,
+                  min=0,
+                  max=playlist_length or 1,
+                  low=10,
+                  high=50,
+                  optimum=100,
+                  id="fetch-progress-meter",
+                  cls="w-full h-2 mt-2")) if playlist_length else None,
         Button(
             "Start Full Analysis",
             hx_post="/validate/full",
