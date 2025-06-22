@@ -15,7 +15,6 @@ from utils import (
     calculate_engagement_rate,
     format_duration,
     format_number,
-    process_numeric_column,
 )
 
 # Get logger instance
@@ -25,6 +24,7 @@ DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
 
 class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
+
     DISPLAY_HEADERS = [
         "Rank", "Title", "Views (Billions)", "Likes", "Dislikes", "Duration",
         "Engagement Rate", "Controversy"
@@ -46,35 +46,29 @@ class YoutubePlaylistService:
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
-    def get_playlist_preview(self, playlist_url: str) -> Tuple[str, str, str]:
+    async def get_playlist_preview(
+            self, playlist_url: str) -> Tuple[str, str, str, int]:
         """Extract lightweight playlist name, uploader, and thumbnail."""
         """Use yt-dlp with preview-safe settings to get basic playlist info."""
-        preview_opts = {
-            "quiet": True,
-            "extract_flat": True,  # lightweight mode
-            "force_generic_extractor":
-            True,  # <- force fallback that actually works
-            "nocheckcertificate": True,
-            "skip_download": True,
-        }
         try:
-            with yt_dlp.YoutubeDL(preview_opts) as ydl:
-                info = ydl.extract_info(playlist_url, download=False)
+            playlist_info = await asyncio.to_thread(self.ydl.extract_info,
+                                                    playlist_url,
+                                                    download=False)
 
             # Fallbacks in case metadata is sparse
-            title = info.get("title") or info.get(
-                "playlist_title") or "Untitled Playlist"
-            uploader = info.get("uploader") or info.get(
-                "channel") or "Unknown Channel"
-            #thumbnail = self._extract_channel_thumbnail(info)
+            playlist_title = playlist_info.get("title", "Untitled Playlist")
+            channel_name = playlist_info.get("channel", "Unknown Channel")
+            channel_thumbnail = self._extract_channel_thumbnail(playlist_info)
+            playlist_length = playlist_info.get(
+                'playlist_count', len(playlist_info.get('entries', [])))
 
-            return title, uploader, ""
+            return playlist_title, channel_name, channel_thumbnail, playlist_length
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
             logger.error(
                 f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
 
-            return "Preview unavailable", "", ""
+            return "Preview unavailable", "", "", 0
 
     async def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
@@ -93,10 +87,6 @@ class YoutubePlaylistService:
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
         return 0
-
-    @classmethod
-    def get_display_headers(cls):
-        return cls.DISPLAY_HEADERS
 
     async def get_playlist_data(
         self,
@@ -131,6 +121,19 @@ class YoutubePlaylistService:
             logger.info("Uploader Info: %s", playlist_info.get("uploader"))
             logger.info("Channel Info: %s", playlist_info.get("channel"))
             logger.info("Channel URL: %s", playlist_info.get("channel_url"))
+
+            # Log all available keys and their values for debugging
+            for key, value in playlist_info.items():
+                if key in ['entries',
+                           'thumbnails']:  # Skip large data structures
+                    logger.info(
+                        "Key '%s': %s (type: %s, length: %s)", key,
+                        type(value).__name__,
+                        type(value).__name__,
+                        len(value) if hasattr(value, '__len__') else 'N/A')
+                else:
+                    logger.info("Key '%s': %s (type: %s)", key, value,
+                                type(value).__name__)
 
             playlist_name = playlist_info.get("title", "Untitled Playlist")
             channel_name = playlist_info.get("uploader", "Unknown Channel")
@@ -379,14 +382,14 @@ class YoutubePlaylistService:
 
         return df
 
-    def _calculate_summary_stats(self, df: pl.DataFrame) -> Dict:
+    def _calculate_summary_stats(self, df: pl.DataFrame) -> Dict[str, float]:
         """Calculate summary statistics for the playlist.
         
         Args:
             df (pl.DataFrame): The processed video data DataFrame.
             
         Returns:
-            Dict: Dictionary containing summary statistics.
+            Dict[str, float]: Dictionary containing summary statistics.
         """
         # Use raw numeric columns for summary calculations
         total_views = df["View Count Raw"].sum()
@@ -398,3 +401,12 @@ class YoutubePlaylistService:
             "total_likes": total_likes,
             "avg_engagement": avg_engagement
         }
+
+    @classmethod
+    def get_display_headers(cls) -> List[str]:
+        """Get the display headers for the data table.
+        
+        Returns:
+            List[str]: List of column headers for display
+        """
+        return cls.DISPLAY_HEADERS

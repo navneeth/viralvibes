@@ -315,16 +315,9 @@ def validate_url(playlist: YoutubePlaylist):
 @rt("/validate/preview", methods=["POST"])
 async def preview_playlist(playlist_url: str):
     try:
-        info = await yt_service.get_playlist_data(playlist_url, max_expanded=0)
-        playlist_info, playlist_name, channel_name, channel_thumbnail, _ = info
-        # Try to get the number of videos in the playlist
-        playlist_length = 0
-        if isinstance(playlist_info, dict) and 'entries' in playlist_info:
-            playlist_length = len(playlist_info['entries'])
-        elif hasattr(playlist_info, 'height'):
-            playlist_length = playlist_info.height
-        elif hasattr(playlist_info, '__len__'):
-            playlist_length = len(playlist_info)
+        playlist_name, channel_name, channel_thumbnail, playlist_length = await yt_service.get_playlist_preview(
+            playlist_url)
+
     except Exception as e:
         logger.warning("Preview fetch failed: %s", e)
         return Div("Preview unavailable.", cls="text-gray-400")
