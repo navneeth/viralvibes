@@ -17,14 +17,14 @@ KNOWN_PLAYLISTS = [{
 }, {
     "title": "Best Remixes of Popular Songs",
     "url":
-    "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
+    "https://www.youtube.com/playlist?list=PLw-VjHDlEOgs658A1c5Q83tDZqXZ95mIv",
     "video_count": 30,
     "channel": "Remix Central",
     "query_used": "fallback_playlist"
 }, {
     "title": "TikTok Viral Remixes",
     "url":
-    "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
+    "https://www.youtube.com/playlist?list=PLofht4PTcKYnaH8w5olJCI-wjQTd6Qf4j",
     "video_count": 25,
     "channel": "TikTok Music",
     "query_used": "fallback_playlist"
@@ -60,10 +60,14 @@ def get_random_remix_playlist(max_results: int = 50) -> dict:
         playlist = _try_search_for_playlists(max_results)
         if playlist:
             return playlist
-    except Exception as e:
+    except (yt_dlp.utils.DownloadError, yt_dlp.utils.ExtractorError,
+            ConnectionError, TimeoutError, OSError) as e:
         logger.warning(f"Search method failed: {e}")
 
     # Fallback to known playlists
+    if not KNOWN_PLAYLISTS:
+        raise ValueError("No fallback playlists available")
+
     logger.info("Search failed, using fallback playlist.")
     return random.choice(KNOWN_PLAYLISTS)
 
@@ -96,26 +100,48 @@ def _try_search_for_playlists(max_results: int) -> dict:
                 info = ydl.extract_info(search_url, download=False)
                 entries = info.get('entries', [])
 
-                playlists = [
-                    entry for entry in entries
-                    if entry.get('_type') == 'playlist'
-                ]
+                # Log entry structures for debugging
+                for entry in entries:
+                    logger.debug(f"yt_dlp entry structure: {entry}")
+
+                # Robust playlist detection
+                playlists = []
+                for entry in entries:
+                    # Multiple ways to detect playlists
+                    is_playlist_type = entry.get('_type') == 'playlist'
+                    url_is_playlist = 'playlist' in entry.get('url', '')
+                    id_is_playlist = str(entry.get('id', '')).startswith('PL')
+
+                    if is_playlist_type or url_is_playlist or id_is_playlist:
+                        playlists.append(entry)
+                    else:
+                        logger.debug(
+                            f"Entry not detected as playlist: {entry}")
 
                 if playlists:
                     selected = random.choice(playlists)
                     logger.info(
                         f"Found playlist via search: '{selected.get('title', 'Unknown')}'"
                     )
+
+                    # Safe access to 'id' field with fallback
+                    playlist_id = selected.get('id')
+                    if not playlist_id:
+                        logger.warning(
+                            f"Playlist entry missing 'id' field: {selected}")
+                        continue
+
                     return {
                         "title": selected.get("title"),
                         "url":
-                        f"https://www.youtube.com/playlist?list={selected.get('id')}",
+                        f"https://www.youtube.com/playlist?list={playlist_id}",
                         "video_count": selected.get("video_count"),
                         "channel": selected.get("uploader"),
                         "query_used": query
                     }
 
-            except Exception as e:
+            except (yt_dlp.utils.DownloadError, yt_dlp.utils.ExtractorError,
+                    ConnectionError, TimeoutError, OSError) as e:
                 logger.warning(
                     f"Search attempt failed for query '{query}': {e}")
                 continue
@@ -139,5 +165,9 @@ if __name__ == "__main__":
         print(f"   Source: {playlist['query_used']}")
     except ValueError as e:
         print(f"❌ Error: {e}")
+    except (yt_dlp.utils.DownloadError, yt_dlp.utils.ExtractorError,
+            ConnectionError, TimeoutError, OSError) as e:
+        print(f"❌ YouTube/Network error: {e}")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
+        logger.exception("Unexpected error in main")
