@@ -47,8 +47,8 @@ KNOWN_PLAYLISTS = [
         "title": "Most Viewed Videos of All Time",
         "url":
         "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
-        "video_count": None,  # to be updated after validation
-        "channel": None,  # to be updated
+        "video_count": 539,
+        "channel": None,
         "query_used": "most viewed videos playlist"
     },
     {
@@ -58,6 +58,14 @@ KNOWN_PLAYLISTS = [
         "video_count": None,
         "channel": None,
         "query_used": "Best remixes of popular songs"
+    },
+    {
+        "title": "Viral Songs Right Now 🔝 Most Popular Songs",
+        "url":
+        "https://www.youtube.com/playlist?list=PL6vc4PXosXVvX3S4RYOS9CC_F4dFJs_q2",
+        "video_count": 50,
+        "channel": None,
+        "query_used": "Viral Songs Right Now"
     },
 ]
 
