@@ -45,7 +45,7 @@ class YoutubePlaylistService:
             # 🚀 prevent yt-dlp from writing to ~/.cache
             "cachedir": False,
             #"force_generic_extractor": True
-            #"skip_download": True,
+            "skip_download": True,
             #"ignoreerrors": True,
             #"dump_single_json": True,
             #"no_warnings": True,
