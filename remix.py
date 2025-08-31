@@ -3,43 +3,10 @@ import random
 
 import yt_dlp
 
+from constants import KNOWN_PLAYLISTS, SEARCH_QUERIES
+
 # Get logger instance
 logger = logging.getLogger(__name__)
-
-# Known popular playlist URLs as fallbacks
-KNOWN_PLAYLISTS = [{
-    "title": "EDM Remix Hits 2024",
-    "url":
-    "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
-    "video_count": 50,
-    "channel": "EDM Hits",
-    "query_used": "fallback_playlist"
-}, {
-    "title": "Best Remixes of Popular Songs",
-    "url":
-    "https://www.youtube.com/playlist?list=PLw-VjHDlEOgs658A1c5Q83tDZqXZ95mIv",
-    "video_count": 30,
-    "channel": "Remix Central",
-    "query_used": "fallback_playlist"
-}, {
-    "title": "TikTok Viral Remixes",
-    "url":
-    "https://www.youtube.com/playlist?list=PLofht4PTcKYnaH8w5olJCI-wjQTd6Qf4j",
-    "video_count": 25,
-    "channel": "TikTok Music",
-    "query_used": "fallback_playlist"
-}]
-
-SEARCH_QUERIES = [
-    "EDM remix playlist", "pop remix playlist", "lofi remix mix",
-    "hip hop remix", "TikTok remix playlist", "2024 DJ remix",
-    "club remix playlist", "remix hits", "best remix playlist",
-    "dj remix playlist", "2024 remix playlist", "hip hop playlist",
-    "pop playlist", "club playlist", "dance playlist", "party playlist",
-    "lofi playlist", "tiktok playlist", "summer playlist", "workout playlist",
-    "chill playlist", "house music playlist", "electronic playlist",
-    "indie playlist", "rock playlist", "old school playlist"
-]
 
 
 def get_random_remix_playlist(max_results: int = 50) -> dict:

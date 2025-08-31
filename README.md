@@ -15,13 +15,22 @@ _Live Example: https://www.viralvibes.fyi_
 - 📱 Responsive design with modern UI components
 - 🔒 Secure newsletter signup with Supabase integration
 
-## Tech Stack
+## Technology Stack
 
-- **Frontend**: FastHTML, MonsterUI, TailwindCSS
-- **Backend**: Python, FastHTML
-- **Database**: Supabase
-- **Deployment**: Vercel
-- **YouTube Data**: yt-dlp
+### Frontend
+- **FastHTML** – Server-side HTML rendering framework
+- **MonsterUI** – UI component library
+- **TailwindCSS** – Utility-first CSS framework
+- **HTMX** – For real-time updates and client-driven interactivity
+
+### Backend & Data Processing
+- **Python** – Core language
+- **yt-dlp** – Tool for retrieving YouTube data
+- **Polars** – Fast DataFrame library for data manipulation
+- **Supabase** – Used for user data, analytics, and storage
+
+### Deployment
+- **Vercel** – Platform used for deployment; supports one-click deploy or CLI usage via `vercel --prod`
 
 ## Getting Started
 

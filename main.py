@@ -1,3 +1,4 @@
+import io
 import logging
 import re
 from dataclasses import dataclass
@@ -5,6 +6,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 
+import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
 from monsterui.all import *
@@ -29,7 +31,13 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
 )
-from db import init_supabase, setup_logging, supabase_client
+from db import (
+    get_cached_playlist_stats,
+    init_supabase,
+    setup_logging,
+    supabase_client,
+    upsert_playlist_stats,
+)
 from step_components import StepProgress
 from utils import format_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
@@ -84,8 +92,13 @@ def init_app():
 
     # Initialize Supabase client
     try:
-        init_supabase()
-        if supabase_client is None:
+        client = init_supabase()
+        if client is not None:
+            # Update the global supabase_client variable
+            global supabase_client
+            supabase_client = client
+            logger.info("Supabase integration enabled successfully")
+        else:
             logger.warning("Running without Supabase integration")
     except Exception as e:
         logger.error(
@@ -98,6 +111,33 @@ init_app()
 
 # Initialize YouTube service
 yt_service = YoutubePlaylistService()
+
+
+@rt("/debug/supabase")
+def debug_supabase():
+    """Debug endpoint to test Supabase connection and caching."""
+    if supabase_client:
+        try:
+            # Test basic connection
+            response = supabase_client.table("playlist_stats").select(
+                "count", count="exact").execute()
+            return Div(
+                H3("✅ Supabase Connection Test"),
+                P(f"Status: Connected"),
+                P(f"Client: {type(supabase_client).__name__}"),
+                P(f"Playlist stats table accessible: Yes"),
+                P(f"Count query result: {response}"),
+                cls="p-6 bg-green-50 border border-green-300 rounded-lg")
+        except Exception as e:
+            return Div(H3("❌ Supabase Connection Test"),
+                       P(f"Status: Error"),
+                       P(f"Error: {str(e)}"),
+                       cls="p-6 bg-red-50 border border-red-300 rounded-lg")
+    else:
+        return Div(H3("❌ Supabase Connection Test"),
+                   P(f"Status: Not Available"),
+                   P(f"Client: None"),
+                   cls="p-6 bg-yellow-50 border border-yellow-300 rounded-lg")
 
 
 @rt
@@ -226,7 +266,7 @@ async def validate(playlist: YoutubePlaylist):
         steps_after_fetch = StepProgress(
             len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
 
-        # Create table
+        # Create table with enhanced headers from the service
         headers = yt_service.get_display_headers()
         thead = Thead(Tr(*[Th(h) for h in headers]))
 
@@ -242,16 +282,18 @@ async def validate(playlist: YoutubePlaylist):
                            ) if yt_link else row["Title"]
             tbody_rows.append(
                 Tr(Td(row["Rank"]), Td(title_cell), Td(row["View Count"]),
-                   Td(row["Like Count"]), Td(row["Dislike Count"]),
-                   Td(row["Duration"]), Td(row["Engagement Rate (%)"])))
+                   Td(row["Like Count"]), Td(row["Dislike Count"]), Td(row["Comment Count"]),
+                   Td(row["Duration"]), Td(row["Engagement Rate (%)"]), Td(f"{row['Controversy Raw']:.2%}")))
         tbody = Tbody(*tbody_rows)
 
-        # Create table footer with summary
+        # Create table footer with comprehensive summary stats
         tfoot = Tfoot(
             Tr(Td("Total/Average"), Td(""),
                Td(format_number(summary_stats["total_views"])),
-               Td(format_number(summary_stats["total_likes"])), Td(""), Td(""),
-               Td(f"{summary_stats['avg_engagement']:.2f}%")))
+               Td(format_number(summary_stats["total_likes"])), 
+               Td(format_number(summary_stats["total_dislikes"])), 
+               Td(format_number(summary_stats["total_comments"])),
+               Td(""), Td(f"{summary_stats['avg_engagement']:.2f}%"), Td("")))
 
         # Create channel info section with thumbnail
         if channel_thumbnail:
@@ -358,38 +400,99 @@ async def preview_playlist(playlist_url: str):
 @rt("/validate/full", methods=["POST"])
 async def validate_full(playlist_url: str):
     try:
-        df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
-            playlist_url)
+        # 1. Try cache first
+        # Check if we have cached stats for today
+        cached_stats = await get_cached_playlist_stats(playlist_url)
+        if cached_stats:
+            logger.info(f"Using cached stats for playlist {playlist_url}")
+
+            # reconstruct df and other fields from cache row
+            df = pl.read_json(
+                io.BytesIO(cached_stats["df_json"].encode("utf-8")))
+            playlist_name = cached_stats["title"]
+            channel_name = cached_stats.get("channel_name", "")
+            channel_thumbnail = cached_stats.get("channel_thumbnail", "")
+            summary_stats = cached_stats[
+                "summary_stats"]  # reconstruct df and other fields from cache row
+        else:
+            # 2. Fetch fresh data
+            df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
+                playlist_url)
+
+            if df.height == 0:
+                return Alert(P("No videos found."), cls=AlertT.warning)
+
+            # print(df)
+            # 3. Cache results
+            stats_to_cache = {
+                "playlist_url":
+                playlist_url,
+                "title":
+                playlist_name,
+                "channel_name":
+                channel_name,
+                "channel_thumbnail":
+                channel_thumbnail,
+                "view_count":
+                summary_stats.get("total_views"),
+                "like_count":
+                summary_stats.get("total_likes"),
+                "dislike_count":
+                summary_stats.get("total_dislikes"),
+                "comment_count":
+                summary_stats.get("total_comments"),
+                "video_count":
+                df.height,
+                "avg_duration":
+                int(summary_stats.get("avg_duration"))
+                if summary_stats.get("avg_duration") is not None else None,
+                "engagement_rate":
+                summary_stats.get("avg_engagement"),
+                "controversy_score":
+                summary_stats.get("avg_controversy", 0),
+                "summary_stats":
+                summary_stats,
+                "df_json":
+                df.write_json(),  # full DataFrame snapshot
+            }
+
+            await upsert_playlist_stats(stats_to_cache)
+
+        # 4. Render response
+        # Use the enhanced headers from the service
+        headers = yt_service.get_display_headers()
+        thead = Thead(Tr(*[Th(h) for h in headers]))
+
+        tbody = Tbody(*[
+            Tr(
+                Td(row["Rank"]),
+                Td(
+                    A(row["Title"],
+                      href=f"https://youtube.com/watch?v={row['id']}",
+                      target="_blank")), Td(row["View Count"]),
+                Td(row["Like Count"]), Td(row["Dislike Count"]),
+                Td(row["Comment Count"]), Td(row["Duration"]),
+                Td(row["Engagement Rate (%)"]),
+                Td(f"{row['Controversy Raw']:.2%}"))
+            for row in df.iter_rows(named=True)
+        ])
+
+        # Use all the summary stats from youtube_service.py
+        tfoot = Tfoot(
+            Tr(Td("Total/Average"), Td(""),
+               Td(format_number(summary_stats["total_views"])),
+               Td(format_number(summary_stats["total_likes"])),
+               Td(format_number(summary_stats["total_dislikes"])),
+               Td(format_number(summary_stats["total_comments"])), Td(""),
+               Td(f"{summary_stats['avg_engagement']:.2f}%"), Td("")))
+
+        return Div(StepProgress(len(PLAYLIST_STEPS_CONFIG)),
+                   Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
+                   AnalyticsDashboardSection(df, summary_stats),
+                   cls="space-y-4")
     except Exception as e:
-        logger.error("Deep analysis failed: %s", e)
+        logger.exception("Deep analysis failed")
         return Alert(P("Failed to fetch playlist data."), cls=AlertT.error)
-
-    if df.height == 0:
-        return Alert(P("No videos found."), cls=AlertT.warning)
-
-    headers = yt_service.get_display_headers()
-    thead = Thead(Tr(*[Th(h) for h in headers]))
-    tbody = Tbody(*[
-        Tr(
-            Td(row["Rank"]),
-            Td(
-                A(row["Title"],
-                  href=f"https://youtube.com/watch?v={row['id']}",
-                  target="_blank")), Td(row["View Count"]),
-            Td(row["Like Count"]), Td(row["Dislike Count"]), Td(
-                row["Duration"]), Td(row["Engagement Rate (%)"]))
-        for row in df.iter_rows(named=True)
-    ])
-    tfoot = Tfoot(
-        Tr(Td("Total/Average"), Td(""),
-           Td(format_number(summary_stats["total_views"])),
-           Td(format_number(summary_stats["total_likes"])), Td(""), Td(""),
-           Td(f"{summary_stats['avg_engagement']:.2f}%")))
-
-    return Div(StepProgress(len(PLAYLIST_STEPS_CONFIG)),
-               Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
-               AnalyticsDashboardSection(df, summary_stats),
-               cls="space-y-4")
 
 
 # Alternative approach: Progressive step updates

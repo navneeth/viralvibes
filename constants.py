@@ -40,3 +40,57 @@ BENEFITS = [
     ("Top Creator Insights", "Identify breakout content and rising stars.",
      "star"),
 ]
+
+# YouTube Playlist Constants
+KNOWN_PLAYLISTS = [
+    {
+        "title": "Most Viewed Videos of All Time",
+        "url":
+        "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
+        "video_count": 539,
+        "channel": None,
+        "query_used": "most viewed videos playlist"
+    },
+    {
+        "title": "Best Remixes of Popular Songs",
+        "url":
+        "https://www.youtube.com/playlist?list=PLxA687tYuMWjS8IGRWkCzwTn10XcEccaZ",
+        "video_count": None,
+        "channel": None,
+        "query_used": "Best remixes of popular songs"
+    },
+    {
+        "title": "Viral Songs Right Now 🔝 Most Popular Songs",
+        "url":
+        "https://www.youtube.com/playlist?list=PL6vc4PXosXVvX3S4RYOS9CC_F4dFJs_q2",
+        "video_count": 50,
+        "channel": None,
+        "query_used": "Viral Songs Right Now"
+    },
+    {
+        "title": "NFL Top 100 Greatest Players Of All Time",
+        "url":
+        "https://www.youtube.com/playlist?list=PL0xvhH4iaYhy4ulh0h-dn4mslO6B8nj0-",
+        "video_count": 100,
+        "channel": None,
+        "query_used": "Viral Songs Right Now"
+    },
+    {
+        "title": "Video Game Top 10's",
+        "url": "https://www.youtube.com/playlist?list=PL3662B2B44970D6CC",
+        "video_count": 50,
+        "channel": None,
+        "query_used": "Viral Songs Right Now"
+    },
+]
+
+SEARCH_QUERIES = [
+    "EDM remix playlist", "pop remix playlist", "lofi remix mix",
+    "hip hop remix", "TikTok remix playlist", "2024 DJ remix",
+    "club remix playlist", "remix hits", "best remix playlist",
+    "dj remix playlist", "2024 remix playlist", "hip hop playlist",
+    "pop playlist", "club playlist", "dance playlist", "party playlist",
+    "lofi playlist", "tiktok playlist", "summer playlist", "workout playlist",
+    "chill playlist", "house music playlist", "electronic playlist",
+    "indie playlist", "rock playlist", "old school playlist"
+]

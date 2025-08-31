@@ -26,7 +26,7 @@ class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
 
     DISPLAY_HEADERS = [
-        "Rank", "Title", "Views (Billions)", "Likes", "Dislikes", "Duration",
+        "Rank", "Title", "Views", "Likes", "Dislikes", "Comments", "Duration",
         "Engagement Rate", "Controversy"
     ]
 
@@ -302,6 +302,8 @@ class YoutubePlaylistService:
                 like_count,
                 "Dislike Count":
                 dislike_count,
+                "Comment Count":
+                full_info.get("comment_count", 0),
                 "Controversy":
                 controversy_score,
                 "Uploader":
@@ -327,6 +329,7 @@ class YoutubePlaylistService:
                 ("View Count", pl.Int64),
                 ("Like Count", pl.Int64),
                 ("Dislike Count", pl.Int64),
+                ("Comment Count", pl.Int64),
                 ("Controversy", pl.Float64),
                 ("Uploader", pl.Utf8),
                 ("Creator", pl.Utf8),
@@ -336,6 +339,7 @@ class YoutubePlaylistService:
                 ("View Count Raw", pl.Int64),
                 ("Like Count Raw", pl.Int64),
                 ("Dislike Count Raw", pl.Int64),
+                ("Comment Count Raw", pl.Int64),
                 ("Controversy Raw", pl.Float64),
                 ("Duration", pl.Utf8),
                 ("Engagement Rate (%)", pl.Utf8),
@@ -355,6 +359,8 @@ class YoutubePlaylistService:
                 "Like Count Raw"),  # Keep original for charts
             pl.col("Dislike Count").alias(
                 "Dislike Count Raw"),  # Keep original for charts
+            pl.col("Comment Count").alias(
+                "Comment Count Raw"),  # Keep original for charts
             pl.col("Controversy").alias(
                 "Controversy Raw"),  # Keep original for charts
             pl.col("Duration Raw").map_elements(
@@ -404,11 +410,15 @@ class YoutubePlaylistService:
         # Use raw numeric columns for summary calculations
         total_views = df["View Count Raw"].sum()
         total_likes = df["Like Count Raw"].sum()
+        total_dislikes = df["Dislike Count Raw"].sum()
+        total_comments = df["Comment Count"].sum()
         avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
 
         return {
             "total_views": total_views,
             "total_likes": total_likes,
+            "total_dislikes": total_dislikes,
+            "total_comments": total_comments,
             "avg_engagement": avg_engagement
         }
 
