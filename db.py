@@ -105,7 +105,8 @@ async def get_cached_playlist_stats(
 
             # --- Deserialize JSON fields ---
             if row.get("df_json"):
-                row["df"] = pl.read_json(row["df_json"])
+                row["df"] = pl.read_json(
+                    io.BytesIO(row["df_json"].encode("utf-8")))
             if row.get("summary_stats"):
                 row["summary_stats"] = json.loads(row["summary_stats"])
 

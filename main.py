@@ -1,3 +1,4 @@
+import io
 import logging
 import re
 from dataclasses import dataclass
@@ -5,6 +6,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 
+import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
 from monsterui.all import *
@@ -405,7 +407,8 @@ async def validate_full(playlist_url: str):
             logger.info(f"Using cached stats for playlist {playlist_url}")
 
             # reconstruct df and other fields from cache row
-            df = pl.read_json(cached_stats["df_json"])
+            df = pl.read_json(
+                io.BytesIO(cached_stats["df_json"].encode("utf-8")))
             playlist_name = cached_stats["title"]
             channel_name = cached_stats.get("channel_name", "")
             channel_thumbnail = cached_stats.get("channel_thumbnail", "")
