@@ -67,6 +67,21 @@ KNOWN_PLAYLISTS = [
         "channel": None,
         "query_used": "Viral Songs Right Now"
     },
+    {
+        "title": "NFL Top 100 Greatest Players Of All Time",
+        "url":
+        "https://www.youtube.com/playlist?list=PL0xvhH4iaYhy4ulh0h-dn4mslO6B8nj0-",
+        "video_count": 100,
+        "channel": None,
+        "query_used": "Viral Songs Right Now"
+    },
+    {
+        "title": "Video Game Top 10's",
+        "url": "https://www.youtube.com/playlist?list=PL3662B2B44970D6CC",
+        "video_count": 50,
+        "channel": None,
+        "query_used": "Viral Songs Right Now"
+    },
 ]
 
 SEARCH_QUERIES = [
