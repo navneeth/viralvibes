@@ -226,7 +226,7 @@ async def validate(playlist: YoutubePlaylist):
         steps_after_fetch = StepProgress(
             len(PLAYLIST_STEPS_CONFIG))  # Complete all steps
 
-        # Create table
+        # Create table with enhanced headers from the service
         headers = yt_service.get_display_headers()
         thead = Thead(Tr(*[Th(h) for h in headers]))
 
@@ -242,16 +242,18 @@ async def validate(playlist: YoutubePlaylist):
                            ) if yt_link else row["Title"]
             tbody_rows.append(
                 Tr(Td(row["Rank"]), Td(title_cell), Td(row["View Count"]),
-                   Td(row["Like Count"]), Td(row["Dislike Count"]),
-                   Td(row["Duration"]), Td(row["Engagement Rate (%)"])))
+                   Td(row["Like Count"]), Td(row["Dislike Count"]), Td(row["Comment Count"]),
+                   Td(row["Duration"]), Td(row["Engagement Rate (%)"]), Td(f"{row['Controversy Raw']:.2%}")))
         tbody = Tbody(*tbody_rows)
 
-        # Create table footer with summary
+        # Create table footer with comprehensive summary stats
         tfoot = Tfoot(
             Tr(Td("Total/Average"), Td(""),
                Td(format_number(summary_stats["total_views"])),
-               Td(format_number(summary_stats["total_likes"])), Td(""), Td(""),
-               Td(f"{summary_stats['avg_engagement']:.2f}%")))
+               Td(format_number(summary_stats["total_likes"])), 
+               Td(format_number(summary_stats["total_dislikes"])), 
+               Td(format_number(summary_stats["total_comments"])),
+               Td(""), Td(f"{summary_stats['avg_engagement']:.2f}%"), Td("")))
 
         # Create channel info section with thumbnail
         if channel_thumbnail:
@@ -367,8 +369,10 @@ async def validate_full(playlist_url: str):
     if df.height == 0:
         return Alert(P("No videos found."), cls=AlertT.warning)
 
+    # Use the enhanced headers from the service
     headers = yt_service.get_display_headers()
     thead = Thead(Tr(*[Th(h) for h in headers]))
+
     tbody = Tbody(*[
         Tr(
             Td(row["Rank"]),
@@ -376,15 +380,21 @@ async def validate_full(playlist_url: str):
                 A(row["Title"],
                   href=f"https://youtube.com/watch?v={row['id']}",
                   target="_blank")), Td(row["View Count"]),
-            Td(row["Like Count"]), Td(row["Dislike Count"]), Td(
-                row["Duration"]), Td(row["Engagement Rate (%)"]))
+            Td(row["Like Count"]), Td(row["Dislike Count"]),
+            Td(row["Comment Count"]), Td(row["Duration"]),
+            Td(row["Engagement Rate (%)"]), Td(
+                f"{row['Controversy Raw']:.2%}"))
         for row in df.iter_rows(named=True)
     ])
+
+    # Use all the summary stats from youtube_service.py
     tfoot = Tfoot(
         Tr(Td("Total/Average"), Td(""),
            Td(format_number(summary_stats["total_views"])),
-           Td(format_number(summary_stats["total_likes"])), Td(""), Td(""),
-           Td(f"{summary_stats['avg_engagement']:.2f}%")))
+           Td(format_number(summary_stats["total_likes"])),
+           Td(format_number(summary_stats["total_dislikes"])),
+           Td(format_number(summary_stats["total_comments"])), Td(""),
+           Td(f"{summary_stats['avg_engagement']:.2f}%"), Td("")))
 
     return Div(StepProgress(len(PLAYLIST_STEPS_CONFIG)),
                Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
