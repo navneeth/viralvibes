@@ -1,3 +1,4 @@
+import random
 from typing import Dict, List, Optional, Tuple
 
 import polars as pl
@@ -25,6 +26,7 @@ from constants import (
     GAP_2,
     GAP_4,
     HEADER_CARD,
+    KNOWN_PLAYLISTS,
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
@@ -103,7 +105,9 @@ def AnalysisFormCard() -> Card:
 
 def AnalysisFormCard() -> Card:
     """Create the analysis form card component with atomic HTMX triggers."""
-    prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
+    # Get a random prefill URL from the known playlists
+    prefill_url = random.choice(
+        KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
     return Card(
         Img(src="/static/celebration.webp",

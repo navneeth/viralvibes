@@ -2,6 +2,8 @@
 import asyncio
 from datetime import timedelta
 
+import polars as pl
+
 from youtube_service import YoutubePlaylistService
 
 # Instantiate service once
@@ -20,8 +22,17 @@ async def process_playlist(playlist_url: str) -> dict:
     # Compute video_count and avg_duration
     video_count = len(df) if df is not None else 0
     if video_count > 0 and "Duration Raw" in df.columns:
-        avg_seconds = df["Duration Raw"].mean()
-        avg_duration = timedelta(seconds=int(avg_seconds))
+        # Handle NaN values in duration data using Polars
+        duration_series = df.select("Duration Raw").drop_nulls()
+        if len(duration_series) > 0:
+            avg_seconds = duration_series["Duration Raw"].mean()
+            # Polars mean() returns None for empty series, so check for that
+            if avg_seconds is not None:
+                avg_duration = timedelta(seconds=int(avg_seconds))
+            else:
+                avg_duration = timedelta(seconds=0)
+        else:
+            avg_duration = timedelta(seconds=0)
     else:
         avg_duration = timedelta(seconds=0)
 

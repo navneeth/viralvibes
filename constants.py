@@ -40,3 +40,34 @@ BENEFITS = [
     ("Top Creator Insights", "Identify breakout content and rising stars.",
      "star"),
 ]
+
+# YouTube Playlist Constants
+KNOWN_PLAYLISTS = [
+    {
+        "title": "Most Viewed Videos of All Time",
+        "url":
+        "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
+        "video_count": None,  # to be updated after validation
+        "channel": None,  # to be updated
+        "query_used": "most viewed videos playlist"
+    },
+    {
+        "title": "Best Remixes of Popular Songs",
+        "url":
+        "https://www.youtube.com/playlist?list=PLxA687tYuMWjS8IGRWkCzwTn10XcEccaZ",
+        "video_count": None,
+        "channel": None,
+        "query_used": "Best remixes of popular songs"
+    },
+]
+
+SEARCH_QUERIES = [
+    "EDM remix playlist", "pop remix playlist", "lofi remix mix",
+    "hip hop remix", "TikTok remix playlist", "2024 DJ remix",
+    "club remix playlist", "remix hits", "best remix playlist",
+    "dj remix playlist", "2024 remix playlist", "hip hop playlist",
+    "pop playlist", "club playlist", "dance playlist", "party playlist",
+    "lofi playlist", "tiktok playlist", "summer playlist", "workout playlist",
+    "chill playlist", "house music playlist", "electronic playlist",
+    "indie playlist", "rock playlist", "old school playlist"
+]
