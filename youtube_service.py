@@ -46,9 +46,9 @@ class YoutubePlaylistService:
             "cachedir": False,
             #"force_generic_extractor": True
             "skip_download": True,
-            "ignoreerrors": True,
-            "dump_single_json": True,
-            "no_warnings": True,
+            #"ignoreerrors": True,
+            #"dump_single_json": True,
+            #"no_warnings": True,
         }
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
