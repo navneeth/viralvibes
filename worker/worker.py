@@ -48,7 +48,7 @@ async def init():
             raise SystemExit(1)
     except Exception as e:
         logger.error(f"Unexpected error during Supabase initialization: {str(e)}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 async def fetch_pending_jobs():
@@ -109,7 +109,7 @@ async def handle_job(job):
             "like_count": summary_stats.get("total_likes"),
             "dislike_count": summary_stats.get("total_dislikes"),
             "comment_count": summary_stats.get("total_comments"),
-            "video_count": df.height if df is not None else 0,
+            "video_count": getattr(df, "height", 0) if df is not None else 0,
             "avg_duration": summary_stats.get("avg_duration"),
             "engagement_rate": summary_stats.get("avg_engagement"),
             "controversy_score": summary_stats.get("avg_controversy", 0),
