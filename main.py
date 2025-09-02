@@ -180,8 +180,6 @@ def index():
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 _Section(HomepageAccordion(), id="explore-section"),
                 footer(),
-                # Footer("© 2025 ViralVibes. Built for creators.",
-                #       className="text-center text-gray-500 py-6"),
                 cls=(ContainerT.xl, "uk-container-expand"),
             ),
         ),
