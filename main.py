@@ -19,6 +19,7 @@ from components import (
     HeaderCard,
     HomepageAccordion,
     NewsletterCard,
+    footer,
 )
 from constants import (
     CARD_BASE,
@@ -62,19 +63,23 @@ FLEX_COL_CENTER_CLS = FLEX_COL + " " + FLEX_CENTER
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.red.headers(apex_charts=True)
 
-app, rt = fast_app(hdrs=hdrs,
-                   title="ViralVibes - YouTube Trends, Decoded",
-                   static_dir="static",
-                   favicon="/static/favicon.ico",
-                   apple_touch_icon="/static/favicon.jpeg")
+app, rt = fast_app(
+    hdrs=hdrs,
+    title="ViralVibes - YouTube Trends, Decoded",
+    static_dir="static",
+    favicon="/static/favicon.ico",
+    apple_touch_icon="/static/favicon.jpeg",
+)
 
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
 # Navigation links
-scrollspy_links = (A("Home", href="#home-section"),
-                   A("Analyze", href="#analyze-section"),
-                   A("Explore", href="#explore-section"))
+scrollspy_links = (
+    A("Home", href="#home-section"),
+    A("Analyze", href="#analyze-section"),
+    A("Explore", href="#explore-section"),
+)
 
 # Most Viewed Youtube Videos of all time
 # https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
@@ -83,7 +88,7 @@ scrollspy_links = (A("Home", href="#home-section"),
 # Initialize application components
 def init_app():
     """Initialize application components.
-    
+
     This function should be called at application startup.
     It sets up logging and initializes the Supabase client.
     """
@@ -101,8 +106,7 @@ def init_app():
         else:
             logger.warning("Running without Supabase integration")
     except Exception as e:
-        logger.error(
-            f"Unexpected error during Supabase initialization: {str(e)}")
+        logger.error(f"Unexpected error during Supabase initialization: {str(e)}")
         # Continue running without Supabase
 
 
@@ -119,53 +123,67 @@ def debug_supabase():
     if supabase_client:
         try:
             # Test basic connection
-            response = supabase_client.table("playlist_stats").select(
-                "count", count="exact").execute()
+            response = (
+                supabase_client.table("playlist_stats")
+                .select("count", count="exact")
+                .execute()
+            )
             return Div(
                 H3("✅ Supabase Connection Test"),
                 P(f"Status: Connected"),
                 P(f"Client: {type(supabase_client).__name__}"),
                 P(f"Playlist stats table accessible: Yes"),
                 P(f"Count query result: {response}"),
-                cls="p-6 bg-green-50 border border-green-300 rounded-lg")
+                cls="p-6 bg-green-50 border border-green-300 rounded-lg",
+            )
         except Exception as e:
-            return Div(H3("❌ Supabase Connection Test"),
-                       P(f"Status: Error"),
-                       P(f"Error: {str(e)}"),
-                       cls="p-6 bg-red-50 border border-red-300 rounded-lg")
+            return Div(
+                H3("❌ Supabase Connection Test"),
+                P(f"Status: Error"),
+                P(f"Error: {str(e)}"),
+                cls="p-6 bg-red-50 border border-red-300 rounded-lg",
+            )
     else:
-        return Div(H3("❌ Supabase Connection Test"),
-                   P(f"Status: Not Available"),
-                   P(f"Client: None"),
-                   cls="p-6 bg-yellow-50 border border-yellow-300 rounded-lg")
+        return Div(
+            H3("❌ Supabase Connection Test"),
+            P(f"Status: Not Available"),
+            P(f"Client: None"),
+            cls="p-6 bg-yellow-50 border border-yellow-300 rounded-lg",
+        )
 
 
 @rt
 def index():
-
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
     return Titled(
         "ViralVibes",
         Container(
-            NavBar(*scrollspy_links,
-                   brand=DivLAligned(H3("ViralVibes"),
-                                     UkIcon('chart-line', height=30,
-                                            width=30)),
-                   sticky=True,
-                   uk_scrollspy_nav=True,
-                   scrollspy_cls=ScrollspyT.bold),
-            NavContainer(*map(Li, scrollspy_links),
-                         uk_scrollspy_nav=True,
-                         sticky=True,
-                         cls=(NavT.primary, 'pt-20 px-5 pr-10')),
-            Container(_Section(HeaderCard(), id="home-section"),
-                      _Section(AnalysisFormCard(), id="analyze-section"),
-                      _Section(HomepageAccordion(), id="explore-section"),
-                      Footer("© 2025 ViralVibes. Built for creators.",
-                             className="text-center text-gray-500 py-6"),
-                      cls=(ContainerT.xl, 'uk-container-expand'))))
+            NavBar(
+                *scrollspy_links,
+                brand=DivLAligned(
+                    H3("ViralVibes"), UkIcon("chart-line", height=30, width=30)
+                ),
+                sticky=True,
+                uk_scrollspy_nav=True,
+                scrollspy_cls=ScrollspyT.bold,
+            ),
+            NavContainer(
+                *map(Li, scrollspy_links),
+                uk_scrollspy_nav=True,
+                sticky=True,
+                cls=(NavT.primary, "pt-20 px-5 pr-10"),
+            ),
+            Container(
+                _Section(HeaderCard(), id="home-section"),
+                _Section(AnalysisFormCard(), id="analyze-section"),
+                _Section(HomepageAccordion(), id="explore-section"),
+                footer(),
+                cls=(ContainerT.xl, "uk-container-expand"),
+            ),
+        ),
+    )
 
 
 '''
@@ -348,52 +366,68 @@ def validate_url(playlist: YoutubePlaylist):
     if errors:
         return Div(
             Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
-            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded")
+            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded",
+        )
     return Script(
         "htmx.ajax('POST', '/validate/preview', {target: '#preview-box', values: {playlist_url: '%s'}});"
-        % playlist.playlist_url)
+        % playlist.playlist_url
+    )
 
 
 @rt("/validate/preview", methods=["POST"])
 async def preview_playlist(playlist_url: str):
     try:
-        playlist_name, channel_name, channel_thumbnail, playlist_length = await yt_service.get_playlist_preview(
-            playlist_url)
+        (
+            playlist_name,
+            channel_name,
+            channel_thumbnail,
+            playlist_length,
+        ) = await yt_service.get_playlist_preview(playlist_url)
 
     except Exception as e:
         logger.warning("Preview fetch failed: %s", e)
         return Div("Preview unavailable.", cls="text-gray-400")
 
     return Div(
-        H2(f"Analyzing Playlist: {playlist_name}",
-           cls="text-lg font-semibold"),
-        Img(src=channel_thumbnail,
+        H2(f"Analyzing Playlist: {playlist_name}", cls="text-lg font-semibold"),
+        Img(
+            src=channel_thumbnail,
             alt="Channel thumbnail",
-            style="width:64px;height:64px;border-radius:50%;margin:auto;"),
+            style="width:64px;height:64px;border-radius:50%;margin:auto;",
+        ),
         P(
             Data(str(playlist_length), value=str(playlist_length)),
             " videos in playlist: ",
-            Meter(value=0,
-                  min=0,
-                  max=playlist_length or 1,
-                  low=10,
-                  high=50,
-                  optimum=100,
-                  id="fetch-progress-meter",
-                  cls="w-full h-2 mt-2")) if playlist_length else None,
+            Meter(
+                value=0,
+                min=0,
+                max=playlist_length or 1,
+                low=10,
+                high=50,
+                optimum=100,
+                id="fetch-progress-meter",
+                cls="w-full h-2 mt-2",
+            ),
+        )
+        if playlist_length
+        else None,
         Button(
             "Start Full Analysis",
             hx_post="/validate/full",
             hx_vals={"playlist_url": playlist_url},
             hx_target="#results-box",
             hx_indicator="#loading-bar",
-            cls=
-            "uk-button uk-button-primary mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300",
-            type="button"),
-        Div(Loading(id="loading-bar",
-                    cls=(LoadingT.bars, LoadingT.lg),
-                    style="margin-top:1rem; color:#393e6e;"),
-            id="results-box"),
+            cls="uk-button uk-button-primary mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300",
+            type="button",
+        ),
+        Div(
+            Loading(
+                id="loading-bar",
+                cls=(LoadingT.bars, LoadingT.lg),
+                style="margin-top:1rem; color:#393e6e;",
+            ),
+            id="results-box",
+        ),
     )
 
 
@@ -407,17 +441,22 @@ async def validate_full(playlist_url: str):
             logger.info(f"Using cached stats for playlist {playlist_url}")
 
             # reconstruct df and other fields from cache row
-            df = pl.read_json(
-                io.BytesIO(cached_stats["df_json"].encode("utf-8")))
+            df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
             playlist_name = cached_stats["title"]
             channel_name = cached_stats.get("channel_name", "")
             channel_thumbnail = cached_stats.get("channel_thumbnail", "")
             summary_stats = cached_stats[
-                "summary_stats"]  # reconstruct df and other fields from cache row
+                "summary_stats"
+            ]  # reconstruct df and other fields from cache row
         else:
             # 2. Fetch fresh data
-            df, playlist_name, channel_name, channel_thumbnail, summary_stats = await yt_service.get_playlist_data(
-                playlist_url)
+            (
+                df,
+                playlist_name,
+                channel_name,
+                channel_thumbnail,
+                summary_stats,
+            ) = await yt_service.get_playlist_data(playlist_url)
 
             if df.height == 0:
                 return Alert(P("No videos found."), cls=AlertT.warning)
@@ -425,35 +464,22 @@ async def validate_full(playlist_url: str):
             # print(df)
             # 3. Cache results
             stats_to_cache = {
-                "playlist_url":
-                playlist_url,
-                "title":
-                playlist_name,
-                "channel_name":
-                channel_name,
-                "channel_thumbnail":
-                channel_thumbnail,
-                "view_count":
-                summary_stats.get("total_views"),
-                "like_count":
-                summary_stats.get("total_likes"),
-                "dislike_count":
-                summary_stats.get("total_dislikes"),
-                "comment_count":
-                summary_stats.get("total_comments"),
-                "video_count":
-                df.height,
-                "avg_duration":
-                int(summary_stats.get("avg_duration"))
-                if summary_stats.get("avg_duration") is not None else None,
-                "engagement_rate":
-                summary_stats.get("avg_engagement"),
-                "controversy_score":
-                summary_stats.get("avg_controversy", 0),
-                "summary_stats":
-                summary_stats,
-                "df_json":
-                df.write_json(),  # full DataFrame snapshot
+                "playlist_url": playlist_url,
+                "title": playlist_name,
+                "channel_name": channel_name,
+                "channel_thumbnail": channel_thumbnail,
+                "view_count": summary_stats.get("total_views"),
+                "like_count": summary_stats.get("total_likes"),
+                "dislike_count": summary_stats.get("total_dislikes"),
+                "comment_count": summary_stats.get("total_comments"),
+                "video_count": df.height,
+                "avg_duration": int(summary_stats.get("avg_duration"))
+                if summary_stats.get("avg_duration") is not None
+                else None,
+                "engagement_rate": summary_stats.get("avg_engagement"),
+                "controversy_score": summary_stats.get("avg_controversy", 0),
+                "summary_stats": summary_stats,
+                "df_json": df.write_json(),  # full DataFrame snapshot
             }
 
             await upsert_playlist_stats(stats_to_cache)
@@ -463,33 +489,50 @@ async def validate_full(playlist_url: str):
         headers = yt_service.get_display_headers()
         thead = Thead(Tr(*[Th(h) for h in headers]))
 
-        tbody = Tbody(*[
-            Tr(
-                Td(row["Rank"]),
-                Td(
-                    A(row["Title"],
-                      href=f"https://youtube.com/watch?v={row['id']}",
-                      target="_blank")), Td(row["View Count"]),
-                Td(row["Like Count"]), Td(row["Dislike Count"]),
-                Td(row["Comment Count"]), Td(row["Duration"]),
-                Td(row["Engagement Rate (%)"]),
-                Td(f"{row['Controversy Raw']:.2%}"))
-            for row in df.iter_rows(named=True)
-        ])
+        tbody = Tbody(
+            *[
+                Tr(
+                    Td(row["Rank"]),
+                    Td(
+                        A(
+                            row["Title"],
+                            href=f"https://youtube.com/watch?v={row['id']}",
+                            target="_blank",
+                        )
+                    ),
+                    Td(row["View Count"]),
+                    Td(row["Like Count"]),
+                    Td(row["Dislike Count"]),
+                    Td(row["Comment Count"]),
+                    Td(row["Duration"]),
+                    Td(row["Engagement Rate (%)"]),
+                    Td(f"{row['Controversy Raw']:.2%}"),
+                )
+                for row in df.iter_rows(named=True)
+            ]
+        )
 
         # Use all the summary stats from youtube_service.py
         tfoot = Tfoot(
-            Tr(Td("Total/Average"), Td(""),
-               Td(format_number(summary_stats["total_views"])),
-               Td(format_number(summary_stats["total_likes"])),
-               Td(format_number(summary_stats["total_dislikes"])),
-               Td(format_number(summary_stats["total_comments"])), Td(""),
-               Td(f"{summary_stats['avg_engagement']:.2f}%"), Td("")))
+            Tr(
+                Td("Total/Average"),
+                Td(""),
+                Td(format_number(summary_stats["total_views"])),
+                Td(format_number(summary_stats["total_likes"])),
+                Td(format_number(summary_stats["total_dislikes"])),
+                Td(format_number(summary_stats["total_comments"])),
+                Td(""),
+                Td(f"{summary_stats['avg_engagement']:.2f}%"),
+                Td(""),
+            )
+        )
 
-        return Div(StepProgress(len(PLAYLIST_STEPS_CONFIG)),
-                   Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
-                   AnalyticsDashboardSection(df, summary_stats),
-                   cls="space-y-4")
+        return Div(
+            StepProgress(len(PLAYLIST_STEPS_CONFIG)),
+            Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
+            AnalyticsDashboardSection(df, summary_stats),
+            cls="space-y-4",
+        )
     except Exception as e:
         logger.exception("Deep analysis failed")
         return Alert(P("Failed to fetch playlist data."), cls=AlertT.error)
@@ -509,7 +552,8 @@ def update_steps_progressive(step: int):
                 setTimeout(() => {{
                     htmx.ajax('GET', '/update-steps/{step + 1}', {{target: '#playlist-steps'}});
                 }}, 800);
-            """))
+            """),
+        )
 
     return response
 
@@ -529,7 +573,8 @@ def newsletter(email: str):
         logger.warning("Supabase client not available for newsletter signup")
         return Div(
             "Newsletter signup is temporarily unavailable. Please try again later.",
-            style="color: orange")
+            style="color: orange",
+        )
 
     # Send to Supabase
     payload = {"email": email, "created_at": datetime.utcnow().isoformat()}
@@ -547,13 +592,15 @@ def newsletter(email: str):
             logger.warning(f"No data returned from Supabase for: {email}")
             return Div(
                 "Unable to process your signup. Please try again later.",
-                style="color: orange")
+                style="color: orange",
+            )
 
     except Exception as e:
         logger.exception(f"Newsletter signup failed for {email}")
         return Div(
             "We're having trouble processing your signup. Please try again later.",
-            style="color: orange")
+            style="color: orange",
+        )
 
 
 serve()
