@@ -33,11 +33,34 @@ from constants import (
 )
 from utils import format_number
 
+"""Define reusable UI components for the ViralVibes application."""
+
 
 def HeaderCard() -> Card:
+    """Redesigned header card with image on the right side."""
     return Card(
-        P("Decode YouTube virality. Instantly.", cls="text-lg mt-2 text-white"),
-        header=CardTitle("ViralVibes", cls="text-4xl font-bold text-white"),
+        Div(
+            Div(
+                CardTitle(
+                    "Welcome to ViralVibes", cls="text-4xl font-bold text-white mb-4"
+                ),
+                P("Decode YouTube virality. Instantly.", cls="text-lg mt-2 text-white"),
+                P(
+                    "Analyze your YouTube playlists with creator-first insights.",
+                    cls="text-sm mt-2 text-white",
+                ),
+                cls="flex-1",
+            ),
+            Div(
+                Img(
+                    src="/static/thumbnail.png",
+                    alt="YouTube Playlist Thumbnail",
+                    style="width:180px; height:auto; border-radius:1rem; box-shadow:0 4px 24px rgba(0,0,0,0.15);",
+                ),
+                cls="flex items-center justify-center flex-1",
+            ),
+            cls="flex flex-row gap-8 items-center",
+        ),
         cls=HEADER_CARD,
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
