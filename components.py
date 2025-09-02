@@ -35,6 +35,25 @@ from utils import format_number
 
 """Define reusable UI components for the ViralVibes application."""
 
+col = "flex flex-col"
+section_base1 = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
+
+
+def maxpx(px):
+    return f"w-full max-w-[{px}px]"
+
+
+def maxrem(rem):
+    return f"w-full max-w-[{rem}rem]"
+
+
+def benefit(title, content):
+    return Div(
+        H3(title, cls=f"text-white heading-3"),
+        P(content, cls=f"l-body mt-6 lg:mt-6"),
+        cls="w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
+    )
+
 
 def HeaderCard() -> Card:
     """Redesigned header card with image on the right side."""
@@ -501,4 +520,24 @@ def footer():
             P("© 2025 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
             cls="space-y-8 p-8",
         )
+    )
+
+
+def section_wrapper(content, bg_color, xtra="", flex=True):
+    """
+    Wraps a section with background color, layout, and rounded corners.
+    """
+    return Section(
+        content,
+        cls=f"bg-{bg_color} {section_base1} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
+    )
+
+
+def section_header(mono_text, heading, subheading, max_width=32, center=True):
+    pos = "items-center text-center" if center else "items-start text-start"
+    return Div(
+        P(mono_text, cls="mono-body text-opacity-60"),
+        H2(heading, cls=f"text-white heading-2 {maxrem(max_width)}"),
+        P(subheading, cls=f"l-body {maxrem(max_width)}"),
+        cls=f"{maxrem(50)} mx-auto {col} {pos} gap-6",
     )

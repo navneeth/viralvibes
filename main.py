@@ -19,7 +19,10 @@ from components import (
     HeaderCard,
     HomepageAccordion,
     NewsletterCard,
+    benefit,
     footer,
+    section_header,
+    section_wrapper,
 )
 from constants import (
     CARD_BASE,
@@ -31,6 +34,7 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
+    benefits_lst,
 )
 from db import (
     get_cached_playlist_stats,
@@ -152,6 +156,45 @@ def debug_supabase():
         )
 
 
+def how_it_works_section():
+    steps_msg = [
+        (
+            "1. Submit Playlist URL",
+            "Paste your YouTube playlist link into the analysis form.",
+        ),
+        (
+            "2. Preview",
+            "See the playlist title, channel name, and thumbnail instantly.",
+        ),
+        (
+            "4. Deep Analysis",
+            "We fetch and analyze all video stats—views, likes, dislikes, comments, engagement, and controversy.",
+        ),
+        (
+            "5. Results & Dashboard",
+            "Get a detailed table and dashboard with trends, totals, and averages.",
+        ),
+    ]
+    return section_wrapper(
+        (
+            Div(
+                section_header(
+                    "HOW IT WORKS",
+                    "Analyze any YouTube playlist in seconds.",
+                    "ViralVibes guides you through a simple, step-by-step workflow to decode YouTube trends and performance.",
+                ),
+                cls="max-w-3xl w-full mx-auto flex-col items-center text-center gap-6 mb-8 lg:mb-8",
+            ),
+            Div(
+                *[benefit(title, content) for title, content in steps_msg],
+                cls=f"{FLEX_COL} w-full lg:flex-row gap-4 items-center lg:gap-8 max-w-7xl mx-auto justify-center",
+            ),
+        ),
+        bg_color="red-700",
+        flex=False,
+    )
+
+
 @rt
 def index():
     def _Section(*c, **kwargs):
@@ -177,6 +220,7 @@ def index():
             ),
             Container(
                 _Section(HeaderCard(), id="home-section"),
+                _Section(how_it_works_section(), id="how-it-works-section"),
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 _Section(HomepageAccordion(), id="explore-section"),
                 footer(),
