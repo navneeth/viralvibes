@@ -159,20 +159,20 @@ def debug_supabase():
 def how_it_works_section():
     steps_msg = [
         (
-            "1. Submit Playlist URL",
+            "1️⃣ Submit Playlist URL",
             "Paste your YouTube playlist link into the analysis form.",
         ),
         (
-            "2. Preview",
+            "2️⃣ Preview",
             "See the playlist title, channel name, and thumbnail instantly.",
         ),
         (
-            "4. Deep Analysis",
-            "We fetch and analyze all video stats—views, likes, dislikes, comments, engagement, and controversy.",
+            "3️⃣ Deep Analysis",
+            "We crunch video stats—views, likes, dislikes, comments, engagement, and controversy.",
         ),
         (
-            "5. Results & Dashboard",
-            "Get a detailed table and dashboard with trends, totals, and averages.",
+            "4️⃣  Results Dashboard",
+            "Get a detailed table and dashboard with trends and viral signals.",
         ),
     ]
     return section_wrapper(
