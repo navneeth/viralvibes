@@ -32,7 +32,6 @@ from constants import (
     STEPS_CLS,
 )
 from utils import format_number
-
 """Define reusable UI components for the ViralVibes application."""
 
 col = "flex flex-col"
@@ -51,7 +50,8 @@ def benefit(title, content):
     return Div(
         H3(title, cls=f"text-white heading-3"),
         P(content, cls=f"l-body mt-6 lg:mt-6"),
-        cls="w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
+        cls=
+        "w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
     )
 
 
@@ -60,10 +60,10 @@ def HeaderCard() -> Card:
     return Card(
         Div(
             Div(
-                CardTitle(
-                    "Welcome to ViralVibes", cls="text-4xl font-bold text-white mb-4"
-                ),
-                P("Decode YouTube virality. Instantly.", cls="text-lg mt-2 text-white"),
+                CardTitle("Welcome to ViralVibes",
+                          cls="text-4xl font-bold text-white mb-4"),
+                P("Decode YouTube virality. Instantly.",
+                  cls="text-lg mt-2 text-white"),
                 P(
                     "Analyze your YouTube playlists with creator-first insights.",
                     cls="text-sm mt-2 text-white",
@@ -74,7 +74,8 @@ def HeaderCard() -> Card:
                 Img(
                     src="/static/thumbnail.png",
                     alt="YouTube Playlist Thumbnail",
-                    style="width:180px; height:auto; border-radius:1rem; box-shadow:0 4px 24px rgba(0,0,0,0.15);",
+                    style=
+                    "width:180px; height:auto; border-radius:1rem; box-shadow:0 4px 24px rgba(0,0,0,0.15);",
                 ),
                 cls="flex items-center justify-center flex-1",
             ),
@@ -97,8 +98,10 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
             step_cls = StepT.neutral
 
         steps.append(
-            LiStep(title, cls=step_cls, data_content=icon, description=description)
-        )
+            LiStep(title,
+                   cls=step_cls,
+                   data_content=icon,
+                   description=description))
 
     return Steps(*steps, cls=STEPS_CLS)
 
@@ -146,38 +149,99 @@ def AnalysisFormCard() -> Card:
 def AnalysisFormCard() -> Card:
     """Create the analysis form card component with atomic HTMX triggers."""
     # Get a random prefill URL from the known playlists
-    prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
+    prefill_url = random.choice(
+        KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
     return Card(
-        Img(
-            src="/static/celebration.webp",
-            style="width: 100%; max-width: 320px; margin: 0 auto 1rem auto; display: block;",
-            alt="Celebration",
+        # Hero section with gradient background and illustration
+        Div(
+            Div(
+                Img(
+                    src="/static/celebration.webp",
+                    alt="YouTube Analytics Celebration",
+                    style=
+                    "width: 120px; height: auto; margin: 0 auto; filter: drop-shadow(0 10px 25px rgba(0,0,0,0.1));",
+                ),
+                H2(
+                    "Analyze Your YouTube Playlist",
+                    cls="text-2xl font-bold text-white text-center mt-4 mb-2",
+                ),
+                P(
+                    "Get deep insights into views, engagement, and virality patterns",
+                    cls="text-white/80 text-center text-sm mb-6",
+                ),
+                cls="py-8",
+            ),
+            cls=
+            "bg-gradient-to-br from-red-500 via-red-600 to-red-700 rounded-t-xl -m-6 mb-0",
         ),
-        P(
-            "Follow these steps to analyze any YouTube playlist:",
-            cls="text-lg font-semibold text-center mb-2",
+        # Steps section with better visual hierarchy
+        Div(
+            H3("How it works",
+               cls="text-lg font-semibold text-white/80 mb-4 text-center"),
+            Div(PlaylistSteps(),
+                id="playlist-steps",
+                cls=f"{FLEX_CENTER} w-full"),
+            cls="pt-6",
         ),
-        Div(PlaylistSteps(), id="playlist-steps", cls=f"{FLEX_CENTER} w-full"),
+        # Enhanced form with better styling
         Form(
-            LabelInput(
-                "Playlist URL",
-                type="text",
-                name="playlist_url",
-                placeholder="Paste YouTube Playlist URL",
-                value=prefill_url,
-                className="px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all",
+            Div(
+                LabelInput(
+                    "Playlist URL",
+                    type="text",
+                    name="playlist_url",
+                    placeholder="Paste YouTube Playlist URL",
+                    value=prefill_url,
+                    className=
+                    "px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all",
+                ),
+                # URL validation hint
+                P("💡 Paste any public YouTube playlist URL",
+                  cls="text-xs text-gray-500 mt-1"),
+                cls="space-y-1",
             ),
-            Button(
-                "Analyze Now",
-                type="submit",
-                className=f"{ButtonT.destructive} hover:scale-105 transition-transform",
+            Div(
+                Button(
+                    "Analyze Now",
+                    type="submit",
+                    className=
+                    f"{ButtonT.destructive} hover:scale-105 transition-transform",
+                ),
+                # Quick action buttons for demo playlists
+                Details(
+                    Summary(
+                        "Try sample playlists",
+                        cls=
+                        "text-sm text-gray-600 cursor-pointer hover:text-gray-800 transition-colors",
+                    ),
+                    Div(
+                        *[
+                            Button(
+                                f"📺 {playlist.get('title', 'Sample')[:30]}{'...' if len(playlist.get('title','')) > 30 else ''}",
+                                type="button",
+                                cls=
+                                "text-left text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors w-full",
+                                onclick=
+                                ("document.querySelector(\"input[name=\\\"playlist_url\\\"]\").value = '"
+                                 + playlist["url"] + "'"),
+                            ) for playlist in KNOWN_PLAYLISTS
+                        ],
+                        cls="mt-2 space-y-1 p-2 bg-gray-50 rounded-md border",
+                    ),
+                    cls="mt-3",
+                ) if KNOWN_PLAYLISTS else None,
+                cls="mt-6 space-y-3",
             ),
-            Loading(
-                id="loading",
-                cls=(LoadingT.bars, LoadingT.lg),
-                style="margin-top:0.5rem; color:#393e6e;",
-                htmx_indicator=True,
+            # Loading indicator with better positioning
+            Div(
+                Loading(
+                    id="loading",
+                    cls=(LoadingT.bars, LoadingT.lg),
+                    style="margin-top:0.5rem; color:#393e6e;",
+                    htmx_indicator=True,
+                ),
+                cls="flex justify-center",
             ),
             # HTMX hooks: validation triggers preview, then full analysis
             hx_post="/validate/url",
@@ -207,8 +271,7 @@ def _build_info_items(config: List[Tuple[str, str, str]]) -> List["Component"]:
             H4(title, cls="mb-2 mt-2"),
             P(desc, cls="text-gray-600 text-sm text-center"),
             cls=f"{FLEX_COL} {FLEX_CENTER}",
-        )
-        for title, desc, icon in config
+        ) for title, desc, icon in config
     ]
 
 
@@ -220,15 +283,11 @@ def create_info_card(
 ) -> Card:
     """Helper function to create Feature and Benefit cards."""
     cards = _build_info_items(items)
-    img_component = (
-        Img(
-            src=img_src,
-            style="width:120px; margin: 0 auto 2rem auto; display:block;",
-            alt=img_alt,
-        )
-        if img_src
-        else ""
-    )
+    img_component = (Img(
+        src=img_src,
+        style="width:120px; margin: 0 auto 2rem auto; display:block;",
+        alt=img_alt,
+    ) if img_src else "")
     return Card(
         img_component,
         Grid(*cards),
@@ -269,12 +328,14 @@ def NewsletterCard() -> Card:
                 pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
                 title="Please enter a valid email address",
                 placeholder="you@example.com",
-                className="px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500",
+                className=
+                "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500",
             ),
             Button(
                 "Notify Me",
                 type="submit",
-                className=f"{ButtonT.primary} hover:scale-105 transition-transform",
+                className=
+                f"{ButtonT.primary} hover:scale-105 transition-transform",
             ),
             Loading(
                 id="loading",
@@ -288,7 +349,8 @@ def NewsletterCard() -> Card:
             hx_indicator="#loading",
         ),
         Div(id="newsletter-result", style="margin-top:1rem;"),
-        header=CardTitle("Be the first to try it", cls="text-xl font-bold mb-4"),
+        header=CardTitle("Be the first to try it",
+                         cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD,
         body_cls="space-y-6",
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
@@ -300,19 +362,22 @@ def SummaryStatsCard(summary: Dict) -> Card:
     stats = Div(
         Div(
             UkIcon("eye", cls="text-3xl text-blue-500 mb-2"),
-            H3(format_number(summary.get("total_views", 0)), cls="text-2xl font-bold"),
+            H3(format_number(summary.get("total_views", 0)),
+               cls="text-2xl font-bold"),
             P("Total Views", cls="text-gray-600"),
             cls="text-center p-4",
         ),
         Div(
             UkIcon("heart", cls="text-3xl text-red-500 mb-2"),
-            H3(format_number(summary.get("total_likes", 0)), cls="text-2xl font-bold"),
+            H3(format_number(summary.get("total_likes", 0)),
+               cls="text-2xl font-bold"),
             P("Total Likes", cls="text-gray-600"),
             cls="text-center p-4",
         ),
         Div(
             UkIcon("percent", cls="text-3xl text-green-500 mb-2"),
-            H3(f"{summary.get('avg_engagement', 0):.2f}%", cls="text-2xl font-bold"),
+            H3(f"{summary.get('avg_engagement', 0):.2f}%",
+               cls="text-2xl font-bold"),
             P("Average Engagement", cls="text-gray-600"),
             cls="text-center p-4",
         ),
@@ -406,7 +471,8 @@ def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
             cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
         ),
         # Group 4: Correlation and Multivariate Relationship between likes and dislikes
-        H3("📈 Correlation & Advanced Patterns", cls="text-xl font-semibold mb-2"),
+        H3("📈 Correlation & Advanced Patterns",
+           cls="text-xl font-semibold mb-2"),
         Grid(
             chart_scatter_likes_dislikes(df),
             chart_bubble_engagement_vs_views(df),
@@ -435,7 +501,8 @@ def PlaylistPreviewCard(
                 Img(
                     src=channel_thumbnail,
                     alt=f"{channel_name} channel thumbnail",
-                    style="width:80px;height:80px;border-radius:50%;margin:auto;",
+                    style=
+                    "width:80px;height:80px;border-radius:50%;margin:auto;",
                 ),
                 H4(playlist_name, cls="text-lg font-semibold mt-3"),
                 P(f"Channel: {channel_name}", cls="text-gray-600 text-sm"),
@@ -443,12 +510,11 @@ def PlaylistPreviewCard(
             ),
             Div(
                 P(
-                    Span(str(playlist_length), cls="font-semibold text-blue-700"),
+                    Span(str(playlist_length),
+                         cls="font-semibold text-blue-700"),
                     " videos in playlist",
                     cls="text-sm text-gray-700 text-center",
-                )
-                if playlist_length
-                else None,
+                ) if playlist_length else None,
                 Meter(
                     value=0,
                     min=0,
@@ -467,10 +533,10 @@ def PlaylistPreviewCard(
                 hx_vals={"playlist_url": playlist_url},
                 hx_target="#results-box",
                 hx_indicator="#loading-bar",
-                cls=(
-                    "uk-button uk-button-primary w-full mt-6 py-2.5 text-base "
-                    "font-medium rounded-lg shadow-sm hover:bg-blue-700 transition duration-300"
-                ),
+                cls=
+                ("uk-button uk-button-primary w-full mt-6 py-2.5 text-base "
+                 "font-medium rounded-lg shadow-sm hover:bg-blue-700 transition duration-300"
+                 ),
                 type="button",
             ),
             Div(
@@ -478,7 +544,8 @@ def PlaylistPreviewCard(
                 id="results-box",
                 cls="mt-4",
             ),
-            cls=f"{CARD_BASE} max-w-xl mx-auto p-6 shadow-md rounded-xl space-y-4 bg-white",
+            cls=
+            f"{CARD_BASE} max-w-xl mx-auto p-6 shadow-md rounded-xl space-y-4 bg-white",
         ),
         cls="p-6 sm:p-10",
     )
@@ -497,30 +564,32 @@ def FooterLinkGroup(title, links):
 def footer():
     company = ["About", "Blog", "Careers", "Press Kit"]
     resources = ["Documentation", "Help Center", "Status", "Contact Sales"]
-    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings", "Accessibility"]
+    legal = [
+        "Terms of Service", "Privacy Policy", "Cookie Settings",
+        "Accessibility"
+    ]
 
-    return Container(cls="uk-background-muted py-12")(
-        Div(
-            DivFullySpaced(
-                H3("ViralVibes"),
-                DivHStacked(
-                    UkIcon("twitter", cls=TextT.lead),
-                    UkIcon("facebook", cls=TextT.lead),
-                    UkIcon("github", cls=TextT.lead),
-                    UkIcon("linkedin", cls=TextT.lead),
-                ),
+    return Container(cls="uk-background-muted py-12")(Div(
+        DivFullySpaced(
+            H3("ViralVibes"),
+            DivHStacked(
+                UkIcon("twitter", cls=TextT.lead),
+                UkIcon("facebook", cls=TextT.lead),
+                UkIcon("github", cls=TextT.lead),
+                UkIcon("linkedin", cls=TextT.lead),
             ),
-            DividerLine(),
-            DivFullySpaced(
-                FooterLinkGroup("Company", company),
-                FooterLinkGroup("Resources", resources),
-                FooterLinkGroup("Legal", legal),
-            ),
-            DividerLine(),
-            P("© 2025 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
-            cls="space-y-8 p-8",
-        )
-    )
+        ),
+        DividerLine(),
+        DivFullySpaced(
+            FooterLinkGroup("Company", company),
+            FooterLinkGroup("Resources", resources),
+            FooterLinkGroup("Legal", legal),
+        ),
+        DividerLine(),
+        P("© 2025 ViralVibes. All rights reserved.",
+          cls=TextT.lead + TextT.sm),
+        cls="space-y-8 p-8",
+    ))
 
 
 def section_wrapper(content, bg_color, xtra="", flex=True):
@@ -529,7 +598,8 @@ def section_wrapper(content, bg_color, xtra="", flex=True):
     """
     return Section(
         content,
-        cls=f"bg-{bg_color} {section_base1} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
+        cls=
+        f"bg-{bg_color} {section_base1} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
     )
 
 
