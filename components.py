@@ -186,6 +186,7 @@ def AnalysisFormCard() -> Card:
         ),
         # Enhanced form with better styling
         Form(
+            # Input section with floating label effect
             Div(
                 LabelInput(
                     "Playlist URL",
@@ -201,9 +202,11 @@ def AnalysisFormCard() -> Card:
                   cls="text-xs text-gray-500 mt-1"),
                 cls="space-y-1",
             ),
+
+            # Action buttons with better spacing
             Div(
                 Button(
-                    "Analyze Now",
+                    Span(UkIcon("search", cls="mr-2"), "Analyze Playlist"),
                     type="submit",
                     className=
                     f"{ButtonT.destructive} hover:scale-105 transition-transform",
@@ -215,20 +218,7 @@ def AnalysisFormCard() -> Card:
                         cls=
                         "text-sm text-gray-600 cursor-pointer hover:text-gray-800 transition-colors",
                     ),
-                    Div(
-                        *[
-                            Button(
-                                f"📺 {playlist.get('title', 'Sample')[:30]}{'...' if len(playlist.get('title','')) > 30 else ''}",
-                                type="button",
-                                cls=
-                                "text-left text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors w-full",
-                                onclick=
-                                ("document.querySelector(\"input[name=\\\"playlist_url\\\"]\").value = '"
-                                 + playlist["url"] + "'"),
-                            ) for playlist in KNOWN_PLAYLISTS
-                        ],
-                        cls="mt-2 space-y-1 p-2 bg-gray-50 rounded-md border",
-                    ),
+                    SamplePlaylistButtons(),
                     cls="mt-3",
                 ) if KNOWN_PLAYLISTS else None,
                 cls="mt-6 space-y-3",
@@ -256,6 +246,39 @@ def AnalysisFormCard() -> Card:
         body_cls="space-y-4",
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
+
+
+# Helper: render sample playlist quick-fill buttons
+
+
+def SamplePlaylistButtons(input_name: str = "playlist_url",
+                          max_items: int = 3) -> Div:
+    """Render quick action buttons to prefill the playlist URL from known samples.
+    Args:
+        input_name: The name attribute of the input to populate.
+        max_items: Number of sample playlists to show.
+    """
+    if not KNOWN_PLAYLISTS:
+        return Div()
+
+    buttons = []
+    for pl in KNOWN_PLAYLISTS[:max_items]:
+        title = pl.get("title", "Sample")
+        short = f"{title[:30]}{'...' if len(title) > 30 else ''}"
+        buttons.append(
+            Button(
+                f"📺 {short}",
+                type="button",
+                cls=
+                ("text-left text-xs text-blue-600 hover:text-blue-800 "
+                 "hover:bg-blue-50 px-2 py-1 rounded transition-colors w-full"
+                 ),
+                onclick=
+                ("document.querySelector(\"input[name=\\\"%s\\\"]\").value = '%s'"
+                 % (input_name, pl.get("url", ""))),
+            ))
+
+    return Div(*buttons, cls="mt-2 space-y-1 p-2 bg-gray-50 rounded-md border")
 
 
 def _build_icon(name: str) -> "Component":
