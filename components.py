@@ -381,33 +381,21 @@ def NewsletterCard() -> Card:
 
 
 def SummaryStatsCard(summary: Dict) -> Card:
-    """Create a card to display summary statistics."""
-    stats = Div(
-        Div(
-            UkIcon("eye", cls="text-3xl text-blue-500 mb-2"),
-            H3(format_number(summary.get("total_views", 0)),
-               cls="text-2xl font-bold"),
-            P("Total Views", cls="text-gray-600"),
-            cls="text-center p-4",
-        ),
-        Div(
-            UkIcon("heart", cls="text-3xl text-red-500 mb-2"),
-            H3(format_number(summary.get("total_likes", 0)),
-               cls="text-2xl font-bold"),
-            P("Total Likes", cls="text-gray-600"),
-            cls="text-center p-4",
-        ),
-        Div(
-            UkIcon("percent", cls="text-3xl text-green-500 mb-2"),
-            H3(f"{summary.get('avg_engagement', 0):.2f}%",
-               cls="text-2xl font-bold"),
-            P("Average Engagement", cls="text-gray-600"),
-            cls="text-center p-4",
-        ),
-        cls="grid grid-cols-1 md:grid-cols-3 gap-4",
-    )
+    stats = [("eye", "Total Views",
+              format_number(summary.get("total_views", 0)), "text-blue-500"),
+             ("heart", "Total Likes",
+              format_number(summary.get("total_likes", 0)), "text-red-500"),
+             ("percent", "Average Engagement",
+              f"{summary.get('avg_engagement', 0):.2f}%", "text-green-500")]
 
-    return Card(body=stats, cls=f"{CARD_BASE} w-full")
+    return Card(Grid(*[
+        DivCentered(UkIcon(icon, height=32, cls=f"{color} mb-2"),
+                    H3(value, cls="text-2xl font-bold"),
+                    P(label, cls=TextPresets.muted_sm))
+        for icon, label, value, color in stats
+    ],
+                     cols_md=3),
+                cls=CardT.hover)
 
 
 def create_tabs(tabs: List[Tuple[str, "Component"]], tabs_id: str) -> Div:
@@ -505,9 +493,6 @@ def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
     )
 
 
-# components.py or step_components.py
-
-
 def PlaylistPreviewCard(
     playlist_name: str,
     channel_name: str,
@@ -516,62 +501,45 @@ def PlaylistPreviewCard(
     playlist_url: str,
     meter_id: str = "fetch-progress-meter",
 ):
-    return Div(
+    return Card(
+        # Thumbnail + Playlist Info
+        DivCentered(Img(src=channel_thumbnail,
+                        alt=f"{channel_name} thumbnail",
+                        cls="w-20 h-20 rounded-full shadow-md border mb-4"),
+                    H3(playlist_name,
+                       cls="text-lg font-semibold text-gray-900"),
+                    P(f"by {channel_name}", cls="text-sm text-gray-500"),
+                    cls="text-center space-y-2"),
+
+        # Playlist length + Progress bar
+        Div(P(f"{playlist_length or 0} videos in playlist",
+              cls="text-sm font-medium text-gray-700"),
+            Progress(value=0,
+                     max=playlist_length or 1,
+                     id=meter_id,
+                     cls="w-full h-2 rounded-full bg-gray-200"),
+            cls="space-y-2 mt-4"),
+
+        # CTA button
+        Button(
+            "Start Full Analysis",
+            hx_post="/validate/full",
+            hx_vals={"playlist_url": playlist_url},
+            hx_target="#results-box",
+            hx_indicator="#loading-bar",
+            cls="w-full mt-6 py-2.5 text-base font-medium rounded-xl shadow-sm "
+            "bg-blue-600 hover:bg-blue-700 text-white transition"),
+
+        # Results + Loading state
         Div(
-            H3("Playlist Preview", cls="text-xl font-bold text-gray-800"),
-            Hr(cls="my-2"),
-            Div(
-                Img(
-                    src=channel_thumbnail,
-                    alt=f"{channel_name} channel thumbnail",
-                    style=
-                    "width:80px;height:80px;border-radius:50%;margin:auto;",
-                ),
-                H4(playlist_name, cls="text-lg font-semibold mt-3"),
-                P(f"Channel: {channel_name}", cls="text-gray-600 text-sm"),
-                cls="text-center space-y-2",
-            ),
-            Div(
-                P(
-                    Span(str(playlist_length),
-                         cls="font-semibold text-blue-700"),
-                    " videos in playlist",
-                    cls="text-sm text-gray-700 text-center",
-                ) if playlist_length else None,
-                Meter(
-                    value=0,
-                    min=0,
-                    max=playlist_length or 1,
-                    low=10,
-                    high=50,
-                    optimum=100,
-                    id=meter_id,
-                    cls="w-full h-2 bg-gray-200 rounded",
-                ),
-                cls="space-y-2",
-            ),
-            Button(
-                "Start Full Analysis",
-                hx_post="/validate/full",
-                hx_vals={"playlist_url": playlist_url},
-                hx_target="#results-box",
-                hx_indicator="#loading-bar",
-                cls=
-                ("uk-button uk-button-primary w-full mt-6 py-2.5 text-base "
-                 "font-medium rounded-lg shadow-sm hover:bg-blue-700 transition duration-300"
-                 ),
-                type="button",
-            ),
-            Div(
-                Loading(id="loading-bar", cls=(LoadingT.bars, LoadingT.lg)),
-                id="results-box",
-                cls="mt-4",
-            ),
-            cls=
-            f"{CARD_BASE} max-w-xl mx-auto p-6 shadow-md rounded-xl space-y-4 bg-white",
+            Loading(id="loading-bar", cls=(LoadingT.bars, LoadingT.lg)),
+            Div(id="results-box", cls="mt-4"),
         ),
-        cls="p-6 sm:p-10",
-    )
+
+        # Card header
+        header=CardTitle("Playlist Preview",
+                         cls="text-xl font-bold text-gray-900"),
+        cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4")
 
 
 def FooterLinkGroup(title, links):
