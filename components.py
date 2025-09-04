@@ -199,7 +199,7 @@ def AnalysisFormCard() -> Card:
                          "text-gray-900 placeholder-gray-400 "
                          "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
                          ),
-                    ),
+                        style="color: #333;"),
                     # URL validation hint
                     P("💡 Works with any public playlist",
                       cls="text-xs text-gray-500 mt-1"),
