@@ -153,98 +153,101 @@ def AnalysisFormCard() -> Card:
         KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
     return Card(
-        # Hero section with gradient background and illustration
+        # Hero section (gradient + illustration with smooth bottom transition)
         Div(
-            Div(
-                Img(
-                    src="/static/celebration.webp",
-                    alt="YouTube Analytics Celebration",
-                    style=
-                    "width: 120px; height: auto; margin: 0 auto; filter: drop-shadow(0 10px 25px rgba(0,0,0,0.1));",
-                ),
-                H2(
-                    "Analyze Your YouTube Playlist",
-                    cls="text-2xl font-bold text-white text-center mt-4 mb-2",
-                ),
-                P(
-                    "Get deep insights into views, engagement, and virality patterns",
-                    cls="text-white/80 text-center text-sm mb-6",
-                ),
-                cls="py-8",
+            Img(
+                src="/static/celebration.webp",
+                alt="YouTube Analytics Celebration",
+                cls="w-28 mx-auto drop-shadow-lg",
             ),
-            cls=
-            "bg-gradient-to-br from-red-500 via-red-600 to-red-700 rounded-t-xl -m-6 mb-0",
+            H2(
+                "Analyze Your YouTube Playlist",
+                cls="text-2xl font-bold text-white text-center mt-4",
+            ),
+            P(
+                "Get deep insights into views, engagement, and virality patterns",
+                cls="text-white/80 text-center mt-2",
+            ),
+            cls=("bg-gradient-to-br from-red-500 via-red-600 to-red-700 "
+                 "rounded-t-xl -m-6 mb-0 py-8 shadow-lg"),
         ),
+
+        # Form card body with slight overlap to hero for smooth transition
         # Steps section with better visual hierarchy
         Div(
-            H3("How it works",
-               cls="text-lg font-semibold text-white/80 mb-4 text-center"),
-            Div(PlaylistSteps(),
-                id="playlist-steps",
-                cls=f"{FLEX_CENTER} w-full"),
-            cls="pt-6",
-        ),
-        # Enhanced form with better styling
-        Form(
-            # Input section with floating label effect
+            # Steps section
             Div(
-                LabelInput(
-                    "Playlist URL",
-                    type="text",
-                    name="playlist_url",
-                    placeholder="Paste YouTube Playlist URL",
-                    value=prefill_url,
-                    className=
-                    "px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all",
+                H3(
+                    "How it works",
+                    cls="text-lg font-semibold text-gray-800 mb-4 text-center",
                 ),
-                # URL validation hint
-                P("💡 Paste any public YouTube playlist URL",
-                  cls="text-xs text-gray-500 mt-1"),
-                cls="space-y-1",
+                PlaylistSteps(),
+                cls="bg-gray-50 rounded-xl p-6 mb-8 shadow-sm",
             ),
 
-            # Action buttons with better spacing
-            Div(
-                Button(
-                    Span(UkIcon("search", cls="mr-2"), "Analyze Playlist"),
-                    type="submit",
-                    className=
-                    f"{ButtonT.destructive} hover:scale-105 transition-transform",
-                ),
-                # Quick action buttons for demo playlists
-                Details(
-                    Summary(
-                        "Try sample playlists",
-                        cls=
-                        "text-sm text-gray-600 cursor-pointer hover:text-gray-800 transition-colors",
+            # Input form
+            Form(
+                Div(
+                    LabelInput(
+                        "Playlist URL",
+                        type="text",
+                        name="playlist_url",
+                        placeholder="Paste YouTube Playlist URL",
+                        value=prefill_url,
+                        className=
+                        ("px-4 py-2 w-full border rounded-md "
+                         "text-gray-900 placeholder-gray-400 "
+                         "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
+                         ),
                     ),
-                    SamplePlaylistButtons(),
-                    cls="mt-3",
-                ) if KNOWN_PLAYLISTS else None,
-                cls="mt-6 space-y-3",
-            ),
-            # Loading indicator with better positioning
-            Div(
-                Loading(
-                    id="loading",
-                    cls=(LoadingT.bars, LoadingT.lg),
-                    style="margin-top:0.5rem; color:#393e6e;",
-                    htmx_indicator=True,
+                    # URL validation hint
+                    P("💡 Works with any public playlist",
+                      cls="text-xs text-gray-500 mt-1"),
+                    cls="space-y-1",
                 ),
-                cls="flex justify-center",
+                # Action buttons with better spacing
+                Div(
+                    Button(
+                        Span(UkIcon("search", cls="mr-2"), "Analyze Playlist"),
+                        type="submit",
+                        cls=
+                        f"{ButtonT.primary} w-full hover:scale-105 transition-transform",
+                    ),
+                    # Quick action buttons for demo playlists
+                    Details(
+                        Summary(
+                            "Try sample playlists",
+                            cls=
+                            "text-sm text-gray-600 cursor-pointer hover:text-gray-800"
+                        ),
+                        SamplePlaylistButtons(),
+                        cls="mt-3",
+                    ) if KNOWN_PLAYLISTS else None,
+                    cls="mt-6 space-y-3",
+                ),
+                # Loading indicator with better positioning
+                Div(
+                    Loading(id="loading",
+                            cls=(LoadingT.bars, LoadingT.lg),
+                            htmx_indicator=True),
+                    cls="flex justify-center mt-2",
+                ),
+                # HTMX hooks: validation triggers preview, then full analysis
+                hx_post="/validate/url",
+                hx_target="#validation-feedback",
+                hx_swap="innerHTML",
+                hx_indicator="#loading",
             ),
-            # HTMX hooks: validation triggers preview, then full analysis
-            hx_post="/validate/url",
-            hx_target="#validation-feedback",
-            hx_swap="innerHTML",
-            hx_indicator="#loading",
+
+            # Results placeholders
+            Div(id="validation-feedback", cls="mt-6 text-gray-900"),
+            Div(id="preview-box", cls="mt-6 text-gray-900"),
+            Div(id="result",
+                cls="mt-8 min-h-[400px] border-t pt-6 text-gray-900"),
+            cls=
+            "bg-white rounded-b-xl -mt-6 p-10 shadow-lg text-gray-900 space-y-6",
         ),
-        Div(id="validation-feedback", cls="mt-4"),
-        Div(id="preview-box", cls="mt-4"),
-        Div(id="result", style="margin-top:1rem;"),
-        cls=FORM_CARD,
-        body_cls="space-y-4",
-        uk_scrollspy="cls: uk-animation-slide-bottom-small",
+        cls="max-w-4xl mx-auto my-12",
     )
 
 
