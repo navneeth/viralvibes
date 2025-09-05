@@ -10,6 +10,7 @@ from charts import (
     chart_controversy_score,
     chart_engagement_rate,
     chart_likes_vs_dislikes,
+    chart_polarizing_videos,
     chart_scatter_likes_dislikes,
     chart_total_engagement,
     chart_treemap_views,
@@ -454,41 +455,71 @@ def HomepageAccordion() -> Div:
 
 def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
     return Section(
-        H2("📊 Playlist Analytics", cls="text-2xl font-bold mb-4"),
-        P(
-            "Visual breakdown of views, engagement, controversy, and performance.",
-            cls="text-gray-600 mb-10",
+        # Header
+        Div(
+            H2("📊 Playlist Analytics", cls="text-3xl font-bold text-gray-900"),
+            P(
+                "Explore how this playlist performs across views, engagement, and audience reactions.",
+                cls="text-gray-500 mt-2 mb-8 text-lg",
+            ),
+            cls="text-center",
         ),
-        # Group 1: View-based insights
-        H3("👀 Views Overview", cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_views_by_rank(df),
-            chart_treemap_views(df),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
+
+        # Group 1: Reach & Views
+        Div(
+            H3("👀 Reach & Views",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("How far the playlist spreads, from rank to overall distribution.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_polarizing_videos(df),  # Bubble plot instead of line
+                chart_treemap_views(df),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
         ),
-        # Group 2: Engagement insights
-        H3("💬 Engagement & Reactions", cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_engagement_rate(df),
-            chart_total_engagement(summary),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
+
+        # Group 2: Engagement
+        Div(
+            H3("💬 Engagement & Reactions",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("Do viewers interact, like, and comment? A closer look at active participation.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_engagement_rate(df),
+                chart_total_engagement(summary),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
         ),
-        # Group 3: Sentiment & controversy
-        H3("🔥 Controversy & Sentiment", cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_likes_vs_dislikes(df),
-            chart_controversy_score(df),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
+
+        # Group 3: Controversy
+        Div(
+            H3("🔥 Controversy & Sentiment",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("Where opinions split — videos that polarize the audience.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_likes_vs_dislikes(df),
+                chart_controversy_score(df),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
         ),
-        # Group 4: Correlation and Multivariate Relationship between likes and dislikes
-        H3("📈 Correlation & Advanced Patterns",
-           cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_scatter_likes_dislikes(df),
-            chart_bubble_engagement_vs_views(df),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-4",
+
+        # Group 4: Advanced Patterns
+        Div(
+            H3("📈 Correlation & Advanced Patterns",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("Finding deeper relationships between views, likes, and engagement.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_scatter_likes_dislikes(df),
+                chart_bubble_engagement_vs_views(df),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
         ),
-        cls="mt-16 pt-10 border-t border-gray-200 space-y-10",
+        cls="mt-20 pt-12 border-t border-gray-200 space-y-12",
     )
 
 

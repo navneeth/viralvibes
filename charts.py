@@ -39,6 +39,69 @@ def chart_views_by_rank(df: pl.DataFrame):
                      cls="w-full h-80")
 
 
+def chart_polarizing_videos(df: pl.DataFrame):
+    return ApexChart(
+        opts={
+            "chart": {
+                "type": "bubble",
+                "height": 350,
+                "zoom": {
+                    "enabled": True
+                },
+                "toolbar": {
+                    "show": False
+                },
+            },
+            "series": [{
+                "name":
+                "Videos",
+                "data": [
+                    {
+                        "x": int(row["Like Count Raw"] or 0),
+                        "y": int(row["Dislike Count Raw"] or 0),
+                        "z": int(row["View Count Raw"] or 0),
+                        "name": row["Title"][:40],  # truncate for tooltip
+                    } for row in df.iter_rows(named=True)
+                ],
+            }],
+            "dataLabels": {
+                "enabled": False
+            },
+            "xaxis": {
+                "title": {
+                    "text": "Likes"
+                },
+                "labels": {
+                    "formatter": "function(val){return val.toLocaleString();}"
+                },
+            },
+            "yaxis": {
+                "title": {
+                    "text": "Dislikes"
+                },
+                "labels": {
+                    "formatter": "function(val){return val.toLocaleString();}"
+                },
+            },
+            "tooltip": {
+                "shared":
+                False,
+                "intersect":
+                True,
+                "custom":
+                """function({series, seriesIndex, dataPointIndex, w}) {
+                    var point = w.config.series[seriesIndex].data[dataPointIndex];
+                    return '<b>' + point.name + '</b><br>'
+                           + 'Likes: ' + point.x.toLocaleString() + '<br>'
+                           + 'Dislikes: ' + point.y.toLocaleString() + '<br>'
+                           + 'Views: ' + point.z.toLocaleString();
+                }""",
+            },
+        },
+        cls="w-full h-96",
+    )
+
+
 def chart_engagement_rate(df: pl.DataFrame):
     return ApexChart(opts={
         "chart": {
