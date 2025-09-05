@@ -40,29 +40,32 @@ def chart_views_by_rank(df: pl.DataFrame):
 
 
 def chart_polarizing_videos(df: pl.DataFrame):
+    # Ensure all values are numeric and fallback to 0
+    data = []
+    for row in df.iter_rows(named=True):
+        likes = int(row.get("Like Count Raw") or 0)
+        dislikes = int(row.get("Dislike Count Raw") or 0)
+        views = int(row.get("View Count Raw") or 0)
+        title = row.get("Title", "")[:40]
+        # Only include videos that have some engagement
+        if likes + dislikes > 0:
+            data.append({"x": likes, "y": dislikes, "z": views, "name": title})
+
     return ApexChart(
         opts={
             "chart": {
                 "type": "bubble",
                 "height": 350,
+                "toolbar": {
+                    "show": True
+                },
                 "zoom": {
                     "enabled": True
                 },
-                "toolbar": {
-                    "show": False
-                },
             },
             "series": [{
-                "name":
-                "Videos",
-                "data": [
-                    {
-                        "x": int(row["Like Count Raw"] or 0),
-                        "y": int(row["Dislike Count Raw"] or 0),
-                        "z": int(row["View Count Raw"] or 0),
-                        "name": row["Title"][:40],  # truncate for tooltip
-                    } for row in df.iter_rows(named=True)
-                ],
+                "name": "Videos",
+                "data": data
             }],
             "dataLabels": {
                 "enabled": False
@@ -70,18 +73,12 @@ def chart_polarizing_videos(df: pl.DataFrame):
             "xaxis": {
                 "title": {
                     "text": "Likes"
-                },
-                "labels": {
-                    "formatter": "function(val){return val.toLocaleString();}"
-                },
+                }
             },
             "yaxis": {
                 "title": {
                     "text": "Dislikes"
-                },
-                "labels": {
-                    "formatter": "function(val){return val.toLocaleString();}"
-                },
+                }
             },
             "tooltip": {
                 "shared":
@@ -89,13 +86,21 @@ def chart_polarizing_videos(df: pl.DataFrame):
                 "intersect":
                 True,
                 "custom":
-                """function({series, seriesIndex, dataPointIndex, w}) {
-                    var point = w.config.series[seriesIndex].data[dataPointIndex];
-                    return '<b>' + point.name + '</b><br>'
-                           + 'Likes: ' + point.x.toLocaleString() + '<br>'
-                           + 'Dislikes: ' + point.y.toLocaleString() + '<br>'
-                           + 'Views: ' + point.z.toLocaleString();
-                }""",
+                """
+                    function({series, seriesIndex, dataPointIndex, w}) {
+                        var pt = w.config.series[seriesIndex].data[dataPointIndex];
+                        return '<b>' + pt.name + '</b><br>'
+                               + 'Likes: ' + pt.x.toLocaleString() + '<br>'
+                               + 'Dislikes: ' + pt.y.toLocaleString() + '<br>'
+                               + 'Views: ' + pt.z.toLocaleString();
+                    }
+                """,
+            },
+            "plotOptions": {
+                "bubble": {
+                    "minBubbleRadius": 5,
+                    "maxBubbleRadius": 30
+                }
             },
         },
         cls="w-full h-96",
