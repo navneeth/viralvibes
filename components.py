@@ -38,10 +38,6 @@ col = "flex flex-col"
 section_base1 = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
 
 
-def maxpx(px):
-    return f"w-full max-w-[{px}px]"
-
-
 def maxrem(rem):
     return f"w-full max-w-[{rem}rem]"
 
@@ -247,7 +243,7 @@ def AnalysisFormCard() -> Card:
             cls=
             "bg-white rounded-b-xl -mt-6 p-10 shadow-lg text-gray-900 space-y-6",
         ),
-        cls="max-w-4xl mx-auto my-12",
+        cls="w-full my-12",
     )
 
 
@@ -517,21 +513,36 @@ def PlaylistPreviewCard(
         # Playlist length + Progress bar
         Div(P(f"{playlist_length or 0} videos in playlist",
               cls="text-sm font-medium text-gray-700"),
-            Progress(value=0,
-                     max=playlist_length or 1,
-                     id=meter_id,
-                     cls="w-full h-2 rounded-full bg-gray-200"),
+            Progress(
+                value=0,
+                max=playlist_length or 1,
+                id=meter_id,
+                cls=("w-full h-2 rounded-full bg-gray-200 "
+                     "[&::-webkit-progress-bar]:bg-gray-200 "
+                     "[&::-webkit-progress-value]:rounded-full "
+                     "[&::-webkit-progress-value]:transition-all "
+                     "[&::-webkit-progress-value]:duration-300 "
+                     "[&::-webkit-progress-value]:bg-blue-600 "
+                     "[&::-moz-progress-bar]:bg-blue-600"),
+            ),
             cls="space-y-2 mt-4"),
 
         # CTA button
         Button(
             "Start Full Analysis",
             hx_post="/validate/full",
-            hx_vals={"playlist_url": playlist_url},
+            hx_vals={
+                "playlist_url": playlist_url,
+                "meter_id": meter_id,
+                "meter_max": playlist_length or 0
+            },
             hx_target="#results-box",
             hx_indicator="#loading-bar",
-            cls="w-full mt-6 py-2.5 text-base font-medium rounded-xl shadow-sm "
-            "bg-blue-600 hover:bg-blue-700 text-white transition"),
+            hx_swap="beforeend",  # important for streaming scripts + final HTML
+            cls=(
+                "w-full mt-6 py-2.5 text-base font-medium rounded-xl shadow-sm "
+                "bg-blue-600 hover:bg-blue-700 text-white transition"),
+        ),
 
         # Results + Loading state
         Div(

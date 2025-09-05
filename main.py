@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import re
@@ -10,6 +11,7 @@ import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
 from monsterui.all import *
+from starlette.responses import StreamingResponse
 
 from components import (
     AnalysisFormCard,
@@ -477,118 +479,145 @@ async def preview_playlist(playlist_url: str):
 
 
 @rt("/validate/full", methods=["POST"])
-async def validate_full(playlist_url: str):
-    try:
-        # 1. Try cache first
-        # Check if we have cached stats for today
-        cached_stats = await get_cached_playlist_stats(playlist_url)
-        if cached_stats:
-            logger.info(f"Using cached stats for playlist {playlist_url}")
+async def validate_full(playlist_url: str,
+                        meter_id: str = "fetch-progress-meter",
+                        meter_max: Optional[int] = None):
 
-            # reconstruct df and other fields from cache row
-            df = pl.read_json(
-                io.BytesIO(cached_stats["df_json"].encode("utf-8")))
-            playlist_name = cached_stats["title"]
-            channel_name = cached_stats.get("channel_name", "")
-            channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-            summary_stats = cached_stats[
-                "summary_stats"]  # reconstruct df and other fields from cache row
-        else:
-            # 2. Fetch fresh data
-            (
-                df,
-                playlist_name,
-                channel_name,
-                channel_thumbnail,
-                summary_stats,
-            ) = await yt_service.get_playlist_data(playlist_url)
+    async def stream():
+        try:
+            # --- 1) INIT: set the meter max (from preview) and reset value ---
+            initial_max = meter_max or 1
+            yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={initial_max}; el.value=0; }}</script>"
 
-            if df.height == 0:
-                return Alert(P("No videos found."), cls=AlertT.warning)
+            # --- 2) Try cache first ---
+            cached_stats = await get_cached_playlist_stats(playlist_url)
+            if cached_stats:
+                logger.info(f"Using cached stats for playlist {playlist_url}")
 
-            # print(df)
-            # 3. Cache results
-            stats_to_cache = {
-                "playlist_url":
-                playlist_url,
-                "title":
-                playlist_name,
-                "channel_name":
-                channel_name,
-                "channel_thumbnail":
-                channel_thumbnail,
-                "view_count":
-                summary_stats.get("total_views"),
-                "like_count":
-                summary_stats.get("total_likes"),
-                "dislike_count":
-                summary_stats.get("total_dislikes"),
-                "comment_count":
-                summary_stats.get("total_comments"),
-                "video_count":
-                df.height,
-                "avg_duration":
-                int(summary_stats.get("avg_duration"))
-                if summary_stats.get("avg_duration") is not None else None,
-                "engagement_rate":
-                summary_stats.get("avg_engagement"),
-                "controversy_score":
-                summary_stats.get("avg_controversy", 0),
-                "summary_stats":
-                summary_stats,
-                "df_json":
-                df.write_json(),  # full DataFrame snapshot
-            }
+                # reconstruct df other fields from cache row
+                df = pl.read_json(
+                    io.BytesIO(cached_stats['df_json'].encode('utf-8')))
+                playlist_name = cached_stats["title"]
+                channel_name = cached_stats.get("channel_name", "")
+                channel_thumbnail = cached_stats.get("channel_thumbnail", "")
+                summary_stats = cached_stats["summary_stats"]
 
-            await upsert_playlist_stats(stats_to_cache)
+                # use cached video_count if present; fall back to df.height; then preview meter_max
+                total = cached_stats.get(
+                    "video_count") or df.height or initial_max
+                yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max(total,1)}; }}</script>"
 
-        # 4. Render response
-        # Use the enhanced headers from the service
-        headers = yt_service.get_display_headers()
-        thead = Thead(Tr(*[Th(h) for h in headers]))
+                # Tick to completion as a proxy (cache is instant)
+                for i in range(1, (total or 1) + 1):
+                    yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
+                    await asyncio.sleep(0)  # yield control so HTMX can paint
 
-        tbody = Tbody(*[
-            Tr(
-                Td(row["Rank"]),
-                Td(
-                    A(
-                        row["Title"],
-                        href=f"https://youtube.com/watch?v={row['id']}",
-                        target="_blank",
-                    )),
-                Td(row["View Count"]),
-                Td(row["Like Count"]),
-                Td(row["Dislike Count"]),
-                Td(row["Comment Count"]),
-                Td(row["Duration"]),
-                Td(row["Engagement Rate (%)"]),
-                Td(f"{row['Controversy Raw']:.2%}"),
-            ) for row in df.iter_rows(named=True)
-        ])
+            else:
+                # --- 3) Fresh fetch ---
+                (
+                    df,
+                    playlist_name,
+                    channel_name,
+                    channel_thumbnail,
+                    summary_stats,
+                ) = await yt_service.get_playlist_data(playlist_url)
 
-        # Use all the summary stats from youtube_service.py
-        tfoot = Tfoot(
-            Tr(
-                Td("Total/Average"),
-                Td(""),
-                Td(format_number(summary_stats["total_views"])),
-                Td(format_number(summary_stats["total_likes"])),
-                Td(format_number(summary_stats["total_dislikes"])),
-                Td(format_number(summary_stats["total_comments"])),
-                Td(""),
-                Td(f"{summary_stats['avg_engagement']:.2f}%"),
-                Td(""),
-            ))
+                if df.height == 0:
+                    yield str(Alert(P("No videos found."), cls=AlertT.warning))
+                    return
 
-        return Div(
-            StepProgress(len(PLAYLIST_STEPS_CONFIG)),
-            Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
-            AnalyticsDashboardSection(df, summary_stats),
-            cls="space-y-4",
-        )
-    except Exception as e:
-        logger.exception("Deep analysis failed")
-        return Alert(P("Failed to fetch playlist data."), cls=AlertT.error)
+                # Ensure max matches actual number of videos
+                total = df.height
+                yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max(total,1)}; }}</script>"
+
+                # Proxy tick per video (post-fetch, still gives user feedback)
+                for i in range(1, total + 1):
+                    yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
+                    await asyncio.sleep(0)
+
+                # Cache snapshot
+                stats_to_cache = {
+                    "playlist_url":
+                    playlist_url,
+                    "title":
+                    playlist_name,
+                    "channel_name":
+                    channel_name,
+                    "channel_thumbnail":
+                    channel_thumbnail,
+                    "view_count":
+                    summary_stats.get("total_views"),
+                    "like_count":
+                    summary_stats.get("total_likes"),
+                    "dislike_count":
+                    summary_stats.get("total_dislikes"),
+                    "comment_count":
+                    summary_stats.get("total_comments"),
+                    "video_count":
+                    df.height,
+                    "avg_duration":
+                    int(summary_stats.get("avg_duration"))
+                    if summary_stats.get("avg_duration") is not None else None,
+                    "engagement_rate":
+                    summary_stats.get("avg_engagement"),
+                    "controversy_score":
+                    summary_stats.get("avg_controversy", 0),
+                    "summary_stats":
+                    summary_stats,
+                    "df_json":
+                    df.write_json(),
+                }
+                await upsert_playlist_stats(stats_to_cache)
+
+            # --- 4) Render final table + charts and append them ---
+            headers = yt_service.get_display_headers()
+            thead = Thead(Tr(*[Th(h) for h in headers]))
+            tbody = Tbody(*[
+                Tr(
+                    Td(row["Rank"]),
+                    Td(
+                        A(row["Title"],
+                          href=f"https://youtube.com/watch?v={row['id']}",
+                          target="_blank")),
+                    Td(row["View Count"]),
+                    Td(row["Like Count"]),
+                    Td(row["Dislike Count"]),
+                    Td(row["Comment Count"]),
+                    Td(row["Duration"]),
+                    Td(row["Engagement Rate (%)"]),
+                    Td(f"{row['Controversy Raw']:.2%}"),
+                ) for row in df.iter_rows(named=True)
+            ])
+            tfoot = Tfoot(
+                Tr(
+                    Td("Total/Average"),
+                    Td(""),
+                    Td(format_number(summary_stats["total_views"])),
+                    Td(format_number(summary_stats["total_likes"])),
+                    Td(format_number(summary_stats["total_dislikes"])),
+                    Td(format_number(summary_stats["total_comments"])),
+                    Td(""),
+                    Td(f"{summary_stats['avg_engagement']:.2f}%"),
+                    Td(""),
+                ))
+
+            final_html = str(
+                Div(
+                    StepProgress(len(PLAYLIST_STEPS_CONFIG)),
+                    Table(thead, tbody, tfoot,
+                          cls="uk-table uk-table-divider"),
+                    AnalyticsDashboardSection(df, summary_stats),
+                    cls="space-y-4",
+                ))
+
+            yield final_html
+
+        except Exception as e:
+            logger.exception("Deep analysis failed")
+            yield str(
+                Alert(P("Failed to fetch playlist data."), cls=AlertT.error))
+
+    return StreamingResponse(stream(), media_type="text/html")
 
 
 # Alternative approach: Progressive step updates
