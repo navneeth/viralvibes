@@ -205,7 +205,8 @@ def AnalysisFormCard() -> Card:
                 # Action buttons with better spacing
                 Div(
                     Button(
-                        Span(UkIcon("search", cls="mr-2"), "Analyze Playlist"),
+                        Span(UkIcon("chart-bar", cls="mr-2"),
+                             "Analyze Playlist"),
                         type="submit",
                         cls=
                         f"{ButtonT.primary} w-full hover:scale-105 transition-transform",
@@ -523,6 +524,30 @@ def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
     )
 
 
+# Also create a reusable styled button component for consistency
+# Example usage:
+# ViralVibesButton("Analyze Now", icon="search", button_type="submit", full_width=True)
+# ViralVibesButton("Download Report", icon="download", full_width=False)
+def ViralVibesButton(text: str,
+                     icon: str = "chart-bar",
+                     button_type: str = "button",
+                     full_width: bool = False,
+                     **kwargs) -> Button:
+    """Create a consistently styled ViralVibes button."""
+    width_class = "w-full" if full_width else ""
+
+    return Button(
+        Span(UkIcon(icon, cls="mr-2"), text),
+        type=button_type,
+        cls=
+        (f"{width_class} py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+         "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+         "text-white border-0 focus:ring-4 focus:ring-red-200 "
+         "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+         ),
+        **kwargs)
+
+
 def PlaylistPreviewCard(
     playlist_name: str,
     channel_name: str,
@@ -553,14 +578,14 @@ def PlaylistPreviewCard(
                      "[&::-webkit-progress-value]:rounded-full "
                      "[&::-webkit-progress-value]:transition-all "
                      "[&::-webkit-progress-value]:duration-300 "
-                     "[&::-webkit-progress-value]:bg-blue-600 "
-                     "[&::-moz-progress-bar]:bg-blue-600"),
+                     "[&::-webkit-progress-value]:bg-red-600 "
+                     "[&::-moz-progress-bar]:bg-red-600"),
             ),
             cls="space-y-2 mt-4"),
 
-        # CTA button
+        # CTA button with consistent styling
         Button(
-            "Start Full Analysis",
+            Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
             hx_post="/validate/full",
             hx_vals={
                 "playlist_url": playlist_url,
@@ -570,9 +595,12 @@ def PlaylistPreviewCard(
             hx_target="#results-box",
             hx_indicator="#loading-bar",
             hx_swap="beforeend",  # important for streaming scripts + final HTML
-            cls=(
-                "w-full mt-6 py-2.5 text-base font-medium rounded-xl shadow-sm "
-                "bg-blue-600 hover:bg-blue-700 text-white transition"),
+            cls=
+            ("w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+             "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+             "text-white border-0 focus:ring-4 focus:ring-red-200 "
+             "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+             ),
         ),
 
         # Results + Loading state
