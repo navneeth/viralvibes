@@ -456,6 +456,8 @@ def HomepageAccordion() -> Div:
 
 def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
     return Section(
+        # Playlist Metrics Overview
+        PlaylistMetricsOverview(df, summary),
         # Header
         Div(
             H2("📊 Playlist Analytics", cls="text-3xl font-bold text-gray-900"),
@@ -613,6 +615,106 @@ def PlaylistPreviewCard(
         header=CardTitle("Playlist Preview",
                          cls="text-xl font-bold text-gray-900"),
         cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4")
+
+
+def MetricCard(title: str,
+               value: str,
+               subtitle: str,
+               icon: str,
+               color: str = "red") -> Card:
+    """Create a clean metric card with icon, value, and context."""
+    return Card(
+        Div(
+            # Icon in top-left
+            UkIcon(icon, cls=f"text-{color}-500 mb-3", height=24, width=24),
+
+            # Main value - big and bold
+            H3(value, cls="text-2xl font-bold text-gray-900 mb-1"),
+
+            # Subtitle with context
+            P(subtitle, cls="text-sm text-gray-600"),
+            cls="space-y-1"),
+
+        # Card title
+        header=H4(
+            title,
+            cls="text-sm font-medium text-gray-500 uppercase tracking-wide"),
+
+        # Styling
+        cls="hover:shadow-md transition-all duration-200 border border-gray-200"
+    )
+
+
+def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
+    """Create a row of 4 key metric cards that give immediate insights."""
+
+    # Calculate key metrics from your data
+    total_views = summary.get("total_views", 0)
+    total_videos = len(df) if df is not None else summary.get("video_count", 0)
+    avg_engagement = summary.get("avg_engagement", 0)
+
+    # Debug logging
+    print(
+        f"DEBUG: PlaylistMetricsOverview - total_views: {total_views}, total_videos: {total_videos}, avg_engagement: {avg_engagement}"
+    )
+    if df is not None:
+        print(f"DEBUG: DataFrame columns: {df.columns}")
+        print(f"DEBUG: DataFrame height: {df.height}")
+
+    # Find the top performing video
+    if df is not None and len(df) > 0:
+        try:
+            top_video_views = df.select(
+                pl.col("View Count Raw").max()).item() or 0
+        except Exception:
+            top_video_views = 0
+        avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
+    else:
+        top_video_views = summary.get("max_views", 0)
+        avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
+
+    # Create the 4 key metrics
+    metrics = [
+        MetricCard(title="Total Reach",
+                   value=format_number(total_views),
+                   subtitle=f"Across {total_videos} videos",
+                   icon="eye",
+                   color="blue"),
+        MetricCard(title="Engagement Rate",
+                   value=f"{avg_engagement:.1f}%",
+                   subtitle="Average likes + comments",
+                   icon="heart",
+                   color="red"),
+        MetricCard(title="Top Performer",
+                   value=format_number(top_video_views),
+                   subtitle="Most viewed video",
+                   icon="trending-up",
+                   color="green"),
+        MetricCard(title="Average Performance",
+                   value=format_number(int(avg_views_per_video)),
+                   subtitle="Views per video",
+                   icon="bar-chart",
+                   color="purple")
+    ]
+
+    return Div(
+        # Section header
+        Div(H2("📊 Key Metrics",
+               cls="text-xl font-semibold text-gray-800 mb-2"),
+            P("At a glance overview of your playlist performance",
+              cls="text-gray-600 text-sm mb-6"),
+            cls="text-center"),
+
+        # Metrics grid - responsive
+        Grid(
+            *metrics,
+            cols_sm=2,  # 2 columns on small screens  
+            cols_lg=4,  # 4 columns on large screens
+            gap=4,  # Consistent spacing
+            cls="mb-8"  # Space before your existing charts
+        ),
+        cls="mb-12"  # Extra space to separate from charts section
+    )
 
 
 def FooterLinkGroup(title, links):
