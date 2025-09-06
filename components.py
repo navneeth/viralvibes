@@ -10,6 +10,7 @@ from charts import (
     chart_controversy_score,
     chart_engagement_rate,
     chart_likes_vs_dislikes,
+    chart_polarizing_videos,
     chart_scatter_likes_dislikes,
     chart_total_engagement,
     chart_treemap_views,
@@ -204,7 +205,8 @@ def AnalysisFormCard() -> Card:
                 # Action buttons with better spacing
                 Div(
                     Button(
-                        Span(UkIcon("search", cls="mr-2"), "Analyze Playlist"),
+                        Span(UkIcon("chart-bar", cls="mr-2"),
+                             "Analyze Playlist"),
                         type="submit",
                         cls=
                         f"{ButtonT.primary} w-full hover:scale-105 transition-transform",
@@ -454,42 +456,98 @@ def HomepageAccordion() -> Div:
 
 def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
     return Section(
-        H2("📊 Playlist Analytics", cls="text-2xl font-bold mb-4"),
-        P(
-            "Visual breakdown of views, engagement, controversy, and performance.",
-            cls="text-gray-600 mb-10",
+        # Playlist Metrics Overview
+        PlaylistMetricsOverview(df, summary),
+        # Header
+        Div(
+            H2("📊 Playlist Analytics", cls="text-3xl font-bold text-gray-900"),
+            P(
+                "Explore how this playlist performs across views, engagement, and audience reactions.",
+                cls="text-gray-500 mt-2 mb-8 text-lg",
+            ),
+            cls="text-center",
         ),
-        # Group 1: View-based insights
-        H3("👀 Views Overview", cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_views_by_rank(df),
-            chart_treemap_views(df),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
+
+        # Group 1: Reach & Views
+        Div(
+            H3("👀 Reach & Views",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("How far the playlist spreads, from rank to overall distribution.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_polarizing_videos(df),  # Bubble plot instead of line
+                chart_treemap_views(df),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
         ),
-        # Group 2: Engagement insights
-        H3("💬 Engagement & Reactions", cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_engagement_rate(df),
-            chart_total_engagement(summary),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
+
+        # Group 2: Engagement
+        Div(
+            H3("💬 Engagement & Reactions",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("Do viewers interact, like, and comment? A closer look at active participation.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_engagement_rate(df),
+                chart_total_engagement(summary),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
         ),
-        # Group 3: Sentiment & controversy
-        H3("🔥 Controversy & Sentiment", cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_likes_vs_dislikes(df),
-            chart_controversy_score(df),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-12",
+
+        # Group 3: Controversy
+        Div(
+            H3("🔥 Controversy & Sentiment",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("Where opinions split — videos that polarize the audience.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_likes_vs_dislikes(df),
+                chart_controversy_score(df),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
         ),
-        # Group 4: Correlation and Multivariate Relationship between likes and dislikes
-        H3("📈 Correlation & Advanced Patterns",
-           cls="text-xl font-semibold mb-2"),
-        Grid(
-            chart_scatter_likes_dislikes(df),
-            chart_bubble_engagement_vs_views(df),
-            cls="grid-cols-1 md:grid-cols-2 gap-8 mb-4",
+
+        # Group 4: Advanced Patterns
+        Div(
+            H3("📈 Correlation & Advanced Patterns",
+               cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P("Finding deeper relationships between views, likes, and engagement.",
+              cls="text-gray-500 mb-6"),
+            Grid(
+                chart_scatter_likes_dislikes(df),
+                chart_bubble_engagement_vs_views(df),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
         ),
-        cls="mt-16 pt-10 border-t border-gray-200 space-y-10",
+        cls="mt-20 pt-12 border-t border-gray-200 space-y-12",
     )
+
+
+# Also create a reusable styled button component for consistency
+# Example usage:
+# ViralVibesButton("Analyze Now", icon="search", button_type="submit", full_width=True)
+# ViralVibesButton("Download Report", icon="download", full_width=False)
+def ViralVibesButton(text: str,
+                     icon: str = "chart-bar",
+                     button_type: str = "button",
+                     full_width: bool = False,
+                     **kwargs) -> Button:
+    """Create a consistently styled ViralVibes button."""
+    width_class = "w-full" if full_width else ""
+
+    return Button(
+        Span(UkIcon(icon, cls="mr-2"), text),
+        type=button_type,
+        cls=
+        (f"{width_class} py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+         "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+         "text-white border-0 focus:ring-4 focus:ring-red-200 "
+         "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+         ),
+        **kwargs)
 
 
 def PlaylistPreviewCard(
@@ -522,14 +580,14 @@ def PlaylistPreviewCard(
                      "[&::-webkit-progress-value]:rounded-full "
                      "[&::-webkit-progress-value]:transition-all "
                      "[&::-webkit-progress-value]:duration-300 "
-                     "[&::-webkit-progress-value]:bg-blue-600 "
-                     "[&::-moz-progress-bar]:bg-blue-600"),
+                     "[&::-webkit-progress-value]:bg-red-600 "
+                     "[&::-moz-progress-bar]:bg-red-600"),
             ),
             cls="space-y-2 mt-4"),
 
-        # CTA button
+        # CTA button with consistent styling
         Button(
-            "Start Full Analysis",
+            Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
             hx_post="/validate/full",
             hx_vals={
                 "playlist_url": playlist_url,
@@ -539,9 +597,12 @@ def PlaylistPreviewCard(
             hx_target="#results-box",
             hx_indicator="#loading-bar",
             hx_swap="beforeend",  # important for streaming scripts + final HTML
-            cls=(
-                "w-full mt-6 py-2.5 text-base font-medium rounded-xl shadow-sm "
-                "bg-blue-600 hover:bg-blue-700 text-white transition"),
+            cls=
+            ("w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+             "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+             "text-white border-0 focus:ring-4 focus:ring-red-200 "
+             "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+             ),
         ),
 
         # Results + Loading state
@@ -554,6 +615,106 @@ def PlaylistPreviewCard(
         header=CardTitle("Playlist Preview",
                          cls="text-xl font-bold text-gray-900"),
         cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4")
+
+
+def MetricCard(title: str,
+               value: str,
+               subtitle: str,
+               icon: str,
+               color: str = "red") -> Card:
+    """Create a clean metric card with icon, value, and context."""
+    return Card(
+        Div(
+            # Icon in top-left
+            UkIcon(icon, cls=f"text-{color}-500 mb-3", height=24, width=24),
+
+            # Main value - big and bold
+            H3(value, cls="text-2xl font-bold text-gray-900 mb-1"),
+
+            # Subtitle with context
+            P(subtitle, cls="text-sm text-gray-600"),
+            cls="space-y-1"),
+
+        # Card title
+        header=H4(
+            title,
+            cls="text-sm font-medium text-gray-500 uppercase tracking-wide"),
+
+        # Styling
+        cls="hover:shadow-md transition-all duration-200 border border-gray-200"
+    )
+
+
+def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
+    """Create a row of 4 key metric cards that give immediate insights."""
+
+    # Calculate key metrics from your data
+    total_views = summary.get("total_views", 0)
+    total_videos = len(df) if df is not None else summary.get("video_count", 0)
+    avg_engagement = summary.get("avg_engagement", 0)
+
+    # Debug logging
+    print(
+        f"DEBUG: PlaylistMetricsOverview - total_views: {total_views}, total_videos: {total_videos}, avg_engagement: {avg_engagement}"
+    )
+    if df is not None:
+        print(f"DEBUG: DataFrame columns: {df.columns}")
+        print(f"DEBUG: DataFrame height: {df.height}")
+
+    # Find the top performing video
+    if df is not None and len(df) > 0:
+        try:
+            top_video_views = df.select(
+                pl.col("View Count Raw").max()).item() or 0
+        except Exception:
+            top_video_views = 0
+        avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
+    else:
+        top_video_views = summary.get("max_views", 0)
+        avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
+
+    # Create the 4 key metrics
+    metrics = [
+        MetricCard(title="Total Reach",
+                   value=format_number(total_views),
+                   subtitle=f"Across {total_videos} videos",
+                   icon="eye",
+                   color="blue"),
+        MetricCard(title="Engagement Rate",
+                   value=f"{avg_engagement:.1f}%",
+                   subtitle="Average likes + comments",
+                   icon="heart",
+                   color="red"),
+        MetricCard(title="Top Performer",
+                   value=format_number(top_video_views),
+                   subtitle="Most viewed video",
+                   icon="trending-up",
+                   color="green"),
+        MetricCard(title="Average Performance",
+                   value=format_number(int(avg_views_per_video)),
+                   subtitle="Views per video",
+                   icon="bar-chart",
+                   color="purple")
+    ]
+
+    return Div(
+        # Section header
+        Div(H2("📊 Key Metrics",
+               cls="text-xl font-semibold text-gray-800 mb-2"),
+            P("At a glance overview of your playlist performance",
+              cls="text-gray-600 text-sm mb-6"),
+            cls="text-center"),
+
+        # Metrics grid - responsive
+        Grid(
+            *metrics,
+            cols_sm=2,  # 2 columns on small screens  
+            cols_lg=4,  # 4 columns on large screens
+            gap=4,  # Consistent spacing
+            cls="mb-8"  # Space before your existing charts
+        ),
+        cls="mb-12"  # Extra space to separate from charts section
+    )
 
 
 def FooterLinkGroup(title, links):
