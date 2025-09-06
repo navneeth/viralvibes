@@ -606,7 +606,8 @@ async def validate_full(playlist_url: str,
                     StepProgress(len(PLAYLIST_STEPS_CONFIG)),
                     Table(thead, tbody, tfoot,
                           cls="uk-table uk-table-divider"),
-                    AnalyticsDashboardSection(df, summary_stats),
+                    AnalyticsDashboardSection(df, summary_stats, playlist_name,
+                                              channel_name),
                     cls="space-y-4",
                 ))
 
