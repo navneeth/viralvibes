@@ -88,10 +88,13 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
     steps = []
     for i, (title, icon, description) in enumerate(PLAYLIST_STEPS_CONFIG):
         if i < completed_steps:
+            # completed → green
             step_cls = StepT.success
         elif i == completed_steps:
+            # current → highlight
             step_cls = StepT.primary
         else:
+            # pending → gray# pending → gray
             step_cls = StepT.neutral
 
         steps.append(
@@ -454,8 +457,21 @@ def HomepageAccordion() -> Div:
     )
 
 
-def AnalyticsDashboardSection(df: pl.DataFrame, summary: Dict):
+def AnalyticsDashboardSection(df,
+                              summary: Dict,
+                              playlist_name: str,
+                              channel_name: str,
+                              playlist_thumbnail: str = None):
+    """
+    Create an analytics dashboard section for a playlist.
+    """
+    # Calculate total videos from DataFrame length
+    total_videos = len(df) if df is not None and not df.is_empty() else 0
     return Section(
+        # Professional header
+        AnalyticsHeader(playlist_name, channel_name, total_videos,
+                        playlist_thumbnail),
+
         # Playlist Metrics Overview
         PlaylistMetricsOverview(df, summary),
         # Header
@@ -548,6 +564,77 @@ def ViralVibesButton(text: str,
          "transition-all duration-200 hover:scale-105 active:scale-95 transform"
          ),
         **kwargs)
+
+
+def AnalyticsHeader(playlist_title: str,
+                    channel_name: str,
+                    total_videos: int,
+                    playlist_thumbnail: Optional[str] = None) -> Div:
+    """
+    Create a professional header for the analytics dashboard.
+    Shows playlist info, context, and future action buttons.
+    """
+    return Div(
+        # Main header content
+        Div(
+            # Left side: Playlist info
+            Div(
+                # Optional thumbnail
+                (Img(src=playlist_thumbnail,
+                     alt=f"{playlist_title} thumbnail",
+                     cls="w-16 h-16 rounded-lg shadow-md mr-4 object-cover",
+                     style="min-width: 64px; min-height: 64px;")
+                 if playlist_thumbnail else ""),
+
+                # Title and context
+                Div(H1(playlist_title,
+                       cls="text-2xl md:text-3xl font-bold text-gray-900 mb-2",
+                       style="color: #1f2937 !important;"),
+                    P(f"by {channel_name} • {total_videos} videos",
+                      cls="text-gray-600 text-base md:text-lg",
+                      style="color: #6b7280 !important;"),
+                    cls="flex-1"),
+                cls="flex items-start" if playlist_thumbnail else ""),
+
+            # Right side: Future action buttons (placeholder for now)
+            Div(
+                # We'll add export/share buttons in Phase 4
+                # For now, just a subtle "Analyzed" indicator
+                Div(UkIcon("check-circle",
+                           cls="text-green-600 mr-2",
+                           height=20,
+                           width=20),
+                    Span("Analysis Complete",
+                         cls="text-sm text-green-700 font-medium"),
+                    cls=
+                    "flex items-center px-3 py-2 bg-green-50 rounded-lg border border-green-200"
+                    ),
+                cls="hidden md:flex items-center"),
+            cls=
+            "flex flex-col md:flex-row md:items-start md:justify-between gap-4"
+        ),
+
+        # Bottom border to separate from metrics
+        cls="pb-6 mb-8 border-b border-gray-200",
+        style="background-color: transparent !important;")
+
+
+def ExtractPlaylistInfoFromSummary(summary: Dict) -> tuple:
+    """
+    Helper to extract playlist info from your existing summary dict.
+    Adapt this based on what data you have available.
+    """
+    # Adjust these keys based on your actual summary structure
+    playlist_title = summary.get("playlist_title", "YouTube Playlist")
+    channel_name = summary.get("channel_name", "Unknown Channel")
+    total_videos = summary.get("video_count", 0)
+    thumbnail = summary.get("playlist_thumbnail", None)
+
+    # Clean up the title if it's too long
+    if len(playlist_title) > 80:
+        playlist_title = playlist_title[:77] + "..."
+
+    return playlist_title, channel_name, total_videos, thumbnail
 
 
 def PlaylistPreviewCard(

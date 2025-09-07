@@ -1,3 +1,5 @@
+from monsterui.all import LiStep, Steps, StepsT, StepT
+
 # CSS Class Constants
 FLEX_COL = "flex flex-col"
 FLEX_CENTER = "flex items-center"
@@ -16,9 +18,10 @@ FORM_CARD = (
 # Keep backwards compatibility: newsletter uses the same style
 NEWSLETTER_CARD = FORM_CARD
 
-STEPS_CLS = (
-    "uk-steps uk-steps-horizontal min-h-[200px] my-4 mx-auto max-w-4xl "
-    "text-center flex justify-center items-center")
+# Base class: vertical on mobile, horizontal on desktop
+# Tailwind responsive classes: vertical on small, horizontal on md+
+STEPS_CLS = f"{StepT.neutral} steps-vertical md:steps-horizontal w-full"
+
 
 # Step configurations
 PLAYLIST_STEPS_CONFIG = [
@@ -31,21 +34,23 @@ PLAYLIST_STEPS_CONFIG = [
 
 # Feature and Benefit configurations
 FEATURES = [
-    ("Uncover Viral Secrets",
-     "Paste a playlist and uncover the secrets behind viral videos.",
-     "search"),
-    ("Instant Playlist Insights", "Get instant info on trending videos.",
-     "zap"),
-    ("No Login Required", "Just paste a link and go. No signup needed!",
-     "unlock"),
+    (
+        "Uncover Viral Secrets",
+        "Paste a playlist and uncover the secrets behind viral videos.",
+        "search",
+    ),
+    ("Instant Playlist Insights", "Get instant info on trending videos.", "zap"),
+    ("No Login Required", "Just paste a link and go. No signup needed!", "unlock"),
 ]
 
 BENEFITS = [
     ("Real-time Analysis", "Track trends as they emerge.", "activity"),
-    ("Engagement Metrics",
-     "Understand what drives likes, shares, and comments.", "heart"),
-    ("Top Creator Insights", "Identify breakout content and rising stars.",
-     "star"),
+    (
+        "Engagement Metrics",
+        "Understand what drives likes, shares, and comments.",
+        "heart",
+    ),
+    ("Top Creator Insights", "Identify breakout content and rising stars.", "star"),
 ]
 
 benefits_lst = [
@@ -67,32 +72,28 @@ benefits_lst = [
 KNOWN_PLAYLISTS = [
     {
         "title": "Most Viewed Videos of All Time",
-        "url":
-        "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
+        "url": "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC",
         "video_count": 539,
         "channel": None,
         "query_used": "most viewed videos playlist",
     },
     {
         "title": "Best Remixes of Popular Songs",
-        "url":
-        "https://www.youtube.com/playlist?list=PLxA687tYuMWjS8IGRWkCzwTn10XcEccaZ",
+        "url": "https://www.youtube.com/playlist?list=PLxA687tYuMWjS8IGRWkCzwTn10XcEccaZ",
         "video_count": None,
         "channel": None,
         "query_used": "Best remixes of popular songs",
     },
     {
         "title": "Viral Songs Right Now 🔝 Most Popular Songs",
-        "url":
-        "https://www.youtube.com/playlist?list=PL6vc4PXosXVvX3S4RYOS9CC_F4dFJs_q2",
+        "url": "https://www.youtube.com/playlist?list=PL6vc4PXosXVvX3S4RYOS9CC_F4dFJs_q2",
         "video_count": 50,
         "channel": None,
         "query_used": "Viral Songs Right Now",
     },
     {
         "title": "NFL Top 100 Greatest Players Of All Time",
-        "url":
-        "https://www.youtube.com/playlist?list=PL0xvhH4iaYhy4ulh0h-dn4mslO6B8nj0-",
+        "url": "https://www.youtube.com/playlist?list=PL0xvhH4iaYhy4ulh0h-dn4mslO6B8nj0-",
         "video_count": 100,
         "channel": None,
         "query_used": "Viral Songs Right Now",
