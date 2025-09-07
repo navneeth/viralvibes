@@ -88,10 +88,13 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
     steps = []
     for i, (title, icon, description) in enumerate(PLAYLIST_STEPS_CONFIG):
         if i < completed_steps:
+            # completed → green
             step_cls = StepT.success
         elif i == completed_steps:
+            # current → highlight
             step_cls = StepT.primary
         else:
+            # pending → gray# pending → gray
             step_cls = StepT.neutral
 
         steps.append(
