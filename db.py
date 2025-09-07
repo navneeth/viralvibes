@@ -281,3 +281,38 @@ async def cache_playlist(
     except Exception as e:
         logger.error(f"Failed to cache playlist {playlist_url}: {e}")
         return False
+
+
+def fetch_known_playlists(max_items: int = 10) -> list[dict]:
+    """Fetch distinct playlists from DB for use as samples."""
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch playlists")
+        return []
+
+    try:
+        response = (
+            supabase_client.table("playlist_stats")
+            .select("playlist_url, title, processed_date")
+            .order("processed_date", desc=True)
+            .limit(max_items)
+            .execute()
+        )
+
+        seen = set()
+        playlists = []
+        for row in response.data:
+            url = row.get("playlist_url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            playlists.append(
+                {"url": url, "title": row.get("title") or "Untitled Playlist"}
+            )
+            if len(playlists) >= max_items:
+                break
+
+        return playlists
+
+    except Exception as e:
+        logger.error(f"Error fetching playlists: {e}")
+        return []
