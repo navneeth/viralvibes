@@ -32,7 +32,9 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
 )
+from db import fetch_known_playlists
 from utils import format_number
+
 """Define reusable UI components for the ViralVibes application."""
 
 col = "flex flex-col"
@@ -47,8 +49,7 @@ def benefit(title, content):
     return Div(
         H3(title, cls=f"text-white heading-3"),
         P(content, cls=f"l-body mt-6 lg:mt-6"),
-        cls=
-        "w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
+        cls="w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
     )
 
 
@@ -57,10 +58,10 @@ def HeaderCard() -> Card:
     return Card(
         Div(
             Div(
-                CardTitle("Welcome to ViralVibes",
-                          cls="text-4xl font-bold text-white mb-4"),
-                P("Decode YouTube virality. Instantly.",
-                  cls="text-lg mt-2 text-white"),
+                CardTitle(
+                    "Welcome to ViralVibes", cls="text-4xl font-bold text-white mb-4"
+                ),
+                P("Decode YouTube virality. Instantly.", cls="text-lg mt-2 text-white"),
                 P(
                     "Analyze your YouTube playlists with creator-first insights.",
                     cls="text-sm mt-2 text-white",
@@ -71,8 +72,7 @@ def HeaderCard() -> Card:
                 Img(
                     src="/static/thumbnail.png",
                     alt="YouTube Playlist Thumbnail",
-                    style=
-                    "width:180px; height:auto; border-radius:1rem; box-shadow:0 4px 24px rgba(0,0,0,0.15);",
+                    style="width:180px; height:auto; border-radius:1rem; box-shadow:0 4px 24px rgba(0,0,0,0.15);",
                 ),
                 cls="flex items-center justify-center flex-1",
             ),
@@ -98,10 +98,8 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
             step_cls = StepT.neutral
 
         steps.append(
-            LiStep(title,
-                   cls=step_cls,
-                   data_content=icon,
-                   description=description))
+            LiStep(title, cls=step_cls, data_content=icon, description=description)
+        )
 
     return Steps(*steps, cls=STEPS_CLS)
 
@@ -149,8 +147,7 @@ def AnalysisFormCard() -> Card:
 def AnalysisFormCard() -> Card:
     """Create the analysis form card component with atomic HTMX triggers."""
     # Get a random prefill URL from the known playlists
-    prefill_url = random.choice(
-        KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
+    prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
     return Card(
         # Hero section (gradient + illustration with smooth bottom transition)
@@ -168,10 +165,11 @@ def AnalysisFormCard() -> Card:
                 "Get deep insights into views, engagement, and virality patterns",
                 cls="text-white/80 text-center mt-2",
             ),
-            cls=("bg-gradient-to-br from-red-500 via-red-600 to-red-700 "
-                 "rounded-t-xl -m-6 mb-0 py-8 shadow-lg"),
+            cls=(
+                "bg-gradient-to-br from-red-500 via-red-600 to-red-700 "
+                "rounded-t-xl -m-6 mb-0 py-8 shadow-lg"
+            ),
         ),
-
         # Form card body with slight overlap to hero for smooth transition
         # Steps section with better visual hierarchy
         Div(
@@ -184,7 +182,6 @@ def AnalysisFormCard() -> Card:
                 PlaylistSteps(),
                 cls="bg-gray-50 rounded-xl p-6 mb-8 shadow-sm",
             ),
-
             # Input form
             Form(
                 Div(
@@ -194,43 +191,47 @@ def AnalysisFormCard() -> Card:
                         name="playlist_url",
                         placeholder="Paste YouTube Playlist URL",
                         value=prefill_url,
-                        className=
-                        ("px-4 py-2 w-full border rounded-md "
-                         "text-gray-900 placeholder-gray-400 "
-                         "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
-                         ),
-                        style="color: #333;"),
+                        className=(
+                            "px-4 py-2 w-full border rounded-md "
+                            "text-gray-900 placeholder-gray-400 "
+                            "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
+                        ),
+                        style="color: #333;",
+                    ),
                     # URL validation hint
-                    P("💡 Works with any public playlist",
-                      cls="text-xs text-gray-500 mt-1"),
+                    P(
+                        "💡 Works with any public playlist",
+                        cls="text-xs text-gray-500 mt-1",
+                    ),
                     cls="space-y-1",
                 ),
                 # Action buttons with better spacing
                 Div(
                     Button(
-                        Span(UkIcon("chart-bar", cls="mr-2"),
-                             "Analyze Playlist"),
+                        Span(UkIcon("chart-bar", cls="mr-2"), "Analyze Playlist"),
                         type="submit",
-                        cls=
-                        f"{ButtonT.primary} w-full hover:scale-105 transition-transform",
+                        cls=f"{ButtonT.primary} w-full hover:scale-105 transition-transform",
                     ),
                     # Quick action buttons for demo playlists
                     Details(
                         Summary(
                             "Try sample playlists",
-                            cls=
-                            "text-sm text-gray-600 cursor-pointer hover:text-gray-800"
+                            cls="text-sm text-gray-600 cursor-pointer hover:text-gray-800",
                         ),
                         SamplePlaylistButtons(),
                         cls="mt-3",
-                    ) if KNOWN_PLAYLISTS else None,
+                    )
+                    if KNOWN_PLAYLISTS
+                    else None,
                     cls="mt-6 space-y-3",
                 ),
                 # Loading indicator with better positioning
                 Div(
-                    Loading(id="loading",
-                            cls=(LoadingT.bars, LoadingT.lg),
-                            htmx_indicator=True),
+                    Loading(
+                        id="loading",
+                        cls=(LoadingT.bars, LoadingT.lg),
+                        htmx_indicator=True,
+                    ),
                     cls="flex justify-center mt-2",
                 ),
                 # HTMX hooks: validation triggers preview, then full analysis
@@ -239,14 +240,11 @@ def AnalysisFormCard() -> Card:
                 hx_swap="innerHTML",
                 hx_indicator="#loading",
             ),
-
             # Results placeholders
             Div(id="validation-feedback", cls="mt-6 text-gray-900"),
             Div(id="preview-box", cls="mt-6 text-gray-900"),
-            Div(id="result",
-                cls="mt-8 min-h-[400px] border-t pt-6 text-gray-900"),
-            cls=
-            "bg-white rounded-b-xl -mt-6 p-10 shadow-lg text-gray-900 space-y-6",
+            Div(id="result", cls="mt-8 min-h-[400px] border-t pt-6 text-gray-900"),
+            cls="bg-white rounded-b-xl -mt-6 p-10 shadow-lg text-gray-900 space-y-6",
         ),
         cls="w-full my-12",
     )
@@ -255,32 +253,34 @@ def AnalysisFormCard() -> Card:
 # Helper: render sample playlist quick-fill buttons
 
 
-def SamplePlaylistButtons(input_name: str = "playlist_url",
-                          max_items: int = 3) -> Div:
-    """Render quick action buttons to prefill the playlist URL from known samples.
+def SamplePlaylistButtons(input_name: str = "playlist_url", max_items: int = 5) -> Div:
+    """Render quick action buttons from cached playlists in DB..
     Args:
         input_name: The name attribute of the input to populate.
         max_items: Number of sample playlists to show.
     """
-    if not KNOWN_PLAYLISTS:
+    known_playlists = fetch_known_playlists(max_items=max_items)
+    if not known_playlists:
         return Div()
 
     buttons = []
-    for pl in KNOWN_PLAYLISTS[:max_items]:
+    for pl in known_playlists[:max_items]:
         title = pl.get("title", "Sample")
         short = f"{title[:30]}{'...' if len(title) > 30 else ''}"
         buttons.append(
             Button(
                 f"📺 {short}",
                 type="button",
-                cls=
-                ("text-left text-xs text-blue-600 hover:text-blue-800 "
-                 "hover:bg-blue-50 px-2 py-1 rounded transition-colors w-full"
-                 ),
-                onclick=
-                ("document.querySelector(\"input[name=\\\"%s\\\"]\").value = '%s'"
-                 % (input_name, pl.get("url", ""))),
-            ))
+                cls=(
+                    "text-left text-xs text-blue-600 hover:text-blue-800 "
+                    "hover:bg-blue-50 px-2 py-1 rounded transition-colors w-full"
+                ),
+                onclick=(
+                    'document.querySelector("input[name=\\"%s\\"]").value = \'%s\''
+                    % (input_name, pl.get("url", ""))
+                ),
+            )
+        )
 
     return Div(*buttons, cls="mt-2 space-y-1 p-2 bg-gray-50 rounded-md border")
 
@@ -298,7 +298,8 @@ def _build_info_items(config: List[Tuple[str, str, str]]) -> List["Component"]:
             H4(title, cls="mb-2 mt-2"),
             P(desc, cls="text-gray-600 text-sm text-center"),
             cls=f"{FLEX_COL} {FLEX_CENTER}",
-        ) for title, desc, icon in config
+        )
+        for title, desc, icon in config
     ]
 
 
@@ -310,11 +311,15 @@ def create_info_card(
 ) -> Card:
     """Helper function to create Feature and Benefit cards."""
     cards = _build_info_items(items)
-    img_component = (Img(
-        src=img_src,
-        style="width:120px; margin: 0 auto 2rem auto; display:block;",
-        alt=img_alt,
-    ) if img_src else "")
+    img_component = (
+        Img(
+            src=img_src,
+            style="width:120px; margin: 0 auto 2rem auto; display:block;",
+            alt=img_alt,
+        )
+        if img_src
+        else ""
+    )
     return Card(
         img_component,
         Grid(*cards),
@@ -355,14 +360,12 @@ def NewsletterCard() -> Card:
                 pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
                 title="Please enter a valid email address",
                 placeholder="you@example.com",
-                className=
-                "px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500",
+                className="px-4 py-2 w-full max-w-sm border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all invalid:border-red-500 invalid:focus:ring-red-500",
             ),
             Button(
                 "Notify Me",
                 type="submit",
-                className=
-                f"{ButtonT.primary} hover:scale-105 transition-transform",
+                className=f"{ButtonT.primary} hover:scale-105 transition-transform",
             ),
             Loading(
                 id="loading",
@@ -376,8 +379,7 @@ def NewsletterCard() -> Card:
             hx_indicator="#loading",
         ),
         Div(id="newsletter-result", style="margin-top:1rem;"),
-        header=CardTitle("Be the first to try it",
-                         cls="text-xl font-bold mb-4"),
+        header=CardTitle("Be the first to try it", cls="text-xl font-bold mb-4"),
         cls=NEWSLETTER_CARD,
         body_cls="space-y-6",
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
@@ -385,21 +387,41 @@ def NewsletterCard() -> Card:
 
 
 def SummaryStatsCard(summary: Dict) -> Card:
-    stats = [("eye", "Total Views",
-              format_number(summary.get("total_views", 0)), "text-blue-500"),
-             ("heart", "Total Likes",
-              format_number(summary.get("total_likes", 0)), "text-red-500"),
-             ("percent", "Average Engagement",
-              f"{summary.get('avg_engagement', 0):.2f}%", "text-green-500")]
+    stats = [
+        (
+            "eye",
+            "Total Views",
+            format_number(summary.get("total_views", 0)),
+            "text-blue-500",
+        ),
+        (
+            "heart",
+            "Total Likes",
+            format_number(summary.get("total_likes", 0)),
+            "text-red-500",
+        ),
+        (
+            "percent",
+            "Average Engagement",
+            f"{summary.get('avg_engagement', 0):.2f}%",
+            "text-green-500",
+        ),
+    ]
 
-    return Card(Grid(*[
-        DivCentered(UkIcon(icon, height=32, cls=f"{color} mb-2"),
+    return Card(
+        Grid(
+            *[
+                DivCentered(
+                    UkIcon(icon, height=32, cls=f"{color} mb-2"),
                     H3(value, cls="text-2xl font-bold"),
-                    P(label, cls=TextPresets.muted_sm))
-        for icon, label, value, color in stats
-    ],
-                     cols_md=3),
-                cls=CardT.hover)
+                    P(label, cls=TextPresets.muted_sm),
+                )
+                for icon, label, value, color in stats
+            ],
+            cols_md=3,
+        ),
+        cls=CardT.hover,
+    )
 
 
 def create_tabs(tabs: List[Tuple[str, "Component"]], tabs_id: str) -> Div:
@@ -457,11 +479,13 @@ def HomepageAccordion() -> Div:
     )
 
 
-def AnalyticsDashboardSection(df,
-                              summary: Dict,
-                              playlist_name: str,
-                              channel_name: str,
-                              playlist_thumbnail: str = None):
+def AnalyticsDashboardSection(
+    df,
+    summary: Dict,
+    playlist_name: str,
+    channel_name: str,
+    playlist_thumbnail: str = None,
+):
     """
     Create an analytics dashboard section for a playlist.
     """
@@ -469,9 +493,7 @@ def AnalyticsDashboardSection(df,
     total_videos = len(df) if df is not None and not df.is_empty() else 0
     return Section(
         # Professional header
-        AnalyticsHeader(playlist_name, channel_name, total_videos,
-                        playlist_thumbnail),
-
+        AnalyticsHeader(playlist_name, channel_name, total_videos, playlist_thumbnail),
         # Playlist Metrics Overview
         PlaylistMetricsOverview(df, summary),
         # Header
@@ -483,13 +505,13 @@ def AnalyticsDashboardSection(df,
             ),
             cls="text-center",
         ),
-
         # Group 1: Reach & Views
         Div(
-            H3("👀 Reach & Views",
-               cls="text-2xl font-semibold text-gray-800 mb-4"),
-            P("How far the playlist spreads, from rank to overall distribution.",
-              cls="text-gray-500 mb-6"),
+            H3("👀 Reach & Views", cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P(
+                "How far the playlist spreads, from rank to overall distribution.",
+                cls="text-gray-500 mb-6",
+            ),
             Grid(
                 chart_polarizing_videos(df),  # Bubble plot instead of line
                 chart_treemap_views(df),
@@ -497,13 +519,16 @@ def AnalyticsDashboardSection(df,
             ),
             cls="mb-16",
         ),
-
         # Group 2: Engagement
         Div(
-            H3("💬 Engagement & Reactions",
-               cls="text-2xl font-semibold text-gray-800 mb-4"),
-            P("Do viewers interact, like, and comment? A closer look at active participation.",
-              cls="text-gray-500 mb-6"),
+            H3(
+                "💬 Engagement & Reactions",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Do viewers interact, like, and comment? A closer look at active participation.",
+                cls="text-gray-500 mb-6",
+            ),
             Grid(
                 chart_engagement_rate(df),
                 chart_total_engagement(summary),
@@ -511,13 +536,16 @@ def AnalyticsDashboardSection(df,
             ),
             cls="mb-16",
         ),
-
         # Group 3: Controversy
         Div(
-            H3("🔥 Controversy & Sentiment",
-               cls="text-2xl font-semibold text-gray-800 mb-4"),
-            P("Where opinions split — videos that polarize the audience.",
-              cls="text-gray-500 mb-6"),
+            H3(
+                "🔥 Controversy & Sentiment",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Where opinions split — videos that polarize the audience.",
+                cls="text-gray-500 mb-6",
+            ),
             Grid(
                 chart_likes_vs_dislikes(df),
                 chart_controversy_score(df),
@@ -525,13 +553,16 @@ def AnalyticsDashboardSection(df,
             ),
             cls="mb-16",
         ),
-
         # Group 4: Advanced Patterns
         Div(
-            H3("📈 Correlation & Advanced Patterns",
-               cls="text-2xl font-semibold text-gray-800 mb-4"),
-            P("Finding deeper relationships between views, likes, and engagement.",
-              cls="text-gray-500 mb-6"),
+            H3(
+                "📈 Correlation & Advanced Patterns",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Finding deeper relationships between views, likes, and engagement.",
+                cls="text-gray-500 mb-6",
+            ),
             Grid(
                 chart_scatter_likes_dislikes(df),
                 chart_bubble_engagement_vs_views(df),
@@ -546,30 +577,35 @@ def AnalyticsDashboardSection(df,
 # Example usage:
 # ViralVibesButton("Analyze Now", icon="search", button_type="submit", full_width=True)
 # ViralVibesButton("Download Report", icon="download", full_width=False)
-def ViralVibesButton(text: str,
-                     icon: str = "chart-bar",
-                     button_type: str = "button",
-                     full_width: bool = False,
-                     **kwargs) -> Button:
+def ViralVibesButton(
+    text: str,
+    icon: str = "chart-bar",
+    button_type: str = "button",
+    full_width: bool = False,
+    **kwargs,
+) -> Button:
     """Create a consistently styled ViralVibes button."""
     width_class = "w-full" if full_width else ""
 
     return Button(
         Span(UkIcon(icon, cls="mr-2"), text),
         type=button_type,
-        cls=
-        (f"{width_class} py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-         "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
-         "text-white border-0 focus:ring-4 focus:ring-red-200 "
-         "transition-all duration-200 hover:scale-105 active:scale-95 transform"
-         ),
-        **kwargs)
+        cls=(
+            f"{width_class} py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+            "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+            "text-white border-0 focus:ring-4 focus:ring-red-200 "
+            "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+        ),
+        **kwargs,
+    )
 
 
-def AnalyticsHeader(playlist_title: str,
-                    channel_name: str,
-                    total_videos: int,
-                    playlist_thumbnail: Optional[str] = None) -> Div:
+def AnalyticsHeader(
+    playlist_title: str,
+    channel_name: str,
+    total_videos: int,
+    playlist_thumbnail: Optional[str] = None,
+) -> Div:
     """
     Create a professional header for the analytics dashboard.
     Shows playlist info, context, and future action buttons.
@@ -580,43 +616,51 @@ def AnalyticsHeader(playlist_title: str,
             # Left side: Playlist info
             Div(
                 # Optional thumbnail
-                (Img(src=playlist_thumbnail,
-                     alt=f"{playlist_title} thumbnail",
-                     cls="w-16 h-16 rounded-lg shadow-md mr-4 object-cover",
-                     style="min-width: 64px; min-height: 64px;")
-                 if playlist_thumbnail else ""),
-
+                (
+                    Img(
+                        src=playlist_thumbnail,
+                        alt=f"{playlist_title} thumbnail",
+                        cls="w-16 h-16 rounded-lg shadow-md mr-4 object-cover",
+                        style="min-width: 64px; min-height: 64px;",
+                    )
+                    if playlist_thumbnail
+                    else ""
+                ),
                 # Title and context
-                Div(H1(playlist_title,
-                       cls="text-2xl md:text-3xl font-bold text-gray-900 mb-2",
-                       style="color: #1f2937 !important;"),
-                    P(f"by {channel_name} • {total_videos} videos",
-                      cls="text-gray-600 text-base md:text-lg",
-                      style="color: #6b7280 !important;"),
-                    cls="flex-1"),
-                cls="flex items-start" if playlist_thumbnail else ""),
-
+                Div(
+                    H1(
+                        playlist_title,
+                        cls="text-2xl md:text-3xl font-bold text-gray-900 mb-2",
+                        style="color: #1f2937 !important;",
+                    ),
+                    P(
+                        f"by {channel_name} • {total_videos} videos",
+                        cls="text-gray-600 text-base md:text-lg",
+                        style="color: #6b7280 !important;",
+                    ),
+                    cls="flex-1",
+                ),
+                cls="flex items-start" if playlist_thumbnail else "",
+            ),
             # Right side: Future action buttons (placeholder for now)
             Div(
                 # We'll add export/share buttons in Phase 4
                 # For now, just a subtle "Analyzed" indicator
-                Div(UkIcon("check-circle",
-                           cls="text-green-600 mr-2",
-                           height=20,
-                           width=20),
-                    Span("Analysis Complete",
-                         cls="text-sm text-green-700 font-medium"),
-                    cls=
-                    "flex items-center px-3 py-2 bg-green-50 rounded-lg border border-green-200"
+                Div(
+                    UkIcon(
+                        "check-circle", cls="text-green-600 mr-2", height=20, width=20
                     ),
-                cls="hidden md:flex items-center"),
-            cls=
-            "flex flex-col md:flex-row md:items-start md:justify-between gap-4"
+                    Span("Analysis Complete", cls="text-sm text-green-700 font-medium"),
+                    cls="flex items-center px-3 py-2 bg-green-50 rounded-lg border border-green-200",
+                ),
+                cls="hidden md:flex items-center",
+            ),
+            cls="flex flex-col md:flex-row md:items-start md:justify-between gap-4",
         ),
-
         # Bottom border to separate from metrics
         cls="pb-6 mb-8 border-b border-gray-200",
-        style="background-color: transparent !important;")
+        style="background-color: transparent !important;",
+    )
 
 
 def ExtractPlaylistInfoFromSummary(summary: Dict) -> tuple:
@@ -647,31 +691,38 @@ def PlaylistPreviewCard(
 ):
     return Card(
         # Thumbnail + Playlist Info
-        DivCentered(Img(src=channel_thumbnail,
-                        alt=f"{channel_name} thumbnail",
-                        cls="w-20 h-20 rounded-full shadow-md border mb-4"),
-                    H3(playlist_name,
-                       cls="text-lg font-semibold text-gray-900"),
-                    P(f"by {channel_name}", cls="text-sm text-gray-500"),
-                    cls="text-center space-y-2"),
-
+        DivCentered(
+            Img(
+                src=channel_thumbnail,
+                alt=f"{channel_name} thumbnail",
+                cls="w-20 h-20 rounded-full shadow-md border mb-4",
+            ),
+            H3(playlist_name, cls="text-lg font-semibold text-gray-900"),
+            P(f"by {channel_name}", cls="text-sm text-gray-500"),
+            cls="text-center space-y-2",
+        ),
         # Playlist length + Progress bar
-        Div(P(f"{playlist_length or 0} videos in playlist",
-              cls="text-sm font-medium text-gray-700"),
+        Div(
+            P(
+                f"{playlist_length or 0} videos in playlist",
+                cls="text-sm font-medium text-gray-700",
+            ),
             Progress(
                 value=0,
                 max=playlist_length or 1,
                 id=meter_id,
-                cls=("w-full h-2 rounded-full bg-gray-200 "
-                     "[&::-webkit-progress-bar]:bg-gray-200 "
-                     "[&::-webkit-progress-value]:rounded-full "
-                     "[&::-webkit-progress-value]:transition-all "
-                     "[&::-webkit-progress-value]:duration-300 "
-                     "[&::-webkit-progress-value]:bg-red-600 "
-                     "[&::-moz-progress-bar]:bg-red-600"),
+                cls=(
+                    "w-full h-2 rounded-full bg-gray-200 "
+                    "[&::-webkit-progress-bar]:bg-gray-200 "
+                    "[&::-webkit-progress-value]:rounded-full "
+                    "[&::-webkit-progress-value]:transition-all "
+                    "[&::-webkit-progress-value]:duration-300 "
+                    "[&::-webkit-progress-value]:bg-red-600 "
+                    "[&::-moz-progress-bar]:bg-red-600"
+                ),
             ),
-            cls="space-y-2 mt-4"),
-
+            cls="space-y-2 mt-4",
+        ),
         # CTA button with consistent styling
         Button(
             Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
@@ -679,56 +730,49 @@ def PlaylistPreviewCard(
             hx_vals={
                 "playlist_url": playlist_url,
                 "meter_id": meter_id,
-                "meter_max": playlist_length or 0
+                "meter_max": playlist_length or 0,
             },
             hx_target="#results-box",
             hx_indicator="#loading-bar",
             hx_swap="beforeend",  # important for streaming scripts + final HTML
-            cls=
-            ("w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-             "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
-             "text-white border-0 focus:ring-4 focus:ring-red-200 "
-             "transition-all duration-200 hover:scale-105 active:scale-95 transform"
-             ),
+            cls=(
+                "w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+                "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+                "text-white border-0 focus:ring-4 focus:ring-red-200 "
+                "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+            ),
         ),
-
         # Results + Loading state
         Div(
             Loading(id="loading-bar", cls=(LoadingT.bars, LoadingT.lg)),
             Div(id="results-box", cls="mt-4"),
         ),
-
         # Card header
-        header=CardTitle("Playlist Preview",
-                         cls="text-xl font-bold text-gray-900"),
-        cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4")
+        header=CardTitle("Playlist Preview", cls="text-xl font-bold text-gray-900"),
+        cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4",
+    )
 
 
-def MetricCard(title: str,
-               value: str,
-               subtitle: str,
-               icon: str,
-               color: str = "red") -> Card:
+def MetricCard(
+    title: str, value: str, subtitle: str, icon: str, color: str = "red"
+) -> Card:
     """Create a clean metric card with icon, value, and context."""
     return Card(
         Div(
             # Icon in top-left
             UkIcon(icon, cls=f"text-{color}-500 mb-3", height=24, width=24),
-
             # Main value - big and bold
             H3(value, cls="text-2xl font-bold text-gray-900 mb-1"),
-
             # Subtitle with context
             P(subtitle, cls="text-sm text-gray-600"),
-            cls="space-y-1"),
-
+            cls="space-y-1",
+        ),
         # Card title
         header=H4(
-            title,
-            cls="text-sm font-medium text-gray-500 uppercase tracking-wide"),
-
+            title, cls="text-sm font-medium text-gray-500 uppercase tracking-wide"
+        ),
         # Styling
-        cls="hover:shadow-md transition-all duration-200 border border-gray-200"
+        cls="hover:shadow-md transition-all duration-200 border border-gray-200",
     )
 
 
@@ -751,8 +795,7 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     # Find the top performing video
     if df is not None and len(df) > 0:
         try:
-            top_video_views = df.select(
-                pl.col("View Count Raw").max()).item() or 0
+            top_video_views = df.select(pl.col("View Count Raw").max()).item() or 0
         except Exception:
             top_video_views = 0
         avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
@@ -762,45 +805,55 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
 
     # Create the 4 key metrics
     metrics = [
-        MetricCard(title="Total Reach",
-                   value=format_number(total_views),
-                   subtitle=f"Across {total_videos} videos",
-                   icon="eye",
-                   color="blue"),
-        MetricCard(title="Engagement Rate",
-                   value=f"{avg_engagement:.1f}%",
-                   subtitle="Average likes + comments",
-                   icon="heart",
-                   color="red"),
-        MetricCard(title="Top Performer",
-                   value=format_number(top_video_views),
-                   subtitle="Most viewed video",
-                   icon="trending-up",
-                   color="green"),
-        MetricCard(title="Average Performance",
-                   value=format_number(int(avg_views_per_video)),
-                   subtitle="Views per video",
-                   icon="bar-chart",
-                   color="purple")
+        MetricCard(
+            title="Total Reach",
+            value=format_number(total_views),
+            subtitle=f"Across {total_videos} videos",
+            icon="eye",
+            color="blue",
+        ),
+        MetricCard(
+            title="Engagement Rate",
+            value=f"{avg_engagement:.1f}%",
+            subtitle="Average likes + comments",
+            icon="heart",
+            color="red",
+        ),
+        MetricCard(
+            title="Top Performer",
+            value=format_number(top_video_views),
+            subtitle="Most viewed video",
+            icon="trending-up",
+            color="green",
+        ),
+        MetricCard(
+            title="Average Performance",
+            value=format_number(int(avg_views_per_video)),
+            subtitle="Views per video",
+            icon="bar-chart",
+            color="purple",
+        ),
     ]
 
     return Div(
         # Section header
-        Div(H2("📊 Key Metrics",
-               cls="text-xl font-semibold text-gray-800 mb-2"),
-            P("At a glance overview of your playlist performance",
-              cls="text-gray-600 text-sm mb-6"),
-            cls="text-center"),
-
+        Div(
+            H2("📊 Key Metrics", cls="text-xl font-semibold text-gray-800 mb-2"),
+            P(
+                "At a glance overview of your playlist performance",
+                cls="text-gray-600 text-sm mb-6",
+            ),
+            cls="text-center",
+        ),
         # Metrics grid - responsive
         Grid(
             *metrics,
-            cols_sm=2,  # 2 columns on small screens  
+            cols_sm=2,  # 2 columns on small screens
             cols_lg=4,  # 4 columns on large screens
             gap=4,  # Consistent spacing
-            cls="mb-8"  # Space before your existing charts
+            cls="mb-8",  # Space before your existing charts
         ),
-        cls="mb-12"  # Extra space to separate from charts section
+        cls="mb-12",  # Extra space to separate from charts section
     )
 
 
@@ -817,32 +870,30 @@ def FooterLinkGroup(title, links):
 def footer():
     company = ["About", "Blog", "Careers", "Press Kit"]
     resources = ["Documentation", "Help Center", "Status", "Contact Sales"]
-    legal = [
-        "Terms of Service", "Privacy Policy", "Cookie Settings",
-        "Accessibility"
-    ]
+    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings", "Accessibility"]
 
-    return Container(cls="uk-background-muted py-12")(Div(
-        DivFullySpaced(
-            H3("ViralVibes"),
-            DivHStacked(
-                UkIcon("twitter", cls=TextT.lead),
-                UkIcon("facebook", cls=TextT.lead),
-                UkIcon("github", cls=TextT.lead),
-                UkIcon("linkedin", cls=TextT.lead),
+    return Container(cls="uk-background-muted py-12")(
+        Div(
+            DivFullySpaced(
+                H3("ViralVibes"),
+                DivHStacked(
+                    UkIcon("twitter", cls=TextT.lead),
+                    UkIcon("facebook", cls=TextT.lead),
+                    UkIcon("github", cls=TextT.lead),
+                    UkIcon("linkedin", cls=TextT.lead),
+                ),
             ),
-        ),
-        DividerLine(),
-        DivFullySpaced(
-            FooterLinkGroup("Company", company),
-            FooterLinkGroup("Resources", resources),
-            FooterLinkGroup("Legal", legal),
-        ),
-        DividerLine(),
-        P("© 2025 ViralVibes. All rights reserved.",
-          cls=TextT.lead + TextT.sm),
-        cls="space-y-8 p-8",
-    ))
+            DividerLine(),
+            DivFullySpaced(
+                FooterLinkGroup("Company", company),
+                FooterLinkGroup("Resources", resources),
+                FooterLinkGroup("Legal", legal),
+            ),
+            DividerLine(),
+            P("© 2025 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
+            cls="space-y-8 p-8",
+        )
+    )
 
 
 def section_wrapper(content, bg_color, xtra="", flex=True):
@@ -851,8 +902,7 @@ def section_wrapper(content, bg_color, xtra="", flex=True):
     """
     return Section(
         content,
-        cls=
-        f"bg-{bg_color} {section_base1} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
+        cls=f"bg-{bg_color} {section_base1} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
     )
 
 
