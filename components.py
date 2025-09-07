@@ -458,7 +458,7 @@ def AnalyticsDashboardSection(df,
                               summary: Dict,
                               playlist_name: str,
                               channel_name: str,
-                              channel_thumbnail: str = None):
+                              playlist_thumbnail: str = None):
     """
     Create an analytics dashboard section for a playlist.
     """
@@ -467,7 +467,7 @@ def AnalyticsDashboardSection(df,
     return Section(
         # Professional header
         AnalyticsHeader(playlist_name, channel_name, total_videos,
-                        channel_thumbnail),
+                        playlist_thumbnail),
 
         # Playlist Metrics Overview
         PlaylistMetricsOverview(df, summary),
