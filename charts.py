@@ -34,20 +34,27 @@ def chart_views_by_rank(df: pl.DataFrame) -> ApexChart:
 
 def chart_polarizing_videos(df: pl.DataFrame) -> ApexChart:
     # Vectorized extraction
-    likes = df["Like Count Raw"].fill_null(0).cast(pl.Int64)
-    dislikes = df["Dislike Count Raw"].fill_null(0).cast(pl.Int64)
-    views = df["View Count Raw"].fill_null(0).cast(pl.Int64)
-    titles = df["Title"].fill_null("").str.slice(0, 40)
-    mask = (likes > 0) & (dislikes > 0) & (views > 0)
+    mask = (
+        (df["Like Count Raw"] > 0)
+        & (df["Dislike Count Raw"] > 0)
+        & (df["View Count Raw"] > 0)
+    )
     filtered = df.filter(mask)
-    likes = filtered["Like Count Raw"]
-    dislikes = filtered["Dislike Count Raw"]
-    views = filtered["View Count Raw"]
-    titles = filtered["Title"].fill_null("").str.slice(0, 40)
-    data = [
-        {"x": int(l), "y": int(d), "z": round(v / 1_000_000, 2), "name": t}
-        for l, d, v, t in zip(likes, dislikes, views, titles)
-    ]
+
+    if len(filtered) == 0:
+        # Handle empty data case
+        data = []
+    else:
+        data = [
+            {
+                "x": int(row["Like Count Raw"]),
+                "y": int(row["Dislike Count Raw"]),
+                "z": round(row["View Count Raw"] / 1_000_000, 2),
+                "name": row["Title"][:40],
+            }
+            for row in filtered.iter_rows(named=True)
+        ]
+
     opts = _apex_opts(
         "bubble",
         350,
@@ -59,13 +66,15 @@ def chart_polarizing_videos(df: pl.DataFrame) -> ApexChart:
         tooltip={
             "shared": False,
             "intersect": True,
-            "custom": (
-                "function({series, seriesIndex, dataPointIndex, w}) {"
-                "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
-                "return <b>${pt.name}</b><br>Likes: ${pt.x.toLocaleString()}<br>"
-                "Dislikes: ${pt.y.toLocaleString()}<br>Views: ${pt.z.toLocaleString()};"
-                "}"
-            ),
+            "custom": """
+                function({series, seriesIndex, dataPointIndex, w}) {
+                    var pt = w.config.series[seriesIndex].data[dataPointIndex];
+                    return  '<div style="padding:6px;"><b>' + pt.name + '</b><br>' +
+                            'Likes: ' + pt.x.toLocaleString() + '<br>' +
+                            'Dislikes: ' + pt.y.toLocaleString() + '<br>' +
+                            'Views: ' + pt.z + 'M</div>';
+                }
+            """,
         },
         plotOptions={"bubble": {"minBubbleRadius": 5, "maxBubbleRadius": 30}},
     )
