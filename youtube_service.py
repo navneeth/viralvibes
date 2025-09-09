@@ -2,6 +2,7 @@
 YouTube Service for fetching and processing YouTube playlist data.
 This module provides functionality to fetch and process YouTube playlist data using yt-dlp.
 """
+
 import asyncio
 import logging
 from typing import Dict, List, Tuple
@@ -26,13 +27,20 @@ class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
 
     DISPLAY_HEADERS = [
-        "Rank", "Title", "Views", "Likes", "Dislikes", "Comments", "Duration",
-        "Engagement Rate", "Controversy"
+        "Rank",
+        "Title",
+        "Views",
+        "Likes",
+        "Dislikes",
+        "Comments",
+        "Duration",
+        "Engagement Rate",
+        "Controversy",
     ]
 
     def __init__(self, ydl_opts: dict = None):
         """Initialize the service with optional yt-dlp options.
-        
+
         Args:
             ydl_opts (dict): Custom yt-dlp options. If None, uses default options.
         """
@@ -44,45 +52,46 @@ class YoutubePlaylistService:
             "extract_flat": "in_playlist",
             # 🚀 prevent yt-dlp from writing to ~/.cache
             "cachedir": False,
-            #"force_generic_extractor": True
+            # "force_generic_extractor": True
             "skip_download": True,
-            #"ignoreerrors": True,
-            #"dump_single_json": True,
-            #"no_warnings": True,
+            # "ignoreerrors": True,
+            # "dump_single_json": True,
+            # "no_warnings": True,
         }
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
     async def get_playlist_preview(
-            self, playlist_url: str) -> Tuple[str, str, str, int]:
+        self, playlist_url: str
+    ) -> Tuple[str, str, str, int]:
         """Extract lightweight playlist name, uploader, and thumbnail."""
         """Use yt-dlp with preview-safe settings to get basic playlist info."""
         try:
-            playlist_info = await asyncio.to_thread(self.ydl.extract_info,
-                                                    playlist_url,
-                                                    download=False)
+            playlist_info = await asyncio.to_thread(
+                self.ydl.extract_info, playlist_url, download=False
+            )
 
             # Fallbacks in case metadata is sparse
             playlist_title = playlist_info.get("title", "Untitled Playlist")
             channel_name = playlist_info.get("channel", "Unknown Channel")
             channel_thumbnail = self._extract_channel_thumbnail(playlist_info)
             playlist_length = playlist_info.get(
-                'playlist_count', len(playlist_info.get('entries', [])))
+                "playlist_count", len(playlist_info.get("entries", []))
+            )
 
             return playlist_title, channel_name, channel_thumbnail, playlist_length
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
-            logger.error(
-                f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
+            logger.error(f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
 
             return "Preview unavailable", "", "", 0
 
     async def get_dislike_count(self, video_id: str) -> int:
         """Fetch dislike count from Return YouTube Dislike API.
-        
+
         Args:
             video_id (str): YouTube video ID
-            
+
         Returns:
             int: Number of dislikes, or 0 if fetch fails
         """
@@ -96,16 +105,14 @@ class YoutubePlaylistService:
         return 0
 
     async def get_playlist_data(
-        self,
-        playlist_url: str,
-        max_expanded: int = 20
+        self, playlist_url: str, max_expanded: int = 20
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
         """Fetch and process video information from a YouTube playlist URL.
-        
+
         Args:
             playlist_url (str): The URL of the YouTube playlist to analyze.
             max_expanded (int): Maximum number of videos to process.
-            
+
         Returns:
             Tuple[pl.DataFrame, str, str, str, Dict[str, float]]: A tuple containing:
                 - A Polars DataFrame with video information
@@ -113,15 +120,15 @@ class YoutubePlaylistService:
                 - The channel name
                 - The channel thumbnail URL
                 - A dictionary of summary statistics
-                
+
         Raises:
             Exception: If there's an error fetching or processing the playlist data
         """
         try:
-            #playlist_info = self.ydl.extract_info(playlist_url, download=False)
-            playlist_info = await asyncio.to_thread(self.ydl.extract_info,
-                                                    playlist_url,
-                                                    download=False)
+            # playlist_info = self.ydl.extract_info(playlist_url, download=False)
+            playlist_info = await asyncio.to_thread(
+                self.ydl.extract_info, playlist_url, download=False
+            )
 
             # Debug logging
             logger.info("Playlist Info Keys: %s", playlist_info.keys())
@@ -131,16 +138,18 @@ class YoutubePlaylistService:
 
             # Log all available keys and their values for debugging
             for key, value in playlist_info.items():
-                if key in ['entries',
-                           'thumbnails']:  # Skip large data structures
+                if key in ["entries", "thumbnails"]:  # Skip large data structures
                     logger.info(
-                        "Key '%s': %s (type: %s, length: %s)", key,
+                        "Key '%s': %s (type: %s, length: %s)",
+                        key,
                         type(value).__name__,
                         type(value).__name__,
-                        len(value) if hasattr(value, '__len__') else 'N/A')
+                        len(value) if hasattr(value, "__len__") else "N/A",
+                    )
                 else:
-                    logger.info("Key '%s': %s (type: %s)", key, value,
-                                type(value).__name__)
+                    logger.info(
+                        "Key '%s': %s (type: %s)", key, value, type(value).__name__
+                    )
 
             playlist_name = playlist_info.get("title", "Untitled Playlist")
             channel_name = playlist_info.get("uploader", "Unknown Channel")
@@ -150,13 +159,13 @@ class YoutubePlaylistService:
 
             # Process video data
             if "entries" in playlist_info:
-                df = await self._process_video_data(playlist_info["entries"],
-                                                    max_expanded)
+                df = await self._process_video_data(
+                    playlist_info["entries"], max_expanded
+                )
                 summary_stats = self._calculate_summary_stats(df)
                 return df, playlist_name, channel_name, channel_thumbnail, summary_stats
 
-            return pl.DataFrame(
-            ), playlist_name, channel_name, channel_thumbnail, {}
+            return pl.DataFrame(), playlist_name, channel_name, channel_thumbnail, {}
 
         except Exception as e:
             logger.error(f"Error fetching playlist data: {str(e)}")
@@ -164,19 +173,19 @@ class YoutubePlaylistService:
 
     def _extract_channel_thumbnail(self, playlist_info: dict) -> str:
         """Extract the channel thumbnail URL from playlist info.
-        
+
         Args:
             playlist_info (dict): The playlist information dictionary.
-            
+
         Returns:
             str: The channel thumbnail URL.
         """
         if "thumbnails" in playlist_info:
             thumbnails = playlist_info["thumbnails"]
             # Sort thumbnails by width (descending) to get the highest quality
-            sorted_thumbs = sorted(thumbnails,
-                                   key=lambda x: x.get("width", 0),
-                                   reverse=True)
+            sorted_thumbs = sorted(
+                thumbnails, key=lambda x: x.get("width", 0), reverse=True
+            )
             return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
 
@@ -185,10 +194,10 @@ class YoutubePlaylistService:
         preview_opts = {
             "quiet": True,
             "extract_flat": True,  # lightweight mode
-            #"force_generic_extractor": False,
-            #"flat_playlist": True,  # get full playlist metadata
+            # "force_generic_extractor": False,
+            # "flat_playlist": True,  # get full playlist metadata
             "dump_single_json": True,
-            #"skip_playlist_after_errors": -1,  # avoid failures
+            # "skip_playlist_after_errors": -1,  # avoid failures
         }
         with yt_dlp.YoutubeDL(preview_opts) as ydl:
             return ydl.extract_info(playlist_url, download=False)
@@ -201,14 +210,15 @@ class YoutubePlaylistService:
             logger.warning(f"Failed to expand video {video_url}: {e}")
             return {}
 
-    async def _fetch_dislike_data_async(self, client: httpx.AsyncClient,
-                                        video_id: str) -> tuple[str, dict]:
+    async def _fetch_dislike_data_async(
+        self, client: httpx.AsyncClient, video_id: str
+    ) -> tuple[str, dict]:
         """Fetch dislike data for a video asynchronously.
-        
+
         Args:
             client (httpx.AsyncClient): HTTP client for making requests
             video_id (str): YouTube video ID
-            
+
         Returns:
             tuple[str, dict]: Tuple of (video_id, dislike_data)
                 If fetch fails, returns {"dislikes": 0}
@@ -226,21 +236,19 @@ class YoutubePlaylistService:
 
     async def _gather_dislike_data(self, video_ids: list[str]) -> dict:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            tasks = [
-                self._fetch_dislike_data_async(client, vid)
-                for vid in video_ids
-            ]
+            tasks = [self._fetch_dislike_data_async(client, vid) for vid in video_ids]
             results = await asyncio.gather(*tasks)
         return {vid: data for vid, data in results if data}
 
-    def _calculate_controversy_score(self, likes: int | None,
-                                     dislikes: int | None) -> float:
+    def _calculate_controversy_score(
+        self, likes: int | None, dislikes: int | None
+    ) -> float:
         """Calculate controversiality score for a video.
-        
+
         Args:
             likes (int | None): Number of likes
             dislikes (int | None): Number of dislikes
-            
+
         Returns:
             float: Controversy score between 0 and 1, where:
                   - 0 means no controversy (all likes or all dislikes)
@@ -253,16 +261,17 @@ class YoutubePlaylistService:
         total = likes + dislikes
         if total == 0:
             return 0.0
-        return abs(likes - dislikes) / total
+        return 1 - (abs(likes - dislikes) / total)
 
-    async def _process_video_data(self, videos: List[dict],
-                                  max_expanded: int) -> pl.DataFrame:
+    async def _process_video_data(
+        self, videos: List[dict], max_expanded: int
+    ) -> pl.DataFrame:
         """Process and enrich video metadata into a DataFrame.
-        
+
         Args:
             videos (list): List of video information dictionaries.
             max_expanded (int): Maximum number of videos to process.
-            
+
         Returns:
             pl.DataFrame: Processed video data.
         """
@@ -271,15 +280,14 @@ class YoutubePlaylistService:
 
         for rank, video in enumerate(videos[:max_expanded], start=1):
             # Get full video info using yt-dlp
-            full_info = await asyncio.to_thread(self._expand_video_info,
-                                                video.get("url"))
+            full_info = await asyncio.to_thread(
+                self._expand_video_info, video.get("url")
+            )
             if not full_info:
                 continue
 
             # Schema validation: check for required fields
-            required_keys = [
-                "id", "title", "view_count", "like_count", "duration"
-            ]
+            required_keys = ["id", "title", "view_count", "like_count", "duration"]
             if not all(k in full_info for k in required_keys):
                 logger.warning(
                     f"Missing fields in video: {video.get('url')}, got keys: {list(full_info.keys())}"
@@ -292,38 +300,28 @@ class YoutubePlaylistService:
 
             # Calculate controversy score
             controversy_score = self._calculate_controversy_score(
-                like_count, dislike_count)
+                like_count, dislike_count
+            )
 
-            data.append({
-                "Rank":
-                rank,
-                "id":
-                video_id,
-                "Title":
-                full_info.get("title", "N/A"),
-                "Views (Billions)":
-                (full_info.get("view_count") or 0) / 1_000_000_000,
-                "View Count":
-                full_info.get("view_count", 0),
-                "Like Count":
-                like_count,
-                "Dislike Count":
-                dislike_count,
-                "Comment Count":
-                full_info.get("comment_count", 0),
-                "Controversy":
-                controversy_score,
-                "Uploader":
-                full_info.get("uploader", "N/A"),
-                "Creator":
-                full_info.get("creator", "N/A"),
-                "Channel ID":
-                full_info.get("channel_id", "N/A"),
-                "Duration Raw":
-                full_info.get("duration", 0),
-                "Thumbnail":
-                full_info.get("thumbnail", ""),
-            })
+            data.append(
+                {
+                    "Rank": rank,
+                    "id": video_id,
+                    "Title": full_info.get("title", "N/A"),
+                    "Views (Billions)": (full_info.get("view_count") or 0)
+                    / 1_000_000_000,
+                    "View Count": full_info.get("view_count", 0),
+                    "Like Count": like_count,
+                    "Dislike Count": dislike_count,
+                    "Comment Count": full_info.get("comment_count", 0),
+                    "Controversy": controversy_score,
+                    "Uploader": full_info.get("uploader", "N/A"),
+                    "Creator": full_info.get("creator", "N/A"),
+                    "Channel ID": full_info.get("channel_id", "N/A"),
+                    "Duration Raw": full_info.get("duration", 0),
+                    "Thumbnail": full_info.get("thumbnail", ""),
+                }
+            )
 
         df = pl.DataFrame(data)
         if df.is_empty():
@@ -351,56 +349,73 @@ class YoutubePlaylistService:
                 ("Duration", pl.Utf8),
                 ("Engagement Rate (%)", pl.Utf8),
             ]
-            df = pl.DataFrame({
-                col: pl.Series([], dtype=dt)
-                for col, dt in expected_cols
-            })
+            df = pl.DataFrame(
+                {col: pl.Series([], dtype=dt) for col, dt in expected_cols}
+            )
             return df
 
         # Keep original numeric columns for charts and calculations
         # Create formatted display columns for the table
-        df = df.with_columns([
-            pl.col("View Count").alias(
-                "View Count Raw"),  # Keep original for charts
-            pl.col("Like Count").alias(
-                "Like Count Raw"),  # Keep original for charts
-            pl.col("Dislike Count").alias(
-                "Dislike Count Raw"),  # Keep original for charts
-            pl.col("Comment Count").alias(
-                "Comment Count Raw"),  # Keep original for charts
-            pl.col("Controversy").alias(
-                "Controversy Raw"),  # Keep original for charts
-            pl.col("Duration Raw").map_elements(
-                format_duration, return_dtype=pl.String).alias("Duration"),
-            pl.col("View Count").map_elements(
-                format_number, return_dtype=pl.String).alias("View Count"),
-            pl.col("Like Count").map_elements(
-                format_number, return_dtype=pl.String).alias("Like Count"),
-            pl.col("Dislike Count").map_elements(
-                format_number, return_dtype=pl.String).alias("Dislike Count"),
-            pl.col("Controversy").map_elements(lambda x: f"{x:.2%}",
-                                               return_dtype=pl.String)
-        ])
+        df = df.with_columns(
+            [
+                pl.col("View Count").alias(
+                    "View Count Raw"
+                ),  # Keep original for charts
+                pl.col("Like Count").alias(
+                    "Like Count Raw"
+                ),  # Keep original for charts
+                pl.col("Dislike Count").alias(
+                    "Dislike Count Raw"
+                ),  # Keep original for charts
+                pl.col("Comment Count").alias(
+                    "Comment Count Raw"
+                ),  # Keep original for charts
+                pl.col("Controversy").alias(
+                    "Controversy Raw"
+                ),  # Keep original for charts
+                pl.col("Duration Raw")
+                .map_elements(format_duration, return_dtype=pl.String)
+                .alias("Duration"),
+                pl.col("View Count")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("View Count"),
+                pl.col("Like Count")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("Like Count"),
+                pl.col("Dislike Count")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("Dislike Count"),
+                pl.col("Controversy").map_elements(
+                    lambda x: f"{x:.2%}", return_dtype=pl.String
+                ),
+            ]
+        )
 
         # Calculate engagement rate using raw numeric values
-        df = df.with_columns([
-            pl.Series(name="Engagement Rate (%)",
-                      values=[
-                          f"{calculate_engagement_rate(vc, lc, dc):.2f}"
-                          for vc, lc, dc in
-                          zip(df["View Count Raw"], df["Like Count Raw"],
-                              df["Dislike Count Raw"])
-                      ])
-        ])
+        df = df.with_columns(
+            [
+                pl.Series(
+                    name="Engagement Rate (%)",
+                    values=[
+                        f"{calculate_engagement_rate(vc, lc, dc):.2f}"
+                        for vc, lc, dc in zip(
+                            df["View Count Raw"],
+                            df["Like Count Raw"],
+                            df["Dislike Count Raw"],
+                        )
+                    ],
+                )
+            ]
+        )
 
         return df
 
     def _calculate_summary_stats(self, df: pl.DataFrame) -> Dict[str, float]:
         """Calculate summary statistics for the playlist.
-        
+
         Args:
             df (pl.DataFrame): The processed video data DataFrame.
-            
+
         Returns:
             Dict[str, float]: Dictionary containing summary statistics.
         """
@@ -426,13 +441,13 @@ class YoutubePlaylistService:
             "total_likes": total_likes,
             "total_dislikes": total_dislikes,
             "total_comments": total_comments,
-            "avg_engagement": avg_engagement
+            "avg_engagement": avg_engagement,
         }
 
     @classmethod
     def get_display_headers(cls) -> List[str]:
         """Get the display headers for the data table.
-        
+
         Returns:
             List[str]: List of column headers for display
         """
