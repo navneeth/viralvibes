@@ -419,30 +419,55 @@ def SummaryStatsCard(summary: Dict) -> Card:
     )
 
 
-def create_tabs(tabs: List[Tuple[str, "Component"]], tabs_id: str) -> Div:
+def create_tabs(
+    tabs: List[Tuple[str, "Component", Optional[str]]],
+    tabs_id: str,
+    alt: bool = True,
+    tab_cls: str = "uk-active",
+    container_cls: str = "space-y-4",
+) -> Div:
     """
-    Creates a MonsterUI tab component.
+    Creates a MonsterUI tab component with optional icons and improved styling.
     Args:
-        tabs: A list of tuples, where each tuple is (tab_title, tab_content_component).
-        tabs_id: A unique id for the tab group.
+        tabs: List of tuples (tab_title, tab_content, icon_name [optional]).
+        tabs_id: Unique id for the tab group.
+        alt: Use alternative tab styling.
+        tab_cls: CSS class for active tab.
+        container_cls: CSS class for the tab container.
     Returns:
         A Div containing the tab structure.
     """
     tab_links = []
     tab_content = []
 
-    for i, (title, content) in enumerate(tabs):
-        link_class = "uk-active" if i == 0 else ""
-        tab_links.append(Li(A(title, href="#", cls=link_class)))
-        tab_content.append(Li(content))
+    for i, tab in enumerate(tabs):
+        if len(tab) == 3:
+            title, content, icon = tab
+            label = Div(
+                UkIcon(icon, cls="mr-2 text-lg") if icon else None,
+                Span(title),
+                cls="flex items-center",
+            )
+        else:
+            title, content = tab[:2]
+            label = Span(title)
+
+        # Active class applied to <li>, not <a>
+        li_cls = tab_cls if i == 0 else ""
+        tab_links.append(Li(A(label, href="#"), cls=li_cls))
+
+        # Guard against None content
+        tab_content.append(Li(Div(content, cls="p-2")))  # ✅ wrap to ensure div exists
 
     return Container(
         TabContainer(
             *tab_links,
             uk_switcher=f"connect: #{tabs_id}; animation: uk-animation-fade",
-            alt=True,
+            alt=alt,
+            cls="mb-4 flex gap-2",
         ),
         Ul(id=tabs_id, cls="uk-switcher")(*tab_content),
+        cls=container_cls,
     )
 
 
@@ -483,9 +508,11 @@ def AnalyticsDashboardSection(
 ):
     """
     Create an analytics dashboard section for a playlist.
+    Redesigned with better logical flow and chart grouping.
     """
     # Calculate total videos from DataFrame length
     total_videos = len(df) if df is not None and not df.is_empty() else 0
+
     return Section(
         # Professional header
         AnalyticsHeader(playlist_name, channel_name, total_videos, playlist_thumbnail),
@@ -495,74 +522,106 @@ def AnalyticsDashboardSection(
         Div(
             H2("📊 Playlist Analytics", cls="text-3xl font-bold text-gray-900"),
             P(
-                "Explore how this playlist performs across views, engagement, and audience reactions.",
+                "Dive deep into your playlist's performance, audience engagement, and content patterns.",
                 cls="text-gray-500 mt-2 mb-8 text-lg",
             ),
             cls="text-center",
         ),
-        # Group 1: Reach & Views
+        # Group 1: Content Overview & Performance
         Div(
-            H3("👀 Reach & Views", cls="text-2xl font-semibold text-gray-800 mb-4"),
+            H3(
+                "📺 Content Overview & Performance",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
             P(
-                "How far the playlist spreads, from rank to overall distribution.",
+                "See how individual videos contribute to your playlist's overall reach and performance.",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_polarizing_videos(df),  # Bubble plot instead of line
-                chart_treemap_views(df),
+                chart_views_by_rank(df, "views-by-rank"),  # Shows performance hierarchy
+                chart_treemap_views(
+                    df, "treemap-views"
+                ),  # Shows contribution distribution
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
             cls="mb-16",
         ),
-        # Group 2: Engagement
+        # Group 2: Audience Engagement Analysis
         Div(
             H3(
-                "💬 Engagement & Reactions",
+                "💬 Audience Engagement Analysis",
                 cls="text-2xl font-semibold text-gray-800 mb-4",
             ),
             P(
-                "Do viewers interact, like, and comment? A closer look at active participation.",
+                "Understand how actively your audience participates - likes, comments, and overall engagement patterns.",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_engagement_rate(df),
-                chart_total_engagement(summary),
+                chart_engagement_rate(
+                    df, "engagement-rate"
+                ),  # Individual video engagement
+                chart_total_engagement(
+                    summary, "total-engagement"
+                ),  # Overall engagement split
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
             cls="mb-16",
         ),
-        # Group 3: Controversy
+        # Group 3: Audience Sentiment & Polarization
         Div(
             H3(
-                "🔥 Controversy & Sentiment",
+                "🔥 Audience Sentiment & Polarization",
                 cls="text-2xl font-semibold text-gray-800 mb-4",
             ),
             P(
-                "Where opinions split — videos that polarize the audience.",
+                "Discover which content creates strong reactions and splits audience opinion.",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_likes_vs_dislikes(df),
-                chart_controversy_score(df),
+                chart_likes_vs_dislikes(
+                    df, "likes-vs-dislikes"
+                ),  # Direct comparison of sentiment
+                chart_polarizing_videos(
+                    df, "polarizing-videos"
+                ),  # Polarization with context (bubble shows views)
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
             cls="mb-16",
         ),
-        # Group 4: Advanced Patterns
+        # Group 4: Advanced Insights & Patterns
         Div(
             H3(
-                "📈 Correlation & Advanced Patterns",
+                "📈 Advanced Insights & Patterns",
                 cls="text-2xl font-semibold text-gray-800 mb-4",
             ),
             P(
-                "Finding deeper relationships between views, likes, and engagement.",
+                "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_scatter_likes_dislikes(df),
-                chart_bubble_engagement_vs_views(df),
+                chart_scatter_likes_dislikes(
+                    df, "scatter-likes"
+                ),  # Correlation analysis
+                chart_bubble_engagement_vs_views(
+                    df, "bubble-engagement"
+                ),  # Multi-dimensional analysis
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
+            cls="mb-16",
+        ),
+        # Group 5: Content Strategy Insights (if we have controversy data)
+        Div(
+            H3(
+                "🎯 Content Strategy Insights",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Strategic insights to help optimize your content mix and audience targeting.",
+                cls="text-gray-500 mb-6",
+            ),
+            # Single chart that gives strategic insight
+            chart_controversy_score(df, "controversy-score"),
+            cls="mb-16",
         ),
         cls="mt-20 pt-12 border-t border-gray-200 space-y-12",
     )
