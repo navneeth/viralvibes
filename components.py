@@ -14,7 +14,7 @@ from charts import (
     chart_scatter_likes_dislikes,
     chart_total_engagement,
     chart_treemap_views,
-    chart_views_by_rank,
+    chart_views_by_video,
 )
 from constants import (
     BENEFITS,
@@ -538,7 +538,9 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_views_by_rank(df, "views-by-rank"),  # Shows performance hierarchy
+                chart_views_by_video(
+                    df, "views-by-video"
+                ),  # Shows performance hierarchy
                 chart_treemap_views(
                     df, "treemap-views"
                 ),  # Shows contribution distribution
@@ -555,6 +557,17 @@ def AnalyticsDashboardSection(
             P(
                 "Understand how actively your audience participates - likes, comments, and overall engagement patterns.",
                 cls="text-gray-500 mb-6",
+            ),
+            Div(
+                H4(
+                    "ℹ️ How is Engagement Rate calculated?",
+                    cls="text-md font-semibold text-gray-800 mb-2 flex items-center",
+                ),
+                P(
+                    "Engagement Rate (%) = ((Likes + Comments) ÷ Views) × 100",
+                    cls="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200",
+                ),
+                cls="mb-6",
             ),
             Grid(
                 chart_engagement_rate(

@@ -37,22 +37,34 @@ def _empty_chart(chart_type: str, chart_id: str) -> ApexChart:
 # ----------------------
 
 
-def chart_views_by_rank(df: pl.DataFrame, chart_id: str = "views-rank") -> ApexChart:
+def chart_views_by_video(
+    df: pl.DataFrame, chart_id: str = "views-by-video"
+) -> ApexChart:
+    """
+    Line chart of views per video, sorted by view count descending.
+    Gives instant insight into top and bottom performers.
+    """
     if df is None or df.is_empty():
         return _empty_chart("line", chart_id)
 
-    data = (df["View Count Raw"].fill_null(0) / 1_000_000).round(1).to_list()
+    # Sort videos by view count descending
+    sorted_df = df.sort("View Count Raw", descending=True)
+    views = (sorted_df["View Count Raw"].fill_null(0) / 1_000_000).round(1).to_list()
+    titles = sorted_df["Title"].to_list()
+
     opts = _apex_opts(
         "line",
         300,
-        series=[{"name": "Views (in Millions)", "data": data}],
+        series=[{"name": "Views (in Millions)", "data": views}],
         xaxis={
-            "categories": df["Rank"].cast(pl.Int64).to_list(),
-            "title": {"text": "Video Rank"},
+            "categories": titles,
+            "title": {"text": "Video Title"},
+            "labels": {"rotate": -45, "style": {"fontSize": "10px"}},
         },
         yaxis={"title": {"text": "Views (Millions)"}},
         chart={"id": chart_id, "zoom": {"enabled": False}, "toolbar": {"show": False}},
-        tooltip={"enabled": True},  # Use built-in tooltip
+        tooltip={"enabled": True},
+        title={"text": "Top Performing Videos", "align": "center"},
     )
     return ApexChart(opts=opts, cls="w-full h-80")
 
@@ -126,22 +138,46 @@ def chart_polarizing_videos(
 def chart_engagement_rate(
     df: pl.DataFrame, chart_id: str = "engagement-rate"
 ) -> ApexChart:
+    """
+    Horizontal bar chart of engagement rate per video, sorted descending.
+    Includes an average benchmark line for context.
+    """
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
-    data = df["Engagement Rate (%)"].cast(pl.Float64).fill_null(0).to_list()
+    # Sort videos by engagement rate descending
+    sorted_df = df.sort("Engagement Rate (%)", descending=True)
+    rates = sorted_df["Engagement Rate (%)"].cast(pl.Float64).fill_null(0).to_list()
+    titles = sorted_df["Title"].to_list()
+
+    # Compute average benchmark
+    avg_rate = float(sorted_df["Engagement Rate (%)"].mean() or 0)
+
     opts = _apex_opts(
         "bar",
-        300,
-        series=[{"name": "Engagement Rate (%)", "data": data}],
-        xaxis={
-            "categories": df["Title"].to_list(),
-            "labels": {"rotate": -45, "style": {"fontSize": "10px"}},
-        },
+        350,
+        series=[{"name": "Engagement Rate (%)", "data": rates}],
+        xaxis={"title": {"text": "Engagement Rate (%)"}},
+        yaxis={"categories": titles, "title": {"text": "Video Title"}},
+        plotOptions={"bar": {"horizontal": True}},
         chart={"id": chart_id},
         tooltip={"enabled": True},
+        colors=["#f59e42"],  # Orange for engagement
+        title={"text": "Videos Sorted by Engagement Rate", "align": "center"},
+        annotations={
+            "xaxis": [
+                {
+                    "x": avg_rate,
+                    "borderColor": "#FF4560",
+                    "label": {
+                        "style": {"color": "#fff", "background": "#FF4560"},
+                        "text": f"Avg: {avg_rate:.2f}%",
+                    },
+                }
+            ]
+        },
     )
-    return ApexChart(opts=opts, cls="w-full h-80")
+    return ApexChart(opts=opts, cls="w-full h-[22rem]")
 
 
 def chart_likes_vs_dislikes(
@@ -215,6 +251,9 @@ def chart_total_engagement(
 
 
 def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> ApexChart:
+    """
+    Treemap of video views, showing contribution to overall reach.
+    """
     if df is None or df.is_empty():
         return _empty_chart("treemap", chart_id)
 
