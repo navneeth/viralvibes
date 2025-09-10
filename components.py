@@ -8,12 +8,14 @@ from monsterui.all import *
 from charts import (
     chart_bubble_engagement_vs_views,
     chart_controversy_score,
+    chart_duration_vs_engagement,
     chart_engagement_rate,
     chart_likes_vs_dislikes,
     chart_polarizing_videos,
     chart_scatter_likes_dislikes,
     chart_total_engagement,
     chart_treemap_views,
+    chart_video_radar,
     chart_views_by_video,
 )
 from constants import (
@@ -618,6 +620,23 @@ def AnalyticsDashboardSection(
                 chart_bubble_engagement_vs_views(
                     df, "bubble-engagement"
                 ),  # Multi-dimensional analysis
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16",
+        ),
+        # Group 4: Advanced Insights & Patterns
+        Div(
+            H3(
+                "📈 Advanced Insights & Patterns",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
+                cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                # chart_duration_vs_engagement(df, "duration-engagement"),
+                chart_video_radar(df, "video-radar"),
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
             cls="mb-16",

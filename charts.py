@@ -280,38 +280,36 @@ def chart_scatter_likes_dislikes(
     if df is None or df.is_empty():
         return _empty_chart("scatter", chart_id)
 
+    # Use dicts with x, y, and custom field "title"
     data = [
-        [row["Like Count Raw"] or 0, row["Dislike Count Raw"] or 0]
+        {
+            "x": int(row["Like Count Raw"] or 0),
+            "y": int(row["Dislike Count Raw"] or 0),
+            "title": row["Title"][:40],  # truncate to avoid overflow
+        }
         for row in df.iter_rows(named=True)
     ]
-    opts = _apex_opts(
-        "scatter",
-        350,
-        series=[{"name": "Videos", "data": data}],
-        xaxis={
-            "title": {"text": "👍 Like Count"},
-            "labels": {
-                "formatter": "function(val){ return val >= 1e6 ? (val/1e6).toFixed(1) + 'M' : val >= 1e3 ? (val/1e3).toFixed(0) + 'K' : val; }"
-            },
+
+    opts = {
+        "chart": {"id": chart_id, "type": "scatter", "zoom": {"enabled": True}},
+        "series": [{"name": "Videos", "data": data}],
+        "xaxis": {"title": {"text": "👍 Like Count"}},
+        "yaxis": {"title": {"text": "👎 Dislike Count"}},
+        "title": {"text": "Likes vs Dislikes Correlation", "align": "center"},
+        "tooltip": {
+            "custom": (
+                "function({series, seriesIndex, dataPointIndex, w}) {"
+                "  var pt = w.config.series[seriesIndex].data[dataPointIndex];"
+                "  return `<div style='padding:6px; max-width:250px;'>"
+                "    <strong>${pt.title}</strong><br>"
+                "    👍 Likes: ${pt.x.toLocaleString()}<br>"
+                "    👎 Dislikes: ${pt.y.toLocaleString()}"
+                "  </div>`;"
+                "}"
+            )
         },
-        yaxis={
-            "title": {"text": "👎 Dislike Count"},
-            "labels": {
-                "formatter": "function(val){ return val >= 1e6 ? (val/1e6).toFixed(1) + 'M' : val >= 1e3 ? (val/1e3).toFixed(0) + 'K' : val; }"
-            },
-        },
-        # tooltip={
-        #     "custom": (
-        #         "function({series, seriesIndex, dataPointIndex, w}) {"
-        #         "const val = w.globals.initialSeries[0].data[dataPointIndex];"
-        #         "return Likes: ${val[0]}<br>Dislikes: ${val[1]};"
-        #         "}"
-        #     )
-        # },
-        tooltip={"enabled": True},
-        chart={"id": chart_id, "zoom": {"enabled": True}},
-        title={"text": "Likes vs Dislikes Correlation", "align": "center"},
-    )
+    }
+
     return ApexChart(opts=opts, cls="w-full h-[22rem]")
 
 
@@ -321,21 +319,17 @@ def chart_bubble_engagement_vs_views(
     if df is None or df.is_empty():
         return _empty_chart("bubble", chart_id)
 
+    # Build data as required: array of [x, y, z] with extra "title" kept separately
     data = [
         {
-            "x": round(row["View Count Raw"] / 1_000_000, 2)
-            if row["View Count Raw"] is not None
-            else 0,
-            "y": float(row["Engagement Rate (%)"])
-            if row["Engagement Rate (%)"] is not None
-            else 0.0,
-            "z": round(float(row["Controversy Raw"]) * 100, 1)
-            if row["Controversy Raw"] is not None
-            else 0.0,
-            "name": row["Title"],
+            "x": round((row["View Count Raw"] or 0) / 1_000_000, 2),
+            "y": float(row["Engagement Rate (%)"] or 0.0),
+            "z": round(float(row["Controversy Raw"] or 0.0) * 100, 1),
+            "title": row["Title"][:60],  # truncate long titles
         }
         for row in df.iter_rows(named=True)
     ]
+
     opts = _apex_opts(
         "bubble",
         350,
@@ -345,21 +339,112 @@ def chart_bubble_engagement_vs_views(
             "labels": {"formatter": "function(val){ return val + 'M'; }"},
         },
         yaxis={"title": {"text": "Engagement Rate (%)"}},
-        # tooltip={
-        #     "custom": (
-        #         "function({ series, seriesIndex, dataPointIndex, w }) {"
-        #         "const pt = w.globals.initialSeries[seriesIndex].data[dataPointIndex];"
-        #         "return `<div style='padding:6px; max-width:250px;'>"
-        #         "<strong>${pt.name}</strong><br>"
-        #         "📺 Views: ${pt.x}M<br>"
-        #         "✨ Engagement: ${pt.y}%<br>"
-        #         "⚡ Controversy: ${pt.z}%</div>`;"
-        #         "}"
-        #     )
-        # },
-        tooltip={"enabled": True, "shared": False, "followCursor": True},
+        tooltip={
+            "custom": (
+                "function({series, seriesIndex, dataPointIndex, w}) {"
+                "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
+                "return `<div style='padding:6px; max-width:250px;'>"
+                "<strong>${pt.title}</strong><br>"
+                "📺 Views: ${pt.x}M<br>"
+                "✨ Engagement: ${pt.y}%<br>"
+                "⚡ Controversy: ${pt.z}%</div>`;"
+                "}"
+            )
+        },
         plotOptions={"bubble": {"minBubbleRadius": 5, "maxBubbleRadius": 30}},
-        chart={"id": chart_id},
+        chart={"id": chart_id, "toolbar": {"show": True}, "zoom": {"enabled": True}},
         title={"text": "Engagement vs Views Analysis", "align": "center"},
     )
     return ApexChart(opts=opts, cls="w-full h-[22rem]")
+
+
+def chart_duration_vs_engagement(
+    df: pl.DataFrame, chart_id: str = "duration-engagement"
+) -> ApexChart:
+    if df is None or df.is_empty():
+        return _empty_chart("scatter", chart_id)
+
+    # Convert duration from seconds to minutes
+    df = df.with_columns((pl.col("Duration") / 60).alias("Duration (min)"))
+
+    # Build scatter points with custom tooltips
+    data = [
+        {
+            "x": row["Duration (min)"] or 0,
+            "y": row["Engagement Rate (%)"] or 0,
+            "title": row["Title"] or "Untitled",
+        }
+        for row in df.iter_rows(named=True)
+    ]
+
+    opts = _apex_opts(
+        "scatter",
+        350,
+        series=[{"name": "Videos", "data": data}],
+        xaxis={
+            "title": {"text": "Duration (minutes)"},
+            "labels": {"formatter": "function(val) { return val.toFixed(1); }"},
+        },
+        yaxis={"title": {"text": "Engagement Rate (%)"}},
+        tooltip={
+            "enabled": True,
+            "custom": """
+                function({series, seriesIndex, dataPointIndex, w}) {
+                    const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+                    return `<b>${d.title}</b><br/>Duration: ${d.x} min<br/>Engagement: ${d.y.toFixed(2)}%`;
+                }
+            """,
+        },
+        chart={"id": chart_id},
+        title={"text": "Does Video Length Affect Engagement?", "align": "center"},
+    )
+    return ApexChart(opts=opts, cls="w-full h-80")
+
+
+def chart_video_radar(
+    df: pl.DataFrame, chart_id: str = "video-radar", top_n: int = 5
+) -> ApexChart:
+    if df is None or df.is_empty():
+        return _empty_chart("radar", chart_id)
+
+    # Pick top videos by view count
+    sorted_df = df.sort("View Count Raw", descending=True).head(top_n)
+
+    # Columns we want to normalize
+    numeric_cols = [
+        "View Count Raw",
+        "Like Count Raw",
+        "Comment Count Raw",
+        "Engagement Rate (%)",
+    ]
+
+    # Cast numeric columns explicitly to Float64 for safe arithmetic
+    cast_df = sorted_df.with_columns(
+        [pl.col(c).cast(pl.Float64).fill_null(0) for c in numeric_cols]
+    )
+
+    # Normalize per metric to 0–100 scale
+    norm_df = cast_df.with_columns(
+        [(pl.col(c) / pl.col(c).max() * 100).alias(f"{c}_norm") for c in numeric_cols]
+    )
+
+    # Build series for radar chart
+    series = []
+    for row in norm_df.iter_rows(named=True):
+        series.append(
+            {
+                "name": row["Title"][:20],  # truncate long titles
+                "data": [row[f"{c}_norm"] for c in numeric_cols],
+            }
+        )
+
+    opts = _apex_opts(
+        "radar",
+        350,
+        series=series,
+        labels=numeric_cols,
+        chart={"id": chart_id},
+        title={"text": "Top Videos: Multi-Metric Comparison", "align": "center"},
+    )
+
+    return ApexChart(opts=opts, cls="w-full h-96")
