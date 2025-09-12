@@ -715,13 +715,13 @@ def AnalyticsHeader(
                 Div(
                     H1(
                         playlist_title,
-                        cls="text-2xl md:text-3xl font-bold text-white mb-1",
+                        cls="text-2xl md:text-3xl font-bold text-gray-900 mb-1",
                     ),
                     P(
                         Span("by ", cls=""),
                         Span(str(channel_name or "Unknown Channel")),
                         Span(f" • {total_videos} videos"),
-                        cls="text-gray-200 text-sm md:text-base",
+                        cls="text-gray-600 text-sm md:text-base",
                     ),
                     cls="flex-1",
                 ),
@@ -732,12 +732,12 @@ def AnalyticsHeader(
                 Div(
                     UkIcon(
                         "check-circle",
-                        cls="text-green-300 mr-2",
+                        cls="text-green-500 mr-2",
                         height=20,
                         width=20,
                     ),
-                    Span("Analysis Complete", cls="text-sm text-green-100 font-medium"),
-                    cls="flex items-center px-3 py-2 bg-green-800/40 rounded-lg border border-green-700",
+                    Span("Analysis Complete", cls="text-sm text-green-700 font-medium"),
+                    cls="flex items-center px-3 py-2 bg-green-100/40 rounded-lg border border-green-200",
                 ),
                 cls="hidden md:flex items-center",
             ),
@@ -745,7 +745,7 @@ def AnalyticsHeader(
         ),
         # Solid bar background
         cls="pb-6 mb-8 rounded-lg shadow-md",
-        style="background: linear-gradient(to right, #2563eb, #1e40af);",  # blue-600 → blue-900 gradient
+        style="background: linear-gradient(to right, #f0f4f8, #e2e8f0);",  # soft light gradient
     )
 
 
