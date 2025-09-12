@@ -1,8 +1,9 @@
 import polars as pl
 
 
-def calculate_engagement_rate(view_count: float, like_count: float,
-                              dislike_count: float) -> float:
+def calculate_engagement_rate(
+    view_count: float, like_count: float, dislike_count: float
+) -> float:
     """Calculate engagement rate as a percentage."""
     if not view_count or view_count == 0:
         return 0.0
@@ -20,11 +21,11 @@ def format_number(num: float) -> str:
     if not num:
         return "0"
     if num >= 1_000_000_000:
-        return f"{num/1_000_000_000:.1f}B"
+        return f"{num / 1_000_000_000:.1f}B"
     elif num >= 1_000_000:
-        return f"{num/1_000_000:.1f}M"
+        return f"{num / 1_000_000:.1f}M"
     elif num >= 1_000:
-        return f"{num/1_000:.1f}K"
+        return f"{num / 1_000:.1f}K"
     return f"{num:,.0f}"
 
 
@@ -69,15 +70,15 @@ def format_duration(seconds: int) -> str:
         return "00:00"
 
 
-def process_numeric_column(series: 'pl.Series') -> 'pl.Series':
+def process_numeric_column(series: "pl.Series") -> "pl.Series":
     """Helper to convert formatted string numbers to floats.
-    
+
     Args:
         series (pl.Series): A Polars Series containing numeric values or formatted strings
-        
+
     Returns:
         pl.Series: A Polars Series with all values converted to float
-        
+
     Note:
         Handles various number formats:
         - Plain numbers (int/float)
@@ -89,12 +90,39 @@ def process_numeric_column(series: 'pl.Series') -> 'pl.Series':
         if isinstance(value, (int, float)):
             return float(value)
         value = str(value).upper()
-        if 'B' in value:
-            return float(value.replace('B', '')) * 1_000_000_000
-        if 'M' in value:
-            return float(value.replace('M', '')) * 1_000_000
-        if 'K' in value:
-            return float(value.replace('K', '')) * 1_000
-        return float(value.replace(',', ''))
+        if "B" in value:
+            return float(value.replace("B", "")) * 1_000_000_000
+        if "M" in value:
+            return float(value.replace("M", "")) * 1_000_000
+        if "K" in value:
+            return float(value.replace("K", "")) * 1_000
+        return float(value.replace(",", ""))
 
     return series.map_elements(convert_to_number, return_dtype=pl.Float64)
+
+
+# --- Define helper for parsing formatted numbers into raw ints ---
+# parser for formatted numbers (e.g., 12.3M, 540K, 1,234)
+def parse_number(val: str) -> int:
+    try:
+        if val is None:
+            return 0
+        if isinstance(val, (int, float)):
+            return int(val)
+        s = str(val).strip()
+        if s == "" or s in {"—", "-", "N/A"}:
+            return 0
+        s = s.replace(",", "").upper()
+        multiplier = 1.0
+        if s.endswith("B"):
+            multiplier = 1e9
+            s = s[:-1]
+        elif s.endswith("M"):
+            multiplier = 1e6
+            s = s[:-1]
+        elif s.endswith("K"):
+            multiplier = 1e3
+            s = s[:-1]
+        return int(float(s) * multiplier)
+    except Exception:
+        return 0
