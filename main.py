@@ -490,7 +490,7 @@ async def validate_full(
 
             # Perform sort if we have a matching raw column
             if sort_label in sortable_map:
-                sort_col = sortable_map[sort_by]
+                sort_col = sortable_map[sort_label]
                 # ensure we cast to numeric for sorting if needed
                 if df[sort_col].dtype not in (
                     pl.Int64,
@@ -510,7 +510,6 @@ async def validate_full(
             thead = Thead(
                 Tr(
                     *[
-                        # If header is sortable, render as link and show arrow
                         (
                             Th(
                                 A(
@@ -526,14 +525,16 @@ async def validate_full(
                                     hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order_for(h)}",
                                     hx_target="#playlist-table",
                                     hx_swap="outerHTML",
-                                    cls="text-blue-600 hover:underline",
-                                )
+                                    cls="text-white font-semibold hover:underline",
+                                ),
+                                cls="px-4 py-2 text-sm",
                             )
                             if h in sortable_map
-                            else Th(h)
+                            else Th(h, cls="px-4 py-2 text-sm text-white font-semibold")
                         )
                         for h in svc_headers
-                    ]
+                    ],
+                    cls="bg-blue-600 text-white",
                 )
             )
 
