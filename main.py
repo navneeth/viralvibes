@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple, Union
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 import polars as pl
 from dotenv import load_dotenv
@@ -46,7 +46,7 @@ from db import (
     upsert_playlist_stats,
 )
 from step_components import StepProgress
-from utils import format_number
+from utils import format_number, parse_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from youtube_service import YoutubePlaylistService
 
@@ -307,11 +307,13 @@ async def preview_playlist(playlist_url: str):
     )
 
 
-@rt("/validate/full", methods=["POST"])
+@rt("/validate/full", methods=["POST", "GET"])
 async def validate_full(
     playlist_url: str,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
+    sort_by: str = "Views",
+    order: str = "desc",
 ):
     async def stream():
         try:
@@ -384,50 +386,216 @@ async def validate_full(
                 }
                 await upsert_playlist_stats(stats_to_cache)
 
-            # --- 4) Render final table + charts and append them ---
-            headers = yt_service.get_display_headers()
-            thead = Thead(Tr(*[Th(h) for h in headers]))
+            # --- 4) Sorting ---
+            # ---    Ensure raw numeric columns exist for reliable sorting ---
+            # create raw columns for common formatted counts if missing
+            count_columns = {
+                "View Count": "View Count Raw",
+                "Like Count": "Like Count Raw",
+                "Dislike Count": "Dislike Count Raw",
+                "Comment Count": "Comment Count Raw",
+            }
+            for disp_col, raw_col in count_columns.items():
+                if disp_col in df.columns and raw_col not in df.columns:
+                    df = df.with_columns(
+                        pl.col(disp_col)
+                        .map_elements(parse_number, return_dtype=pl.Int64)
+                        .alias(raw_col)
+                    )
+
+            # Engagement Rate: create numeric "Engagement Rate Raw" if needed
+            if (
+                "Engagement Rate (%)" in df.columns
+                and "Engagement Rate Raw" not in df.columns
+            ):
+                df = df.with_columns(
+                    pl.col("Engagement Rate (%)")
+                    .str.replace("%", "")
+                    .str.replace(",", "")
+                    .cast(pl.Float64)
+                    .alias("Engagement Rate Raw")
+                )
+
+            # Controversy: prefer Controversy Raw if present, otherwise cast Controversy
+            if "Controversy Raw" not in df.columns and "Controversy" in df.columns:
+                # controversy may already be 0..1 float; ensure numeric
+                df = df.with_columns(
+                    pl.col("Controversy").cast(pl.Float64).alias("Controversy Raw")
+                )
+
+            # --- 5) Build header-to-df column mapping (robust to differences like 'Views' vs 'View Count') ---
+            # Use yt_service display headers, but map them to the actual df columns used in table
+            svc_headers = (
+                yt_service.get_display_headers()
+            )  # e.g., ["Rank","Title","Views","Likes",...]
+            display_to_df = {
+                "Rank": "Rank",
+                "Title": "Title",
+                "Views": "View Count",
+                "Likes": "Like Count",
+                "Dislikes": "Dislike Count",
+                "Comments": "Comment Count",
+                "Duration": "Duration",
+                "Engagement Rate": "Engagement Rate (%)",
+                "Controversy": "Controversy Raw",
+                # fallback aliases (in case you used "View Count" directly earlier)
+                "View Count": "View Count",
+                "Like Count": "Like Count",
+                "Dislike Count": "Dislike Count",
+                "Comment Count": "Comment Count",
+                "Engagement Rate (%)": "Engagement Rate (%)",
+            }
+
+            # Build sortable_map: display_header -> actual raw column to sort on (if available)
+            sortable_map = {}
+            for h in svc_headers:
+                df_col = display_to_df.get(h, h)
+                # prefer explicit raw column names if present
+                candidates = [
+                    f"{df_col} Raw",
+                    "Engagement Rate Raw",
+                    "Controversy Raw",
+                    df_col,
+                ]
+                chosen = None
+                for cand in candidates:
+                    if cand in df.columns:
+                        # only allow numeric types to be sortable
+                        dtype = df[cand].dtype
+                        if dtype in (pl.Int64, pl.Int32, pl.Float64, pl.Float32):
+                            chosen = cand
+                            break
+                if chosen:
+                    sortable_map[h] = chosen
+
+            # --- Normalize incoming sort_by into a local variable ---
+            sort_label = sort_by  # use the function arg as starting point
+
+            # Normalize incoming sort_by (robust matching)
+            if sort_label not in sortable_map:
+                lower = (sort_label or "").lower()
+                for key in sortable_map.keys():
+                    if lower and lower in key.lower():
+                        sort_label = key
+                        break
+                # if still not matched, fallback to first sortable column
+                if sort_label not in sortable_map and len(sortable_map) > 0:
+                    # try to pick "Views"/"View Count" if present, else first key
+                    prefer = None
+                    for candidate in ("Views", "View Count", "Like Count", "Likes"):
+                        if candidate in sortable_map:
+                            prefer = candidate
+                            break
+                    sort_label = prefer or next(iter(sortable_map))
+
+            # Perform sort if we have a matching raw column
+            if sort_label in sortable_map:
+                sort_col = sortable_map[sort_label]
+                # ensure we cast to numeric for sorting if needed
+                if df[sort_col].dtype not in (
+                    pl.Int64,
+                    pl.Int32,
+                    pl.Float64,
+                    pl.Float32,
+                ):
+                    df = df.with_columns(pl.col(sort_col).cast(pl.Float64))
+                df = df.sort(sort_col, descending=(order == "desc"))
+
+            # --- 6) Build THEAD with HTMX sort links + arrows (toggle logic) ---
+            def next_order_for(col_label):
+                if col_label == sort_by:
+                    return "asc" if order == "desc" else "desc"
+                return "desc"  # default: new column -> descending
+
+            thead = Thead(
+                Tr(
+                    *[
+                        (
+                            Th(
+                                A(
+                                    h
+                                    + (
+                                        " ▲"
+                                        if (h == sort_by and order == "asc")
+                                        else " ▼"
+                                        if (h == sort_by and order == "desc")
+                                        else ""
+                                    ),
+                                    href="#",
+                                    hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order_for(h)}",
+                                    hx_target="#playlist-table",
+                                    hx_swap="outerHTML",
+                                    cls="text-white font-semibold hover:underline",
+                                ),
+                                cls="px-4 py-2 text-sm",
+                            )
+                            if h in sortable_map
+                            else Th(h, cls="px-4 py-2 text-sm text-white font-semibold")
+                        )
+                        for h in svc_headers
+                    ],
+                    cls="bg-blue-600 text-white",
+                )
+            )
+
+            # --- 7) Build tbody (display values) ---
             tbody = Tbody(
                 *[
                     Tr(
-                        Td(row["Rank"]),
+                        Td(row.get("Rank")),
                         Td(
                             A(
-                                row["Title"],
-                                href=f"https://youtube.com/watch?v={row['id']}",
+                                row.get("Title"),
+                                href=f"https://youtube.com/watch?v={row.get('id')}",
                                 target="_blank",
                                 cls="text-blue-600 hover:underline",
                             )
                         ),
-                        Td(row["View Count"]),
-                        Td(row["Like Count"]),
-                        Td(row["Dislike Count"]),
-                        Td(row["Comment Count"]),
-                        Td(row["Duration"]),
-                        Td(row["Engagement Rate (%)"]),
-                        Td(f"{row['Controversy Raw']:.2%}"),
+                        Td(row.get("View Count")),
+                        Td(row.get("Like Count")),
+                        Td(row.get("Dislike Count")),
+                        Td(row.get("Comment Count")),
+                        Td(row.get("Duration")),
+                        Td(row.get("Engagement Rate (%)")),
+                        # show controversy nicely (expect a float 0..1)
+                        Td(
+                            (
+                                f"{row.get('Controversy Raw'):.2%}"
+                                if row.get("Controversy Raw") is not None
+                                else ""
+                            )
+                        ),
                     )
                     for row in df.iter_rows(named=True)
                 ]
             )
+
+            # --- 8) Footer (summary) ---
             tfoot = Tfoot(
                 Tr(
                     Td("Total/Average"),
                     Td(""),
-                    Td(format_number(summary_stats["total_views"])),
-                    Td(format_number(summary_stats["total_likes"])),
-                    Td(format_number(summary_stats["total_dislikes"])),
-                    Td(format_number(summary_stats["total_comments"])),
+                    Td(format_number(summary_stats.get("total_views", 0))),
+                    Td(format_number(summary_stats.get("total_likes", 0))),
+                    Td(format_number(summary_stats.get("total_dislikes", 0))),
+                    Td(format_number(summary_stats.get("total_comments", 0))),
                     Td(""),
-                    Td(f"{summary_stats['avg_engagement']:.2f}%"),
+                    Td(f"{summary_stats.get('avg_engagement', 0):.2f}%"),
                     Td(""),
                 )
             )
 
+            # --- 9) Final render: table inside a target container for HTMX swaps ---
             final_html = str(
                 Div(
                     StepProgress(len(PLAYLIST_STEPS_CONFIG)),
-                    Table(thead, tbody, tfoot, cls="uk-table uk-table-divider"),
+                    Table(
+                        thead,
+                        tbody,
+                        tfoot,
+                        id="playlist-table",
+                        cls="uk-table uk-table-divider",
+                    ),
                     AnalyticsDashboardSection(
                         df,
                         summary_stats,
