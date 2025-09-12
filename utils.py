@@ -1,4 +1,7 @@
+from typing import Optional
+
 import polars as pl
+from fasthtml.common import *
 
 
 def calculate_engagement_rate(
@@ -127,5 +130,27 @@ def parse_number(val: str) -> int:
     except Exception:
         return 0
 
+
 def safe_cell(value):
     return value if value is not None else "N/A"
+
+
+# utils.py
+
+
+def safe_channel_name(channel_name: str | None, channel_url: str | None = None):
+    """
+    Return a sanitized channel name.
+    If channel_url is provided, return it as a clickable link.
+    Handles None values safely.
+    """
+    # Coerce None to empty string
+    channel_name = (channel_name or "").strip()
+    channel_url = channel_url or ""
+
+    if not channel_name:
+        channel_name = "Unknown Channel"
+
+    if channel_url:
+        return A(channel_name, href=channel_url, cls="text-blue-600 hover:underline")
+    return Span(channel_name, cls="font-medium text-gray-700")
