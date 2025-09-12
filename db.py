@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import random
 from datetime import date
 from typing import Any, Dict, Optional
 
@@ -284,7 +285,7 @@ async def cache_playlist(
 
 
 def fetch_known_playlists(max_items: int = 10) -> list[dict]:
-    """Fetch distinct playlists from DB for use as samples."""
+    """Fetch distinct playlists from DB for use as samples (deterministic)."""
     if not supabase_client:
         logger.warning("Supabase client not available to fetch playlists")
         return []
@@ -315,4 +316,41 @@ def fetch_known_playlists(max_items: int = 10) -> list[dict]:
 
     except Exception as e:
         logger.error(f"Error fetching playlists: {e}")
+        return []
+
+
+def fetch_random_playlists(max_items: int = 10) -> list[dict]:
+    """Fetch a random subset of distinct playlists from DB (non-deterministic)."""
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch playlists")
+        return []
+
+    try:
+        # Fetch a larger pool so randomization has variety
+        response = (
+            supabase_client.table("playlist_stats")
+            .select("playlist_url, title, processed_date")
+            .order("processed_date", desc=True)  # still biases toward fresh data
+            .limit(max_items * 5)
+            .execute()
+        )
+
+        seen = set()
+        playlists = []
+        for row in response.data:
+            url = row.get("playlist_url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            playlists.append(
+                {"url": url, "title": row.get("title") or "Untitled Playlist"}
+            )
+
+        if not playlists:
+            return []
+
+        return random.sample(playlists, k=min(max_items, len(playlists)))
+
+    except Exception:
+        logger.exception("Error fetching random playlists")
         return []
