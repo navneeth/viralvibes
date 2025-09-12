@@ -126,3 +126,6 @@ def parse_number(val: str) -> int:
         return int(float(s) * multiplier)
     except Exception:
         return 0
+
+def safe_cell(value):
+    return value if value is not None else "N/A"
