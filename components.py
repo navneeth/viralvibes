@@ -35,7 +35,7 @@ from constants import (
     STEPS_CLS,
 )
 from db import fetch_known_playlists
-from utils import format_number
+from utils import format_number, safe_channel_name
 
 """Define reusable UI components for the ViralVibes application."""
 
@@ -691,6 +691,7 @@ def AnalyticsHeader(
     channel_name: str,
     total_videos: int,
     playlist_thumbnail: Optional[str] = None,
+    channel_url: Optional[str] = None,
 ) -> Div:
     """
     Create a professional header for the analytics dashboard.
@@ -701,7 +702,6 @@ def AnalyticsHeader(
         Div(
             # Left side: Playlist info
             Div(
-                # Optional thumbnail
                 (
                     Img(
                         src=playlist_thumbnail,
@@ -712,40 +712,40 @@ def AnalyticsHeader(
                     if playlist_thumbnail
                     else ""
                 ),
-                # Title and context
                 Div(
                     H1(
                         playlist_title,
-                        cls="text-2xl md:text-3xl font-bold text-gray-900 mb-2",
-                        style="color: #1f2937 !important;",
+                        cls="text-2xl md:text-3xl font-bold text-gray-900 mb-1",
                     ),
                     P(
-                        f"by {channel_name} • {total_videos} videos",
-                        cls="text-gray-600 text-base md:text-lg",
-                        style="color: #6b7280 !important;",
+                        Span("by ", cls=""),
+                        Span(str(channel_name or "Unknown Channel")),
+                        Span(f" • {total_videos} videos"),
+                        cls="text-gray-600 text-sm md:text-base",
                     ),
                     cls="flex-1",
                 ),
                 cls="flex items-start" if playlist_thumbnail else "",
             ),
-            # Right side: Future action buttons (placeholder for now)
+            # Right side: Future action buttons
             Div(
-                # We'll add export/share buttons in Phase 4
-                # For now, just a subtle "Analyzed" indicator
                 Div(
                     UkIcon(
-                        "check-circle", cls="text-green-600 mr-2", height=20, width=20
+                        "check-circle",
+                        cls="text-green-500 mr-2",
+                        height=20,
+                        width=20,
                     ),
                     Span("Analysis Complete", cls="text-sm text-green-700 font-medium"),
-                    cls="flex items-center px-3 py-2 bg-green-50 rounded-lg border border-green-200",
+                    cls="flex items-center px-3 py-2 bg-green-100/40 rounded-lg border border-green-200",
                 ),
                 cls="hidden md:flex items-center",
             ),
             cls="flex flex-col md:flex-row md:items-start md:justify-between gap-4",
         ),
-        # Bottom border to separate from metrics
-        cls="pb-6 mb-8 border-b border-gray-200",
-        style="background-color: transparent !important;",
+        # Solid bar background
+        cls="pb-6 mb-8 rounded-lg shadow-md",
+        style="background: linear-gradient(to right, #f0f4f8, #e2e8f0);",  # soft light gradient
     )
 
 
@@ -759,6 +759,7 @@ def ExtractPlaylistInfoFromSummary(summary: Dict) -> tuple:
     channel_name = summary.get("channel_name", "Unknown Channel")
     total_videos = summary.get("video_count", 0)
     thumbnail = summary.get("playlist_thumbnail", None)
+    channel_url = summary.get("channel_url", None)
 
     # Clean up the title if it's too long
     if len(playlist_title) > 80:
