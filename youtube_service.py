@@ -9,7 +9,6 @@ from typing import Dict, List, Tuple
 
 import httpx
 import polars as pl
-import requests
 import yt_dlp
 
 from utils import (
@@ -36,6 +35,7 @@ class YoutubePlaylistService:
         "Duration",
         "Engagement Rate",
         "Controversy",
+        "Rating",
     ]
 
     def __init__(self, ydl_opts: dict = None):
@@ -97,12 +97,31 @@ class YoutubePlaylistService:
         """
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(DISLIKE_API_URL.format(video_id))
-                if resp.status_code == 200:
-                    return resp.json().get("dislikes", 0)
+                response = await client.get(DISLIKE_API_URL.format(video_id))
+                if response.status_code == 200:
+                    data = response.json()
+                    return {
+                        "dislikes": data.get("dislikes", 0),
+                        "likes": data.get("likes", 0),
+                        "rating": data.get("rating"),
+                        "viewCount_api": data.get("viewCount"),
+                        "deleted": data.get("deleted", False),
+                        "dateCreated": data.get("dateCreated"),
+                    }
+                logger.warning(
+                    f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
+                )
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
-        return 0
+        # Fallback structure
+        return {
+            "dislikes": 0,
+            "likes": 0,
+            "rating": None,
+            "viewCount_api": None,
+            "deleted": False,
+            "dateCreated": None,
+        }
 
     async def get_playlist_data(
         self, playlist_url: str, max_expanded: int = 20
@@ -226,13 +245,28 @@ class YoutubePlaylistService:
         try:
             response = await client.get(DISLIKE_API_URL.format(video_id))
             if response.status_code == 200:
-                return video_id, response.json()
+                data = response.json()
+                return video_id, {
+                    "dislikes": data.get("dislikes", 0),
+                    "likes": data.get("likes", 0),
+                    "rating": data.get("rating", None),
+                    "viewCount_api": data.get("viewCount", None),
+                    "deleted": data.get("deleted", False),
+                    "dateCreated": data.get("dateCreated", None),
+                }
             logger.warning(
                 f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
             )
         except Exception as e:
             logger.warning(f"Failed to fetch dislike data for {video_id}: {e}")
-        return video_id, {"dislikes": 0}
+        return video_id, {
+            "dislikes": 0,
+            "likes": 0,
+            "rating": None,
+            "viewCount_api": None,
+            "deleted": False,
+            "dateCreated": None,
+        }
 
     async def _gather_dislike_data(self, video_ids: list[str]) -> dict:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -295,8 +329,20 @@ class YoutubePlaylistService:
                 continue
 
             video_id = full_info.get("id", "")
-            dislike_count = await self.get_dislike_count(video_id)
-            like_count = full_info.get("like_count", 0)
+            dislike_data = await self.get_dislike_count(
+                video_id
+            )  # <- replace with API data
+            # Instead of just an int, now you can unpack
+            api_dislikes = dislike_data.get("dislikes", 0)
+            api_likes = dislike_data.get("likes", full_info.get("like_count", 0))
+            api_rating = dislike_data.get("rating")
+            api_viewcount = dislike_data.get("viewCount_api")
+            api_deleted = dislike_data.get("deleted", False)
+            api_created = dislike_data.get("dateCreated")
+
+            # Use API dislikes if available
+            like_count = api_likes or full_info.get("like_count", 0)
+            dislike_count = api_dislikes or 0
 
             # Calculate controversy score
             controversy_score = self._calculate_controversy_score(
@@ -320,6 +366,11 @@ class YoutubePlaylistService:
                     "Channel ID": full_info.get("channel_id", "N/A"),
                     "Duration Raw": full_info.get("duration", 0),
                     "Thumbnail": full_info.get("thumbnail", ""),
+                    "Rating": api_rating,
+                    "Deleted": api_deleted,
+                    "Created": api_created,
+                    "API View Count": api_viewcount,
+                    "API Date Created": dislike_data.get("dateCreated"),
                 }
             )
 
@@ -420,7 +471,7 @@ class YoutubePlaylistService:
             Dict[str, float]: Dictionary containing summary statistics.
         """
         required_cols = {"View Count Raw", "Like Count Raw", "Engagement Rate (%)"}
-    
+
         if df.is_empty() or not required_cols.issubset(df.columns):
             logger.warning("Insufficient data for summary stats.")
             return {
