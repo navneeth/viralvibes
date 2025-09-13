@@ -34,7 +34,7 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
 )
-from db import fetch_known_playlists
+from db import fetch_known_playlists, fetch_random_playlists
 from utils import format_number, safe_channel_name
 
 """Define reusable UI components for the ViralVibes application."""
@@ -104,46 +104,6 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
         )
 
     return Steps(*steps, cls=STEPS_CLS)
-
-
-'''
-def AnalysisFormCard() -> Card:
-    """Create the analysis form card component."""
-    prefill_url = "https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC"
-    return Card(
-        Img(src="/static/celebration.webp",
-            style=
-            "width: 100%; max-width: 320px; margin: 0 auto 1rem auto; display: block;",
-            alt="Celebration"),
-        P("Follow these steps to analyze any YouTube playlist:",
-          cls="text-lg font-semibold text-center mb-2"),
-        Div(PlaylistSteps(), id="playlist-steps", cls=f"{FLEX_CENTER} w-full"),
-        Form(LabelInput(
-            "Playlist URL",
-            type="text",
-            name="playlist_url",
-            placeholder="Paste YouTube Playlist URL",
-            value=prefill_url,
-            className=
-            "px-4 py-2 w-full border rounded mb-3 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all"
-        ),
-             Button(
-                 "Analyze Now",
-                 type="submit",
-                 className=
-                 f"{ButtonT.destructive} hover:scale-105 transition-transform"
-             ),
-             Loading(id="loading",
-                     cls=(LoadingT.bars, LoadingT.lg),
-                     style="margin-top:0.5rem; color:#393e6e;",
-                     htmx_indicator=True),
-             hx_post="/validate",
-             hx_target="#playlist-steps",
-             hx_indicator="#loading"),
-        Div(id="result", style="margin-top:1rem;"),
-        cls=FORM_CARD,
-        body_cls="space-y-4")
-'''
 
 
 def AnalysisFormCard() -> Card:
@@ -256,7 +216,7 @@ def SamplePlaylistButtons(input_name: str = "playlist_url", max_items: int = 5) 
         input_name: The name attribute of the input to populate.
         max_items: Number of sample playlists to show.
     """
-    known_playlists = fetch_known_playlists(max_items=max_items)
+    known_playlists = fetch_random_playlists(max_items=max_items)
     if not known_playlists:
         return Div()
 
