@@ -9,7 +9,6 @@ from typing import Dict, List, Tuple
 
 import httpx
 import polars as pl
-import requests
 import yt_dlp
 
 from utils import (
