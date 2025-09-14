@@ -7,10 +7,11 @@ and updates job status.
 import asyncio
 import logging
 import os
+import time
 import traceback
 from datetime import datetime
 
-from dotenv import load_dotenv  # <-- Add this
+from dotenv import load_dotenv
 
 from db import (  # <-- Import setup_logging
     init_supabase,
@@ -30,6 +31,9 @@ logger = logging.getLogger("vv_worker")
 # --- Config ---
 POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "10"))
 BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "3"))
+MAX_RUNTIME = (
+    int(os.getenv("WORKER_MAX_RUNTIME", "300")) * 60
+)  # Convert minutes to seconds
 
 # --- Services ---
 yt_service = YoutubePlaylistService()
@@ -150,31 +154,102 @@ async def handle_job(job):
 
 async def worker_loop():
     """Main worker loop that polls for jobs and processes them."""
-    logger.info("Worker starting main loop (poll interval=%s)", POLL_INTERVAL)
+    start_time = time.time()
+    jobs_processed = 0
+
+    logger.info(
+        "Worker starting main loop (poll interval=%ss, max runtime=%sm, batch size=%s)",
+        POLL_INTERVAL,
+        MAX_RUNTIME // 60,
+        BATCH_SIZE,
+    )
     while True:
+        # Check if we've exceeded max runtime
+        elapsed_time = time.time() - start_time
+        if elapsed_time >= MAX_RUNTIME:
+            logger.info(
+                "Worker reached max runtime of %s minutes. Processed %s jobs. Exiting gracefully.",
+                MAX_RUNTIME // 60,
+                jobs_processed,
+            )
+            break
+
+        # Check remaining time and log progress periodically
+        remaining_time = MAX_RUNTIME - elapsed_time
+        if int(elapsed_time) % 300 == 0 and elapsed_time > 0:  # Log every 5 minutes
+            logger.info(
+                "Worker progress: %s minutes elapsed, %s minutes remaining, %s jobs processed",
+                int(elapsed_time // 60),
+                int(remaining_time // 60),
+                jobs_processed,
+            )
+
         try:
             jobs = await fetch_pending_jobs()
             if not jobs:
-                await asyncio.sleep(POLL_INTERVAL)
+                # No jobs available, sleep for poll interval or remaining time (whichever is shorter)
+                sleep_time = min(POLL_INTERVAL, remaining_time)
+                if sleep_time <= 0:
+                    logger.info("No time remaining, exiting worker loop")
+                    break
+                await asyncio.sleep(sleep_time)
                 continue
 
             for job in jobs:
+                # Check time before processing each job
+                if time.time() - start_time >= MAX_RUNTIME:
+                    logger.info("Max runtime reached while processing jobs, stopping")
+                    break  # Break from job processing loop
+
                 await handle_job(job)
+                jobs_processed += 1
 
             await asyncio.sleep(0.5)
+
         except Exception:
             logger.exception("Unexpected error in worker loop; sleeping before retry")
-            await asyncio.sleep(max(1, POLL_INTERVAL))
+            # Sleep for a short duration before retrying to avoid tight error loop
+            # Allow shorter sleeps when time is running out
+            error_sleep_time = (
+                min(1, remaining_time)
+                if remaining_time < 1
+                else min(POLL_INTERVAL, remaining_time)
+            )
+            if error_sleep_time > 0:
+                await asyncio.sleep(error_sleep_time)
+            else:
+                logger.info("No time remaining for error retry sleep, exiting")
+                break
+
+    logger.info("Worker loop completed. Total jobs processed: %s", jobs_processed)
+    return jobs_processed
 
 
 def main():
     """Entrypoint for running the worker."""
-    logger.info("Starting Render worker...")
+    logger.info("Starting ViralVibes worker...")
+    logger.info(
+        "Configuration: poll_interval=%ss, batch_size=%s, max_runtime=%sm",
+        POLL_INTERVAL,
+        BATCH_SIZE,
+        MAX_RUNTIME // 60,
+    )
+
     try:
+        # Initialize
         asyncio.run(init())
-        asyncio.run(worker_loop())
+        # Run worker loop
+        jobs_processed = asyncio.run(worker_loop())
+
+        logger.info("Worker completed successfully. Jobs processed: %s", jobs_processed)
+
     except KeyboardInterrupt:
-        logger.info("Worker interrupted, exiting.")
+        logger.info("Worker interrupted by user, exiting gracefully.")
+    except SystemExit:
+        raise  # Re-raise SystemExit from init()
+    except Exception as e:
+        logger.exception("Worker failed with unexpected error: %s", e)
+        raise SystemExit(1) from e
 
 
 if __name__ == "__main__":

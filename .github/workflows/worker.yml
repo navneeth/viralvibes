@@ -2,16 +2,17 @@ name: ViralVibes Worker
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # Runs every 10 minutes
+     - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   run-worker:
     runs-on: ubuntu-latest
+    timeout-minutes: 330  # 5.5 hours (safety buffer)
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -19,10 +20,15 @@ jobs:
       USE_YTDLP: ${{ secrets.USE_YTDLP }}
       WORKER_POLL_INTERVAL: "10"
       WORKER_BATCH_SIZE: "3"
+      WORKER_MAX_RUNTIME: "300"  # 5 hours in minutes
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python -m worker.worker
+      - name: Run worker
+        run: |
+          echo "Starting worker at $(date)"
+          python -m worker.worker
+          echo "Worker finished at $(date)"
