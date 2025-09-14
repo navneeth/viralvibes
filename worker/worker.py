@@ -199,7 +199,7 @@ async def worker_loop():
                 # Check time before processing each job
                 if time.time() - start_time >= MAX_RUNTIME:
                     logger.info("Max runtime reached while processing jobs, stopping")
-                    return jobs_processed
+                    break  # Break from job processing loop
 
                 await handle_job(job)
                 jobs_processed += 1
@@ -209,7 +209,17 @@ async def worker_loop():
         except Exception:
             logger.exception("Unexpected error in worker loop; sleeping before retry")
             # Sleep for a short duration before retrying to avoid tight error loop
-            await asyncio.sleep(max(1, min(POLL_INTERVAL, remaining_time)))
+            # Allow shorter sleeps when time is running out
+            error_sleep_time = (
+                min(1, remaining_time)
+                if remaining_time < 1
+                else min(POLL_INTERVAL, remaining_time)
+            )
+            if error_sleep_time > 0:
+                await asyncio.sleep(error_sleep_time)
+            else:
+                logger.info("No time remaining for error retry sleep, exiting")
+                break
 
     logger.info("Worker loop completed. Total jobs processed: %s", jobs_processed)
     return jobs_processed
