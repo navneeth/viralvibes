@@ -2,10 +2,9 @@ import asyncio
 import io
 import logging
 import re
-from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple, Union
-from urllib.parse import parse_qs, quote_plus, urlparse
+from typing import Optional
+from urllib.parse import quote_plus
 
 import polars as pl
 from dotenv import load_dotenv
@@ -28,7 +27,6 @@ from components import (
 )
 from constants import (
     CARD_BASE,
-    FLEX_BETWEEN,
     FLEX_CENTER,
     FLEX_COL,
     FORM_CARD,
@@ -36,7 +34,6 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
-    benefits_lst,
 )
 from db import (
     get_cached_playlist_stats,
