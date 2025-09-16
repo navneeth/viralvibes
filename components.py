@@ -33,9 +33,9 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
-    testimonials,
     between,
     maxpx,
+    testimonials,
 )
 from db import fetch_known_playlists, fetch_random_playlists
 from utils import format_number, safe_channel_name
@@ -964,42 +964,68 @@ def section_header(mono_text, heading, subheading, max_width=32, center=True):
         P(subheading, cls=f"l-body {maxrem(max_width)}"),
         cls=f"{maxrem(50)} mx-auto {col} {pos} gap-6",
     )
+
+
 def arrow(d):
-    return Button(Img(src=f"assets/icons/arrow-{d}.svg", alt="Arrow left"),
-           cls="disabled:opacity-40 transition-opacity", id=f"slide{d.capitalize()}", aria_label=f"Slide {d}")
+    return Button(
+        Img(src=f"assets/icons/arrow-{d}.svg", alt="Arrow {d}"),
+        cls="disabled:opacity-40 transition-opacity",
+        id=f"slide{d.capitalize()}",
+        aria_label=f"Slide {d}",
+    )
+
 
 def carousel(items, id="carousel-container", extra_classes=""):
-    carousel_content = Div(*items, id=id,
-        cls=f"hide-scrollbar {col} lg:flex-row gap-4 lg:gap-6 rounded-l-3xl xl:rounded-3xl w-full lg:overflow-hidden xl:overflow-hidden whitespace-nowrap {extra_classes}")
+    carousel_content = Div(
+        *items,
+        id=id,
+        cls=f"hide-scrollbar {col} lg:flex-row gap-4 lg:gap-6 rounded-l-3xl xl:rounded-3xl w-full lg:overflow-hidden xl:overflow-hidden whitespace-nowrap {extra_classes}",
+    )
 
     arrows = Div(
-        Div(arrow("left"), arrow("right"),
-            cls=f"w-[4.5rem] {between} ml-auto"),
-        cls=f"hidden lg:flex xl:flex justify-start {maxrem(41)} py-6 pl-6 pr-20")
-    return Div(carousel_content, arrows, cls=f"max-h-fit {col} items-start lg:-mr-16 {maxpx(1440)} overflow-hidden")
+        Div(arrow("left"), arrow("right"), cls=f"w-[4.5rem] {between} ml-auto"),
+        cls=f"hidden lg:flex xl:flex justify-start {maxrem(41)} py-6 pl-6 pr-20",
+    )
+    return Div(
+        carousel_content,
+        arrows,
+        cls=f"max-h-fit {col} items-start lg:-mr-16 {maxpx(1440)} overflow-hidden",
+    )
+
 
 def testimonial_card(idx, quote, author, role, company, avatar_url):
     return Card(
         Div(
-            Img(src=avatar_url, alt=author, cls="w-16 h-16 rounded-full shadow mb-4 mx-auto"),
+            Img(
+                src=avatar_url,
+                alt=author,
+                cls="w-16 h-16 rounded-full shadow mb-4 mx-auto",
+            ),
             P(f'"{quote}"', cls="italic text-lg text-gray-800 mb-4"),
             H4(author, cls="font-bold text-gray-900"),
             P(f"{role}, {company}", cls="text-sm text-gray-500"),
             cls="text-center space-y-2",
         ),
         cls="bg-pink-50 rounded-2xl shadow-lg p-8 mx-2",
-        uk_scrollspy=f"cls: uk-animation-slide-bottom; delay:{idx*100}",
+        uk_scrollspy=f"cls: uk-animation-slide-bottom; delay:{idx * 100}",
     )
 
+
 def testimonials_section():
-    testimonial_cards = [testimonial_card(i, *args) for i, args in enumerate(testimonials)]
+    testimonial_cards = [
+        testimonial_card(i, *args) for i, args in enumerate(testimonials)
+    ]
     return section_wrapper(
         Div(
             section_header(
-                "LOVE IS IN THE AIR", "What creators say",
+                "LOVE IS IN THE AIR",
+                "What creators say",
                 "Top YouTube creators and strategists share their love for ViralVibes.",
-                max_width=21, center=True),
+                max_width=21,
+                center=True,
+            ),
             carousel(testimonial_cards),
-            cls=f"{maxrem(90)} mx-auto flex flex-col items-center gap-8"),
-        bg_color="pink-100"
+            cls=f"{maxrem(90)} mx-auto flex flex-col items-center gap-8",
+        ),
+        bg_color="pink-100",
     )
