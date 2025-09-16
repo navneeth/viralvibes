@@ -25,6 +25,7 @@ from components import (
     footer,
     section_header,
     section_wrapper,
+    testimonials_section,
 )
 from constants import (
     CARD_BASE,
@@ -225,6 +226,7 @@ def index():
                 _Section(how_it_works_section(), id="how-it-works-section"),
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 _Section(HomepageAccordion(), id="explore-section"),
+                _Section(testimonials_section(), id="testimonials-section"),
                 footer(),
                 cls=(ContainerT.xl, "uk-container-expand"),
             ),

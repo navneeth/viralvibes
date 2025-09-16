@@ -1,5 +1,8 @@
 from monsterui.all import LiStep, Steps, StepsT, StepT
 
+icons = 'assets/icons'
+between = "flex justify-between"
+
 # CSS Class Constants
 FLEX_COL = "flex flex-col"
 FLEX_CENTER = "flex items-center"
@@ -9,6 +12,9 @@ GAP_4 = "flex gap-4"
 SECTION_BASE = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
 CARD_BASE = "max-w-2xl mx-auto my-12 p-8 shadow-lg rounded-xl bg-white text-gray-900 hover:shadow-xl transition-shadow duration-300"
 HEADER_CARD = "bg-gradient-to-r from-rose-500 via-red-600 to-red-700 text-white py-8 px-6 text-center rounded-xl"
+
+def maxpx (px ): return f"w-full max-w-[{px}px]"
+def maxrem(rem): return f"w-full max-w-[{rem}rem]"
 
 # Single source of truth for standard surface cards (forms/newsletter)
 FORM_CARD = (
@@ -65,6 +71,21 @@ benefits_lst = [
     (
         "Speed & scale",
         "FastHTML applications are fast and scalable. They're also easy to deploy, since you can use any hosting service that supports Python.",
+    ),
+]
+
+testimonials = [
+    (
+        "ViralVibes helped me decode my channel's growth patterns. The dashboard is a game changer!",
+        "Alex Kim", "YouTube Creator", "TechExplained", "/static/testimonials/alex-kim.png"
+    ),
+    (
+        "The playlist analytics are incredibly detailed and easy to understand. Highly recommended.",
+        "Priya Singh", "Content Strategist", "MediaPulse", "/static/testimonials/priya-singh.png"
+    ),
+    (
+        "I love how ViralVibes visualizes engagement and controversy. It’s a must-have for creators.",
+        "Jordan Lee", "Growth Hacker", "ViralBoost", "/static/testimonials/jordan-lee.png"
     ),
 ]
 
