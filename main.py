@@ -22,10 +22,10 @@ from components import (
     HomepageAccordion,
     NewsletterCard,
     benefit,
+    faq_section,
     footer,
     section_header,
     section_wrapper,
-    testimonials_section,
 )
 from constants import (
     CARD_BASE,
@@ -226,6 +226,7 @@ def index():
                 _Section(how_it_works_section(), id="how-it-works-section"),
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 _Section(HomepageAccordion(), id="explore-section"),
+                _Section(faq_section(), id="faq-section"),
                 # _Section(testimonials_section(), id="testimonials-section"), # disabled for now. buggy
                 footer(),
                 cls=(ContainerT.xl, "uk-container-expand"),

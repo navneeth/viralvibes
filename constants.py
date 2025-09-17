@@ -103,6 +103,26 @@ testimonials = [
     ),
 ]
 
+faqs = [
+    (
+        "What kinds of things can I do with ViralVibes?",
+        "ViralVibes is designed for analyzing YouTube playlists and surfacing insights. You can use it to track engagement, spot viral trends, compare creators, or run deep dives on specific niches. It works equally well for quick experiments, dashboards, research projects, or as part of a bigger content strategy.",
+    ),
+    (
+        "Where can I deploy ViralVibes?",
+        "ViralVibes is a Python-based web app. You can run it locally, or deploy it to services like Railway, Vercel, Hugging Face Spaces, Replit, or any VPS/server with Python installed. It’s lightweight and runs on all major operating systems.",
+    ),
+    (
+        "How is ViralVibes different from other analytics tools?",
+        "Most analytics tools focus on generic stats. ViralVibes is built specifically for YouTube playlists — it digs into engagement rate, controversy score, likes vs dislikes, and audience sentiment in a way that off-the-shelf dashboards don’t.",
+    ),
+    (
+        "Does this only work for static reports, or can it be interactive?",
+        "It’s fully interactive. ViralVibes surfaces real-time insights, lets you explore data visually, and updates dynamically as you validate playlists. You’re not just looking at static charts — you’re exploring living data.",
+    ),
+]
+
+
 # YouTube Playlist Constants
 KNOWN_PLAYLISTS = [
     {

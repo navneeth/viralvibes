@@ -33,6 +33,7 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
+    faqs,
     maxpx,
     testimonials,
 )
@@ -47,6 +48,8 @@ section_base1 = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
 section_base = f"{col} {section_base1}"
 between = "flex justify-between"
 gap2 = "flex gap-2"
+inset = "shadow-[0_2px_2px_rgba(255,255,255,0.5),0_3px_3px_rgba(0,0,0,0.2)]"
+bnset = "shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.5)]"
 
 
 # Helper Functions to make the component file self-contained
@@ -74,6 +77,41 @@ def benefit(title, content):
         H3(title, cls=f"text-white heading-3"),
         P(content, cls=f"l-body mt-6 lg:mt-6"),
         cls="w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
+    )
+
+
+def accordion(id, question, answer, question_cls="", answer_cls="", container_cls=""):
+    return Div(
+        Input(
+            id=f"collapsible-{id}",
+            type="checkbox",
+            cls=f"collapsible-checkbox peer/collapsible hidden",
+        ),
+        Label(
+            P(question, cls=f"flex-grow {question_cls}"),
+            Img(src=f"{icons}/plus-icon.svg", alt="Expand", cls=f"plus-icon w-6 h-6"),
+            Img(
+                src=f"{icons}/minus-icon.svg", alt="Collapse", cls=f"minus-icon w-6 h-6"
+            ),
+            _for=f"collapsible-{id}",
+            cls="flex items-center cursor-pointer py-4 lg:py-6 pl-6 lg:pl-8 pr-4 lg:pr-6",
+        ),
+        P(
+            answer,
+            cls=f"overflow-hidden max-h-0 pl-6 lg:pl-8 pr-4 lg:pr-6 peer-checked/collapsible:max-h-[30rem] peer-checked/collapsible:pb-4 peer-checked/collapsible:lg:pb-6 transition-all duration-300 ease-in-out {answer_cls}",
+        ),
+        cls=container_cls,
+    )
+
+
+def faq_item(question, answer, id):
+    return accordion(
+        id=id,
+        question=question,
+        answer=answer,
+        question_cls="text-black s-body",
+        answer_cls="s-body text-black/80 col-span-full",
+        container_cls=f"{col} justify-between bg-soft-blue rounded-[1.25rem] {bnset}",
     )
 
 
@@ -1046,4 +1084,28 @@ def testimonials_section():
             cls=f"{section_base} {maxrem(90)} mx-auto lg:flex-row items-start",
         ),
         bg_color="red-100",
+    )
+
+
+def faq_section():
+    return section_wrapper(
+        Div(
+            section_header(
+                "FAQ",
+                "Questions? Answers.",
+                "Your top FastHTML questions clarified.",
+                max_width=21,
+                center=False,
+            ),
+            Div(
+                *[
+                    faq_item(question, answer, i + 3)
+                    for i, (question, answer) in enumerate(faqs)
+                ],
+                cls=f"{col} gap-4 {maxrem(32)} transition ease-out delay-[300ms]",
+            ),
+            cls=f"{section_base} w-full mx-auto lg:flex-row items-start max-w-7xl",
+        ),
+        bg_color="red-700",
+        flex=False,
     )
