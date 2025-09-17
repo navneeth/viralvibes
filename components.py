@@ -33,17 +33,36 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
-    between,
     maxpx,
     testimonials,
 )
-from db import fetch_known_playlists, fetch_random_playlists
-from utils import format_number, safe_channel_name
+from db import fetch_random_playlists
+from utils import format_number
 
 """Define reusable UI components for the ViralVibes application."""
-
+icons = "assets/icons"
 col = "flex flex-col"
+center = "flex items-center"
 section_base1 = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
+section_base = f"{col} {section_base1}"
+between = "flex justify-between"
+gap2 = "flex gap-2"
+
+
+# Helper Functions to make the component file self-contained
+def DivCentered(*args, **kwargs) -> Div:
+    """A Div with flexbox for centering content."""
+    return Div(*args, **kwargs, cls=f"{FLEX_COL} {FLEX_CENTER}")
+
+
+def DivHStacked(*args, **kwargs) -> Div:
+    """A horizontal stack of Divs with a gap."""
+    return Div(*args, **kwargs, cls=f"flex gap-4")
+
+
+def DivFullySpaced(*args, **kwargs) -> Div:
+    """A Div with full space between items."""
+    return Div(*args, **kwargs, cls=f"flex justify-between items-center")
 
 
 def maxrem(rem):
@@ -207,12 +226,12 @@ def AnalysisFormCard() -> Card:
             ),
         ),
         cls="w-full my-12",
+        style=FORM_CARD,  # Fix: Use new style and class variables
+        uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
 
 
 # Helper: render sample playlist quick-fill buttons
-
-
 def SamplePlaylistButtons(input_name: str = "playlist_url", max_items: int = 5) -> Div:
     """Render quick action buttons from cached playlists in DB..
     Args:
@@ -340,7 +359,8 @@ def NewsletterCard() -> Card:
         ),
         Div(id="newsletter-result", style="margin-top:1rem;"),
         header=CardTitle("Be the first to try it", cls="text-xl font-bold mb-4"),
-        cls=NEWSLETTER_CARD,
+        cls=NEWSLETTER_CARD,  # Fix: Use new class and style variables
+        style=NEWSLETTER_CARD,
         body_cls="space-y-6",
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
@@ -583,21 +603,6 @@ def AnalyticsDashboardSection(
                 chart_bubble_engagement_vs_views(
                     df, "bubble-engagement"
                 ),  # Multi-dimensional analysis
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
-            ),
-            cls="mb-16",
-        ),
-        # Group 4: Advanced Insights & Patterns
-        Div(
-            H3(
-                "📈 Advanced Insights & Patterns",
-                cls="text-2xl font-semibold text-gray-800 mb-4",
-            ),
-            P(
-                "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
-                cls="text-gray-500 mb-6",
-            ),
-            Grid(
                 # chart_duration_vs_engagement(df, "duration-engagement"),
                 chart_video_radar(df, "video-radar"),
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
@@ -968,7 +973,7 @@ def section_header(mono_text, heading, subheading, max_width=32, center=True):
 
 def arrow(d):
     return Button(
-        Img(src=f"assets/icons/arrow-{d}.svg", alt="Arrow {d}"),
+        Img(src=f"assets/icons/arrow-{d}.svg", alt="Arrow left"),
         cls="disabled:opacity-40 transition-opacity",
         id=f"slide{d.capitalize()}",
         aria_label=f"Slide {d}",
@@ -993,21 +998,33 @@ def carousel(items, id="carousel-container", extra_classes=""):
     )
 
 
-def testimonial_card(idx, quote, author, role, company, avatar_url):
-    return Card(
+def testimonial_card(idx, comment, name, role, company, image_src):
+    return Div(
+        P(comment, cls="m-body text-black"),
         Div(
-            Img(
-                src=avatar_url,
-                alt=author,
-                cls="w-16 h-16 rounded-full shadow mb-4 mx-auto",
+            Div(
+                Img(src=image_src, alt=f"Picture of {name}", width="112", height="112"),
+                cls="rounded-full w-11 h-11 lg:w-14 lg:h-14",
             ),
-            P(f'"{quote}"', cls="italic text-lg text-gray-800 mb-4"),
-            H4(author, cls="font-bold text-gray-900"),
-            P(f"{role}, {company}", cls="text-sm text-gray-500"),
-            cls="text-center space-y-2",
+            Div(
+                P(name, cls=f"m-body text-black"),
+                Div(
+                    P(role),
+                    Img(
+                        src=f"{icons}/dot.svg",
+                        alt="Dot separator",
+                        width="4",
+                        height="4",
+                    ),
+                    P(company),
+                    cls=f"{gap2} xs-mono-body w-full",
+                ),
+                cls="w-full",
+            ),
+            cls=f"{center} justify-start gap-2",
         ),
-        cls="bg-pink-50 rounded-2xl shadow-lg p-8 mx-2",
-        uk_scrollspy=f"cls: uk-animation-slide-bottom; delay:{idx * 100}",
+        id=f"testimonial-card-{idx + 1}",
+        cls=f"testimonial-card {col} flex-none whitespace-normal flex justify-between h-96 rounded-3xl items-start bg-soft-pink p-4 lg:p-8 {maxrem(36)} lg:w-96",
     )
 
 
@@ -1025,7 +1042,8 @@ def testimonials_section():
                 center=True,
             ),
             carousel(testimonial_cards),
-            cls=f"{maxrem(90)} mx-auto flex flex-col items-center gap-8",
+            # cls=f"{maxrem(90)} mx-auto flex flex-col items-center gap-8",
+            cls=f"{section_base} {maxrem(90)} mx-auto lg:flex-row items-start",
         ),
-        bg_color="pink-100",
+        bg_color="red-100",
     )

@@ -226,7 +226,7 @@ def index():
                 _Section(how_it_works_section(), id="how-it-works-section"),
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 _Section(HomepageAccordion(), id="explore-section"),
-                _Section(testimonials_section(), id="testimonials-section"),
+                # _Section(testimonials_section(), id="testimonials-section"), # disabled for now. buggy
                 footer(),
                 cls=(ContainerT.xl, "uk-container-expand"),
             ),
