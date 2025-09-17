@@ -9,5 +9,5 @@ polars
 supabase
 tenacity
 requests
-pytest 
-pytest-asyncio
+#pytest 
+#pytest-asyncio
