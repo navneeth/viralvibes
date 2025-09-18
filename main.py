@@ -22,6 +22,7 @@ from components import (
     HomepageAccordion,
     NewsletterCard,
     benefit,
+    faq_section,
     footer,
     section_header,
     section_wrapper,
@@ -40,19 +41,19 @@ from constants import (
 )
 from db import (
     get_cached_playlist_stats,
+    get_playlist_job_status,
+    get_playlist_preview_info,
     init_supabase,
     setup_logging,
+    submit_playlist_job,
     supabase_client,
     upsert_playlist_stats,
-    submit_playlist_job,
-    get_playlist_job_status, 
-    get_playlist_preview_info,
-    get_cached_playlist_stats
 )
 from step_components import StepProgress
 from utils import format_number, parse_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
-from youtube_service import YoutubePlaylistService
+
+# from youtube_service import YoutubePlaylistService
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -124,7 +125,21 @@ def init_app():
 init_app()
 
 # Initialize YouTube service
-yt_service = YoutubePlaylistService()
+# yt_service = YoutubePlaylistService()
+# Manually define the headers here instead of importing them
+# from youtube_service.py
+DISPLAY_HEADERS = [
+    "Rank",
+    "Title",
+    "Views",
+    "Likes",
+    "Dislikes",
+    "Comments",
+    "Duration",
+    "Engagement Rate",
+    "Controversy",
+    "Rating",
+]
 
 
 @rt("/debug/supabase")
@@ -229,6 +244,8 @@ def index():
                 _Section(how_it_works_section(), id="how-it-works-section"),
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 _Section(HomepageAccordion(), id="explore-section"),
+                _Section(faq_section(), id="faq-section"),
+                # _Section(testimonials_section(), id="testimonials-section"), # disabled for now. buggy
                 footer(),
                 cls=(ContainerT.xl, "uk-container-expand"),
             ),
@@ -257,33 +274,36 @@ async def preview_playlist(playlist_url: str):
     if cached_stats:
         # If cached, forward to /validate/full (HTMX request)
         return Script(
-            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});" % playlist_url
+            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
+            % playlist_url
         )
 
     # 2. If not cached, try to get minimal info from DB (e.g., submission status)
     # You may want to add a table/row in Supabase for submitted jobs with status
 
-
     job_status = await get_playlist_job_status(playlist_url)
-    preview_info = await get_playlist_preview_info(playlist_url)  # e.g., title, thumbnail, etc. if available
+    preview_info = await get_playlist_preview_info(
+        playlist_url
+    )  # e.g., title, thumbnail, etc. if available
 
     # 3. Show minimal info or placeholder
     return Div(
         H2("Playlist Analysis Not Available Yet", cls="text-lg font-semibold"),
         P(f"Playlist URL: {playlist_url}", cls="text-gray-500"),
-        P(
-            f"Status: {job_status or 'Not submitted'}",
-            cls="text-gray-400 mb-2"
-        ),
+        P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
         Img(
             src=preview_info.get("thumbnail", "/static/placeholder.png"),
             alt="Playlist thumbnail",
             style="width:64px;height:64px;border-radius:50%;margin:auto;",
-        ) if preview_info and preview_info.get("thumbnail") else None,
+        )
+        if preview_info and preview_info.get("thumbnail")
+        else None,
         P(
             preview_info.get("title", "No title available"),
-            cls="text-gray-700 font-semibold"
-        ) if preview_info and preview_info.get("title") else None,
+            cls="text-gray-700 font-semibold",
+        )
+        if preview_info and preview_info.get("title")
+        else None,
         Button(
             "Submit for Analysis",
             hx_post="/submit-job",
@@ -341,26 +361,27 @@ async def validate_full(
 
             else:
                 # --- 3) Fresh fetch ---
-                (
-                    df,
-                    playlist_name,
-                    channel_name,
-                    channel_thumbnail,
-                    summary_stats,
-                ) = await yt_service.get_playlist_data(playlist_url)
 
-                if df.height == 0:
-                    yield str(Alert(P("No videos found."), cls=AlertT.warning))
-                    return
+                # (
+                #     df,
+                #     playlist_name,
+                #     channel_name,
+                #     channel_thumbnail,
+                #     summary_stats,
+                # ) = await yt_service.get_playlist_data(playlist_url)
 
-                # Ensure max matches actual number of videos
-                total = df.height
-                yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max(total, 1)}; }}</script>"
+                # if df.height == 0:
+                #     yield str(Alert(P("No videos found."), cls=AlertT.warning))
+                #     return
 
-                # Proxy tick per video (post-fetch, still gives user feedback)
-                for i in range(1, total + 1):
-                    yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
-                    await asyncio.sleep(0)
+                # # Ensure max matches actual number of videos
+                # total = df.height
+                # yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max(total, 1)}; }}</script>"
+
+                # # Proxy tick per video (post-fetch, still gives user feedback)
+                # for i in range(1, total + 1):
+                #     yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
+                #     await asyncio.sleep(0)
 
                 # Cache snapshot
                 stats_to_cache = {
@@ -423,7 +444,8 @@ async def validate_full(
             # --- 5) Build header-to-df column mapping (robust to differences like 'Views' vs 'View Count') ---
             # Use yt_service display headers, but map them to the actual df columns used in table
             svc_headers = (
-                yt_service.get_display_headers()
+                # yt_service.get_display_headers()
+                DISPLAY_HEADERS
             )  # e.g., ["Rank","Title","Views","Likes",...]
             display_to_df = {
                 "Rank": "Rank",
@@ -682,23 +704,27 @@ def newsletter(email: str):
         )
 
 
-
-
 @rt("/dashboard", methods=["GET"])
 async def dashboard(playlist_url: str):
     cached_stats = await get_cached_playlist_stats(playlist_url)
     if not cached_stats:
         return Div("No analysis found for this playlist.", cls="text-red-600")
-    df = pl.read_json(io.BytesIO(cached_stats['df_json'].encode('utf-8')))
+    df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
     summary_stats = cached_stats["summary_stats"]
     playlist_name = cached_stats["title"]
     channel_name = cached_stats.get("channel_name", "")
     channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-    return AnalyticsDashboardSection(df, summary_stats, playlist_name, channel_name, channel_thumbnail)
+    return AnalyticsDashboardSection(
+        df, summary_stats, playlist_name, channel_name, channel_thumbnail
+    )
+
 
 @rt("/submit-job", methods=["POST"])
 async def submit_job(playlist_url: str):
     await submit_playlist_job(playlist_url)
-    return Div("Your playlist is being analyzed. Please check back soon!", cls="text-blue-600")
+    return Div(
+        "Your playlist is being analyzed. Please check back soon!", cls="text-blue-600"
+    )
+
 
 serve()
