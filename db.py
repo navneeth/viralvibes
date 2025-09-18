@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import random
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 import polars as pl
@@ -144,42 +144,17 @@ async def insert_playlist_stats(stats: Dict[str, Any]) -> bool:
         logger.warning("Supabase client not available for inserting stats")
         return False
 
-    try:
-        # Add processed_date to stats
-        stats_with_date = {**stats, "processed_date": date.today().isoformat()}
+    # Add processed_date and serialize fields
+    stats_with_date = {**stats, "processed_date": date.today().isoformat()}
+    # --- Ensure JSON serializable fields ---
+    if "df" in stats_with_date:
+        stats_with_date["df_json"] = stats_with_date["df"].write_json()
+        del stats_with_date["df"]
+    if "summary_stats" in stats_with_date:
+        stats_with_date["summary_stats"] = json.dumps(stats_with_date["summary_stats"])
 
-        # --- Ensure JSON serializable fields ---
-        if "df" in stats_with_date:  # Polars DataFrame
-            stats_with_date["df_json"] = stats_with_date["df"].write_json()
-            del stats_with_date["df"]
-        if "summary_stats" in stats_with_date:
-            stats_with_date["summary_stats"] = json.dumps(
-                stats_with_date["summary_stats"]
-            )
-
-        # Insert with conflict handling (ON CONFLICT DO NOTHING equivalent)
-        response = (
-            supabase_client.table("playlist_stats")
-            .upsert(stats_with_date, on_conflict="playlist_url,processed_date")
-            .execute()
-        )
-
-        if response.data:
-            logger.info(
-                f"Successfully inserted stats for playlist: {stats.get('playlist_url')}"
-            )
-            return True
-        else:
-            logger.warning(
-                f"No data returned from insert for playlist: {stats.get('playlist_url')}"
-            )
-            return False
-
-    except Exception as e:
-        logger.error(
-            f"Error inserting stats for playlist {stats.get('playlist_url')}: {e}"
-        )
-        return False
+    # Use upsert_row helper
+    return await upsert_row("playlist_stats", stats_with_date, ["playlist_url", "processed_date"])
 
 
 async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
@@ -284,18 +259,23 @@ async def cache_playlist(
         return False
 
 
-def fetch_known_playlists(max_items: int = 10) -> list[dict]:
-    """Fetch distinct playlists from DB for use as samples (deterministic)."""
+def fetch_playlists(max_items: int = 10, randomize: bool = False) -> list[dict]:
+    """
+    Fetch distinct playlists from DB.
+    If randomize=True, returns a random subset (non-deterministic).
+    Otherwise, returns the most recent playlists (deterministic).
+    """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch playlists")
         return []
 
     try:
+        pool_size = max_items * 5 if randomize else max_items
         response = (
             supabase_client.table("playlist_stats")
             .select("playlist_url, title, processed_date")
             .order("processed_date", desc=True)
-            .limit(max_items)
+            .limit(pool_size)
             .execute()
         )
 
@@ -309,48 +289,76 @@ def fetch_known_playlists(max_items: int = 10) -> list[dict]:
             playlists.append(
                 {"url": url, "title": row.get("title") or "Untitled Playlist"}
             )
-            if len(playlists) >= max_items:
+            if not randomize and len(playlists) >= max_items:
                 break
 
-        return playlists
+        if not playlists:
+            return []
+
+        if randomize:
+            return random.sample(playlists, k=min(max_items, len(playlists)))
+        else:
+            return playlists
 
     except Exception as e:
         logger.error(f"Error fetching playlists: {e}")
         return []
 
 
-def fetch_random_playlists(max_items: int = 10) -> list[dict]:
-    """Fetch a random subset of distinct playlists from DB (non-deterministic)."""
+async def get_playlist_job_status(playlist_url: str) -> str:
+    """
+    Returns the status of a playlist analysis job.
+    Possible statuses: 'pending', 'processing', 'complete', 'failed', or None if not submitted.
+    """
+    response = supabase_client.table("playlist_jobs") \
+        .select("status") \
+        .eq("playlist_url", playlist_url) \
+        .order("created_at", desc=True) \
+        .limit(1) \
+        .execute()
+    if response.data and len(response.data) > 0:
+        return response.data[0].get("status")
+    return None
+
+
+async def get_playlist_preview_info(playlist_url: str) -> dict:
+    """
+    Returns minimal info about a playlist if available (title, thumbnail, etc).
+    """
+    response = supabase_client.table("playlist_stats") \
+        .select("title", "channel_thumbnail") \
+        .eq("playlist_url", playlist_url) \
+        .limit(1) \
+        .execute()
+    if response.data and len(response.data) > 0:
+        return {
+            "title": response.data[0].get("title"),
+            "thumbnail": response.data[0].get("channel_thumbnail"),
+        }
+    return {}
+
+
+async def submit_playlist_job(playlist_url: str) -> None:
+    """Insert a new playlist analysis job into the playlist_jobs table."""
+    payload = {
+        "playlist_url": playlist_url,
+        "status": "pending",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    # Use upsert_row helper, conflict on playlist_url and status
+    await upsert_row("playlist_jobs", payload, ["playlist_url", "status"])
+
+
+async def upsert_row(table: str, payload: dict, conflict_fields: list = None) -> bool:
     if not supabase_client:
-        logger.warning("Supabase client not available to fetch playlists")
-        return []
-
+        logger.warning("Supabase client not available for upsert")
+        return False
     try:
-        # Fetch a larger pool so randomization has variety
-        response = (
-            supabase_client.table("playlist_stats")
-            .select("playlist_url, title, processed_date")
-            .order("processed_date", desc=True)  # still biases toward fresh data
-            .limit(max_items * 5)
-            .execute()
-        )
-
-        seen = set()
-        playlists = []
-        for row in response.data:
-            url = row.get("playlist_url")
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            playlists.append(
-                {"url": url, "title": row.get("title") or "Untitled Playlist"}
-            )
-
-        if not playlists:
-            return []
-
-        return random.sample(playlists, k=min(max_items, len(playlists)))
-
-    except Exception:
-        logger.exception("Error fetching random playlists")
-        return []
+        if conflict_fields:
+            response = supabase_client.table(table).upsert(payload, on_conflict=",".join(conflict_fields)).execute()
+        else:
+            response = supabase_client.table(table).insert(payload).execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Error upserting row in {table}: {e}")
+        return False

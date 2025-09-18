@@ -34,7 +34,7 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
 )
-from db import fetch_known_playlists, fetch_random_playlists
+from db import fetch_playlists
 from utils import format_number, safe_channel_name
 
 """Define reusable UI components for the ViralVibes application."""
@@ -211,12 +211,12 @@ def AnalysisFormCard() -> Card:
 
 
 def SamplePlaylistButtons(input_name: str = "playlist_url", max_items: int = 5) -> Div:
-    """Render quick action buttons from cached playlists in DB..
+    """Render quick action buttons from cached playlists in DB.
     Args:
         input_name: The name attribute of the input to populate.
         max_items: Number of sample playlists to show.
     """
-    known_playlists = fetch_random_playlists(max_items=max_items)
+    known_playlists = fetch_playlists(max_items=max_items, randomize=True)
     if not known_playlists:
         return Div()
 
