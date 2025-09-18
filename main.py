@@ -45,6 +45,10 @@ from db import (
     setup_logging,
     supabase_client,
     upsert_playlist_stats,
+    submit_playlist_job,
+    get_playlist_job_status, 
+    get_playlist_preview_info,
+    get_cached_playlist_stats
 )
 from step_components import StepProgress
 from utils import format_number, parse_number
@@ -251,50 +255,43 @@ def validate_url(playlist: YoutubePlaylist):
 
 @rt("/validate/preview", methods=["POST"])
 async def preview_playlist(playlist_url: str):
-    try:
-        (
-            playlist_name,
-            channel_name,
-            channel_thumbnail,
-            playlist_length,
-        ) = await yt_service.get_playlist_preview(playlist_url)
-
-    except Exception as e:
-        logger.warning("Preview fetch failed: %s", e)
-        return Div("Preview unavailable.", cls="text-gray-400")
-
-    return Div(
-        H2(f"Analyzing Playlist: {playlist_name}", cls="text-lg font-semibold"),
-        Img(
-            src=channel_thumbnail,
-            alt="Channel thumbnail",
-            style="width:64px;height:64px;border-radius:50%;margin:auto;",
-        ),
-        P(
-            Data(
-                str(playlist_length),
-                value=str(playlist_length),
-                cls="text-white/90 font-medium",
-            ),
-            " videos in playlist: ",
-            Meter(
-                value=0,
-                min=0,
-                max=playlist_length or 1,
-                low=10,
-                high=50,
-                optimum=100,
-                id="fetch-progress-meter",
-                cls="w-full h-2 mt-2",
-            ),
+    # 1. Try to get cached result
+    cached_stats = await get_cached_playlist_stats(playlist_url)
+    if cached_stats:
+        # If cached, forward to /validate/full (HTMX request)
+        return Script(
+            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});" % playlist_url
         )
-        if playlist_length
-        else None,
+
+    # 2. If not cached, try to get minimal info from DB (e.g., submission status)
+    # You may want to add a table/row in Supabase for submitted jobs with status
+
+
+    job_status = await get_playlist_job_status(playlist_url)
+    preview_info = await get_playlist_preview_info(playlist_url)  # e.g., title, thumbnail, etc. if available
+
+    # 3. Show minimal info or placeholder
+    return Div(
+        H2("Playlist Analysis Not Available Yet", cls="text-lg font-semibold"),
+        P(f"Playlist URL: {playlist_url}", cls="text-gray-500"),
+        P(
+            f"Status: {job_status or 'Not submitted'}",
+            cls="text-gray-400 mb-2"
+        ),
+        Img(
+            src=preview_info.get("thumbnail", "/static/placeholder.png"),
+            alt="Playlist thumbnail",
+            style="width:64px;height:64px;border-radius:50%;margin:auto;",
+        ) if preview_info and preview_info.get("thumbnail") else None,
+        P(
+            preview_info.get("title", "No title available"),
+            cls="text-gray-700 font-semibold"
+        ) if preview_info and preview_info.get("title") else None,
         Button(
-            "Start Full Analysis",
-            hx_post="/validate/full",
+            "Submit for Analysis",
+            hx_post="/submit-job",
             hx_vals={"playlist_url": playlist_url},
-            hx_target="#results-box",
+            hx_target="#preview-box",
             hx_indicator="#loading-bar",
             cls="uk-button uk-button-primary mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300",
             type="button",
@@ -687,5 +684,24 @@ def newsletter(email: str):
             style="color: orange",
         )
 
+
+
+
+@rt("/dashboard", methods=["GET"])
+async def dashboard(playlist_url: str):
+    cached_stats = await get_cached_playlist_stats(playlist_url)
+    if not cached_stats:
+        return Div("No analysis found for this playlist.", cls="text-red-600")
+    df = pl.read_json(io.BytesIO(cached_stats['df_json'].encode('utf-8')))
+    summary_stats = cached_stats["summary_stats"]
+    playlist_name = cached_stats["title"]
+    channel_name = cached_stats.get("channel_name", "")
+    channel_thumbnail = cached_stats.get("channel_thumbnail", "")
+    return AnalyticsDashboardSection(df, summary_stats, playlist_name, channel_name, channel_thumbnail)
+
+@rt("/submit-job", methods=["POST"])
+async def submit_job(playlist_url: str):
+    await submit_playlist_job(playlist_url)
+    return Div("Your playlist is being analyzed. Please check back soon!", cls="text-blue-600")
 
 serve()
