@@ -126,6 +126,20 @@ init_app()
 
 # Initialize YouTube service
 # yt_service = YoutubePlaylistService()
+# Manually define the headers here instead of importing them
+# from youtube_service.py
+DISPLAY_HEADERS = [
+    "Rank",
+    "Title",
+    "Views",
+    "Likes",
+    "Dislikes",
+    "Comments",
+    "Duration",
+    "Engagement Rate",
+    "Controversy",
+    "Rating",
+]
 
 
 @rt("/debug/supabase")
@@ -430,7 +444,8 @@ async def validate_full(
             # --- 5) Build header-to-df column mapping (robust to differences like 'Views' vs 'View Count') ---
             # Use yt_service display headers, but map them to the actual df columns used in table
             svc_headers = (
-                yt_service.get_display_headers()
+                # yt_service.get_display_headers()
+                DISPLAY_HEADERS
             )  # e.g., ["Rank","Title","Views","Likes",...]
             display_to_df = {
                 "Rank": "Rank",
