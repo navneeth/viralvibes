@@ -86,9 +86,7 @@ def init_supabase() -> Optional[Client]:
 
 
 # --- General DB Helpers ---
-async def upsert_row(
-    table: str, payload: dict, conflict_fields: List[str] = None
-) -> bool:
+def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> bool:
     """Inserts or updates a row in a given table.
 
     Args:
@@ -116,7 +114,7 @@ async def upsert_row(
 
 
 # --- Playlist Caching and Job Management ---
-async def get_cached_playlist_stats(
+def get_cached_playlist_stats(
     playlist_url: str, check_date: bool = False
 ) -> Optional[Dict[str, Any]]:
     """Return stats for a playlist if already cached in DB.
@@ -161,7 +159,7 @@ async def get_cached_playlist_stats(
         return None
 
 
-async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
+def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     """
     Main entrypoint for playlist stats caching:
     - Return cached stats if they exist for today.
@@ -179,7 +177,7 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
         return {**stats, "source": "error"}
 
     # Check cache first
-    cached = await get_cached_playlist_stats(playlist_url, check_date=True)
+    cached = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached:
         logger.info(f"Returning cached stats for playlist: {playlist_url}")
         return {**cached, "source": "cache"}
@@ -198,7 +196,7 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     if "df" in stats_to_insert:
         del stats_to_insert["df"]
 
-    success = await upsert_row(
+    success = upsert_row(
         PLAYLIST_STATS_TABLE, stats_to_insert, ["playlist_url", "processed_date"]
     )
 
@@ -258,7 +256,7 @@ def fetch_playlists(
         return []
 
 
-async def get_playlist_job_status(playlist_url: str) -> Optional[str]:
+def get_playlist_job_status(playlist_url: str) -> Optional[str]:
     """
     Returns the status of a playlist analysis job.
     Possible statuses: 'pending', 'processing', 'complete', 'failed', or None if not submitted.
@@ -284,7 +282,7 @@ async def get_playlist_job_status(playlist_url: str) -> Optional[str]:
         return None
 
 
-async def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
+def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     """
     Returns minimal info about a playlist if available (title, thumbnail, etc).
     """
@@ -311,11 +309,11 @@ async def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
         return {}
 
 
-async def submit_playlist_job(playlist_url: str) -> None:
+def submit_playlist_job(playlist_url: str) -> None:
     """Insert a new playlist analysis job into the playlist_jobs table."""
     payload = {
         "playlist_url": playlist_url,
         "status": "pending",
         "created_at": datetime.utcnow().isoformat(),
     }
-    await upsert_row(PLAYLIST_JOBS_TABLE, payload, ["playlist_url", "status"])
+    upsert_row(PLAYLIST_JOBS_TABLE, payload, ["playlist_url", "status"])

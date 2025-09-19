@@ -268,9 +268,9 @@ def validate_url(playlist: YoutubePlaylist):
 
 
 @rt("/validate/preview", methods=["POST"])
-async def preview_playlist(playlist_url: str):
+def preview_playlist(playlist_url: str):
     # 1. Try to get cached result
-    cached_stats = await get_cached_playlist_stats(playlist_url)
+    cached_stats = get_cached_playlist_stats(playlist_url)
     if cached_stats:
         # If cached, forward to /validate/full (HTMX request)
         return Script(
@@ -281,8 +281,8 @@ async def preview_playlist(playlist_url: str):
     # 2. If not cached, try to get minimal info from DB (e.g., submission status)
     # You may want to add a table/row in Supabase for submitted jobs with status
 
-    job_status = await get_playlist_job_status(playlist_url)
-    preview_info = await get_playlist_preview_info(
+    job_status = get_playlist_job_status(playlist_url)
+    preview_info = get_playlist_preview_info(
         playlist_url
     )  # e.g., title, thumbnail, etc. if available
 
@@ -339,7 +339,7 @@ async def validate_full(
             yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={initial_max}; el.value=0; }}</script>"
 
             # --- 2) Try cache first ---
-            cached_stats = await get_cached_playlist_stats(playlist_url)
+            cached_stats = get_cached_playlist_stats(playlist_url)
             if cached_stats:
                 logger.info(f"Using cached stats for playlist {playlist_url}")
 
@@ -402,7 +402,7 @@ async def validate_full(
                     "summary_stats": summary_stats,
                     "df_json": df.write_json(),
                 }
-                await upsert_playlist_stats(stats_to_cache)
+                upsert_playlist_stats(stats_to_cache)
 
             # --- 4) Sorting ---
             # ---    Ensure raw numeric columns exist for reliable sorting ---
@@ -705,8 +705,8 @@ def newsletter(email: str):
 
 
 @rt("/dashboard", methods=["GET"])
-async def dashboard(playlist_url: str):
-    cached_stats = await get_cached_playlist_stats(playlist_url)
+def dashboard(playlist_url: str):
+    cached_stats = get_cached_playlist_stats(playlist_url)
     if not cached_stats:
         return Div("No analysis found for this playlist.", cls="text-red-600")
     df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
@@ -720,8 +720,8 @@ async def dashboard(playlist_url: str):
 
 
 @rt("/submit-job", methods=["POST"])
-async def submit_job(playlist_url: str):
-    await submit_playlist_job(playlist_url)
+def submit_job(playlist_url: str):
+    submit_playlist_job(playlist_url)
     return Div(
         "Your playlist is being analyzed. Please check back soon!", cls="text-blue-600"
     )
