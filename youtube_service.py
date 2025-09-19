@@ -82,46 +82,103 @@ class YoutubePlaylistService:
             return playlist_title, channel_name, channel_thumbnail, playlist_length
         except Exception as e:
             logger.warning(f"Failed to fetch playlist preview: {e}")
-            logger.error(f"[yt-dlp] _get_preview_info failed: {type(e).__name__}: {e}")
-
             return "Preview unavailable", "", "", 0
 
-    async def get_dislike_count(self, video_id: str) -> int:
-        """Fetch dislike count from Return YouTube Dislike API.
+    async def _fetch_dislike_data_async(
+        self, client: httpx.AsyncClient, video_id: str
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Fetch dislike data for a video asynchronously.
 
         Args:
-            video_id (str): YouTube video ID
+            client (httpx.AsyncClient): HTTP client for making requests.
+            video_id (str): YouTube video ID.
 
         Returns:
-            int: Number of dislikes, or 0 if fetch fails
+            Tuple[str, Dict[str, Any]]: Tuple of (video_id, dislike_data).
         """
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(DISLIKE_API_URL.format(video_id))
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        "dislikes": data.get("dislikes", 0),
-                        "likes": data.get("likes", 0),
-                        "rating": data.get("rating"),
-                        "viewCount_api": data.get("viewCount"),
-                        "deleted": data.get("deleted", False),
-                        "dateCreated": data.get("dateCreated"),
-                    }
-                logger.warning(
-                    f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
-                )
+            response = await client.get(DISLIKE_API_URL.format(video_id))
+            if response.status_code == 200:
+                data = response.json()
+                return video_id, {
+                    "dislikes": data.get("dislikes", 0),
+                    "likes": data.get("likes", 0),
+                    "rating": data.get("rating"),
+                    "viewCount_api": data.get("viewCount"),
+                    "deleted": data.get("deleted", False),
+                }
+            logger.warning(
+                f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
+            )
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
-        # Fallback structure
-        return {
+        return video_id, {
             "dislikes": 0,
             "likes": 0,
             "rating": None,
             "viewCount_api": None,
             "deleted": False,
-            "dateCreated": None,
         }
+
+    async def _fetch_video_info_async(self, video_url: str) -> Dict[str, Any]:
+        """Fetch full metadata for a single video asynchronously using asyncio.to_thread."""
+        try:
+            full_info = await asyncio.to_thread(
+                self.ydl.extract_info, video_url, download=False
+            )
+            return full_info
+        except Exception as e:
+            logger.warning(f"Failed to expand video {video_url}: {e}")
+            return {}
+
+    async def _fetch_all_video_data(
+        self, videos: List[Dict[str, Any]], max_expanded: int
+    ) -> List[Dict[str, Any]]:
+        """Fetch full metadata and dislike data for a list of videos concurrently."""
+        video_urls = [v.get("url") for v in videos[:max_expanded]]
+
+        # Concurrently fetch full video info and dislike data
+        video_info_tasks = [self._fetch_video_info_async(url) for url in video_urls]
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            dislike_tasks = [
+                self._fetch_dislike_data_async(client, v.get("id", ""))
+                for v in videos[:max_expanded]
+                if v.get("id")
+            ]
+
+        video_infos = await asyncio.gather(*video_info_tasks)
+        dislike_data_results = await asyncio.gather(*dislike_tasks)
+
+        dislike_data_map = {vid: data for vid, data in dislike_data_results}
+
+        combined_data = []
+        for rank, video_info in enumerate(video_infos, start=1):
+            if not video_info:
+                continue
+
+            video_id = video_info.get("id", "")
+            dislike_data = dislike_data_map.get(video_id, {})
+
+            # Use API likes/dislikes if available, otherwise fallback to yt-dlp
+            like_count = dislike_data.get("likes", video_info.get("like_count", 0))
+            dislike_count = dislike_data.get("dislikes", 0)
+
+            combined_data.append(
+                {
+                    "Rank": rank,
+                    "id": video_id,
+                    "Title": video_info.get("title", "N/A"),
+                    "Views": video_info.get("view_count", 0),
+                    "Likes": like_count,
+                    "Dislikes": dislike_count,
+                    "Comments": video_info.get("comment_count", 0),
+                    "Duration": video_info.get("duration", 0),
+                    "Uploader": video_info.get("uploader", "N/A"),
+                    "Thumbnail": video_info.get("thumbnail", ""),
+                    "Rating": dislike_data.get("rating"),
+                }
+            )
+        return combined_data
 
     async def get_playlist_data(
         self, playlist_url: str, max_expanded: int = 20
@@ -144,50 +201,86 @@ class YoutubePlaylistService:
             Exception: If there's an error fetching or processing the playlist data
         """
         try:
-            # playlist_info = self.ydl.extract_info(playlist_url, download=False)
             playlist_info = await asyncio.to_thread(
                 self.ydl.extract_info, playlist_url, download=False
             )
 
-            # Debug logging
-            logger.info("Playlist Info Keys: %s", playlist_info.keys())
-            logger.info("Uploader Info: %s", playlist_info.get("uploader"))
-            logger.info("Channel Info: %s", playlist_info.get("channel"))
-            logger.info("Channel URL: %s", playlist_info.get("channel_url"))
-
-            # Log all available keys and their values for debugging
-            for key, value in playlist_info.items():
-                if key in ["entries", "thumbnails"]:  # Skip large data structures
-                    logger.info(
-                        "Key '%s': %s (type: %s, length: %s)",
-                        key,
-                        type(value).__name__,
-                        type(value).__name__,
-                        len(value) if hasattr(value, "__len__") else "N/A",
-                    )
-                else:
-                    logger.info(
-                        "Key '%s': %s (type: %s)", key, value, type(value).__name__
-                    )
-
             playlist_name = playlist_info.get("title", "Untitled Playlist")
             channel_name = playlist_info.get("uploader", "Unknown Channel")
-
-            # Extract channel thumbnail
             channel_thumbnail = self._extract_channel_thumbnail(playlist_info)
 
-            # Process video data
-            if "entries" in playlist_info:
-                df = await self._process_video_data(
-                    playlist_info["entries"], max_expanded
+            if "entries" not in playlist_info or not playlist_info["entries"]:
+                return (
+                    pl.DataFrame(),
+                    playlist_name,
+                    channel_name,
+                    channel_thumbnail,
+                    {},
                 )
-                summary_stats = self._calculate_summary_stats(df)
-                return df, playlist_name, channel_name, channel_thumbnail, summary_stats
 
-            return pl.DataFrame(), playlist_name, channel_name, channel_thumbnail, {}
+            # Fetch all video data concurrently
+            video_data = await self._fetch_all_video_data(
+                playlist_info["entries"], max_expanded
+            )
+
+            # Create initial DataFrame from fetched data
+            df = pl.DataFrame(video_data)
+
+            # Calculate derived columns using Polars expressions
+            df = df.with_columns(
+                [
+                    # Calculate controversy score
+                    (
+                        1
+                        - (pl.col("Likes") - pl.col("Dislikes")).abs()
+                        / (pl.col("Likes") + pl.col("Dislikes"))
+                    )
+                    .fill_nan(0.0)
+                    .alias("Controversy"),
+                    # Calculate engagement rate
+                    (
+                        (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
+                        / pl.col("Views")
+                    )
+                    .fill_nan(0.0)
+                    .alias("Engagement Rate Raw"),
+                ]
+            )
+
+            # Calculate summary stats using the raw DataFrame
+            summary_stats = self._calculate_summary_stats(df)
+
+            # Format columns for display just before returning
+            df = df.with_columns(
+                [
+                    pl.col("Views")
+                    .map_elements(format_number, return_dtype=pl.String)
+                    .alias("Views Formatted"),
+                    pl.col("Likes")
+                    .map_elements(format_number, return_dtype=pl.String)
+                    .alias("Likes Formatted"),
+                    pl.col("Dislikes")
+                    .map_elements(format_number, return_dtype=pl.String)
+                    .alias("Dislikes Formatted"),
+                    pl.col("Comments")
+                    .map_elements(format_number, return_dtype=pl.String)
+                    .alias("Comments Formatted"),
+                    pl.col("Duration")
+                    .map_elements(format_duration, return_dtype=pl.String)
+                    .alias("Duration Formatted"),
+                    pl.col("Controversy")
+                    .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
+                    .alias("Controversy Formatted"),
+                    pl.col("Engagement Rate Raw")
+                    .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
+                    .alias("Engagement Rate Formatted"),
+                ]
+            )
+
+            return df, playlist_name, channel_name, channel_thumbnail, summary_stats
 
         except Exception as e:
-            logger.error(f"Error fetching playlist data: {str(e)}")
+            logger.error(f"Error fetching playlist data: {e}")
             raise
 
     def _extract_channel_thumbnail(self, playlist_info: dict) -> str:
@@ -208,284 +301,20 @@ class YoutubePlaylistService:
             return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
 
-    def _get_preview_info(self, playlist_url: str) -> dict:
-        """Use yt-dlp with preview-safe settings to get basic playlist info."""
-        preview_opts = {
-            "quiet": True,
-            "extract_flat": True,  # lightweight mode
-            # "force_generic_extractor": False,
-            # "flat_playlist": True,  # get full playlist metadata
-            "dump_single_json": True,
-            # "skip_playlist_after_errors": -1,  # avoid failures
-        }
-        with yt_dlp.YoutubeDL(preview_opts) as ydl:
-            return ydl.extract_info(playlist_url, download=False)
-
-    def _expand_video_info(self, video_url: str) -> dict:
-        """Fetch full metadata for a single video."""
-        try:
-            return self.ydl.extract_info(video_url, download=False)
-        except Exception as e:
-            logger.warning(f"Failed to expand video {video_url}: {e}")
-            return {}
-
-    async def _fetch_dislike_data_async(
-        self, client: httpx.AsyncClient, video_id: str
-    ) -> tuple[str, dict]:
-        """Fetch dislike data for a video asynchronously.
-
-        Args:
-            client (httpx.AsyncClient): HTTP client for making requests
-            video_id (str): YouTube video ID
-
-        Returns:
-            tuple[str, dict]: Tuple of (video_id, dislike_data)
-                If fetch fails, returns {"dislikes": 0}
-        """
-        try:
-            response = await client.get(DISLIKE_API_URL.format(video_id))
-            if response.status_code == 200:
-                data = response.json()
-                return video_id, {
-                    "dislikes": data.get("dislikes", 0),
-                    "likes": data.get("likes", 0),
-                    "rating": data.get("rating", None),
-                    "viewCount_api": data.get("viewCount", None),
-                    "deleted": data.get("deleted", False),
-                    "dateCreated": data.get("dateCreated", None),
-                }
-            logger.warning(
-                f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to fetch dislike data for {video_id}: {e}")
-        return video_id, {
-            "dislikes": 0,
-            "likes": 0,
-            "rating": None,
-            "viewCount_api": None,
-            "deleted": False,
-            "dateCreated": None,
-        }
-
-    async def _gather_dislike_data(self, video_ids: list[str]) -> dict:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            tasks = [self._fetch_dislike_data_async(client, vid) for vid in video_ids]
-            results = await asyncio.gather(*tasks)
-        return {vid: data for vid, data in results if data}
-
-    def _calculate_controversy_score(
-        self, likes: int | None, dislikes: int | None
-    ) -> float:
-        """Calculate controversiality score for a video.
-
-        Args:
-            likes (int | None): Number of likes
-            dislikes (int | None): Number of dislikes
-
-        Returns:
-            float: Controversy score between 0 and 1, where:
-                  - 0 means no controversy (all likes or all dislikes)
-                  - 1 means maximum controversy (equal likes and dislikes)
-        """
-        # Handle None values
-        likes = likes or 0
-        dislikes = dislikes or 0
-
-        total = likes + dislikes
-        if total == 0:
-            return 0.0
-        return 1 - (abs(likes - dislikes) / total)
-
-    async def _process_video_data(
-        self, videos: List[dict], max_expanded: int
-    ) -> pl.DataFrame:
-        """Process and enrich video metadata into a DataFrame.
-
-        Args:
-            videos (list): List of video information dictionaries.
-            max_expanded (int): Maximum number of videos to process.
-
-        Returns:
-            pl.DataFrame: Processed video data.
-        """
-        # Create initial DataFrame
-        data = []
-
-        for rank, video in enumerate(videos[:max_expanded], start=1):
-            # Get full video info using yt-dlp
-            full_info = await asyncio.to_thread(
-                self._expand_video_info, video.get("url")
-            )
-            if not full_info:
-                continue
-
-            # Schema validation: check for required fields
-            required_keys = ["id", "title", "view_count", "like_count", "duration"]
-            if not all(k in full_info for k in required_keys):
-                logger.warning(
-                    f"Missing fields in video: {video.get('url')}, got keys: {list(full_info.keys())}"
-                )
-                continue
-
-            video_id = full_info.get("id", "")
-            dislike_data = await self.get_dislike_count(
-                video_id
-            )  # <- replace with API data
-            # Instead of just an int, now you can unpack
-            api_dislikes = dislike_data.get("dislikes", 0)
-            api_likes = dislike_data.get("likes", full_info.get("like_count", 0))
-            api_rating = dislike_data.get("rating")
-            api_viewcount = dislike_data.get("viewCount_api")
-            api_deleted = dislike_data.get("deleted", False)
-            api_created = dislike_data.get("dateCreated")
-
-            # Use API dislikes if available
-            like_count = api_likes or full_info.get("like_count", 0)
-            dislike_count = api_dislikes or 0
-
-            # Calculate controversy score
-            controversy_score = self._calculate_controversy_score(
-                like_count, dislike_count
-            )
-
-            data.append(
-                {
-                    "Rank": rank,
-                    "id": video_id,
-                    "Title": full_info.get("title", "N/A"),
-                    "Views (Billions)": (full_info.get("view_count") or 0)
-                    / 1_000_000_000,
-                    "View Count": full_info.get("view_count", 0),
-                    "Like Count": like_count,
-                    "Dislike Count": dislike_count,
-                    "Comment Count": full_info.get("comment_count", 0),
-                    "Controversy": controversy_score,
-                    "Uploader": full_info.get("uploader", "N/A"),
-                    "Creator": full_info.get("creator", "N/A"),
-                    "Channel ID": full_info.get("channel_id", "N/A"),
-                    "Duration Raw": full_info.get("duration", 0),
-                    "Thumbnail": full_info.get("thumbnail", ""),
-                    "Rating": api_rating,
-                    "Deleted": api_deleted,
-                    "Created": api_created,
-                    "API View Count": api_viewcount,
-                    "API Date Created": dislike_data.get("dateCreated"),
-                }
-            )
-
-        df = pl.DataFrame(data)
-        if df.is_empty():
-            # Ensure all expected columns exist, even if empty
-            expected_cols = [
-                ("Rank", pl.Int64),
-                ("id", pl.Utf8),
-                ("Title", pl.Utf8),
-                ("Views (Billions)", pl.Float64),
-                ("View Count", pl.Int64),
-                ("Like Count", pl.Int64),
-                ("Dislike Count", pl.Int64),
-                ("Comment Count", pl.Int64),
-                ("Controversy", pl.Float64),
-                ("Uploader", pl.Utf8),
-                ("Creator", pl.Utf8),
-                ("Channel ID", pl.Utf8),
-                ("Duration Raw", pl.Int64),
-                ("Thumbnail", pl.Utf8),
-                ("View Count Raw", pl.Int64),
-                ("Like Count Raw", pl.Int64),
-                ("Dislike Count Raw", pl.Int64),
-                ("Comment Count Raw", pl.Int64),
-                ("Controversy Raw", pl.Float64),
-                ("Duration", pl.Utf8),
-                ("Engagement Rate (%)", pl.Utf8),
-            ]
-            df = pl.DataFrame(
-                {col: pl.Series([], dtype=dt) for col, dt in expected_cols}
-            )
-            return df
-
-        # Keep original numeric columns for charts and calculations
-        # Create formatted display columns for the table
-        df = df.with_columns(
-            [
-                pl.col("View Count").alias(
-                    "View Count Raw"
-                ),  # Keep original for charts
-                pl.col("Like Count").alias(
-                    "Like Count Raw"
-                ),  # Keep original for charts
-                pl.col("Dislike Count").alias(
-                    "Dislike Count Raw"
-                ),  # Keep original for charts
-                pl.col("Comment Count").alias(
-                    "Comment Count Raw"
-                ),  # Keep original for charts
-                pl.col("Controversy").alias(
-                    "Controversy Raw"
-                ),  # Keep original for charts
-                pl.col("Duration Raw")
-                .map_elements(format_duration, return_dtype=pl.String)
-                .alias("Duration"),
-                pl.col("View Count")
-                .map_elements(format_number, return_dtype=pl.String)
-                .alias("View Count"),
-                pl.col("Like Count")
-                .map_elements(format_number, return_dtype=pl.String)
-                .alias("Like Count"),
-                pl.col("Dislike Count")
-                .map_elements(format_number, return_dtype=pl.String)
-                .alias("Dislike Count"),
-                pl.col("Controversy").map_elements(
-                    lambda x: f"{x:.2%}", return_dtype=pl.String
-                ),
-            ]
-        )
-
-        # Calculate engagement rate using raw numeric values
-        df = df.with_columns(
-            [
-                pl.Series(
-                    name="Engagement Rate (%)",
-                    values=[
-                        f"{calculate_engagement_rate(vc, lc, dc):.2f}"
-                        for vc, lc, dc in zip(
-                            df["View Count Raw"],
-                            df["Like Count Raw"],
-                            df["Dislike Count Raw"],
-                        )
-                    ],
-                )
-            ]
-        )
-
-        return df
-
     def _calculate_summary_stats(self, df: pl.DataFrame) -> Dict[str, float]:
-        """Calculate summary statistics for the playlist.
-
-        Args:
-            df (pl.DataFrame): The processed video data DataFrame.
-
-        Returns:
-            Dict[str, float]: Dictionary containing summary statistics.
-        """
-        required_cols = {"View Count Raw", "Like Count Raw", "Engagement Rate (%)"}
-
-        if df.is_empty() or not required_cols.issubset(df.columns):
-            logger.warning("Insufficient data for summary stats.")
+        """Calculate summary statistics for the playlist."""
+        if df.is_empty():
             return {
                 "total_views": 0,
                 "total_likes": 0,
                 "avg_engagement": 0.0,
             }
 
-        # Use raw numeric columns for summary calculations
-        total_views = df["View Count Raw"].sum()
-        total_likes = df["Like Count Raw"].sum()
-        total_dislikes = df["Dislike Count Raw"].sum()
-        total_comments = df["Comment Count"].sum()
-        avg_engagement = df["Engagement Rate (%)"].cast(pl.Float64).mean()
+        total_views = df["Views"].sum()
+        total_likes = df["Likes"].sum()
+        total_dislikes = df["Dislikes"].sum()
+        total_comments = df["Comments"].sum()
+        avg_engagement = df["Engagement Rate Raw"].mean()
 
         return {
             "total_views": total_views,
