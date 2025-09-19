@@ -3,14 +3,13 @@ Database operations module.
 Handles Supabase client initialization, logging setup, and caching functionality.
 """
 
-import base64
 import io
 import json
 import logging
 import os
 import random
 from datetime import date, datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import polars as pl
 from supabase import Client, create_client
@@ -21,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 # Global Supabase client
 supabase_client: Optional[Client] = None
+
+# --- Configuration ---
+PLAYLIST_STATS_TABLE = "playlist_stats"
+PLAYLIST_JOBS_TABLE = "playlist_jobs"
 
 
 def setup_logging():
@@ -78,49 +81,74 @@ def init_supabase() -> Optional[Client]:
         return client
 
     except Exception as e:
-        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        logger.error(f"Failed to initialize Supabase client: {e}")
         return None
 
 
-# --- Cache-aware queries for playlist stats ---
-async def get_cached_playlist_stats(playlist_url: str) -> Optional[Dict[str, Any]]:
-    """Return today's stats for a playlist if already cached in DB.
+# --- General DB Helpers ---
+def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> bool:
+    """Inserts or updates a row in a given table.
 
     Args:
-        playlist_url (str): The YouTube playlist URL to check
+        table (str): The name of the table.
+        payload (dict): The data to insert or update.
+        conflict_fields (List[str], optional): Columns to use for conflict resolution.
 
     Returns:
-        Optional[Dict[str, Any]]: Cached stats if found, None otherwise
+        bool: True if the operation was successful, False otherwise.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available for upsert")
+        return False
+    try:
+        query = supabase_client.table(table)
+        if conflict_fields:
+            query = query.upsert(payload, on_conflict=",".join(conflict_fields))
+        else:
+            query = query.insert(payload)
+        response = query.execute()
+        return bool(response.data)
+    except Exception as e:
+        logger.error(f"Error upserting row in {table}: {e}")
+        return False
+
+
+# --- Playlist Caching and Job Management ---
+def get_cached_playlist_stats(
+    playlist_url: str, check_date: bool = False
+) -> Optional[Dict[str, Any]]:
+    """Return stats for a playlist if already cached in DB.
+
+    Args:
+        playlist_url (str): The YouTube playlist URL to check.
+        check_date (bool): If True, only returns today's cache.
+
+    Returns:
+        Optional[Dict[str, Any]]: Cached stats if found, None otherwise.
     """
     if not supabase_client:
         logger.warning("Supabase client not available for caching")
         return None
 
     try:
-        today = date.today().isoformat()
-
-        # Uncomment if we want freshness check
-        # response = supabase_client.table("playlist_stats").select("*").eq(
-        #     "playlist_url", playlist_url).eq("processed_date",
-        #                                      today).limit(1).execute()
-        response = (
-            supabase_client.table("playlist_stats")
+        query = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
             .select("*")
             .eq("playlist_url", playlist_url)
-            .limit(1)
-            .execute()
         )
+        if check_date:
+            today = date.today().isoformat()
+            query = query.eq("processed_date", today)
+        response = query.limit(1).execute()
 
         if response.data and len(response.data) > 0:
             logger.info(f"Cache hit for playlist: {playlist_url}")
             row = response.data[0]
-
-            # --- Deserialize JSON fields ---
+            # Deserialize JSON fields
             if row.get("df_json"):
                 row["df"] = pl.read_json(io.BytesIO(row["df_json"].encode("utf-8")))
             if row.get("summary_stats"):
                 row["summary_stats"] = json.loads(row["summary_stats"])
-
             return row
         else:
             logger.info(f"Cache miss for playlist: {playlist_url}")
@@ -131,135 +159,58 @@ async def get_cached_playlist_stats(playlist_url: str) -> Optional[Dict[str, Any
         return None
 
 
-async def insert_playlist_stats(stats: Dict[str, Any]) -> bool:
-    """Insert new playlist stats into DB if not already present for today.
-
-    Args:
-        stats (Dict[str, Any]): Playlist statistics to insert
-
-    Returns:
-        bool: True if insert was successful, False otherwise
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for inserting stats")
-        return False
-
-    # Add processed_date and serialize fields
-    stats_with_date = {**stats, "processed_date": date.today().isoformat()}
-    # --- Ensure JSON serializable fields ---
-    if "df" in stats_with_date:
-        stats_with_date["df_json"] = stats_with_date["df"].write_json()
-        del stats_with_date["df"]
-    if "summary_stats" in stats_with_date:
-        stats_with_date["summary_stats"] = json.dumps(stats_with_date["summary_stats"])
-
-    # Use upsert_row helper
-    return await upsert_row("playlist_stats", stats_with_date, ["playlist_url", "processed_date"])
-
-
-async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
+def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     """
     Main entrypoint for playlist stats caching:
     - Return cached stats if they exist for today.
     - Otherwise insert fresh stats and return them.
 
     Args:
-        stats (Dict[str, Any]): Playlist statistics to cache or return
+        stats (Dict[str, Any]): Playlist statistics to cache or return.
 
     Returns:
-        Dict[str, Any]: Stats with source indicator ("cache" or "fresh")
+        Dict[str, Any]: Stats with source indicator ("cache", "fresh", or "error").
     """
     playlist_url = stats.get("playlist_url")
     if not playlist_url:
         logger.error("No playlist_url provided in stats")
-        stats["source"] = "error"
-        return stats
+        return {**stats, "source": "error"}
 
     # Check cache first
-    cached = await get_cached_playlist_stats(playlist_url)
+    cached = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached:
-        cached["source"] = "cache"
         logger.info(f"Returning cached stats for playlist: {playlist_url}")
-        return cached
+        return {**cached, "source": "cache"}
 
-    # No cache hit, insert fresh stats
-    success = await insert_playlist_stats(stats)
+    # No cache hit, prepare fresh stats for insertion
+    stats_to_insert = {
+        **stats,
+        "processed_date": date.today().isoformat(),
+        "df_json": stats.get("df").write_json() if "df" in stats else None,
+        "summary_stats": json.dumps(stats.get("summary_stats"))
+        if "summary_stats" in stats
+        else None,
+    }
+
+    # Remove Polars DataFrame before inserting
+    if "df" in stats_to_insert:
+        del stats_to_insert["df"]
+
+    success = upsert_row(
+        PLAYLIST_STATS_TABLE, stats_to_insert, ["playlist_url", "processed_date"]
+    )
+
     if success:
-        stats["source"] = "fresh"
         logger.info(f"Returning fresh stats for playlist: {playlist_url}")
+        return {**stats, "source": "fresh"}
     else:
-        stats["source"] = "error"
         logger.error(f"Failed to insert fresh stats for playlist: {playlist_url}")
-
-    return stats
-
-
-CACHE_TABLE = "playlist_cache"
+        return {**stats, "source": "error"}
 
 
-async def get_cached_playlist(playlist_url: str):
-    """Fetch cached playlist data from Supabase"""
-    if not supabase_client:
-        logger.warning("Supabase client not available for caching")
-        return None
-
-    res = (
-        supabase_client.table(CACHE_TABLE)
-        .select("*")
-        .eq("playlist_url", playlist_url)
-        .execute()
-    )
-    if not res.data:
-        return None
-
-    row = res.data[0]
-    # Decode parquet -> polars df
-    df_bytes = base64.b64decode(row["df_parquet"])
-    df = pl.read_parquet(io.BytesIO(df_bytes))
-    return (
-        df,
-        row["playlist_name"],
-        row["channel_name"],
-        row["channel_thumbnail"],
-        row["summary_stats"],
-    )
-
-
-async def cache_playlist(
-    playlist_url: str,
-    df: pl.DataFrame,
-    playlist_name: str,
-    channel_name: str,
-    channel_thumbnail: str,
-    summary_stats: dict,
-):
-    """Store playlist df + metadata in Supabase"""
-    if not supabase_client:
-        logger.warning("Supabase client not available for caching")
-        return False
-
-    try:
-        buf = io.BytesIO()
-        df.write_parquet(buf)
-        df_bytes = base64.b64encode(buf.getvalue()).decode("utf-8")
-
-        supabase_client.table(CACHE_TABLE).upsert(
-            {
-                "playlist_url": playlist_url,
-                "df_parquet": df_bytes,
-                "playlist_name": playlist_name,
-                "channel_name": channel_name,
-                "channel_thumbnail": channel_thumbnail,
-                "summary_stats": summary_stats,
-            }
-        ).execute()
-        return True
-    except Exception as e:
-        logger.error(f"Failed to cache playlist {playlist_url}: {e}")
-        return False
-
-
-def fetch_playlists(max_items: int = 10, randomize: bool = False) -> list[dict]:
+def fetch_playlists(
+    max_items: int = 10, randomize: bool = False
+) -> List[Dict[str, Any]]:
     """
     Fetch distinct playlists from DB.
     If randomize=True, returns a random subset (non-deterministic).
@@ -272,7 +223,7 @@ def fetch_playlists(max_items: int = 10, randomize: bool = False) -> list[dict]:
     try:
         pool_size = max_items * 5 if randomize else max_items
         response = (
-            supabase_client.table("playlist_stats")
+            supabase_client.table(PLAYLIST_STATS_TABLE)
             .select("playlist_url, title, processed_date")
             .order("processed_date", desc=True)
             .limit(pool_size)
@@ -305,60 +256,64 @@ def fetch_playlists(max_items: int = 10, randomize: bool = False) -> list[dict]:
         return []
 
 
-async def get_playlist_job_status(playlist_url: str) -> str:
+def get_playlist_job_status(playlist_url: str) -> Optional[str]:
     """
     Returns the status of a playlist analysis job.
     Possible statuses: 'pending', 'processing', 'complete', 'failed', or None if not submitted.
     """
-    response = supabase_client.table("playlist_jobs") \
-        .select("status") \
-        .eq("playlist_url", playlist_url) \
-        .order("created_at", desc=True) \
-        .limit(1) \
-        .execute()
-    if response.data and len(response.data) > 0:
-        return response.data[0].get("status")
-    return None
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch job status")
+        return None
+
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("status")
+            .eq("playlist_url", playlist_url)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0].get("status")
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching job status for {playlist_url}: {e}")
+        return None
 
 
-async def get_playlist_preview_info(playlist_url: str) -> dict:
+def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     """
     Returns minimal info about a playlist if available (title, thumbnail, etc).
     """
-    response = supabase_client.table("playlist_stats") \
-        .select("title", "channel_thumbnail") \
-        .eq("playlist_url", playlist_url) \
-        .limit(1) \
-        .execute()
-    if response.data and len(response.data) > 0:
-        return {
-            "title": response.data[0].get("title"),
-            "thumbnail": response.data[0].get("channel_thumbnail"),
-        }
-    return {}
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch preview info")
+        return {}
+
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select("title, channel_thumbnail")
+            .eq("playlist_url", playlist_url)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return {
+                "title": response.data[0].get("title"),
+                "thumbnail": response.data[0].get("channel_thumbnail"),
+            }
+        return {}
+    except Exception as e:
+        logger.error(f"Error fetching preview info for {playlist_url}: {e}")
+        return {}
 
 
-async def submit_playlist_job(playlist_url: str) -> None:
+def submit_playlist_job(playlist_url: str) -> None:
     """Insert a new playlist analysis job into the playlist_jobs table."""
     payload = {
         "playlist_url": playlist_url,
         "status": "pending",
         "created_at": datetime.utcnow().isoformat(),
     }
-    # Use upsert_row helper, conflict on playlist_url and status
-    await upsert_row("playlist_jobs", payload, ["playlist_url", "status"])
-
-
-async def upsert_row(table: str, payload: dict, conflict_fields: list = None) -> bool:
-    if not supabase_client:
-        logger.warning("Supabase client not available for upsert")
-        return False
-    try:
-        if conflict_fields:
-            response = supabase_client.table(table).upsert(payload, on_conflict=",".join(conflict_fields)).execute()
-        else:
-            response = supabase_client.table(table).insert(payload).execute()
-        return bool(response.data)
-    except Exception as e:
-        logger.error(f"Error upserting row in {table}: {e}")
-        return False
+    upsert_row(PLAYLIST_JOBS_TABLE, payload, ["playlist_url", "status"])
