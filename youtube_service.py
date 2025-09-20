@@ -5,7 +5,7 @@ This module provides functionality to fetch and process YouTube playlist data us
 
 import asyncio
 import logging
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import httpx
 import polars as pl
