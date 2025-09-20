@@ -5,7 +5,7 @@ This module provides functionality to fetch and process YouTube playlist data us
 
 import asyncio
 import logging
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import httpx
 import polars as pl
@@ -208,6 +208,9 @@ class YoutubePlaylistService:
             playlist_name = playlist_info.get("title", "Untitled Playlist")
             channel_name = playlist_info.get("uploader", "Unknown Channel")
             channel_thumbnail = self._extract_channel_thumbnail(playlist_info)
+            playlist_video_count = playlist_info.get(
+                "playlist_count", len(playlist_info.get("entries", []))
+            )
 
             if "entries" not in playlist_info or not playlist_info["entries"]:
                 return (

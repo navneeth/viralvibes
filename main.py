@@ -722,8 +722,19 @@ def dashboard(playlist_url: str):
 @rt("/submit-job", methods=["POST"])
 def submit_job(playlist_url: str):
     submit_playlist_job(playlist_url)
+    # Return HTMX polling instruction
     return Div(
-        "Your playlist is being analyzed. Please check back soon!", cls="text-blue-600"
+        P("Analyzing playlist... This might take a moment."),
+        Div(
+            Loading(
+                id="loading-bar",
+                cls=(LoadingT.bars, LoadingT.lg),
+                style="margin-top:1rem; color:#393e6e;",
+            ),
+        ),
+        hx_get=f"/check-job-status?playlist_url={quote_plus(playlist_url)}",
+        hx_trigger="every 3s",
+        hx_swap="outerHTML",
     )
 
 
