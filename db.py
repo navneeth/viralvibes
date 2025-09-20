@@ -187,9 +187,9 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
         **stats,
         "processed_date": date.today().isoformat(),
         "df_json": stats.get("df").write_json() if "df" in stats else None,
-        "summary_stats": json.dumps(stats.get("summary_stats"))
-        if "summary_stats" in stats
-        else None,
+        "summary_stats": (
+            json.dumps(stats.get("summary_stats")) if "summary_stats" in stats else None
+        ),
     }
 
     # Remove Polars DataFrame before inserting

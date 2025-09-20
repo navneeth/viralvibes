@@ -10,7 +10,7 @@ import os
 import sys
 
 # Ensure we're in the right directory
-if not os.path.exists('worker'):
+if not os.path.exists("worker"):
     print("❌ Error: Please run this script from the project root directory")
     print("   Current directory:", os.getcwd())
     print("   Expected to find: worker/ directory")
@@ -21,6 +21,7 @@ sys.path.insert(0, os.getcwd())
 
 try:
     from worker.worker import worker_loop
+
     print("✅ Worker imported successfully")
 except ImportError as e:
     print(f"❌ Import error: {e}")
