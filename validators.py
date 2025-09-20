@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 class YoutubePlaylist:
     """
     Represents a YouTube playlist URL for validation.
-    
+
     Attributes:
         playlist_url (str): The URL of the YouTube playlist to validate.
     """
+
     playlist_url: str
 
     def __post_init__(self):
@@ -32,7 +33,7 @@ class YoutubePlaylist:
 class YoutubePlaylistValidator:
     """
     Validator for YouTube playlist URLs.
-    
+
     This class provides methods to validate YouTube playlist URLs and extract
     relevant information from them.
     """
@@ -48,10 +49,10 @@ class YoutubePlaylistValidator:
     def validate(cls, playlist: YoutubePlaylist) -> List[str]:
         """
         Validate a YouTube playlist URL.
-        
+
         Args:
             playlist (YoutubePlaylist): The playlist object containing the URL to validate.
-            
+
         Returns:
             List[str]: List of validation error messages. Empty list if validation passes.
         """
@@ -82,9 +83,7 @@ class YoutubePlaylistValidator:
                 errors.append("Invalid YouTube URL: Empty playlist ID")
                 return errors
 
-            logger.info(
-                f"Successfully validated playlist URL: {playlist.playlist_url}"
-            )
+            logger.info(f"Successfully validated playlist URL: {playlist.playlist_url}")
             return errors
 
         except Exception as e:
@@ -96,10 +95,10 @@ class YoutubePlaylistValidator:
     def extract_playlist_id(cls, playlist_url: str) -> Optional[str]:
         """
         Extract the playlist ID from a YouTube playlist URL.
-        
+
         Args:
             playlist_url (str): The YouTube playlist URL.
-            
+
         Returns:
             Optional[str]: The playlist ID if found, None otherwise.
         """

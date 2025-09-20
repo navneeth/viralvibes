@@ -291,19 +291,23 @@ def preview_playlist(playlist_url: str):
         H2("Playlist Analysis Not Available Yet", cls="text-lg font-semibold"),
         P(f"Playlist URL: {playlist_url}", cls="text-gray-500"),
         P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
-        Img(
-            src=preview_info.get("thumbnail", "/static/placeholder.png"),
-            alt="Playlist thumbnail",
-            style="width:64px;height:64px;border-radius:50%;margin:auto;",
-        )
-        if preview_info and preview_info.get("thumbnail")
-        else None,
-        P(
-            preview_info.get("title", "No title available"),
-            cls="text-gray-700 font-semibold",
-        )
-        if preview_info and preview_info.get("title")
-        else None,
+        (
+            Img(
+                src=preview_info.get("thumbnail", "/static/placeholder.png"),
+                alt="Playlist thumbnail",
+                style="width:64px;height:64px;border-radius:50%;margin:auto;",
+            )
+            if preview_info and preview_info.get("thumbnail")
+            else None
+        ),
+        (
+            P(
+                preview_info.get("title", "No title available"),
+                cls="text-gray-700 font-semibold",
+            )
+            if preview_info and preview_info.get("title")
+            else None
+        ),
         Button(
             "Submit for Analysis",
             hx_post="/submit-job",
@@ -394,9 +398,11 @@ async def validate_full(
                     "dislike_count": summary_stats.get("total_dislikes"),
                     "comment_count": summary_stats.get("total_comments"),
                     "video_count": df.height,
-                    "avg_duration": int(summary_stats.get("avg_duration"))
-                    if summary_stats.get("avg_duration") is not None
-                    else None,
+                    "avg_duration": (
+                        int(summary_stats.get("avg_duration"))
+                        if summary_stats.get("avg_duration") is not None
+                        else None
+                    ),
                     "engagement_rate": summary_stats.get("avg_engagement"),
                     "controversy_score": summary_stats.get("avg_controversy", 0),
                     "summary_stats": summary_stats,
@@ -445,8 +451,8 @@ async def validate_full(
             # Use yt_service display headers, but map them to the actual df columns used in table
             svc_headers = (
                 # yt_service.get_display_headers()
-                DISPLAY_HEADERS
-            )  # e.g., ["Rank","Title","Views","Likes",...]
+                DISPLAY_HEADERS  # e.g., ["Rank","Title","Views","Likes",...]
+            )
             display_to_df = {
                 "Rank": "Rank",
                 "Title": "Title",
@@ -536,9 +542,11 @@ async def validate_full(
                                     + (
                                         " ▲"
                                         if (h == sort_by and order == "asc")
-                                        else " ▼"
-                                        if (h == sort_by and order == "desc")
-                                        else ""
+                                        else (
+                                            " ▼"
+                                            if (h == sort_by and order == "desc")
+                                            else ""
+                                        )
                                     ),
                                     href="#",
                                     hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order_for(h)}",
@@ -649,11 +657,13 @@ def update_steps_progressive(step: int):
     if step < len(PLAYLIST_STEPS_CONFIG) - 1:
         response = Div(
             response,
-            Script(f"""
+            Script(
+                f"""
                 setTimeout(() => {{
                     htmx.ajax('GET', '/update-steps/{step + 1}', {{target: '#playlist-steps'}});
                 }}, 800);
-            """),
+            """
+            ),
         )
 
     return response

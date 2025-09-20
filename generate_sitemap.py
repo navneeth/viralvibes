@@ -22,7 +22,7 @@ ROUTES = [
 
 def prettify(elem):
     """Return a pretty-printed XML string for the Element."""
-    rough_string = ET.tostring(elem, 'utf-8')
+    rough_string = ET.tostring(elem, "utf-8")
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ")
 
@@ -30,8 +30,7 @@ def prettify(elem):
 def generate_sitemap():
     """Generate sitemap.xml with all public routes."""
     # Create the root element
-    urlset = ET.Element("urlset",
-                        xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+    urlset = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
 
     # Get the script's directory and resolve main.py path
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,8 +41,7 @@ def generate_sitemap():
         last_modified = datetime.fromtimestamp(os.path.getmtime(main_file))
         last_modified_str = last_modified.strftime("%Y-%m-%d")
     except FileNotFoundError:
-        print(
-            f"Warning: {main_file} not found, using current date for lastmod")
+        print(f"Warning: {main_file} not found, using current date for lastmod")
         last_modified_str = datetime.now().strftime("%Y-%m-%d")
 
     # Add each route to the sitemap

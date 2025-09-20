@@ -28,8 +28,9 @@ async def test_worker_task_inserts_to_db():
     await worker_module.playlist_queue.put(fake_url)
 
     # Patch process_playlist and supabase_client
-    with patch("worker.worker.process_playlist", new=AsyncMock(return_value=fake_stats)) as mock_job, \
-         patch("worker.worker.supabase_client") as mock_db:
+    with patch(
+        "worker.worker.process_playlist", new=AsyncMock(return_value=fake_stats)
+    ) as mock_job, patch("worker.worker.supabase_client") as mock_db:
 
         # Create a mock table().insert().execute() chain
         mock_table = mock_db.table.return_value

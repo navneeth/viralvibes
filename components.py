@@ -226,16 +226,18 @@ def AnalysisFormCard() -> Card:
                     cls=f"{ButtonT.primary} w-full hover:scale-105 transition-transform mt-4",
                 ),
                 # Quick action buttons for demo playlists
-                Details(
-                    Summary(
-                        "Try sample playlists",
-                        cls="text-sm text-gray-600 cursor-pointer hover:text-gray-800",
-                    ),
-                    SamplePlaylistButtons(),
-                    cls="mt-3 max-h-40 overflow-y-auto",
-                )
-                if KNOWN_PLAYLISTS
-                else None,
+                (
+                    Details(
+                        Summary(
+                            "Try sample playlists",
+                            cls="text-sm text-gray-600 cursor-pointer hover:text-gray-800",
+                        ),
+                        SamplePlaylistButtons(),
+                        cls="mt-3 max-h-40 overflow-y-auto",
+                    )
+                    if KNOWN_PLAYLISTS
+                    else None
+                ),
                 # Loading indicator with better positioning
                 Loading(
                     id="loading",
