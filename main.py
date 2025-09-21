@@ -265,8 +265,8 @@ def validate_url(playlist: YoutubePlaylist):
 
 @rt("/validate/preview", methods=["POST"])
 def preview_playlist(playlist_url: str):
-    # 1. Try to get cached result
-    cached_stats = get_cached_playlist_stats(playlist_url)
+    # Case 1: Try to get cached result. Check for full, up-to-date cache
+    cached_stats = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached_stats:
         # If cached, forward to /validate/full
         return Script(
@@ -274,22 +274,19 @@ def preview_playlist(playlist_url: str):
             % playlist_url
         )
 
-    # 2. Get minimal info and job status from DB (e.g., submission status)
+    # Case 2 & 3: Get minimal info and job status from DB (e.g., submission status)
     job_status = get_playlist_job_status(playlist_url)
     preview_info = get_playlist_preview_info(playlist_url)
 
-    # The button text will change based on the job status
-    if job_status in ["pending", "processing"]:
-        button_text = "Analysis in Progress..."
-        button_disabled = True
-    else:
-        button_text = "Submit for Analysis"
-        button_disabled = False
+    # Determine button state
+    is_submitted = job_status in ["pending", "processing"]
+    button_text = "Analysis in Progress..." if is_submitted else "Submit for Analysis"
 
-    # 3. Show lightweight info and status
+    # Build the HTML response
     return Div(
+        # Use an f-string with an alternative for the title to handle both found and not-found cases
         H2(
-            preview_info.get("title", "Playlist Analysis Not Available Yet"),
+            f"{preview_info.get('title', 'Playlist Analysis Not Available Yet')}",
             cls="text-lg font-semibold",
         ),
         (
@@ -299,11 +296,12 @@ def preview_playlist(playlist_url: str):
                 cls="mx-auto w-16 h-16 rounded-full",
             )
             if preview_info and preview_info.get("thumbnail")
-            else Img(
-                src="/static/placeholder.png",
-                alt="Playlist thumbnail",
-                cls="mx-auto w-16 h-16 rounded-full",
-            )
+            else None
+        ),
+        (
+            P(f"Videos: {preview_info['video_count']}", cls="text-gray-500 mt-2")
+            if preview_info and preview_info.get("video_count")
+            else None
         ),
         P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
         P(f"URL: {playlist_url}", cls="text-gray-500"),
@@ -317,12 +315,12 @@ def preview_playlist(playlist_url: str):
                 "mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md transition duration-300",
                 (
                     "bg-gray-400 cursor-not-allowed"
-                    if button_disabled
+                    if is_submitted
                     else "bg-blue-600 hover:bg-blue-700"
                 ),
             ),
             type="button",
-            disabled=button_disabled,
+            disabled=is_submitted,
         ),
         Div(
             Loading(
@@ -753,6 +751,50 @@ def submit_job(playlist_url: str):
         hx_trigger="every 3s",
         hx_swap="outerHTML",
     )
+
+
+@rt("/check-job-status", methods=["GET"])
+def check_job_status(playlist_url: str):
+    """
+    Checks the status of a playlist analysis job and updates the UI accordingly.
+    This endpoint is designed to be polled by HTMX.
+    """
+    job_status = get_playlist_job_status(playlist_url)
+
+    # Check for both "complete" and "done" status
+    if job_status in ["complete", "done"]:
+        logger.info(f"Job for {playlist_url} is complete. Loading full analysis.")
+        return Script(
+            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
+            % playlist_url
+        )
+    elif job_status == "failed":
+        logger.error(f"Job for {playlist_url} failed.")
+        return Div(
+            Alert(
+                P("Playlist analysis failed. Please try again or check the URL."),
+                cls=AlertT.error,
+            ),
+            # Stop polling by not returning hx-trigger
+        )
+    else:  # 'pending', 'processing', or None (if job somehow disappeared)
+        logger.info(
+            f"Job for {playlist_url} status: {job_status or 'Not found'}. Continuing to poll."
+        )
+        return Div(
+            P("Analysis in progress... Please wait."),
+            Div(
+                Loading(
+                    id="loading-bar",
+                    cls=(LoadingT.bars, LoadingT.lg),
+                    style="margin-top:1rem; color:#393e6e;",
+                ),
+            ),
+            # Continue polling this endpoint
+            hx_get=f"/check-job-status?playlist_url={quote_plus(playlist_url)}",
+            hx_trigger="every 3s",  # Poll every 3 seconds
+            hx_swap="outerHTML",  # Replace the entire div with the new response
+        )
 
 
 serve()
