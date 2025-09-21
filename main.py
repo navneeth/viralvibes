@@ -2,10 +2,9 @@ import asyncio
 import io
 import logging
 import re
-from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple, Union
-from urllib.parse import parse_qs, quote_plus, urlparse
+from typing import Optional
+from urllib.parse import quote_plus
 
 import polars as pl
 from dotenv import load_dotenv
@@ -91,9 +90,6 @@ scrollspy_links = (
     A("Analyze", href="#analyze-section"),
     A("Explore", href="#explore-section"),
 )
-
-# Most Viewed Youtube Videos of all time
-# https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
 
 
 # Initialize application components
@@ -272,50 +268,61 @@ def preview_playlist(playlist_url: str):
     # 1. Try to get cached result
     cached_stats = get_cached_playlist_stats(playlist_url)
     if cached_stats:
-        # If cached, forward to /validate/full (HTMX request)
+        # If cached, forward to /validate/full
         return Script(
             "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
             % playlist_url
         )
 
-    # 2. If not cached, try to get minimal info from DB (e.g., submission status)
-    # You may want to add a table/row in Supabase for submitted jobs with status
-
+    # 2. Get minimal info and job status from DB (e.g., submission status)
     job_status = get_playlist_job_status(playlist_url)
-    preview_info = get_playlist_preview_info(
-        playlist_url
-    )  # e.g., title, thumbnail, etc. if available
+    preview_info = get_playlist_preview_info(playlist_url)
 
-    # 3. Show minimal info or placeholder
+    # The button text will change based on the job status
+    if job_status in ["pending", "processing"]:
+        button_text = "Analysis in Progress..."
+        button_disabled = True
+    else:
+        button_text = "Submit for Analysis"
+        button_disabled = False
+
+    # 3. Show lightweight info and status
     return Div(
-        H2("Playlist Analysis Not Available Yet", cls="text-lg font-semibold"),
-        P(f"Playlist URL: {playlist_url}", cls="text-gray-500"),
-        P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
+        H2(
+            preview_info.get("title", "Playlist Analysis Not Available Yet"),
+            cls="text-lg font-semibold",
+        ),
         (
             Img(
                 src=preview_info.get("thumbnail", "/static/placeholder.png"),
                 alt="Playlist thumbnail",
-                style="width:64px;height:64px;border-radius:50%;margin:auto;",
+                cls="mx-auto w-16 h-16 rounded-full",
             )
             if preview_info and preview_info.get("thumbnail")
-            else None
-        ),
-        (
-            P(
-                preview_info.get("title", "No title available"),
-                cls="text-gray-700 font-semibold",
+            else Img(
+                src="/static/placeholder.png",
+                alt="Playlist thumbnail",
+                cls="mx-auto w-16 h-16 rounded-full",
             )
-            if preview_info and preview_info.get("title")
-            else None
         ),
+        P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
+        P(f"URL: {playlist_url}", cls="text-gray-500"),
         Button(
-            "Submit for Analysis",
+            button_text,
             hx_post="/submit-job",
             hx_vals={"playlist_url": playlist_url},
             hx_target="#preview-box",
             hx_indicator="#loading-bar",
-            cls="uk-button uk-button-primary mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300",
+            cls=(
+                "mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md transition duration-300",
+                (
+                    "bg-gray-400 cursor-not-allowed"
+                    if button_disabled
+                    else "bg-blue-600 hover:bg-blue-700"
+                ),
+            ),
             type="button",
+            disabled=button_disabled,
         ),
         Div(
             Loading(

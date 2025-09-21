@@ -284,16 +284,15 @@ def get_playlist_job_status(playlist_url: str) -> Optional[str]:
 
 def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     """
-    Returns minimal info about a playlist if available (title, thumbnail, etc).
+    Returns minimal info about a playlist if available (title, thumbnail, video_count, etc.).
     """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch preview info")
         return {}
-
     try:
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("title, channel_thumbnail")
+            .select("title, channel_thumbnail, video_count")
             .eq("playlist_url", playlist_url)
             .limit(1)
             .execute()
@@ -302,6 +301,7 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
             return {
                 "title": response.data[0].get("title"),
                 "thumbnail": response.data[0].get("channel_thumbnail"),
+                "video_count": response.data[0].get("video_count"),
             }
         return {}
     except Exception as e:
