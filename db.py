@@ -8,11 +8,14 @@ import json
 import logging
 import os
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import polars as pl
 from supabase import Client, create_client
+
+from constants import PLAYLIST_STATS_TABLE, PLAYLIST_JOBS_TABLE, SIGNUPS_TABLE
+
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Get logger instance
@@ -20,10 +23,6 @@ logger = logging.getLogger(__name__)
 
 # Global Supabase client
 supabase_client: Optional[Client] = None
-
-# --- Configuration ---
-PLAYLIST_STATS_TABLE = "playlist_stats"
-PLAYLIST_JOBS_TABLE = "playlist_jobs"
 
 
 def setup_logging():
@@ -268,7 +267,7 @@ def get_playlist_job_status(playlist_url: str) -> Optional[str]:
     try:
         response = (
             supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .select("status")
+            .select("status, created_at")
             .eq("playlist_url", playlist_url)
             .order("created_at", desc=True)
             .limit(1)
@@ -284,16 +283,15 @@ def get_playlist_job_status(playlist_url: str) -> Optional[str]:
 
 def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     """
-    Returns minimal info about a playlist if available (title, thumbnail, etc).
+    Returns minimal info about a playlist if available (title, thumbnail, video_count, etc.).
     """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch preview info")
         return {}
-
     try:
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("title, channel_thumbnail")
+            .select("title, channel_thumbnail, video_count")
             .eq("playlist_url", playlist_url)
             .limit(1)
             .execute()
@@ -302,6 +300,7 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
             return {
                 "title": response.data[0].get("title"),
                 "thumbnail": response.data[0].get("channel_thumbnail"),
+                "video_count": response.data[0].get("video_count"),
             }
         return {}
     except Exception as e:
@@ -310,10 +309,49 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
 
 
 def submit_playlist_job(playlist_url: str) -> None:
-    """Insert a new playlist analysis job into the playlist_jobs table."""
+    """Insert a new playlist analysis job into the playlist_jobs table,
+    but only if one is not already pending or in progress.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to submit job")
+        return
+
+    # Check for an existing job that is not finished
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("status, created_at")
+            .eq("playlist_url", playlist_url)
+            .not_.eq("status", "complete")
+            .not_.eq("status", "failed")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        # If an unfinished job exists, don't submit a new one
+        if response.data:
+            job_status = response.data[0].get("status")
+            job_created_at = response.data[0].get("created_at")
+            logger.info(
+                f"Skipping job submission for {playlist_url}. A job with status '{job_status}' created at {job_created_at} is already in progress or pending."
+            )
+            return
+
+    except Exception as e:
+        logger.error(f"Error checking for existing jobs: {e}")
+        # Continue to submit the job in case of an error
+
+    # No existing job found, so submit a new one
     payload = {
         "playlist_url": playlist_url,
         "status": "pending",
         "created_at": datetime.utcnow().isoformat(),
     }
-    upsert_row(PLAYLIST_JOBS_TABLE, payload, ["playlist_url", "status"])
+
+    # Use insert instead of upsert to avoid conflicts on non-unique columns
+    success = upsert_row(PLAYLIST_JOBS_TABLE, payload)
+    if success:
+        logger.info(f"Submitted new playlist analysis job for {playlist_url}.")
+    else:
+        logger.error(f"Failed to submit new job for {playlist_url}.")

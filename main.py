@@ -2,10 +2,9 @@ import asyncio
 import io
 import logging
 import re
-from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple, Union
-from urllib.parse import parse_qs, quote_plus, urlparse
+from typing import Optional
+from urllib.parse import quote_plus
 
 import polars as pl
 from dotenv import load_dotenv
@@ -35,8 +34,11 @@ from constants import (
     FORM_CARD,
     HEADER_CARD,
     NEWSLETTER_CARD,
+    PLAYLIST_JOBS_TABLE,
+    PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
+    SIGNUPS_TABLE,
     benefits_lst,
 )
 from db import (
@@ -92,9 +94,6 @@ scrollspy_links = (
     A("Explore", href="#explore-section"),
 )
 
-# Most Viewed Youtube Videos of all time
-# https://www.youtube.com/playlist?list=PLirAqAtl_h2r5g8xGajEwdXd3x1sZh8hC
-
 
 # Initialize application components
 def init_app():
@@ -106,7 +105,7 @@ def init_app():
     # Configure logging
     setup_logging()
 
-    # Initialize Supabase client
+    # Initialize Supabase client ONCE
     try:
         client = init_supabase()
         if client is not None:
@@ -121,7 +120,7 @@ def init_app():
         # Continue running without Supabase
 
 
-# Initialize the application
+# Initialize the application at the very top of main.py (before any DB usage)
 init_app()
 
 # Initialize YouTube service
@@ -149,7 +148,7 @@ def debug_supabase():
         try:
             # Test basic connection
             response = (
-                supabase_client.table("playlist_stats")
+                supabase_client.table(PLAYLIST_STATS_TABLE)
                 .select("count", count="exact")
                 .execute()
             )
@@ -269,53 +268,62 @@ def validate_url(playlist: YoutubePlaylist):
 
 @rt("/validate/preview", methods=["POST"])
 def preview_playlist(playlist_url: str):
-    # 1. Try to get cached result
-    cached_stats = get_cached_playlist_stats(playlist_url)
+    # Case 1: Try to get cached result. Check for full, up-to-date cache
+    cached_stats = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached_stats:
-        # If cached, forward to /validate/full (HTMX request)
+        # If cached, forward to /validate/full
         return Script(
             "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
             % playlist_url
         )
 
-    # 2. If not cached, try to get minimal info from DB (e.g., submission status)
-    # You may want to add a table/row in Supabase for submitted jobs with status
-
+    # Case 2 & 3: Get minimal info and job status from DB (e.g., submission status)
     job_status = get_playlist_job_status(playlist_url)
-    preview_info = get_playlist_preview_info(
-        playlist_url
-    )  # e.g., title, thumbnail, etc. if available
+    preview_info = get_playlist_preview_info(playlist_url)
 
-    # 3. Show minimal info or placeholder
+    # Determine button state
+    is_submitted = job_status in ["pending", "processing"]
+    button_text = "Analysis in Progress..." if is_submitted else "Submit for Analysis"
+
+    # Build the HTML response
     return Div(
-        H2("Playlist Analysis Not Available Yet", cls="text-lg font-semibold"),
-        P(f"Playlist URL: {playlist_url}", cls="text-gray-500"),
-        P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
+        # Use an f-string with an alternative for the title to handle both found and not-found cases
+        H2(
+            f"{preview_info.get('title', 'Playlist Analysis Not Available Yet')}",
+            cls="text-lg font-semibold",
+        ),
         (
             Img(
                 src=preview_info.get("thumbnail", "/static/placeholder.png"),
                 alt="Playlist thumbnail",
-                style="width:64px;height:64px;border-radius:50%;margin:auto;",
+                cls="mx-auto w-16 h-16 rounded-full",
             )
             if preview_info and preview_info.get("thumbnail")
             else None
         ),
         (
-            P(
-                preview_info.get("title", "No title available"),
-                cls="text-gray-700 font-semibold",
-            )
-            if preview_info and preview_info.get("title")
+            P(f"Videos: {preview_info['video_count']}", cls="text-gray-500 mt-2")
+            if preview_info and preview_info.get("video_count")
             else None
         ),
+        P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
+        P(f"URL: {playlist_url}", cls="text-gray-500"),
         Button(
-            "Submit for Analysis",
+            button_text,
             hx_post="/submit-job",
             hx_vals={"playlist_url": playlist_url},
             hx_target="#preview-box",
             hx_indicator="#loading-bar",
-            cls="uk-button uk-button-primary mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300",
+            cls=(
+                "mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md transition duration-300",
+                (
+                    "bg-gray-400 cursor-not-allowed"
+                    if is_submitted
+                    else "bg-blue-600 hover:bg-blue-700"
+                ),
+            ),
             type="button",
+            disabled=is_submitted,
         ),
         Div(
             Loading(
@@ -329,14 +337,14 @@ def preview_playlist(playlist_url: str):
 
 
 @rt("/validate/full", methods=["POST", "GET"])
-async def validate_full(
+def validate_full(
     playlist_url: str,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
     sort_by: str = "Views",
     order: str = "desc",
 ):
-    async def stream():
+    def stream():
         try:
             # --- 1) INIT: set the meter max (from preview) and reset value ---
             initial_max = meter_max or 1
@@ -361,7 +369,7 @@ async def validate_full(
                 # Tick to completion as a proxy (cache is instant)
                 for i in range(1, (total or 1) + 1):
                     yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
-                    await asyncio.sleep(0)  # yield control so HTMX can paint
+                    # No await needed, just simulate yield
 
             else:
                 # --- 3) Fresh fetch ---
@@ -397,7 +405,10 @@ async def validate_full(
                     "like_count": summary_stats.get("total_likes"),
                     "dislike_count": summary_stats.get("total_dislikes"),
                     "comment_count": summary_stats.get("total_comments"),
-                    "video_count": df.height,
+                    "video_count": summary_stats.get(
+                        "actual_playlist_count", df.height
+                    ),
+                    "processed_video_count": df.height,
                     "avg_duration": (
                         int(summary_stats.get("avg_duration"))
                         if summary_stats.get("avg_duration") is not None
@@ -693,7 +704,7 @@ def newsletter(email: str):
         logger.info(f"Attempting to insert newsletter signup for: {email}")
 
         # Insert data using Supabase client
-        data = supabase_client.table("signups").insert(payload).execute()
+        data = supabase_client.table(SIGNUPS_TABLE).insert(payload).execute()
 
         # Check if we have data in the response
         if data.data:
@@ -746,6 +757,50 @@ def submit_job(playlist_url: str):
         hx_trigger="every 3s",
         hx_swap="outerHTML",
     )
+
+
+@rt("/check-job-status", methods=["GET"])
+def check_job_status(playlist_url: str):
+    """
+    Checks the status of a playlist analysis job and updates the UI accordingly.
+    This endpoint is designed to be polled by HTMX.
+    """
+    job_status = get_playlist_job_status(playlist_url)
+
+    # Check for both "complete" and "done" status
+    if job_status in ["complete", "done"]:
+        logger.info(f"Job for {playlist_url} is complete. Loading full analysis.")
+        return Script(
+            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
+            % playlist_url
+        )
+    elif job_status == "failed":
+        logger.error(f"Job for {playlist_url} failed.")
+        return Div(
+            Alert(
+                P("Playlist analysis failed. Please try again or check the URL."),
+                cls=AlertT.error,
+            ),
+            # Stop polling by not returning hx-trigger
+        )
+    else:  # 'pending', 'processing', or None (if job somehow disappeared)
+        logger.info(
+            f"Job for {playlist_url} status: {job_status or 'Not found'}. Continuing to poll."
+        )
+        return Div(
+            P("Analysis in progress... Please wait."),
+            Div(
+                Loading(
+                    id="loading-bar",
+                    cls=(LoadingT.bars, LoadingT.lg),
+                    style="margin-top:1rem; color:#393e6e;",
+                ),
+            ),
+            # Continue polling this endpoint
+            hx_get=f"/check-job-status?playlist_url={quote_plus(playlist_url)}",
+            hx_trigger="every 3s",  # Poll every 3 seconds
+            hx_swap="outerHTML",  # Replace the entire div with the new response
+        )
 
 
 serve()

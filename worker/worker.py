@@ -92,6 +92,9 @@ async def handle_job(job):
     playlist_url = job.get("playlist_url")
     logger.info("Picked job id=%s playlist=%s", job_id, playlist_url)
 
+    # Start a timer
+    start_time = time.time()
+
     mark_job_status(job_id, "processing", {"started_at": datetime.utcnow().isoformat()})
 
     try:
@@ -103,6 +106,10 @@ async def handle_job(job):
             channel_thumbnail,
             summary_stats,
         ) = await yt_service.get_playlist_data(playlist_url)
+
+        # After processing, calculate duration
+        duration_s = time.time() - start_time
+        duration_ms = int(duration_s * 1000)
 
         stats_to_cache = {
             "playlist_url": playlist_url,
@@ -135,12 +142,16 @@ async def handle_job(job):
                 "status_message": f"done (source={result.get('source')})",
                 "finished_at": datetime.utcnow().isoformat(),
                 "result_source": result.get("source"),
+                "processing_time_ms": duration_ms,  # Store the actual processing time
             },
         )
 
     except Exception as e:
         tb = traceback.format_exc()
         logger.exception("Job %s failed: %s", job_id, e)
+        # Can still log the time of failure if needed
+        duration_s = time.time() - start_time
+        duration_ms = int(duration_s * 1000)
         mark_job_status(
             job_id,
             "failed",
@@ -148,6 +159,7 @@ async def handle_job(job):
                 "error": str(e)[:1000],
                 "error_trace": tb,
                 "finished_at": datetime.utcnow().isoformat(),
+                "processing_time_ms": duration_ms,
             },
         )
 
