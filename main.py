@@ -37,6 +37,9 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
     benefits_lst,
+    PLAYLIST_STATS_TABLE,
+    PLAYLIST_JOBS_TABLE,
+    SIGNUPS_TABLE,
 )
 from db import (
     get_cached_playlist_stats,
@@ -102,7 +105,7 @@ def init_app():
     # Configure logging
     setup_logging()
 
-    # Initialize Supabase client
+    # Initialize Supabase client ONCE
     try:
         client = init_supabase()
         if client is not None:
@@ -117,7 +120,7 @@ def init_app():
         # Continue running without Supabase
 
 
-# Initialize the application
+# Initialize the application at the very top of main.py (before any DB usage)
 init_app()
 
 # Initialize YouTube service
@@ -145,7 +148,7 @@ def debug_supabase():
         try:
             # Test basic connection
             response = (
-                supabase_client.table("playlist_stats")
+                supabase_client.table(PLAYLIST_STATS_TABLE)
                 .select("count", count="exact")
                 .execute()
             )
@@ -334,14 +337,14 @@ def preview_playlist(playlist_url: str):
 
 
 @rt("/validate/full", methods=["POST", "GET"])
-async def validate_full(
+def validate_full(
     playlist_url: str,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
     sort_by: str = "Views",
     order: str = "desc",
 ):
-    async def stream():
+    def stream():
         try:
             # --- 1) INIT: set the meter max (from preview) and reset value ---
             initial_max = meter_max or 1
@@ -366,7 +369,7 @@ async def validate_full(
                 # Tick to completion as a proxy (cache is instant)
                 for i in range(1, (total or 1) + 1):
                     yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
-                    await asyncio.sleep(0)  # yield control so HTMX can paint
+                    # No await needed, just simulate yield
 
             else:
                 # --- 3) Fresh fetch ---
@@ -698,7 +701,7 @@ def newsletter(email: str):
         logger.info(f"Attempting to insert newsletter signup for: {email}")
 
         # Insert data using Supabase client
-        data = supabase_client.table("signups").insert(payload).execute()
+        data = supabase_client.table(SIGNUPS_TABLE).insert(payload).execute()
 
         # Check if we have data in the response
         if data.data:

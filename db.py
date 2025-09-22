@@ -13,6 +13,9 @@ from typing import Any, Dict, List, Optional
 
 import polars as pl
 from supabase import Client, create_client
+
+from constants import PLAYLIST_STATS_TABLE, PLAYLIST_JOBS_TABLE, SIGNUPS_TABLE
+
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # Get logger instance
@@ -20,11 +23,6 @@ logger = logging.getLogger(__name__)
 
 # Global Supabase client
 supabase_client: Optional[Client] = None
-
-# --- Configuration ---
-PLAYLIST_STATS_TABLE = "playlist_stats"
-PLAYLIST_JOBS_TABLE = "playlist_jobs"
-
 
 def setup_logging():
     """Configure logging for the application.

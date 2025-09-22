@@ -190,3 +190,9 @@ SEARCH_QUERIES = [
     "rock playlist",
     "old school playlist",
 ]
+
+# Table name constants
+PLAYLIST_STATS_TABLE = "playlist_stats"
+PLAYLIST_JOBS_TABLE = "playlist_jobs"
+SIGNUPS_TABLE = "signups"
+# Add other table names as needed
