@@ -90,7 +90,7 @@ async def handle_job(job):
     """Process a single job dict."""
     job_id = job.get("id")
     playlist_url = job.get("playlist_url")
-    logger.info("Picked job id=%s playlist=%s", job_id, playlist_url)
+    logger.info(f"Starting job {job_id} for playlist {playlist_url}")
 
     # Start a timer
     start_time = time.time()

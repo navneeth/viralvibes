@@ -268,18 +268,38 @@ def validate_url(playlist: YoutubePlaylist):
 
 @rt("/validate/preview", methods=["POST"])
 def preview_playlist(playlist_url: str):
+    logger.info(f"Received request to preview playlist: {playlist_url}")
+
     # Case 1: Try to get cached result. Check for full, up-to-date cache
     cached_stats = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached_stats:
+        logger.info(f"Cache hit for playlist: {playlist_url}. Serving cached data.")
         # If cached, forward to /validate/full
         return Script(
             "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
             % playlist_url
         )
+    logger.info(f"Cache miss for playlist: {playlist_url}. Checking job status.")
 
     # Case 2 & 3: Get minimal info and job status from DB (e.g., submission status)
     job_status = get_playlist_job_status(playlist_url)
+    logger.info(f"Found job status for {playlist_url}: {job_status}")
+
+    # If the job is 'done', immediately serve the full analysis
+    if job_status == "done":
+        logger.info(f"Job is 'done', redirecting to full analysis.")
+        return Script(
+            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
+            % playlist_url
+        )
+
     preview_info = get_playlist_preview_info(playlist_url)
+    if preview_info:
+        logger.info(
+            f"Found preview info for {playlist_url}: {preview_info.get('title')}"
+        )
+    else:
+        logger.info(f"No preview info found for {playlist_url}.")
 
     # Determine button state
     is_submitted = job_status in ["pending", "processing"]

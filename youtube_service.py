@@ -1,3 +1,5 @@
+# youtube_service.py
+
 """
 YouTube Service for fetching and processing YouTube playlist data.
 This module provides functionality to fetch and process YouTube playlist data using yt-dlp.
@@ -60,6 +62,15 @@ class YoutubePlaylistService:
         }
         self.ydl_opts = ydl_opts or default_opts
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
+
+    @classmethod
+    def get_display_headers(cls) -> List[str]:
+        """Get the display headers for the data table.
+
+        Returns:
+            List[str]: List of column headers for display
+        """
+        return cls.DISPLAY_HEADERS
 
     async def get_playlist_preview(
         self, playlist_url: str
@@ -200,6 +211,7 @@ class YoutubePlaylistService:
         Raises:
             Exception: If there's an error fetching or processing the playlist data
         """
+        logger.info(f"Starting analysis for playlist: {playlist_url}")
         try:
             playlist_info = await asyncio.to_thread(
                 self.ydl.extract_info, playlist_url, download=False
@@ -218,7 +230,7 @@ class YoutubePlaylistService:
                     playlist_name,
                     channel_name,
                     channel_thumbnail,
-                    {},
+                    self._calculate_summary_stats(pl.DataFrame(), 0),
                 )
 
             # Fetch all video data concurrently
@@ -234,11 +246,22 @@ class YoutubePlaylistService:
                     playlist_name,
                     channel_name,
                     channel_thumbnail,
-                    {},
+                    self._calculate_summary_stats(pl.DataFrame(), playlist_video_count),
                 )
 
             # Create initial DataFrame from fetched data
             df = pl.DataFrame(video_data)
+
+            # Check if the DataFrame has any columns before proceeding
+            if not df.columns:
+                logger.warning("Created an empty Polars DataFrame. Aborting analysis.")
+                return (
+                    pl.DataFrame(),
+                    playlist_name,
+                    channel_name,
+                    channel_thumbnail,
+                    self._calculate_summary_stats(pl.DataFrame(), playlist_video_count),
+                )
 
             # Calculate derived columns using Polars expressions
             df = df.with_columns(
@@ -315,43 +338,33 @@ class YoutubePlaylistService:
             return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
 
+    def _calculate_summary_stats(
+        self, df: pl.DataFrame, actual_playlist_count: int = None
+    ) -> Dict[str, Any]:
+        """Calculate summary statistics for the playlist."""
+        if df.is_empty():
+            return {
+                "total_views": 0,
+                "total_likes": 0,
+                "total_dislikes": 0,
+                "total_comments": 0,
+                "avg_engagement": 0.0,
+                "actual_playlist_count": actual_playlist_count or 0,
+                "processed_video_count": 0,
+            }
 
-def _calculate_summary_stats(
-    self, df: pl.DataFrame, actual_playlist_count: int = None
-) -> Dict[str, Any]:
-    """Calculate summary statistics for the playlist."""
-    if df.is_empty():
+        total_views = df["Views"].sum()
+        total_likes = df["Likes"].sum()
+        total_dislikes = df["Dislikes"].sum()
+        total_comments = df["Comments"].sum()
+        avg_engagement = df["Engagement Rate Raw"].mean()
+
         return {
-            "total_views": 0,
-            "total_likes": 0,
-            "total_dislikes": 0,
-            "total_comments": 0,
-            "avg_engagement": 0.0,
-            "actual_playlist_count": actual_playlist_count or 0,
-            "processed_video_count": 0,
+            "total_views": total_views,
+            "total_likes": total_likes,
+            "total_dislikes": total_dislikes,
+            "total_comments": total_comments,
+            "avg_engagement": avg_engagement,
+            "actual_playlist_count": actual_playlist_count or df.height,
+            "processed_video_count": df.height,
         }
-
-    total_views = df["Views"].sum()
-    total_likes = df["Likes"].sum()
-    total_dislikes = df["Dislikes"].sum()
-    total_comments = df["Comments"].sum()
-    avg_engagement = df["Engagement Rate Raw"].mean()
-
-    return {
-        "total_views": total_views,
-        "total_likes": total_likes,
-        "total_dislikes": total_dislikes,
-        "total_comments": total_comments,
-        "avg_engagement": avg_engagement,
-        "actual_playlist_count": actual_playlist_count or df.height,
-        "processed_video_count": df.height,
-    }
-
-    @classmethod
-    def get_display_headers(cls) -> List[str]:
-        """Get the display headers for the data table.
-
-        Returns:
-            List[str]: List of column headers for display
-        """
-        return cls.DISPLAY_HEADERS

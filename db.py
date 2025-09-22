@@ -13,10 +13,9 @@ from typing import Any, Dict, List, Optional
 
 import polars as pl
 from supabase import Client, create_client
-
-from constants import PLAYLIST_STATS_TABLE, PLAYLIST_JOBS_TABLE, SIGNUPS_TABLE
-
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from constants import PLAYLIST_JOBS_TABLE, PLAYLIST_STATS_TABLE, SIGNUPS_TABLE
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -297,11 +296,18 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
             .execute()
         )
         if response.data:
+            preview_info = response.data[0]
+            logger.info(
+                f"Successfully retrieved preview info. "
+                f"Title: {preview_info.get('title')}, "
+                f"Video Count: {preview_info.get('video_count')}"
+            )
             return {
-                "title": response.data[0].get("title"),
-                "thumbnail": response.data[0].get("channel_thumbnail"),
-                "video_count": response.data[0].get("video_count"),
+                "title": preview_info.get("title"),
+                "thumbnail": preview_info.get("channel_thumbnail"),
+                "video_count": preview_info.get("video_count"),
             }
+        logger.warning(f"No preview info found for playlist: {playlist_url}")
         return {}
     except Exception as e:
         logger.error(f"Error fetching preview info for {playlist_url}: {e}")
