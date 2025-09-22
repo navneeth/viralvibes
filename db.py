@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Global Supabase client
 supabase_client: Optional[Client] = None
 
+
 def setup_logging():
     """Configure logging for the application.
 
