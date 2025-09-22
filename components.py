@@ -37,11 +37,8 @@ from constants import (
     maxpx,
     testimonials,
 )
-
-
 from db import fetch_playlists
-from utils import format_number, safe_channel_name
-
+from utils import format_number
 
 """Define reusable UI components for the ViralVibes application."""
 icons = "assets/icons"
@@ -539,11 +536,21 @@ def AnalyticsDashboardSection(
     Redesigned with better logical flow and chart grouping.
     """
     # Calculate total videos from DataFrame length
-    total_videos = len(df) if df is not None and not df.is_empty() else 0
+    # total_videos = len(df) if df is not None and not df.is_empty() else 0
+    actual_playlist_count = summary.get("actual_playlist_count", 0)
+    processed_count = summary.get(
+        "processed_video_count", len(df) if df is not None and not df.is_empty() else 0
+    )
 
     return Section(
         # Professional header
-        AnalyticsHeader(playlist_name, channel_name, total_videos, playlist_thumbnail),
+        AnalyticsHeader(
+            playlist_name,
+            channel_name,
+            actual_playlist_count,
+            processed_count,
+            playlist_thumbnail,
+        ),
         # Playlist Metrics Overview
         PlaylistMetricsOverview(df, summary),
         # Header
@@ -701,6 +708,7 @@ def AnalyticsHeader(
     playlist_title: str,
     channel_name: str,
     total_videos: int,
+    processed_videos: int,
     playlist_thumbnail: Optional[str] = None,
     channel_url: Optional[str] = None,
 ) -> Div:
@@ -708,6 +716,11 @@ def AnalyticsHeader(
     Create a professional header for the analytics dashboard.
     Shows playlist info, context, and future action buttons.
     """
+    # Show both counts if they're different
+    video_info = f"{total_videos} videos"
+    if processed_videos < total_videos:
+        video_info = f"{processed_videos} of {total_videos} videos analyzed"
+
     return Div(
         # Main header content
         Div(
@@ -731,7 +744,7 @@ def AnalyticsHeader(
                     P(
                         Span("by ", cls=""),
                         Span(str(channel_name or "Unknown Channel")),
-                        Span(f" • {total_videos} videos"),
+                        Span(f" • {video_info} videos"),
                         cls="text-gray-600 text-sm md:text-base",
                     ),
                     cls="flex-1",
@@ -878,6 +891,10 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     """Create a row of 4 key metric cards that give immediate insights."""
 
     # Calculate key metrics from your data
+    actual_playlist_count = summary.get("actual_playlist_count", 0)
+    processed_count = summary.get(
+        "processed_video_count", len(df) if df is not None else 0
+    )
     total_views = summary.get("total_views", 0)
     total_videos = len(df) if df is not None else summary.get("video_count", 0)
     avg_engagement = summary.get("avg_engagement", 0)

@@ -34,12 +34,12 @@ from constants import (
     FORM_CARD,
     HEADER_CARD,
     NEWSLETTER_CARD,
+    PLAYLIST_JOBS_TABLE,
+    PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
-    benefits_lst,
-    PLAYLIST_STATS_TABLE,
-    PLAYLIST_JOBS_TABLE,
     SIGNUPS_TABLE,
+    benefits_lst,
 )
 from db import (
     get_cached_playlist_stats,
@@ -405,7 +405,10 @@ def validate_full(
                     "like_count": summary_stats.get("total_likes"),
                     "dislike_count": summary_stats.get("total_dislikes"),
                     "comment_count": summary_stats.get("total_comments"),
-                    "video_count": df.height,
+                    "video_count": summary_stats.get(
+                        "actual_playlist_count", df.height
+                    ),
+                    "processed_video_count": df.height,
                     "avg_duration": (
                         int(summary_stats.get("avg_duration"))
                         if summary_stats.get("avg_duration") is not None

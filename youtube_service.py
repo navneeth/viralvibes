@@ -225,6 +225,17 @@ class YoutubePlaylistService:
             video_data = await self._fetch_all_video_data(
                 playlist_info["entries"], max_expanded
             )
+            if not video_data:
+                logger.warning(
+                    "No valid videos found in playlist, returning empty DataFrame."
+                )
+                return (
+                    pl.DataFrame(),
+                    playlist_name,
+                    channel_name,
+                    channel_thumbnail,
+                    {},
+                )
 
             # Create initial DataFrame from fetched data
             df = pl.DataFrame(video_data)
@@ -251,7 +262,7 @@ class YoutubePlaylistService:
             )
 
             # Calculate summary stats using the raw DataFrame
-            summary_stats = self._calculate_summary_stats(df)
+            summary_stats = self._calculate_summary_stats(df, playlist_video_count)
 
             # Format columns for display just before returning
             df = df.with_columns(
@@ -304,28 +315,37 @@ class YoutubePlaylistService:
             return sorted_thumbs[0].get("url", "") if sorted_thumbs else ""
         return ""
 
-    def _calculate_summary_stats(self, df: pl.DataFrame) -> Dict[str, float]:
-        """Calculate summary statistics for the playlist."""
-        if df.is_empty():
-            return {
-                "total_views": 0,
-                "total_likes": 0,
-                "avg_engagement": 0.0,
-            }
 
-        total_views = df["Views"].sum()
-        total_likes = df["Likes"].sum()
-        total_dislikes = df["Dislikes"].sum()
-        total_comments = df["Comments"].sum()
-        avg_engagement = df["Engagement Rate Raw"].mean()
-
+def _calculate_summary_stats(
+    self, df: pl.DataFrame, actual_playlist_count: int = None
+) -> Dict[str, Any]:
+    """Calculate summary statistics for the playlist."""
+    if df.is_empty():
         return {
-            "total_views": total_views,
-            "total_likes": total_likes,
-            "total_dislikes": total_dislikes,
-            "total_comments": total_comments,
-            "avg_engagement": avg_engagement,
+            "total_views": 0,
+            "total_likes": 0,
+            "total_dislikes": 0,
+            "total_comments": 0,
+            "avg_engagement": 0.0,
+            "actual_playlist_count": actual_playlist_count or 0,
+            "processed_video_count": 0,
         }
+
+    total_views = df["Views"].sum()
+    total_likes = df["Likes"].sum()
+    total_dislikes = df["Dislikes"].sum()
+    total_comments = df["Comments"].sum()
+    avg_engagement = df["Engagement Rate Raw"].mean()
+
+    return {
+        "total_views": total_views,
+        "total_likes": total_likes,
+        "total_dislikes": total_dislikes,
+        "total_comments": total_comments,
+        "avg_engagement": avg_engagement,
+        "actual_playlist_count": actual_playlist_count or df.height,
+        "processed_video_count": df.height,
+    }
 
     @classmethod
     def get_display_headers(cls) -> List[str]:
