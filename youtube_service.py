@@ -11,8 +11,8 @@ import os
 import re
 from typing import Any, Dict, List, Tuple
 
-import polars as pl
 import httpx
+import polars as pl
 
 # Optional imports
 try:
@@ -26,6 +26,7 @@ except ImportError:
     build = None
 
 import isodate
+
 from utils import calculate_engagement_rate, format_duration, format_number
 
 # Get logger instance
@@ -39,9 +40,18 @@ class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
 
     DISPLAY_HEADERS = [
-        "Rank", "Title", "Views", "Likes", "Dislikes", "Comments",
-        "Duration", "Engagement Rate", "Controversy", "Rating"
+        "Rank",
+        "Title",
+        "Views",
+        "Likes",
+        "Dislikes",
+        "Comments",
+        "Duration",
+        "Engagement Rate",
+        "Controversy",
+        "Rating",
     ]
+    YOUTUBE_API_MAX_RESULTS = 50
 
     def __init__(self, backend: str = "yt-dlp", ydl_opts: dict = None):
         """
@@ -117,9 +127,11 @@ class YoutubePlaylistService:
                 if not m:
                     raise ValueError("Invalid playlist URL")
                 playlist_id = m.group(1)
-                resp = self.youtube.playlists().list(
-                    part="snippet,contentDetails", id=playlist_id, maxResults=1
-                ).execute()
+                resp = (
+                    self.youtube.playlists()
+                    .list(part="snippet,contentDetails", id=playlist_id, maxResults=1)
+                    .execute()
+                )
                 if not resp["items"]:
                     return "Preview unavailable", "", "", 0
                 sn = resp["items"][0]["snippet"]
@@ -165,8 +177,13 @@ class YoutubePlaylistService:
             )
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
-        return video_id, {"dislikes": 0, "likes": 0, "rating": None,
-                          "viewCount_api": None, "deleted": False}
+        return video_id, {
+            "dislikes": 0,
+            "likes": 0,
+            "rating": None,
+            "viewCount_api": None,
+            "deleted": False,
+        }
 
     async def _fetch_video_info_async(self, video_url: str) -> Dict[str, Any]:
         """Fetch full metadata for a single video asynchronously using asyncio.to_thread."""
@@ -188,11 +205,11 @@ class YoutubePlaylistService:
         async with httpx.AsyncClient(timeout=5.0) as client:
             dislike_tasks = [
                 self._fetch_dislike_data_async(client, v.get("id", ""))
-                for v in videos[:max_expanded] if v.get("id")
+                for v in videos[:max_expanded]
+                if v.get("id")
             ]
         video_infos, dislike_results = await asyncio.gather(
-            asyncio.gather(*video_info_tasks),
-            asyncio.gather(*dislike_tasks)
+            asyncio.gather(*video_info_tasks), asyncio.gather(*dislike_tasks)
         )
         dislike_map = {vid: data for vid, data in dislike_results}
 
@@ -202,19 +219,21 @@ class YoutubePlaylistService:
                 continue
             vid = vi.get("id", "")
             dd = dislike_map.get(vid, {})
-            combined.append({
-                "Rank": rank,
-                "id": vid,
-                "Title": vi.get("title", "N/A"),
-                "Views": vi.get("view_count", 0),
-                "Likes": dd.get("likes", vi.get("like_count", 0)),
-                "Dislikes": dd.get("dislikes", 0),
-                "Comments": vi.get("comment_count", 0),
-                "Duration": vi.get("duration", 0),
-                "Uploader": vi.get("uploader", "N/A"),
-                "Thumbnail": vi.get("thumbnail", ""),
-                "Rating": dd.get("rating"),
-            })
+            combined.append(
+                {
+                    "Rank": rank,
+                    "id": vid,
+                    "Title": vi.get("title", "N/A"),
+                    "Views": vi.get("view_count", 0),
+                    "Likes": dd.get("likes", vi.get("like_count", 0)),
+                    "Dislikes": dd.get("dislikes", 0),
+                    "Comments": vi.get("comment_count", 0),
+                    "Duration": vi.get("duration", 0),
+                    "Uploader": vi.get("uploader", "N/A"),
+                    "Thumbnail": vi.get("thumbnail", ""),
+                    "Rating": dd.get("rating"),
+                }
+            )
         return combined
 
     async def _get_playlist_data_ytdlp(
@@ -255,8 +274,8 @@ class YoutubePlaylistService:
         )
         if not video_data:
             logger.warning(
-                    "No valid videos found in playlist, returning empty DataFrame."
-                )
+                "No valid videos found in playlist, returning empty DataFrame."
+            )
             return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
         # Create initial DataFrame from fetched data
         df = pl.DataFrame(video_data)
@@ -274,9 +293,11 @@ class YoutubePlaylistService:
         if not m:
             raise ValueError("Invalid playlist URL")
         playlist_id = m.group(1)
-        resp = self.youtube.playlists().list(
-            part="snippet", id=playlist_id, maxResults=1
-        ).execute()
+        resp = (
+            self.youtube.playlists()
+            .list(part="snippet", id=playlist_id, maxResults=1)
+            .execute()
+        )
         if not resp["items"]:
             raise ValueError("Playlist not found")
         sn = resp["items"][0]["snippet"]
@@ -286,11 +307,18 @@ class YoutubePlaylistService:
 
         video_ids, nextPageToken = [], None
         while len(video_ids) < max_expanded:
-            items_resp = self.youtube.playlistItems().list(
-                part="contentDetails", playlistId=playlist_id,
-                maxResults=min(50, max_expanded - len(video_ids)),
-                pageToken=nextPageToken
-            ).execute()
+            items_resp = (
+                self.youtube.playlistItems()
+                .list(
+                    part="contentDetails",
+                    playlistId=playlist_id,
+                    maxResults=min(
+                        self.YOUTUBE_API_MAX_RESULTS, max_expanded - len(video_ids)
+                    ),
+                    pageToken=nextPageToken,
+                )
+                .execute()
+            )
             for it in items_resp["items"]:
                 video_ids.append(it["contentDetails"]["videoId"])
             nextPageToken = items_resp.get("nextPageToken")
@@ -298,29 +326,36 @@ class YoutubePlaylistService:
                 break
 
         videos = []
-        for i in range(0, len(video_ids), 50):
-            batch = video_ids[i:i+50]
-            resp = self.youtube.videos().list(
-                part="snippet,statistics,contentDetails",
-                id=",".join(batch)
-            ).execute()
-            for idx, it in enumerate(resp["items"], start=i+1):
+        for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
+            batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
+            resp = (
+                self.youtube.videos()
+                .list(part="snippet,statistics,contentDetails", id=",".join(batch))
+                .execute()
+            )
+            for idx, it in enumerate(resp["items"], start=i + 1):
                 stats = it.get("statistics", {})
                 sn = it.get("snippet", {})
                 cd = it.get("contentDetails", {})
-                videos.append({
-                    "Rank": idx,
-                    "id": it["id"],
-                    "Title": sn.get("title", "N/A"),
-                    "Views": int(stats.get("viewCount", 0)),
-                    "Likes": int(stats.get("likeCount", 0)),
-                    "Dislikes": 0,  # API does not expose
-                    "Comments": int(stats.get("commentCount", 0)),
-                    "Duration": self._parse_iso8601_duration(cd.get("duration", "PT0S")),
-                    "Uploader": sn.get("channelTitle", "N/A"),
-                    "Thumbnail": sn.get("thumbnails", {}).get("high", {}).get("url", ""),
-                    "Rating": None,
-                })
+                videos.append(
+                    {
+                        "Rank": idx,
+                        "id": it["id"],
+                        "Title": sn.get("title", "N/A"),
+                        "Views": int(stats.get("viewCount", 0)),
+                        "Likes": int(stats.get("likeCount", 0)),
+                        "Dislikes": 0,  # API does not expose
+                        "Comments": int(stats.get("commentCount", 0)),
+                        "Duration": self._parse_iso8601_duration(
+                            cd.get("duration", "PT0S")
+                        ),
+                        "Uploader": sn.get("channelTitle", "N/A"),
+                        "Thumbnail": sn.get("thumbnails", {})
+                        .get("high", {})
+                        .get("url", ""),
+                        "Rating": None,
+                    }
+                )
 
         df = pl.DataFrame(videos)
         df, stats = self._enrich_dataframe(df, len(video_ids))
@@ -341,7 +376,9 @@ class YoutubePlaylistService:
         """
         if "thumbnails" in playlist_info:
             thumbs = sorted(
-                playlist_info["thumbnails"], key=lambda x: x.get("width", 0), reverse=True
+                playlist_info["thumbnails"],
+                key=lambda x: x.get("width", 0),
+                reverse=True,
             )
             return thumbs[0].get("url", "") if thumbs else ""
         return ""
@@ -349,7 +386,8 @@ class YoutubePlaylistService:
     def _parse_iso8601_duration(self, duration: str) -> int:
         try:
             return int(isodate.parse_duration(duration).total_seconds())
-        except Exception:
+        except (isodate.ISO8601Error, TypeError, ValueError) as e:
+            logger.error(f"Failed to parse ISO8601 duration '{duration}': {e}")
             return 0
 
     def _enrich_dataframe(
@@ -358,19 +396,31 @@ class YoutubePlaylistService:
         """Calculate summary statistics for the playlist."""
         if df.is_empty():
             return df, {
-                "total_views": 0, "total_likes": 0, "total_dislikes": 0,
-                "total_comments": 0, "avg_engagement": 0.0,
+                "total_views": 0,
+                "total_likes": 0,
+                "total_dislikes": 0,
+                "total_comments": 0,
+                "avg_engagement": 0.0,
                 "actual_playlist_count": actual_playlist_count or 0,
                 "processed_video_count": 0,
             }
-        df = df.with_columns([
-            (1 - (pl.col("Likes") - pl.col("Dislikes")).abs()
-             / (pl.col("Likes") + pl.col("Dislikes")))
-            .fill_nan(0.0).alias("Controversy"),
-            ((pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
-             / pl.col("Views"))
-            .fill_nan(0.0).alias("Engagement Rate Raw"),
-        ])
+        df = df.with_columns(
+            [
+                (
+                    1
+                    - (pl.col("Likes") - pl.col("Dislikes")).abs()
+                    / (pl.col("Likes") + pl.col("Dislikes"))
+                )
+                .fill_nan(0.0)
+                .alias("Controversy"),
+                (
+                    (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
+                    / pl.col("Views")
+                )
+                .fill_nan(0.0)
+                .alias("Engagement Rate Raw"),
+            ]
+        )
         stats = {
             "total_views": df["Views"].sum(),
             "total_likes": df["Likes"].sum(),
@@ -380,15 +430,31 @@ class YoutubePlaylistService:
             "actual_playlist_count": actual_playlist_count or df.height,
             "processed_video_count": df.height,
         }
-        df = df.with_columns([
-            pl.col("Views").map_elements(format_number, return_dtype=pl.String).alias("Views Formatted"),
-            pl.col("Likes").map_elements(format_number, return_dtype=pl.String).alias("Likes Formatted"),
-            pl.col("Dislikes").map_elements(format_number, return_dtype=pl.String).alias("Dislikes Formatted"),
-            pl.col("Comments").map_elements(format_number, return_dtype=pl.String).alias("Comments Formatted"),
-            pl.col("Duration").map_elements(format_duration, return_dtype=pl.String).alias("Duration Formatted"),
-            pl.col("Controversy").map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String).alias("Controversy Formatted"),
-            pl.col("Engagement Rate Raw").map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String).alias("Engagement Rate Formatted"),
-        ])
+        df = df.with_columns(
+            [
+                pl.col("Views")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("Views Formatted"),
+                pl.col("Likes")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("Likes Formatted"),
+                pl.col("Dislikes")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("Dislikes Formatted"),
+                pl.col("Comments")
+                .map_elements(format_number, return_dtype=pl.String)
+                .alias("Comments Formatted"),
+                pl.col("Duration")
+                .map_elements(format_duration, return_dtype=pl.String)
+                .alias("Duration Formatted"),
+                pl.col("Controversy")
+                .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
+                .alias("Controversy Formatted"),
+                pl.col("Engagement Rate Raw")
+                .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
+                .alias("Engagement Rate Formatted"),
+            ]
+        )
         return df, stats
 
     @classmethod

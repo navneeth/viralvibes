@@ -4,7 +4,10 @@ import polars as pl
 from youtube_service import YoutubePlaylistService
 
 # Stable, public test playlist (replace with your own if needed)
-TEST_PLAYLIST_URL = "https://www.youtube.com/playlist?list=PL9tY0BWXOZFv0Ax7AnCM1j7rwhhtjfiPg"
+TEST_PLAYLIST_URL = (
+    "https://www.youtube.com/playlist?list=PL9tY0BWXOZFv0Ax7AnCM1j7rwhhtjfiPg"
+)
+
 
 @pytest.mark.asyncio
 async def test_schema_contract_between_backends():
@@ -18,13 +21,15 @@ async def test_schema_contract_between_backends():
 
     # yt-dlp backend
     yt_service = YoutubePlaylistService(backend="yt-dlp")
-    yt_df, yt_name, yt_channel, yt_thumb, yt_stats = \
-        await yt_service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=5)
+    yt_df, yt_name, yt_channel, yt_thumb, yt_stats = await yt_service.get_playlist_data(
+        TEST_PLAYLIST_URL, max_expanded=5
+    )
 
     # API backend
     api_service = YoutubePlaylistService(backend="youtubeapi")
-    api_df, api_name, api_channel, api_thumb, api_stats = \
+    api_df, api_name, api_channel, api_thumb, api_stats = (
         await api_service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=5)
+    )
 
     # --- DataFrame schema ---
     yt_cols = yt_df.columns
@@ -34,10 +39,16 @@ async def test_schema_contract_between_backends():
     # --- Summary stats schema ---
     yt_stat_keys = sorted(yt_stats.keys())
     api_stat_keys = sorted(api_stats.keys())
-    assert yt_stat_keys == api_stat_keys, f"Stats key mismatch!\nyt-dlp: {yt_stat_keys}\nAPI: {api_stat_keys}"
+    assert (
+        yt_stat_keys == api_stat_keys
+    ), f"Stats key mismatch!\nyt-dlp: {yt_stat_keys}\nAPI: {api_stat_keys}"
 
     # --- Display headers contract ---
-    assert YoutubePlaylistService.get_display_headers() == YoutubePlaylistService.get_display_headers()
+    assert (
+        YoutubePlaylistService.get_display_headers()
+        == YoutubePlaylistService.get_display_headers()
+    )
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("backend", ["yt-dlp", "youtubeapi"])
@@ -46,8 +57,9 @@ async def test_playlist_service_runs(backend):
         pytest.skip("Skipping YouTube API backend test: YOUTUBE_API_KEY not set")
 
     service = YoutubePlaylistService(backend=backend)
-    df, playlist_name, channel_name, channel_thumb, stats = \
+    df, playlist_name, channel_name, channel_thumb, stats = (
         await service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=3)
+    )
 
     assert isinstance(df, pl.DataFrame)
     assert isinstance(playlist_name, str)
