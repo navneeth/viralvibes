@@ -11,3 +11,4 @@ tenacity
 requests
 #pytest
 #pytest-asyncio
+google-api-python-client
