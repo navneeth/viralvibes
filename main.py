@@ -293,6 +293,21 @@ def preview_playlist(playlist_url: str):
             % playlist_url
         )
 
+    # Handle 'blocked' status
+    if job_status == "blocked":
+        logger.warning(f"Job for {playlist_url} is blocked by YouTube.")
+        return Div(
+            H2(
+                "YouTube Bot Challenge Detected",
+                cls="text-lg font-semibold text-red-700",
+            ),
+            P(
+                "Our system was blocked by YouTube while trying to analyze this playlist. This can happen with high traffic."
+            ),
+            P("Please try again in a few minutes.", cls="mt-2"),
+            cls="p-6 bg-red-50 border border-red-300 rounded-lg text-center",
+        )
+
     preview_info = get_playlist_preview_info(playlist_url)
     if preview_info:
         logger.info(

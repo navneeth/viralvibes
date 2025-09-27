@@ -128,7 +128,7 @@ async def handle_job(job):
             "df": df,
         }
 
-        result = await upsert_playlist_stats(stats_to_cache)
+        result = upsert_playlist_stats(stats_to_cache)  # Removed 'await'
         logger.info(
             "Upsert result source=%s for playlist=%s",
             result.get("source"),
@@ -142,15 +142,12 @@ async def handle_job(job):
                 "status_message": f"done (source={result.get('source')})",
                 "finished_at": datetime.utcnow().isoformat(),
                 "result_source": result.get("source"),
-                "processing_time_ms": duration_ms,  # Store the actual processing time
             },
         )
 
     except YouTubeBotChallengeError as e:
         tb = traceback.format_exc()
         logger.error(f"Bot challenge for job {job_id} ({playlist_url}): {e}")
-        duration_s = time.time() - start_time
-        duration_ms = int(duration_s * 1000)
         mark_job_status(
             job_id,
             "blocked",
@@ -158,7 +155,6 @@ async def handle_job(job):
                 "error": str(e),
                 "error_trace": tb,
                 "finished_at": datetime.utcnow().isoformat(),
-                "processing_time_ms": duration_ms,
             },
         )
 
@@ -166,8 +162,6 @@ async def handle_job(job):
         tb = traceback.format_exc()
         logger.exception("Job %s failed: %s", job_id, e)
         # Can still log the time of failure if needed
-        duration_s = time.time() - start_time
-        duration_ms = int(duration_s * 1000)
         mark_job_status(
             job_id,
             "failed",
@@ -175,7 +169,6 @@ async def handle_job(job):
                 "error": str(e)[:1000],
                 "error_trace": tb,
                 "finished_at": datetime.utcnow().isoformat(),
-                "processing_time_ms": duration_ms,
             },
         )
 
