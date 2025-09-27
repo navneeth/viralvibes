@@ -6,6 +6,7 @@ This module provides functionality to fetch and process YouTube playlist data us
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -34,6 +35,21 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # for YouTube Data API
 DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
+
+
+class YouTubeBotChallengeError(Exception):
+    """Raised when YouTube serves a validation or CAPTCHA page."""
+
+
+def parse_yt_dlp_output(raw_output: str):
+    try:
+        return json.loads(raw_output)
+    except json.JSONDecodeError:
+        # Likely HTML instead of JSON
+        if "<html" in raw_output.lower():
+            if "captcha" in raw_output.lower() or "consent.youtube.com" in raw_output:
+                raise YouTubeBotChallengeError("YouTube served a validation page.")
+        raise  # propagate other JSON errors
 
 
 class YoutubePlaylistService:

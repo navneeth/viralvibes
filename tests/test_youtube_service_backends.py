@@ -1,11 +1,13 @@
 import os
-import pytest
+
 import polars as pl
+import pytest
+
 from youtube_service import YoutubePlaylistService
 
 # Stable, public test playlist (replace with your own if needed)
 TEST_PLAYLIST_URL = (
-    "https://www.youtube.com/playlist?list=PL9tY0BWXOZFv0Ax7AnCM1j7rwhhtjfiPg"
+    "https://www.youtube.com/playlist?list=PLbRwAHeGGL1xG4gUqvkuo__yHEFSMxRqP"
 )
 
 
@@ -27,9 +29,13 @@ async def test_schema_contract_between_backends():
 
     # API backend
     api_service = YoutubePlaylistService(backend="youtubeapi")
-    api_df, api_name, api_channel, api_thumb, api_stats = (
-        await api_service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=5)
-    )
+    (
+        api_df,
+        api_name,
+        api_channel,
+        api_thumb,
+        api_stats,
+    ) = await api_service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=5)
 
     # --- DataFrame schema ---
     yt_cols = yt_df.columns
@@ -57,9 +63,13 @@ async def test_playlist_service_runs(backend):
         pytest.skip("Skipping YouTube API backend test: YOUTUBE_API_KEY not set")
 
     service = YoutubePlaylistService(backend=backend)
-    df, playlist_name, channel_name, channel_thumb, stats = (
-        await service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=3)
-    )
+    (
+        df,
+        playlist_name,
+        channel_name,
+        channel_thumb,
+        stats,
+    ) = await service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=3)
 
     assert isinstance(df, pl.DataFrame)
     assert isinstance(playlist_name, str)
