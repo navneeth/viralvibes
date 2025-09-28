@@ -111,6 +111,10 @@ async def handle_job(job):
         duration_s = time.time() - start_time
         duration_ms = int(duration_s * 1000)
 
+        # Ensure processed video count is in summary_stats for UI consistency
+        processed_video_count = getattr(df, "height", 0) if df is not None else 0
+        summary_stats["processed_video_count"] = processed_video_count
+
         stats_to_cache = {
             "playlist_url": playlist_url,
             "title": playlist_name,
@@ -120,7 +124,7 @@ async def handle_job(job):
             "like_count": summary_stats.get("total_likes"),
             "dislike_count": summary_stats.get("total_dislikes"),
             "comment_count": summary_stats.get("total_comments"),
-            "video_count": getattr(df, "height", 0) if df is not None else 0,
+            "video_count": processed_video_count,
             "avg_duration": summary_stats.get("avg_duration"),
             "engagement_rate": summary_stats.get("avg_engagement"),
             "controversy_score": summary_stats.get("avg_controversy", 0),
@@ -128,22 +132,36 @@ async def handle_job(job):
             "df": df,
         }
 
-        result = upsert_playlist_stats(stats_to_cache)  # Removed 'await'
+        result = upsert_playlist_stats(stats_to_cache)
         logger.info(
             "Upsert result source=%s for playlist=%s",
             result.get("source"),
             playlist_url,
         )
 
-        mark_job_status(
-            job_id,
-            "done",
-            {
-                "status_message": f"done (source={result.get('source')})",
-                "finished_at": datetime.utcnow().isoformat(),
-                "result_source": result.get("source"),
-            },
-        )
+        # Check if the upsert was successful before marking the job as done
+        if result.get("source") in ["cache", "fresh"]:
+            mark_job_status(
+                job_id,
+                "done",
+                {
+                    "status_message": f"done (source={result.get('source')})",
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "result_source": result.get("source"),
+                },
+            )
+        else:
+            # If upsert failed, mark the job as failed
+            error_message = "Failed to cache playlist stats after processing."
+            logger.error(f"Job {job_id} failed: {error_message}")
+            mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": error_message,
+                    "finished_at": datetime.utcnow().isoformat(),
+                },
+            )
 
     except YouTubeBotChallengeError as e:
         tb = traceback.format_exc()
