@@ -108,6 +108,23 @@ async def handle_job(job):
             summary_stats,
         ) = await yt_service.get_playlist_data(playlist_url)
 
+        # --- FIX: Add validation for empty results ---
+        if df is None or df.is_empty():
+            error_message = (
+                "No valid videos found in the playlist or failed to process."
+            )
+            logger.error(f"[Job {job_id}] {error_message}")
+            mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": error_message,
+                    "finished_at": datetime.utcnow().isoformat(),
+                },
+            )
+            # Stop further execution for this job
+            return
+
         # Ensure processed video count is in summary_stats for UI consistency
         processed_video_count = getattr(df, "height", 0) if df is not None else 0
         summary_stats["processed_video_count"] = processed_video_count
