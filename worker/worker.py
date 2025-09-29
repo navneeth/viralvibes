@@ -158,10 +158,35 @@ async def handle_job(job):
         logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
         logger.debug(f"[Job {job_id}] Upsert result keys={list(result.keys())}")
 
-        if not result or not result.get("df") or not result.get("summary_stats"):
-            logger.error(
-                f"[Job {job_id}] Upserted stats are missing df or summary_stats! Result keys={list(result.keys())}"
+        # --- FIX: Fail fast if upsert returns an error ---
+        if result.get("source") == "error":
+            error_message = "Upsert failed due to serialization or DB error."
+            logger.error(f"[Job {job_id}] {error_message}")
+            mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": error_message,
+                    "finished_at": datetime.utcnow().isoformat(),
+                },
             )
+            return
+
+        # --- FIX: Validate that the upsert result contains critical data ---
+        if not result.get("df") or not result.get("summary_stats"):
+            error_message = (
+                "Incomplete data returned from upsert, critical fields missing."
+            )
+            logger.error(f"[Job {job_id}] {error_message}")
+            mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": error_message,
+                    "finished_at": datetime.utcnow().isoformat(),
+                },
+            )
+            return
 
         if result.get("source") in ["cache", "fresh"]:
             mark_job_status(
@@ -262,6 +287,38 @@ async def worker_loop():
                 continue
 
             for job in jobs:
+                job_id = job.get("id")
+                if not job_id:
+                    continue
+
+                # --- FIX: Add transactional job claiming to prevent race conditions ---
+                try:
+                    claim_response = (
+                        supabase_client.table("playlist_jobs")
+                        .update(
+                            {
+                                "status": "processing",
+                                "started_at": datetime.utcnow().isoformat(),
+                            }
+                        )
+                        .eq("id", job_id)
+                        .eq("status", "pending")  # <-- Conditional update
+                        .execute()
+                    )
+
+                    # If data is empty, another worker claimed the job.
+                    if not claim_response.data:
+                        logger.info(
+                            f"[Job {job_id}] Claim failed, another worker likely took it. Skipping."
+                        )
+                        continue  # Skip to the next job
+
+                except Exception as e:
+                    logger.error(
+                        f"[Job {job_id}] Failed to claim job due to DB error: {e}"
+                    )
+                    continue  # Skip to the next job
+
                 # Check time before processing each job
                 if time.time() - start_time >= MAX_RUNTIME:
                     logger.info("Max runtime reached while processing jobs, stopping")
