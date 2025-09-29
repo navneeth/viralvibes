@@ -1115,7 +1115,7 @@ def faq_section():
             section_header(
                 "FAQ",
                 "Questions? Answers.",
-                "Your top FastHTML questions clarified.",
+                "Your top ViralVibes questions clarified.",
                 max_width=21,
                 center=False,
             ),
