@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import random
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 import polars as pl
@@ -17,8 +17,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from constants import PLAYLIST_JOBS_TABLE, PLAYLIST_STATS_TABLE, SIGNUPS_TABLE
 
-# Get logger instance
-logger = logging.getLogger(__name__)
+# Use a dedicated DB logger
+logger = logging.getLogger("vv_db")
 
 # Global Supabase client
 supabase_client: Optional[Client] = None
@@ -105,9 +105,10 @@ def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> 
         else:
             query = query.insert(payload)
         response = query.execute()
+        logger.debug(f"[DB] Upsert response for table {table}: {response.data}")
         return bool(response.data)
     except Exception as e:
-        logger.error(f"Error upserting row in {table}: {e}")
+        logger.exception(f"Error upserting row in {table}: {e}")
         return False
 
 
@@ -140,7 +141,7 @@ def get_cached_playlist_stats(
         response = query.limit(1).execute()
 
         if response.data and len(response.data) > 0:
-            logger.info(f"Cache hit for playlist: {playlist_url}")
+            logger.info(f"[Cache] Hit for playlist: {playlist_url}")
             row = response.data[0]
             # Deserialize JSON fields
             if row.get("df_json"):
@@ -149,11 +150,11 @@ def get_cached_playlist_stats(
                 row["summary_stats"] = json.loads(row["summary_stats"])
             return row
         else:
-            logger.info(f"Cache miss for playlist: {playlist_url}")
+            logger.info(f"[Cache] Miss for playlist: {playlist_url}")
             return None
 
     except Exception as e:
-        logger.error(f"Error checking cache for playlist {playlist_url}: {e}")
+        logger.exception(f"Error checking cache for playlist {playlist_url}: {e}")
         return None
 
 
@@ -177,32 +178,57 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     # Check cache first
     cached = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached:
-        logger.info(f"Returning cached stats for playlist: {playlist_url}")
+        logger.info(f"[Cache] Returning cached stats for {playlist_url}")
         return {**cached, "source": "cache"}
 
-    # No cache hit, prepare fresh stats for insertion
+    # Prepare for fresh insert
+    try:
+        df_json = (
+            stats.get("df").write_json()
+            if "df" in stats and stats.get("df") is not None
+            else None
+        )
+    except Exception as e:
+        logger.error(f"Error serializing df for {playlist_url}: {e}")
+        df_json = None
+
+    try:
+        summary_stats_json = (
+            json.dumps(stats.get("summary_stats"))
+            if "summary_stats" in stats and stats.get("summary_stats") is not None
+            else None
+        )
+    except Exception as e:
+        logger.error(f"Error serializing summary_stats for {playlist_url}: {e}")
+        summary_stats_json = None
+
     stats_to_insert = {
         **stats,
         "processed_date": date.today().isoformat(),
-        "df_json": stats.get("df").write_json() if "df" in stats else None,
-        "summary_stats": (
-            json.dumps(stats.get("summary_stats")) if "summary_stats" in stats else None
-        ),
+        "df_json": df_json,
+        "summary_stats": summary_stats_json,
     }
 
     # Remove Polars DataFrame before inserting
     if "df" in stats_to_insert:
         del stats_to_insert["df"]
 
+    safe_insert = {
+        k: v
+        for k, v in stats_to_insert.items()
+        if k not in ["df_json", "summary_stats"]
+    }
+    logger.debug(f"[DB] Final stats_to_insert for {playlist_url}: {safe_insert}")
+
     success = upsert_row(
         PLAYLIST_STATS_TABLE, stats_to_insert, ["playlist_url", "processed_date"]
     )
 
     if success:
-        logger.info(f"Returning fresh stats for playlist: {playlist_url}")
+        logger.info(f"[DB] Returning fresh stats for {playlist_url}")
         return {**stats, "source": "fresh"}
     else:
-        logger.error(f"Failed to insert fresh stats for playlist: {playlist_url}")
+        logger.error(f"[DB] Failed to insert fresh stats for {playlist_url}")
         return {**stats, "source": "error"}
 
 
