@@ -132,10 +132,16 @@ async def handle_job(job):
             error_message = (
                 "No valid videos found in the playlist or failed to process."
             )
+            # Differentiate blocked vs failed
+            if "Sign in to confirm you’re not a bot" in error_message:
+                status = "blocked"
+            else:
+                status = "failed"
+
             logger.error(f"[Job {job_id}] {error_message}")
             await mark_job_status(
                 job_id,
-                "failed",
+                status,
                 {
                     "error": error_message,
                     "finished_at": datetime.utcnow().isoformat(),

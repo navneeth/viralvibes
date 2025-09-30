@@ -826,18 +826,31 @@ def check_job_status(playlist_url: str):
     if job_status in ["complete", "done"]:
         logger.info(f"Job for {playlist_url} is complete. Loading full analysis.")
         return Script(
-            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
-            % playlist_url
+            "htmx.ajax('POST', '/validate/full', "
+            "{target: '#preview-box', values: {playlist_url: '%s'}});" % playlist_url
         )
+
     elif job_status == "failed":
         logger.error(f"Job for {playlist_url} failed.")
         return Div(
             Alert(
                 P("Playlist analysis failed. Please try again or check the URL."),
                 cls=AlertT.error,
-            ),
-            # Stop polling by not returning hx-trigger
+            )
         )
+
+    elif job_status == "blocked":
+        logger.warning(f"Job for {playlist_url} was blocked by YouTube.")
+        return Div(
+            Alert(
+                P(
+                    "YouTube blocked this analysis due to bot protection. "
+                    "Try again later or provide authentication."
+                ),
+                cls=AlertT.warning,
+            )
+        )
+
     else:  # 'pending', 'processing', or None (if job somehow disappeared)
         logger.info(
             f"Job for {playlist_url} status: {job_status or 'Not found'}. Continuing to poll."
