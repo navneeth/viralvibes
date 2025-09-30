@@ -59,6 +59,36 @@ python main.py
 ```
 The development server will start at http://0.0.0.0:5001
 
+## CLI Usage
+
+ViralVibes includes a CLI tool for local development and debugging. Here are the main commands:
+
+### Process Individual Playlists
+
+Test playlist processing with either backend:
+
+```bash
+# Local debug with yt-dlp backend
+python cli.py process "https://youtube.com/playlist?list=PLxxxxx" --backend yt-dlp
+
+# Local test with YouTube API backend
+python cli.py process "https://youtube.com/playlist?list=PLxxxxx" --backend youtubeapi
+```
+
+Additional CLI options:
+- `--dry-run`: Run without updating the database
+- `--help`: Show all available options
+
+### Worker Commands
+
+```bash
+# List pending jobs
+python cli.py pending
+
+# Run the worker loop (like on Render)
+python cli.py run --poll-interval 10 --batch-size 3 --max-runtime 300
+```
+
 ## Architecture
 
 The application follows a modern serverless architecture with three main layers:

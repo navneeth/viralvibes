@@ -10,6 +10,7 @@ import os
 import time
 import traceback
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -72,20 +73,36 @@ async def fetch_pending_jobs():
         return []
 
 
-def mark_job_status(job_id, status, meta: dict | None = None):
-    """Update job status synchronously via Supabase client."""
-    payload = {"status": status, "updated_at": datetime.utcnow().isoformat()}
-    if meta:
-        payload.update(meta)
+async def mark_job_status(
+    job_id: str, status: str, meta: Optional[Dict[str, Any]] = None
+) -> bool:
+    """Update a job's status with optional metadata."""
+    if not supabase_client:
+        logger.error(
+            f"Cannot mark job {job_id} as {status}: Supabase client not initialized"
+        )
+        return False
 
     try:
-        supabase_client.table("playlist_jobs").update(payload).eq(
-            "id", job_id
-        ).execute()
-        safe_payload = {k: v for k, v in payload.items() if k not in ["error_trace"]}
-        logger.debug(f"[Job {job_id}] Marked status={status}, payload={safe_payload}")
-    except Exception:
-        logger.exception("[Job %s] Failed to update job status", job_id)
+        payload = {"status": status}
+        if meta:
+            payload.update(meta)
+
+        response = (
+            await supabase_client.table("playlist_jobs")
+            .update(payload)
+            .eq("id", job_id)
+            .execute()
+        )
+
+        success = bool(response.data)
+        if not success:
+            logger.error(f"Failed to update status for job {job_id}")
+        return success
+
+    except Exception as e:
+        logger.exception(f"Error updating job {job_id} status: {e}")
+        return False
 
 
 async def handle_job(job):
@@ -179,6 +196,20 @@ async def handle_job(job):
             )
             logger.error(f"[Job {job_id}] {error_message}")
             mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": error_message,
+                    "finished_at": datetime.utcnow().isoformat(),
+                },
+            )
+            return
+
+        # --- FIX: Check if analysis results are valid ---
+        if result.get("df") is None or result.get("df").is_empty():
+            error_message = "Analysis produced no valid data"
+            logger.error(f"[Job {job_id}] {error_message}")
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
