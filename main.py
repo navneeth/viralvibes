@@ -430,6 +430,26 @@ def validate_full(
                 #     yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
                 #     await asyncio.sleep(0)
 
+                # --- 3) Fresh fetch (stub for now until yt_service is re-enabled) ---
+                logger.warning(
+                    "No cached stats found. Using stub values until worker is enabled."
+                )
+
+                df = pl.DataFrame([])  # empty dataframe
+                playlist_name = "Unknown Playlist"
+                channel_name = "Unknown Channel"
+                channel_thumbnail = ""
+                summary_stats = {
+                    "total_views": 0,
+                    "total_likes": 0,
+                    "total_dislikes": 0,
+                    "total_comments": 0,
+                    "actual_playlist_count": 0,
+                    "avg_duration": None,
+                    "avg_engagement": 0.0,
+                    "avg_controversy": 0.0,
+                }
+
                 # Cache snapshot
                 stats_to_cache = {
                     "playlist_url": playlist_url,

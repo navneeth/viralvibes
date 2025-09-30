@@ -89,7 +89,7 @@ async def mark_job_status(
             payload.update(meta)
 
         response = (
-            await supabase_client.table("playlist_jobs")
+            supabase_client.table("playlist_jobs")
             .update(payload)
             .eq("id", job_id)
             .execute()
@@ -113,7 +113,9 @@ async def handle_job(job):
 
     # Start a timer
     start_time = time.time()
-    mark_job_status(job_id, "processing", {"started_at": datetime.utcnow().isoformat()})
+    await mark_job_status(
+        job_id, "processing", {"started_at": datetime.utcnow().isoformat()}
+    )
 
     try:
         # fetch playlist data
@@ -155,7 +157,10 @@ async def handle_job(job):
             "like_count": summary_stats.get("total_likes"),
             "dislike_count": summary_stats.get("total_dislikes"),
             "comment_count": summary_stats.get("total_comments"),
-            "video_count": processed_video_count,
+            "video_count": summary_stats.get(
+                "actual_playlist_count", processed_video_count
+            ),
+            "processed_video_count": processed_video_count,
             "avg_duration": summary_stats.get("avg_duration"),
             "engagement_rate": summary_stats.get("avg_engagement"),
             "controversy_score": summary_stats.get("avg_controversy", 0),
@@ -171,7 +176,7 @@ async def handle_job(job):
         )
         logger.debug(f"[Job {job_id}] Upsert payload={safe_payload}")
 
-        result = upsert_playlist_stats(stats_to_cache)
+        result = await upsert_playlist_stats(stats_to_cache)
         logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
         logger.debug(f"[Job {job_id}] Upsert result keys={list(result.keys())}")
 
@@ -190,7 +195,10 @@ async def handle_job(job):
             return
 
         # --- FIX: Validate that the upsert result contains critical data ---
-        if not result.get("df") or not result.get("summary_stats"):
+        df = result.get("df")
+        summary_stats = result.get("summary_stats")
+
+        if df is None or df.is_empty() or not summary_stats:
             error_message = (
                 "Incomplete data returned from upsert, critical fields missing."
             )
@@ -220,7 +228,7 @@ async def handle_job(job):
             return
 
         if result.get("source") in ["cache", "fresh"]:
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "done",
                 {
@@ -233,7 +241,7 @@ async def handle_job(job):
             # If upsert failed, mark the job as failed
             error_message = "Failed to cache playlist stats after processing."
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
@@ -245,7 +253,7 @@ async def handle_job(job):
     except YouTubeBotChallengeError as e:
         tb = traceback.format_exc()
         logger.error(f"[Job {job_id}] Bot challenge for playlist {playlist_url}: {e}")
-        mark_job_status(
+        await mark_job_status(
             job_id,
             "blocked",
             {
@@ -259,7 +267,7 @@ async def handle_job(job):
         tb = traceback.format_exc()
         logger.exception("[Job %s] Unexpected error: %s", job_id, e)
         # Can still log the time of failure if needed
-        mark_job_status(
+        await mark_job_status(
             job_id,
             "failed",
             {
