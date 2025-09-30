@@ -208,6 +208,13 @@ class YoutubePlaylistService:
                 self.ydl.extract_info, video_url, download=False
             )
         except Exception as e:
+            # --- FIX: Detect bot challenge from yt-dlp and raise specific error ---
+            if "Sign in to confirm you’re not a bot" in str(e):
+                logger.error(f"YouTube bot challenge detected for video {video_url}")
+                raise YouTubeBotChallengeError(
+                    "YouTube is challenging our server. This is a temporary issue."
+                ) from e
+
             logger.warning(f"Failed to expand video {video_url}: {e}")
             return {}
 
@@ -274,29 +281,47 @@ class YoutubePlaylistService:
         """
         logger.info(f"Starting analysis for playlist: {playlist_url}")
 
-        playlist_info = await asyncio.to_thread(
-            self.ydl.extract_info, playlist_url, download=False
-        )
-        playlist_name = playlist_info.get("title", "Untitled Playlist")
-        channel_name = playlist_info.get("uploader", "Unknown Channel")
-        channel_thumb = self._extract_channel_thumbnail(playlist_info)
-        playlist_count = playlist_info.get(
-            "playlist_count", len(playlist_info.get("entries", []))
-        )
-        if "entries" not in playlist_info or not playlist_info["entries"]:
-            return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
-        video_data = await self._fetch_all_video_data(
-            playlist_info["entries"], max_expanded
-        )
-        if not video_data:
-            logger.warning(
-                "No valid videos found in playlist, returning empty DataFrame."
+        try:
+            playlist_info = await asyncio.to_thread(
+                self.ydl.extract_info, playlist_url, download=False
             )
-            return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
-        # Create initial DataFrame from fetched data
-        df = pl.DataFrame(video_data)
-        df, stats = self._enrich_dataframe(df, playlist_count)
-        return df, playlist_name, channel_name, channel_thumb, stats
+            playlist_name = playlist_info.get("title", "Untitled Playlist")
+            channel_name = playlist_info.get("uploader", "Unknown Channel")
+            channel_thumb = self._extract_channel_thumbnail(playlist_info)
+            playlist_count = playlist_info.get(
+                "playlist_count", len(playlist_info.get("entries", []))
+            )
+
+            if "entries" not in playlist_info or not playlist_info["entries"]:
+                return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
+
+            video_data = await self._fetch_all_video_data(
+                playlist_info["entries"], max_expanded
+            )
+
+            if not video_data:
+                logger.warning(
+                    "No valid videos found in playlist, returning empty DataFrame."
+                )
+                return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
+
+            # Create initial DataFrame from fetched data
+            df = pl.DataFrame(video_data)
+            df, stats = self._enrich_dataframe(df, playlist_count)
+            return df, playlist_name, channel_name, channel_thumb, stats
+
+        except YouTubeBotChallengeError:
+            # Re-raise the specific error so the worker can handle it
+            logger.error(
+                f"Propagating YouTubeBotChallengeError for playlist: {playlist_url}"
+            )
+            raise
+        except Exception as e:
+            logger.exception(
+                f"An unexpected error occurred during yt-dlp processing for {playlist_url}: {e}"
+            )
+            # Raise a general exception for other failures
+            raise
 
     # --------------------------
     # YouTube Data API implementation

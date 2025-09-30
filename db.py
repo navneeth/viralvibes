@@ -141,11 +141,20 @@ def get_cached_playlist_stats(
         response = query.limit(1).execute()
 
         if response.data and len(response.data) > 0:
-            logger.info(f"[Cache] Hit for playlist: {playlist_url}")
             row = response.data[0]
+
+            # --- FIX: Validate the integrity of the cached data ---
+            df_json = row.get("df_json")
+            # Check if df_json is missing, empty, or represents an empty list/object.
+            if not df_json or df_json.strip() in ('""', "[]", "{}"):
+                logger.warning(
+                    f"[Cache] Found invalid/empty cache entry for {playlist_url}. Treating as miss."
+                )
+                return None
+
+            logger.info(f"[Cache] Hit for playlist: {playlist_url}")
             # Deserialize JSON fields
-            if row.get("df_json"):
-                row["df"] = pl.read_json(io.BytesIO(row["df_json"].encode("utf-8")))
+            row["df"] = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
             if row.get("summary_stats"):
                 row["summary_stats"] = json.loads(row["summary_stats"])
             return row
@@ -174,6 +183,14 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     if not playlist_url:
         logger.error("No playlist_url provided in stats")
         return {**stats, "source": "error"}
+
+    # --- FIX: Add validation to prevent caching empty DataFrames ---
+    df = stats.get("df")
+    if df is None or df.is_empty():
+        logger.warning(
+            f"Attempted to cache empty or missing DataFrame for {playlist_url}. Aborting cache."
+        )
+        return {**stats, "source": "error", "error": "Empty DataFrame provided"}
 
     # Check cache first
     cached = get_cached_playlist_stats(playlist_url, check_date=True)
@@ -278,6 +295,30 @@ def fetch_playlists(
     except Exception as e:
         logger.error(f"Error fetching playlists: {e}")
         return []
+
+
+def get_latest_playlist_job(playlist_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Returns the most recent job record for a given playlist URL.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch job")
+        return None
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("*")  # Select all columns
+            .eq("playlist_url", playlist_url)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching latest job for {playlist_url}: {e}")
+        return None
 
 
 def get_playlist_job_status(playlist_url: str) -> Optional[str]:
