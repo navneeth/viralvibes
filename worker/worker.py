@@ -133,7 +133,7 @@ async def handle_job(job):
                 "No valid videos found in the playlist or failed to process."
             )
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
@@ -184,7 +184,7 @@ async def handle_job(job):
         if result.get("source") == "error":
             error_message = "Upsert failed due to serialization or DB error."
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
@@ -203,7 +203,7 @@ async def handle_job(job):
                 "Incomplete data returned from upsert, critical fields missing."
             )
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
