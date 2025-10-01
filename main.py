@@ -406,6 +406,27 @@ def validate_full(
                     yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
                     # No await needed, just simulate yield
 
+                # Detect skeleton-only stats ---
+                skeleton_mode = summary_stats.get(
+                    "expanded_count", 0
+                ) == 0 or summary_stats.get("expanded_count") < summary_stats.get(
+                    "processed_video_count", 0
+                )
+                if skeleton_mode:
+                    yield str(
+                        Div(
+                            H3(
+                                "⚠️ Skeleton-only Analysis",
+                                cls="font-semibold text-yellow-700",
+                            ),
+                            P(
+                                "We could not fully expand video stats due to YouTube bot protection. "
+                                "Showing basic playlist info only."
+                            ),
+                            cls="p-4 bg-yellow-50 border border-yellow-300 rounded mb-4",
+                        )
+                    )
+
             else:
                 # --- 3) Fresh fetch ---
 
