@@ -10,6 +10,7 @@ import os
 import time
 import traceback
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -72,20 +73,36 @@ async def fetch_pending_jobs():
         return []
 
 
-def mark_job_status(job_id, status, meta: dict | None = None):
-    """Update job status synchronously via Supabase client."""
-    payload = {"status": status, "updated_at": datetime.utcnow().isoformat()}
-    if meta:
-        payload.update(meta)
+async def mark_job_status(
+    job_id: str, status: str, meta: Optional[Dict[str, Any]] = None
+) -> bool:
+    """Update a job's status with optional metadata."""
+    if not supabase_client:
+        logger.error(
+            f"Cannot mark job {job_id} as {status}: Supabase client not initialized"
+        )
+        return False
 
     try:
-        supabase_client.table("playlist_jobs").update(payload).eq(
-            "id", job_id
-        ).execute()
-        safe_payload = {k: v for k, v in payload.items() if k not in ["error_trace"]}
-        logger.debug(f"[Job {job_id}] Marked status={status}, payload={safe_payload}")
-    except Exception:
-        logger.exception("[Job %s] Failed to update job status", job_id)
+        payload = {"status": status}
+        if meta:
+            payload.update(meta)
+
+        response = (
+            supabase_client.table("playlist_jobs")
+            .update(payload)
+            .eq("id", job_id)
+            .execute()
+        )
+
+        success = bool(response.data)
+        if not success:
+            logger.error(f"Failed to update status for job {job_id}")
+        return success
+
+    except Exception as e:
+        logger.exception(f"Error updating job {job_id} status: {e}")
+        return False
 
 
 async def handle_job(job):
@@ -96,7 +113,9 @@ async def handle_job(job):
 
     # Start a timer
     start_time = time.time()
-    mark_job_status(job_id, "processing", {"started_at": datetime.utcnow().isoformat()})
+    await mark_job_status(
+        job_id, "processing", {"started_at": datetime.utcnow().isoformat()}
+    )
 
     try:
         # fetch playlist data
@@ -113,10 +132,16 @@ async def handle_job(job):
             error_message = (
                 "No valid videos found in the playlist or failed to process."
             )
+            # Differentiate blocked vs failed
+            if "Sign in to confirm you’re not a bot" in error_message:
+                status = "blocked"
+            else:
+                status = "failed"
+
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
-                "failed",
+                status,
                 {
                     "error": error_message,
                     "finished_at": datetime.utcnow().isoformat(),
@@ -138,7 +163,10 @@ async def handle_job(job):
             "like_count": summary_stats.get("total_likes"),
             "dislike_count": summary_stats.get("total_dislikes"),
             "comment_count": summary_stats.get("total_comments"),
-            "video_count": processed_video_count,
+            "video_count": summary_stats.get(
+                "actual_playlist_count", processed_video_count
+            ),
+            "processed_video_count": processed_video_count,
             "avg_duration": summary_stats.get("avg_duration"),
             "engagement_rate": summary_stats.get("avg_engagement"),
             "controversy_score": summary_stats.get("avg_controversy", 0),
@@ -154,7 +182,7 @@ async def handle_job(job):
         )
         logger.debug(f"[Job {job_id}] Upsert payload={safe_payload}")
 
-        result = upsert_playlist_stats(stats_to_cache)
+        result = await upsert_playlist_stats(stats_to_cache)
         logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
         logger.debug(f"[Job {job_id}] Upsert result keys={list(result.keys())}")
 
@@ -162,7 +190,7 @@ async def handle_job(job):
         if result.get("source") == "error":
             error_message = "Upsert failed due to serialization or DB error."
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
@@ -173,12 +201,29 @@ async def handle_job(job):
             return
 
         # --- FIX: Validate that the upsert result contains critical data ---
-        if not result.get("df") or not result.get("summary_stats"):
+        df = result.get("df")
+        summary_stats = result.get("summary_stats")
+
+        if df is None or df.is_empty() or not summary_stats:
             error_message = (
                 "Incomplete data returned from upsert, critical fields missing."
             )
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": error_message,
+                    "finished_at": datetime.utcnow().isoformat(),
+                },
+            )
+            return
+
+        # --- FIX: Check if analysis results are valid ---
+        if result.get("df") is None or result.get("df").is_empty():
+            error_message = "Analysis produced no valid data"
+            logger.error(f"[Job {job_id}] {error_message}")
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
@@ -189,7 +234,7 @@ async def handle_job(job):
             return
 
         if result.get("source") in ["cache", "fresh"]:
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "done",
                 {
@@ -202,7 +247,7 @@ async def handle_job(job):
             # If upsert failed, mark the job as failed
             error_message = "Failed to cache playlist stats after processing."
             logger.error(f"[Job {job_id}] {error_message}")
-            mark_job_status(
+            await mark_job_status(
                 job_id,
                 "failed",
                 {
@@ -214,7 +259,7 @@ async def handle_job(job):
     except YouTubeBotChallengeError as e:
         tb = traceback.format_exc()
         logger.error(f"[Job {job_id}] Bot challenge for playlist {playlist_url}: {e}")
-        mark_job_status(
+        await mark_job_status(
             job_id,
             "blocked",
             {
@@ -228,7 +273,7 @@ async def handle_job(job):
         tb = traceback.format_exc()
         logger.exception("[Job %s] Unexpected error: %s", job_id, e)
         # Can still log the time of failure if needed
-        mark_job_status(
+        await mark_job_status(
             job_id,
             "failed",
             {

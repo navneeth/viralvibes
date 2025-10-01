@@ -167,7 +167,7 @@ def get_cached_playlist_stats(
         return None
 
 
-def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
+async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     """
     Main entrypoint for playlist stats caching:
     - Return cached stats if they exist for today.
