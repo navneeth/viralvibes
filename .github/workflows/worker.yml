@@ -27,7 +27,19 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements-backend.txt
+
+      # 1. New Step: Decode and create cookies.txt file
+      - name: Setup cookies.txt
+        # The secret must be Base64 encoded Netscape-format cookie data
+        run: |
+          echo "${{ secrets.YOUTUBE_COOKIES }}" | base64 -d > cookies.txt
+          echo "Created cookies.txt"
+
+      # 2. Modified Step: Run worker with COOKIES_FILE env
       - name: Run worker
+        env:
+          # Pass the path to the newly created file as an environment variable
+          COOKIES_FILE: ${{ github.workspace }}/cookies.txt
         run: |
           echo "Starting worker at $(date)"
           python -m worker.worker
