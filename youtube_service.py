@@ -309,27 +309,72 @@ class YoutubePlaylistService:
             )
 
             if not entries:
+                logger.warning("No entries in playlist.")
                 return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
+            # Build skeleton DataFrame (lightweight info)
+            skeleton_rows = [
+                {
+                    "Rank": idx + 1,
+                    "id": e.get("id"),
+                    "Title": e.get("title", "N/A"),
+                    "Views": e.get("view_count", 0) or 0,
+                    "Likes": 0,
+                    "Dislikes": 0,
+                    "Comments": 0,
+                    "Duration": e.get("duration", 0) or 0,
+                    "Uploader": e.get("uploader", channel_name),
+                    "Thumbnail": e.get("thumbnail", ""),
+                    "Rating": None,
+                }
+                for idx, e in enumerate(entries)
+                if e
+            ]
+            skeleton_df = pl.DataFrame(skeleton_rows)
 
-            # Phase 2: expand top N videos
-            expanded = await self._fetch_all_video_data(entries, max_expanded)
+            # Phase 2: try expanding top N videos
+            try:
+                expanded = await self._fetch_all_video_data(entries, max_expanded)
+                expanded_df = pl.DataFrame(expanded) if expanded else pl.DataFrame()
 
-            if not expanded:
+                # Merge expanded stats into skeleton (by id)
+                if not expanded_df.is_empty():
+                    merged = skeleton_df.join(
+                        expanded_df, on="id", how="left", suffix="_exp"
+                    )
+
+                    # Prefer expanded values where available
+                    for col in [
+                        "Views",
+                        "Likes",
+                        "Dislikes",
+                        "Comments",
+                        "Duration",
+                        "Rating",
+                    ]:
+                        merged = merged.with_columns(
+                            pl.coalesce([pl.col(f"{col}_exp"), pl.col(col)]).alias(col)
+                        )
+                    df = merged.drop([c for c in merged.columns if c.endswith("_exp")])
+                else:
+                    df = skeleton_df
+
+            except YouTubeBotChallengeError:
                 logger.warning(
-                    "No valid videos found in playlist, returning empty DataFrame."
+                    "Expansion blocked by YouTube bot challenge. Returning skeleton only."
                 )
-                return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
+                df = skeleton_df
+            except Exception as e:
+                logger.error(f"Expansion failed: {e}. Falling back to skeleton only.")
+                df = skeleton_df
 
-            # Create initial DataFrame from fetched data
-            df = pl.DataFrame(expanded)
+            # Finalize with enrichment (stats, formatted columns, etc.)
             df, stats = self._enrich_dataframe(df, playlist_count)
             return df, playlist_name, channel_name, channel_thumb, stats
 
         except YouTubeBotChallengeError:
             # Re-raise the specific error so the worker can handle it
-            logger.error(
-                f"Propagating YouTubeBotChallengeError for playlist: {playlist_url}"
-            )
+            # Propagate to worker if even flat fetch is blocked
+            logger.error(f"Flat fetch blocked by 🤖Bot🤖 challenge: {playlist_url}")
             raise
         except Exception as e:
             logger.exception(
