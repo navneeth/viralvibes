@@ -81,16 +81,30 @@ class YoutubePlaylistService:
         if backend == "yt-dlp":
             if yt_dlp is None:
                 raise ImportError("yt-dlp is not installed.")
-            default_opts = {
+
+            # 1. Define base default options
+            base_opts = {
                 "quiet": True,
                 "nocheckcertificate": True,
-                # allows lightweight fetch with URLs
+                # 🚀 Allows lightweight fetch with URLs
                 "extract_flat": "in_playlist",
                 # 🚀 prevent yt-dlp from writing to ~/.cache
                 "cachedir": False,
                 "skip_download": True,
             }
-            self.ydl_opts = ydl_opts or default_opts
+
+            self.ydl_opts = base_opts.copy()
+            if ydl_opts:
+                self.ydl_opts.update(ydl_opts)
+
+            cookies_file = os.getenv("COOKIES_FILE")
+            if cookies_file and os.path.exists(cookies_file):
+                logger.info(f"Using cookies from file: {cookies_file}")
+                self.ydl_opts["cookiefile"] = cookies_file
+            elif cookies_file:
+                logger.warning(
+                    f"COOKIES_FILE set, but file not found at: {cookies_file}"
+                )
             self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
         elif backend == "youtubeapi":
@@ -282,31 +296,32 @@ class YoutubePlaylistService:
         logger.info(f"Starting analysis for playlist: {playlist_url}")
 
         try:
+            # Phase 1: flat playlist skeleton
             playlist_info = await asyncio.to_thread(
                 self.ydl.extract_info, playlist_url, download=False
             )
             playlist_name = playlist_info.get("title", "Untitled Playlist")
             channel_name = playlist_info.get("uploader", "Unknown Channel")
             channel_thumb = self._extract_channel_thumbnail(playlist_info)
+            entries = playlist_info.get("entries", [])
             playlist_count = playlist_info.get(
                 "playlist_count", len(playlist_info.get("entries", []))
             )
 
-            if "entries" not in playlist_info or not playlist_info["entries"]:
+            if not entries:
                 return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
 
-            video_data = await self._fetch_all_video_data(
-                playlist_info["entries"], max_expanded
-            )
+            # Phase 2: expand top N videos
+            expanded = await self._fetch_all_video_data(entries, max_expanded)
 
-            if not video_data:
+            if not expanded:
                 logger.warning(
                     "No valid videos found in playlist, returning empty DataFrame."
                 )
                 return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
 
             # Create initial DataFrame from fetched data
-            df = pl.DataFrame(video_data)
+            df = pl.DataFrame(expanded)
             df, stats = self._enrich_dataframe(df, playlist_count)
             return df, playlist_name, channel_name, channel_thumb, stats
 
