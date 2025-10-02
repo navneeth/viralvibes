@@ -1,0 +1,14 @@
+app = "viralvibes-worker"
+primary_region = "nrt"   # Tokyo, since you’re in Japan
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  WORKER_POLL_INTERVAL = "10"
+  WORKER_BATCH_SIZE = "3"
+  WORKER_MAX_RUNTIME = "300"  # minutes
+
+[[services]]
+  internal_port = 8080
+  processes = ["app"]
