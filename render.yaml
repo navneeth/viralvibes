@@ -1,30 +1,15 @@
 services:
-  # 🌐 Web app (FastHTML frontend)
-  - type: web
-    name: viralvibes-web
-    env: python
-    plan: free               # or starter ($7) if you need more uptime
-    buildCommand: |
-      pip install -r requirements.txt
-    startCommand: |
-      python main.py
-    envVars:
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_KEY
-        sync: false
-      - key: COOKIES_FILE
-        value: /tmp/cookies.txt
-
-  # ⚙️ Worker service
+  # ⚙️ Worker service (only backend, no frontend)
   - type: worker
     name: viralvibes-worker
     env: python
-    plan: free               # cheapest option, can scale up later
+    plan: free                # use free plan first; upgrade to starter ($7) if killed often
     buildCommand: |
       pip install -r requirements-backend.txt
+      # decode cookies into /tmp
+      echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
     startCommand: |
-      python run_worker.py
+      python -m worker.worker
     envVars:
       - key: SUPABASE_URL
         sync: false
