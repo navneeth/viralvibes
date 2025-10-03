@@ -1,20 +1,40 @@
 services:
+  # 🌐 Web app (FastHTML frontend)
+  - type: web
+    name: viralvibes-web
+    env: python
+    plan: free               # or starter ($7) if you need more uptime
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: |
+      python main.py
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: COOKIES_FILE
+        value: /tmp/cookies.txt
+
+  # ⚙️ Worker service
   - type: worker
     name: viralvibes-worker
     env: python
-    plan: starter # adjust plan as needed
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python -m worker.worker"
+    plan: free               # cheapest option, can scale up later
+    buildCommand: |
+      pip install -r requirements-backend.txt
+    startCommand: |
+      python run_worker.py
     envVars:
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        value: ${NEXT_PUBLIC_SUPABASE_URL}
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
-        value: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - key: YOUTUBE_API_KEY
-        value: ${YOUTUBE_API_KEY}
-      - key: USE_YTDLP
-        value: ${USE_YTDLP}
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
       - key: WORKER_POLL_INTERVAL
-        value: "10"
+        value: 10
       - key: WORKER_BATCH_SIZE
-        value: "3"
+        value: 3
+      - key: WORKER_MAX_RUNTIME
+        value: 300
+      - key: COOKIES_FILE
+        value: /tmp/cookies.txt
