@@ -7,14 +7,16 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install --no-cache-dir -r requirements-backend.txt
+    startCommand: |
       # decode cookies into /tmp
       echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
-    startCommand: |
       python -m worker.worker
     envVars:
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
+        sync: false
+      - key: YOUTUBE_COOKIES
         sync: false
       - key: WORKER_POLL_INTERVAL
         value: 10
