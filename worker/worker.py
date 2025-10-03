@@ -7,6 +7,7 @@ and updates job status.
 import asyncio
 import logging
 import os
+import signal
 import time
 import traceback
 from datetime import datetime
@@ -37,9 +38,27 @@ MAX_RUNTIME = int(os.getenv("WORKER_MAX_RUNTIME", "300")) * 60  # minutes → se
 # --- Services ---
 yt_service = YoutubePlaylistService()
 
+# --- Graceful shutdown event ---
+stop_event = asyncio.Event()
+
+
+def handle_exit(sig, frame):
+    logger.info(f"Received signal {sig}, shutting down gracefully...")
+    stop_event.set()
+
+
+signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTERM, handle_exit)
+
 
 async def init():
     """Initialize Supabase client and other resources."""
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        logger.error("Supabase URL or Key not configured. Exiting.")
+        raise SystemExit(1)
+
     try:
         client = init_supabase()
         if client is not None:
