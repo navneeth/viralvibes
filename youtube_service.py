@@ -81,6 +81,14 @@ class YoutubePlaylistService:
         if backend == "yt-dlp":
             if yt_dlp is None:
                 raise ImportError("yt-dlp is not installed.")
+            cookies_file = os.getenv("COOKIES_FILE", "/tmp/cookies.txt")
+            if not os.path.exists(cookies_file):
+                logger.warning(
+                    f"[YouTubeService] Cookies file not found at {cookies_file}. "
+                    f"YouTube may block requests."
+                )
+            else:
+                logger.info(f"[YouTubeService] Using cookies from {cookies_file}")
 
             # 1. Define base default options
             base_opts = {
@@ -91,6 +99,7 @@ class YoutubePlaylistService:
                 # 🚀 prevent yt-dlp from writing to ~/.cache
                 "cachedir": False,
                 "skip_download": True,
+                "cookiefile": cookies_file,
             }
 
             self.ydl_opts = base_opts.copy()
