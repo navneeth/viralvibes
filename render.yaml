@@ -5,7 +5,8 @@ services:
     env: python
     plan: free                # use free plan first; upgrade to starter ($7) if killed often
     buildCommand: |
-      pip install -r requirements-backend.txt
+      pip install --upgrade pip
+      pip install --no-cache-dir -r requirements-backend.txt
       # decode cookies into /tmp
       echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
     startCommand: |
