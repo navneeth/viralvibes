@@ -77,7 +77,7 @@ def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "Duration": v.get("Duration", 0),
                 "Uploader": v.get("Uploader", "N/A"),
                 "Thumbnail": v.get("Thumbnail", ""),
-                "Rating": v.get("Rating"),
+                "Rating": v.get("Rating", 0.0),
                 "Controversy": v.get("Controversy", 0.0),
                 "Engagement Rate Raw": v.get("Engagement Rate Raw", 0.0),
             }
