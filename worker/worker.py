@@ -46,7 +46,7 @@ BOT_CHALLENGE_BACKOFF = int(
 )  # 5 minutes cooldown
 
 # --- Services ---
-yt_service = YoutubePlaylistService()
+yt_service = YoutubePlaylistService(backend="youtubeapi")
 
 # --- Graceful shutdown event ---
 stop_event = asyncio.Event()
@@ -138,6 +138,17 @@ async def mark_job_status(
         return False
 
 
+async def update_progress(job_id: str, processed: int, total: int):
+    progress = processed / total if total > 0 else 0
+    logger.info(f"Job {job_id}: {progress * 100:.1f}% complete")
+    try:
+        supabase.table("playlist_jobs").update({"progress": progress}).eq(
+            "id", job_id
+        ).execute()
+    except Exception as e:
+        logger.warning(f"Failed to update progress for {job_id}: {e}")
+
+
 async def check_bot_challenge_cooldown():
     """
     Check if we're in a bot challenge cooldown period.
@@ -196,7 +207,9 @@ async def handle_job(job):
             channel_name,
             channel_thumbnail,
             summary_stats,
-        ) = await yt_service.get_playlist_data(playlist_url)
+        ) = await yt_service.get_playlist_data(
+            playlist_url, progress_callback=lambda p, t: update_progress(job_id, p, t)
+        )
 
         # --- FIX: Add validation for empty results ---
         if df is None or df.is_empty():

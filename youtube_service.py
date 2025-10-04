@@ -166,12 +166,19 @@ class YoutubePlaylistService:
     # --------------------------
 
     async def get_playlist_data(
-        self, playlist_url: str, max_expanded: int = 20
+        self,
+        playlist_url: str,
+        max_expanded: int = 20,
+        progress_callback: callable = None,
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
         if self.backend == "yt-dlp":
-            return await self._get_playlist_data_ytdlp(playlist_url, max_expanded)
+            return await self._get_playlist_data_ytdlp(
+                playlist_url, max_expanded, progress_callback
+            )
         else:
-            return await self._get_playlist_data_youtubeapi(playlist_url, max_expanded)
+            return await self._get_playlist_data_youtubeapi(
+                playlist_url, max_expanded, progress_callback
+            )
 
     async def get_playlist_preview(
         self, playlist_url: str
@@ -306,7 +313,11 @@ class YoutubePlaylistService:
             return {}
 
     async def _fetch_all_video_data(
-        self, videos: List[Dict[str, Any]], max_expanded: int
+        self,
+        videos: List[Dict[str, Any]],
+        max_expanded: int,
+        playlist_count: int,
+        progress_callback: callable = None,
     ) -> List[Dict[str, Any]]:
         """Fetch full metadata and dislike data for a list of videos concurrently.
 
@@ -343,6 +354,11 @@ class YoutubePlaylistService:
                     asyncio.gather(*video_info_tasks, return_exceptions=True),
                     asyncio.gather(*dislike_tasks, return_exceptions=True),
                 )
+
+                # ✅ Progress update
+                processed = min(i + len(batch_urls), max_expanded)
+                if progress_callback:
+                    await progress_callback(processed, playlist_count)
 
                 # Filter out exceptions and add to results
                 all_video_infos.extend(
@@ -404,7 +420,10 @@ class YoutubePlaylistService:
         return combined
 
     async def _get_playlist_data_ytdlp(
-        self, playlist_url: str, max_expanded: int
+        self,
+        playlist_url: str,
+        max_expanded: int,
+        progress_callback: callable = None,
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
         """Fetch and process video information from a YouTube playlist URL.
 
@@ -464,7 +483,9 @@ class YoutubePlaylistService:
 
             # Phase 2: try expanding top N videos
             try:
-                expanded = await self._fetch_all_video_data(entries, max_expanded)
+                expanded = await self._fetch_all_video_data(
+                    entries, max_expanded, playlist_count, progress_callback
+                )
                 expanded_df = pl.DataFrame(expanded) if expanded else pl.DataFrame()
 
                 # Merge expanded stats into skeleton (by id)
