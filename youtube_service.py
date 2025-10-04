@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 from typing import Any, Dict, List, Tuple
 
@@ -35,6 +36,10 @@ logger = logging.getLogger(__name__)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # for YouTube Data API
 DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
+
+# Configuration for rate limiting
+MIN_VIDEO_DELAY = float(os.getenv("MIN_VIDEO_DELAY", "0.5"))
+MAX_VIDEO_DELAY = float(os.getenv("MAX_VIDEO_DELAY", "2.0"))
 
 
 class YouTubeBotChallengeError(Exception):
@@ -77,6 +82,8 @@ class YoutubePlaylistService:
             backend: "yt-dlp" or "youtubeapi"
         """
         self.backend = backend
+        # Persistent HTTP client for dislike API
+        self._dislike_client = None
 
         if backend == "yt-dlp":
             if yt_dlp is None:
@@ -100,6 +107,8 @@ class YoutubePlaylistService:
                 "cachedir": False,
                 "skip_download": True,
                 "cookiefile": cookies_file,
+                # Add user agent rotation
+                "user-agent": self._get_random_user_agent(),
             }
 
             self.ydl_opts = base_opts.copy()
@@ -125,6 +134,32 @@ class YoutubePlaylistService:
 
         else:
             raise ValueError("backend must be 'yt-dlp' or 'youtubeapi'")
+
+    def _get_random_user_agent(self) -> str:
+        """Return a random realistic user agent string."""
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ]
+        return random.choice(user_agents)
+
+    async def _get_dislike_client(self) -> httpx.AsyncClient:
+        """Get or create persistent HTTP client for dislike API."""
+        if self._dislike_client is None or self._dislike_client.is_closed:
+            self._dislike_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0, connect=5.0),
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            )
+        return self._dislike_client
+
+    async def close(self):
+        """Close the persistent HTTP client."""
+        if self._dislike_client and not self._dislike_client.is_closed:
+            await self._dislike_client.aclose()
+            self._dislike_client = None
 
     # --------------------------
     # Public entrypoints
@@ -201,6 +236,9 @@ class YoutubePlaylistService:
             Tuple[str, Dict[str, Any]]: Tuple of (video_id, dislike_data).
         """
         try:
+            # Add small random delay between dislike API requests
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+
             response = await client.get(DISLIKE_API_URL.format(video_id))
             if response.status_code == 200:
                 data = response.json()
@@ -214,6 +252,12 @@ class YoutubePlaylistService:
             logger.warning(
                 f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
             )
+        except httpx.ReadTimeout:
+            logger.warning(f"Dislike fetch timeout for video {video_id}")
+        except httpx.ConnectTimeout:
+            logger.warning(f"Dislike fetch connect timeout for video {video_id}")
+        except httpx.PoolTimeout:
+            logger.warning(f"Dislike fetch pool timeout for video {video_id}")
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
         return video_id, {
@@ -227,15 +271,35 @@ class YoutubePlaylistService:
     async def _fetch_video_info_async(self, video_url: str) -> Dict[str, Any]:
         """Fetch full metadata for a single video asynchronously using asyncio.to_thread."""
         try:
+            # Add random delay between video fetches to appear more human-like
+            delay = random.uniform(MIN_VIDEO_DELAY, MAX_VIDEO_DELAY)
+            await asyncio.sleep(delay)
+
             return await asyncio.to_thread(
                 self.ydl.extract_info, video_url, download=False
             )
         except Exception as e:
             # --- FIX: Detect bot challenge from yt-dlp and raise specific error ---
-            if "Sign in to confirm you’re not a bot" in str(e):
+            error_str = str(e)
+            if "Sign in to confirm you're not a bot" in error_str:
                 logger.error(f"YouTube bot challenge detected for video {video_url}")
                 raise YouTubeBotChallengeError(
                     "YouTube is challenging our server. This is a temporary issue."
+                ) from e
+
+            # Check for other bot-related errors
+            if any(
+                keyword in error_str.lower()
+                for keyword in [
+                    "captcha",
+                    "verify",
+                    "unusual traffic",
+                    "automated requests",
+                ]
+            ):
+                logger.error(f"YouTube bot detection (variant) for video {video_url}")
+                raise YouTubeBotChallengeError(
+                    "YouTube detected automated behavior."
                 ) from e
 
             logger.warning(f"Failed to expand video {video_url}: {e}")
@@ -244,24 +308,81 @@ class YoutubePlaylistService:
     async def _fetch_all_video_data(
         self, videos: List[Dict[str, Any]], max_expanded: int
     ) -> List[Dict[str, Any]]:
-        """Fetch full metadata and dislike data for a list of videos concurrently."""
+        """Fetch full metadata and dislike data for a list of videos concurrently.
+
+        Uses batching and delays to avoid overwhelming YouTube's servers.
+        """
         video_urls = [v.get("url") for v in videos[:max_expanded]]
-        # Concurrently fetch full video info and dislike data
-        video_info_tasks = [self._fetch_video_info_async(url) for url in video_urls]
-        async with httpx.AsyncClient(timeout=5.0) as client:
+
+        # Use persistent client for dislike API
+        client = await self._get_dislike_client()
+
+        # Batch processing with delays to be more respectful
+        BATCH_SIZE = 5  # Process videos in smaller batches
+        all_video_infos = []
+        all_dislike_results = []
+
+        for i in range(0, len(video_urls), BATCH_SIZE):
+            batch_urls = video_urls[i : i + BATCH_SIZE]
+            batch_videos = videos[i : i + BATCH_SIZE]
+
+            logger.debug(
+                f"Processing video batch {i // BATCH_SIZE + 1}/{(len(video_urls) - 1) // BATCH_SIZE + 1}"
+            )
+
+            # Fetch video info and dislike data for this batch
+            video_info_tasks = [self._fetch_video_info_async(url) for url in batch_urls]
             dislike_tasks = [
                 self._fetch_dislike_data_async(client, v.get("id", ""))
-                for v in videos[:max_expanded]
+                for v in batch_videos
                 if v.get("id")
             ]
-        video_infos, dislike_results = await asyncio.gather(
-            asyncio.gather(*video_info_tasks), asyncio.gather(*dislike_tasks)
-        )
-        dislike_map = {vid: data for vid, data in dislike_results}
 
+            try:
+                batch_video_infos, batch_dislike_results = await asyncio.gather(
+                    asyncio.gather(*video_info_tasks, return_exceptions=True),
+                    asyncio.gather(*dislike_tasks, return_exceptions=True),
+                )
+
+                # Filter out exceptions and add to results
+                all_video_infos.extend(
+                    [
+                        info
+                        for info in batch_video_infos
+                        if not isinstance(info, Exception)
+                    ]
+                )
+                all_dislike_results.extend(
+                    [
+                        result
+                        for result in batch_dislike_results
+                        if not isinstance(result, Exception)
+                    ]
+                )
+
+            except YouTubeBotChallengeError:
+                # If we hit a bot challenge, stop processing and re-raise
+                logger.warning(
+                    f"Bot challenge detected in batch {i // BATCH_SIZE + 1}, stopping expansion"
+                )
+                raise
+            except Exception as e:
+                logger.error(f"Error processing batch {i // BATCH_SIZE + 1}: {e}")
+                # Continue with next batch
+
+            # Add delay between batches (except for the last one)
+            if i + BATCH_SIZE < len(video_urls):
+                batch_delay = random.uniform(1.0, 3.0)
+                logger.debug(f"Waiting {batch_delay:.2f}s before next batch")
+                await asyncio.sleep(batch_delay)
+
+        # Build dislike map
+        dislike_map = {vid: data for vid, data in all_dislike_results}
+
+        # Combine results
         combined = []
-        for rank, vi in enumerate(video_infos, start=1):
-            if not vi:
+        for rank, vi in enumerate(all_video_infos, start=1):
+            if not vi or isinstance(vi, Exception):
                 continue
             vid = vi.get("id", "")
             dd = dislike_map.get(vid, {})
@@ -320,6 +441,7 @@ class YoutubePlaylistService:
             if not entries:
                 logger.warning("No entries in playlist.")
                 return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
+
             # Build skeleton DataFrame (lightweight info)
             skeleton_rows = [
                 {
@@ -383,7 +505,7 @@ class YoutubePlaylistService:
         except YouTubeBotChallengeError:
             # Re-raise the specific error so the worker can handle it
             # Propagate to worker if even flat fetch is blocked
-            logger.error(f"Flat fetch blocked by 🤖Bot🤖 challenge: {playlist_url}")
+            logger.error(f"Flat fetch blocked by bot challenge: {playlist_url}")
             raise
         except Exception as e:
             logger.exception(
@@ -391,6 +513,9 @@ class YoutubePlaylistService:
             )
             # Raise a general exception for other failures
             raise
+        finally:
+            # Close the dislike client when done
+            await self.close()
 
     # --------------------------
     # YouTube Data API implementation
