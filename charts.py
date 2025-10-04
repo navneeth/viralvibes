@@ -1,7 +1,48 @@
+import logging
 from typing import Dict
 
 import polars as pl
 from monsterui.all import ApexChart
+
+logger = logging.getLogger("charts")
+
+
+def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFrame:
+    """
+    Sort DataFrame safely across Polars versions.
+    Handles:
+      - older/newer Polars signatures
+      - missing columns
+      - numeric columns stored as strings
+    """
+    if df is None or df.is_empty():
+        return df
+
+    if col not in df.columns:
+        logger.warning(f"[charts] Column '{col}' not found; skipping sort.")
+        return df
+
+    try:
+        series = df[col]
+        # Auto-coerce to numeric if needed
+        if series.dtype == pl.Utf8:
+            logger.debug(f"[charts] Auto-casting column '{col}' from str to Float64")
+            df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+
+        # Newer Polars signature
+        return df.sort(by=col, descending=descending)
+
+    except TypeError:
+        try:
+            # Older Polars fallback
+            return df.sort(col, reverse=descending)
+        except Exception as e:
+            logger.warning(f"[charts] Fallback sort failed for '{col}': {e}")
+            return df
+
+    except Exception as e:
+        logger.warning(f"[charts] Failed to sort by '{col}': {e}")
+        return df
 
 
 def _apex_opts(chart_type: str, height: int = 350, **kwargs) -> dict:
@@ -48,7 +89,8 @@ def chart_views_by_video(
         return _empty_chart("line", chart_id)
 
     # Sort videos by view count descending
-    sorted_df = df.sort("View Count Raw", descending=True)
+    sorted_df = _safe_sort(df, "View Count Raw", descending=True)
+
     views = (sorted_df["View Count Raw"].fill_null(0) / 1_000_000).round(1).to_list()
     titles = sorted_df["Title"].to_list()
 
@@ -146,7 +188,7 @@ def chart_engagement_rate(
         return _empty_chart("bar", chart_id)
 
     # Sort videos by engagement rate descending
-    sorted_df = df.sort("Engagement Rate (%)", descending=True)
+    sorted_df = _safe_sort(df, "Engagement Rate (%)", descending=True)
     rates = sorted_df["Engagement Rate (%)"].cast(pl.Float64).fill_null(0).to_list()
     titles = sorted_df["Title"].to_list()
 
@@ -408,7 +450,7 @@ def chart_video_radar(
         return _empty_chart("radar", chart_id)
 
     # Pick top videos by view count
-    sorted_df = df.sort("View Count Raw", descending=True).head(top_n)
+    sorted_df = _safe_sort(df, "View Count Raw", descending=True).head(top_n)
 
     # Columns we want to normalize
     numeric_cols = [

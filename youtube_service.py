@@ -74,7 +74,7 @@ class YoutubePlaylistService:
     ]
     YOUTUBE_API_MAX_RESULTS = 50
 
-    def __init__(self, backend: str = "yt-dlp", ydl_opts: dict = None):
+    def __init__(self, backend: str = "youtubeapi", ydl_opts: dict = None):
         """
         Initialize the service with optional yt-dlp options.
         Args:
