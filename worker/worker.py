@@ -53,8 +53,8 @@ signal.signal(signal.SIGTERM, handle_exit)
 
 async def init():
     """Initialize Supabase client and other resources."""
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
+    url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
     if not url or not key:
         logger.error("Supabase URL or Key not configured. Exiting.")
         raise SystemExit(1)
