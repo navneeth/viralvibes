@@ -408,10 +408,13 @@ def validate_full(
 
                 # Detect skeleton-only stats ---
                 skeleton_mode = summary_stats.get(
+                    "expanded_count"
+                ) is not None and summary_stats.get(
                     "expanded_count", 0
-                ) == 0 or summary_stats.get("expanded_count") < summary_stats.get(
+                ) < summary_stats.get(
                     "processed_video_count", 0
                 )
+
                 if skeleton_mode:
                     yield str(
                         Div(

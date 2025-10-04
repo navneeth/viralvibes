@@ -57,6 +57,34 @@ def parse_yt_dlp_output(raw_output: str):
         raise  # propagate other JSON errors
 
 
+# Add near the top of the file
+def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Transform YouTube API list of videos to chart-friendly column names
+    compatible with the existing enrichment and chart functions.
+    """
+    transformed = []
+    for idx, v in enumerate(api_list, start=1):
+        transformed.append(
+            {
+                "Rank": v.get("Rank", idx),
+                "id": v.get("id"),
+                "Title": v.get("Title", "N/A"),
+                "Views": v.get("Views", 0),
+                "Likes": v.get("Likes", 0),
+                "Dislikes": v.get("Dislikes", 0),
+                "Comments": v.get("Comments", 0),
+                "Duration": v.get("Duration", 0),
+                "Uploader": v.get("Uploader", "N/A"),
+                "Thumbnail": v.get("Thumbnail", ""),
+                "Rating": v.get("Rating"),
+                "Controversy": v.get("Controversy", 0.0),
+                "Engagement Rate Raw": v.get("Engagement Rate Raw", 0.0),
+            }
+        )
+    return transformed
+
+
 class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
 
@@ -549,6 +577,8 @@ class YoutubePlaylistService:
         if not m:
             raise ValueError("Invalid playlist URL")
         playlist_id = m.group(1)
+
+        # Fetch playlist metadata
         resp = (
             self.youtube.playlists()
             .list(part="snippet", id=playlist_id, maxResults=1)
@@ -561,6 +591,7 @@ class YoutubePlaylistService:
         channel_name = sn.get("channelTitle", "Unknown Channel")
         channel_thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
 
+        # Fetch video IDs in the playlist
         video_ids, nextPageToken = [], None
         while len(video_ids) < max_expanded:
             items_resp = (
@@ -581,6 +612,7 @@ class YoutubePlaylistService:
             if not nextPageToken:
                 break
 
+        # Fetch video statistics in batches
         videos = []
         for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
             batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
@@ -613,7 +645,10 @@ class YoutubePlaylistService:
                     }
                 )
 
-        df = pl.DataFrame(videos)
+        # --- Transform for compatibility ---
+        transformed_videos = transform_api_df(videos)
+
+        df = pl.DataFrame(transformed_videos)
         df, stats = self._enrich_dataframe(df, len(video_ids))
         return df, playlist_name, channel_name, channel_thumb, stats
 
