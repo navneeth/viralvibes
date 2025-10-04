@@ -8,20 +8,40 @@ logger = logging.getLogger("charts")
 
 
 def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFrame:
-    """Sort DataFrame safely across Polars versions."""
+    """
+    Sort DataFrame safely across Polars versions.
+    Handles:
+      - older/newer Polars signatures
+      - missing columns
+      - numeric columns stored as strings
+    """
     if df is None or df.is_empty():
         return df
+
     if col not in df.columns:
         logger.warning(f"[charts] Column '{col}' not found; skipping sort.")
         return df
+
     try:
-        # Newer Polars syntax
+        series = df[col]
+        # Auto-coerce to numeric if needed
+        if series.dtype == pl.Utf8:
+            logger.debug(f"[charts] Auto-casting column '{col}' from str to Float64")
+            df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+
+        # Newer Polars signature
         return df.sort(by=col, descending=descending)
+
     except TypeError:
-        # Older Polars fallback
-        return df.sort(col, reverse=descending)
+        try:
+            # Older Polars fallback
+            return df.sort(col, reverse=descending)
+        except Exception as e:
+            logger.warning(f"[charts] Fallback sort failed for '{col}': {e}")
+            return df
+
     except Exception as e:
-        logger.warning(f"[charts] Failed to sort by {col}: {e}")
+        logger.warning(f"[charts] Failed to sort by '{col}': {e}")
         return df
 
 
