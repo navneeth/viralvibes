@@ -254,6 +254,10 @@ class YoutubePlaylistService:
             )
         except httpx.ReadTimeout:
             logger.warning(f"Dislike fetch timeout for video {video_id}")
+        except httpx.ConnectTimeout:
+            logger.warning(f"Dislike fetch connect timeout for video {video_id}")
+        except httpx.PoolTimeout:
+            logger.warning(f"Dislike fetch pool timeout for video {video_id}")
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
         return video_id, {
