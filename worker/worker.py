@@ -7,6 +7,7 @@ and updates job status.
 import asyncio
 import logging
 import os
+import random
 import signal
 import time
 import traceback
@@ -30,16 +31,29 @@ load_dotenv()
 setup_logging()  # <-- Use shared logging config
 logger = logging.getLogger("vv_worker")
 
-# --- Config ---
-POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "10"))
-BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "3"))
+# --- Config with improved defaults ---
+POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "30"))  # Increased from 10 to 30
+BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "2"))  # Reduced from 3 to 2
 MAX_RUNTIME = int(os.getenv("WORKER_MAX_RUNTIME", "300")) * 60  # minutes → seconds
+MIN_REQUEST_DELAY = float(
+    os.getenv("MIN_REQUEST_DELAY", "2.0")
+)  # Min delay between requests
+MAX_REQUEST_DELAY = float(
+    os.getenv("MAX_REQUEST_DELAY", "5.0")
+)  # Max delay between requests
+BOT_CHALLENGE_BACKOFF = int(
+    os.getenv("BOT_CHALLENGE_BACKOFF", "300")
+)  # 5 minutes cooldown
 
 # --- Services ---
 yt_service = YoutubePlaylistService()
 
 # --- Graceful shutdown event ---
 stop_event = asyncio.Event()
+
+# --- Bot challenge tracking ---
+last_bot_challenge_time = None
+consecutive_bot_challenges = 0
 
 
 def handle_exit(sig, frame):
@@ -124,11 +138,49 @@ async def mark_job_status(
         return False
 
 
+async def check_bot_challenge_cooldown():
+    """
+    Check if we're in a bot challenge cooldown period.
+    Returns True if we should pause processing.
+    """
+    global last_bot_challenge_time, consecutive_bot_challenges
+
+    if last_bot_challenge_time is None:
+        return False
+
+    elapsed = time.time() - last_bot_challenge_time
+
+    # Exponential backoff based on consecutive challenges
+    backoff_multiplier = min(consecutive_bot_challenges, 5)  # Cap at 5x
+    required_cooldown = BOT_CHALLENGE_BACKOFF * backoff_multiplier
+
+    if elapsed < required_cooldown:
+        remaining = required_cooldown - elapsed
+        logger.warning(
+            f"Bot challenge cooldown active: {int(remaining)}s remaining "
+            f"(attempt {consecutive_bot_challenges})"
+        )
+        return True
+
+    # Cooldown period has passed, reset counter
+    consecutive_bot_challenges = 0
+    last_bot_challenge_time = None
+    logger.info("Bot challenge cooldown period ended, resuming normal operation")
+    return False
+
+
 async def handle_job(job):
     """Process a single job dict."""
+    global last_bot_challenge_time, consecutive_bot_challenges
+
     job_id = job.get("id")
     playlist_url = job.get("playlist_url")
     logger.info(f"[Job {job_id}] Starting for playlist {playlist_url}")
+
+    # Add random delay before processing to appear more human-like
+    delay = random.uniform(MIN_REQUEST_DELAY, MAX_REQUEST_DELAY)
+    logger.debug(f"[Job {job_id}] Waiting {delay:.2f}s before processing")
+    await asyncio.sleep(delay)
 
     # Start a timer
     start_time = time.time()
@@ -152,7 +204,7 @@ async def handle_job(job):
                 "No valid videos found in the playlist or failed to process."
             )
             # Differentiate blocked vs failed
-            if "Sign in to confirm you’re not a bot" in error_message:
+            if "Sign in to confirm you're not a bot" in error_message:
                 status = "blocked"
             else:
                 status = "failed"
@@ -253,6 +305,10 @@ async def handle_job(job):
             return
 
         if result.get("source") in ["cache", "fresh"]:
+            # Reset bot challenge counter on success
+            consecutive_bot_challenges = 0
+            last_bot_challenge_time = None
+
             await mark_job_status(
                 job_id,
                 "done",
@@ -276,8 +332,19 @@ async def handle_job(job):
             )
 
     except YouTubeBotChallengeError as e:
+        # Track bot challenges for backoff
+        last_bot_challenge_time = time.time()
+        consecutive_bot_challenges += 1
+
         tb = traceback.format_exc()
-        logger.error(f"[Job {job_id}] Bot challenge for playlist {playlist_url}: {e}")
+        logger.error(
+            f"[Job {job_id}] Bot challenge #{consecutive_bot_challenges} "
+            f"for playlist {playlist_url}: {e}"
+        )
+        logger.warning(
+            f"Entering cooldown period: {BOT_CHALLENGE_BACKOFF * consecutive_bot_challenges}s"
+        )
+
         await mark_job_status(
             job_id,
             "blocked",
@@ -285,6 +352,9 @@ async def handle_job(job):
                 "error": str(e),
                 "error_trace": tb,
                 "finished_at": datetime.utcnow().isoformat(),
+                "retry_after": datetime.fromtimestamp(
+                    time.time() + BOT_CHALLENGE_BACKOFF * consecutive_bot_challenges
+                ).isoformat(),
             },
         )
 
@@ -313,10 +383,14 @@ async def worker_loop():
     jobs_processed = 0
 
     logger.info(
-        "Worker starting main loop (poll_interval=%ss, max_runtime=%sm, batch_size=%s)",
+        "Worker starting main loop (poll_interval=%ss, max_runtime=%sm, batch_size=%s, "
+        "request_delay=%s-%ss, bot_backoff=%ss)",
         POLL_INTERVAL,
         MAX_RUNTIME // 60,
         BATCH_SIZE,
+        MIN_REQUEST_DELAY,
+        MAX_REQUEST_DELAY,
+        BOT_CHALLENGE_BACKOFF,
     )
 
     while True:
@@ -340,6 +414,17 @@ async def worker_loop():
             )
 
         try:
+            # Check if we're in bot challenge cooldown
+            if await check_bot_challenge_cooldown():
+                # Calculate cooldown sleep time
+                backoff_multiplier = min(consecutive_bot_challenges, 5)
+                cooldown_sleep = min(
+                    BOT_CHALLENGE_BACKOFF * backoff_multiplier, remaining_time
+                )
+                if cooldown_sleep > 0:
+                    await asyncio.sleep(cooldown_sleep)
+                continue
+
             jobs = await fetch_pending_jobs()
             if not jobs:
                 # No jobs available, sleep for poll interval or remaining time (whichever is shorter)
@@ -354,6 +439,13 @@ async def worker_loop():
                 job_id = job.get("id")
                 if not job_id:
                     continue
+
+                # Check bot challenge cooldown before each job
+                if await check_bot_challenge_cooldown():
+                    logger.info(
+                        "Bot challenge cooldown triggered, pausing job processing"
+                    )
+                    break
 
                 # --- FIX: Add transactional job claiming to prevent race conditions ---
                 try:
@@ -391,7 +483,8 @@ async def worker_loop():
                 await handle_job(job)
                 jobs_processed += 1
 
-            await asyncio.sleep(0.5)
+            # Add small delay between polling cycles
+            await asyncio.sleep(min(0.5, remaining_time))
 
         except Exception:
             logger.exception("Unexpected error in worker loop; sleeping before retry")
@@ -416,10 +509,13 @@ def main():
     """Entrypoint for running the worker."""
     logger.info("Starting ViralVibes worker...")
     logger.info(
-        "Configuration: poll_interval=%ss, batch_size=%s, max_runtime=%sm",
+        "Configuration: poll_interval=%ss, batch_size=%s, max_runtime=%sm, "
+        "request_delay=%s-%ss",
         POLL_INTERVAL,
         BATCH_SIZE,
         MAX_RUNTIME // 60,
+        MIN_REQUEST_DELAY,
+        MAX_REQUEST_DELAY,
     )
 
     try:
