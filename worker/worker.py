@@ -46,7 +46,7 @@ BOT_CHALLENGE_BACKOFF = int(
 )  # 5 minutes cooldown
 
 # --- Services ---
-yt_service = YoutubePlaylistService()
+yt_service = YoutubePlaylistService(backend="youtubeapi")
 
 # --- Graceful shutdown event ---
 stop_event = asyncio.Event()
