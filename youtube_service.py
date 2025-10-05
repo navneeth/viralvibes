@@ -3,6 +3,7 @@
 """
 YouTube Service for fetching and processing YouTube playlist data.
 This module provides functionality to fetch and process YouTube playlist data using yt-dlp.
+Enhanced with full playlist processing, resilience features, and time estimation.
 """
 
 import asyncio
@@ -11,7 +12,9 @@ import logging
 import os
 import random
 import re
-from typing import Any, Dict, List, Tuple
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import polars as pl
@@ -40,10 +43,45 @@ DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
 # Configuration for rate limiting
 MIN_VIDEO_DELAY = float(os.getenv("MIN_VIDEO_DELAY", "0.5"))
 MAX_VIDEO_DELAY = float(os.getenv("MAX_VIDEO_DELAY", "2.0"))
+MIN_BATCH_DELAY = float(os.getenv("MIN_BATCH_DELAY", "1.0"))
+MAX_BATCH_DELAY = float(os.getenv("MAX_BATCH_DELAY", "3.0"))
+
+# Resilience configuration
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+RETRY_DELAY = float(os.getenv("RETRY_DELAY", "5.0"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "5"))
+
+
+@dataclass
+class ProcessingEstimate:
+    """Estimate for processing time and resources."""
+
+    total_videos: int
+    videos_to_expand: int
+    estimated_seconds: float
+    estimated_minutes: float
+    batch_count: int
+
+    def __str__(self):
+        if self.estimated_minutes < 1:
+            return f"~{int(self.estimated_seconds)} seconds"
+        elif self.estimated_minutes < 60:
+            return f"~{int(self.estimated_minutes)} minutes"
+        else:
+            hours = self.estimated_minutes / 60
+            return f"~{hours:.1f} hours"
 
 
 class YouTubeBotChallengeError(Exception):
     """Raised when YouTube serves a validation or CAPTCHA page."""
+
+
+class YouTubeServiceError(Exception):
+    """Base exception for YouTube service errors."""
+
+
+class RateLimitError(YouTubeServiceError):
+    """Raised when rate limits are exceeded."""
 
 
 def parse_yt_dlp_output(raw_output: str):
@@ -57,7 +95,6 @@ def parse_yt_dlp_output(raw_output: str):
         raise  # propagate other JSON errors
 
 
-# Add near the top of the file
 def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Transform YouTube API list of videos to chart-friendly column names
@@ -112,6 +149,13 @@ class YoutubePlaylistService:
         self.backend = backend
         # Persistent HTTP client for dislike API
         self._dislike_client = None
+        self._failed_videos = []  # Track failed videos for retry
+        self._processing_stats = {
+            "total_retries": 0,
+            "failed_videos": 0,
+            "bot_challenges": 0,
+            "rate_limits": 0,
+        }
 
         if backend == "yt-dlp":
             if yt_dlp is None:
@@ -137,6 +181,9 @@ class YoutubePlaylistService:
                 "cookiefile": cookies_file,
                 # Add user agent rotation
                 "user-agent": self._get_random_user_agent(),
+                # Add retries at yt-dlp level
+                "retries": MAX_RETRIES,
+                "fragment_retries": MAX_RETRIES,
             }
 
             self.ydl_opts = base_opts.copy()
@@ -180,6 +227,8 @@ class YoutubePlaylistService:
             self._dislike_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0, connect=5.0),
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                # Add retry transport
+                transport=httpx.AsyncHTTPTransport(retries=MAX_RETRIES),
             )
         return self._dislike_client
 
@@ -189,6 +238,49 @@ class YoutubePlaylistService:
             await self._dislike_client.aclose()
             self._dislike_client = None
 
+    def estimate_processing_time(
+        self, playlist_count: int, expand_all: bool = True
+    ) -> ProcessingEstimate:
+        """
+        Estimate the time required to process a playlist.
+
+        Args:
+            playlist_count: Total number of videos in playlist
+            expand_all: Whether to expand all videos (True) or use default limit
+
+        Returns:
+            ProcessingEstimate object with timing information
+        """
+        videos_to_expand = playlist_count if expand_all else min(20, playlist_count)
+
+        # Time estimates (in seconds)
+        flat_fetch_time = 2.0  # Initial playlist fetch
+        avg_video_fetch_time = (MIN_VIDEO_DELAY + MAX_VIDEO_DELAY) / 2
+        avg_dislike_fetch_time = 0.2
+        avg_batch_delay = (MIN_BATCH_DELAY + MAX_BATCH_DELAY) / 2
+
+        # Calculate batch processing time
+        batch_count = (videos_to_expand + BATCH_SIZE - 1) // BATCH_SIZE
+
+        # Time per batch: max(video_fetch, dislike_fetch) since they're concurrent
+        time_per_batch = (
+            max(avg_video_fetch_time * BATCH_SIZE, avg_dislike_fetch_time * BATCH_SIZE)
+            + avg_batch_delay
+        )
+
+        total_seconds = flat_fetch_time + (time_per_batch * batch_count)
+
+        # Add buffer for retries and overhead (20%)
+        total_seconds *= 1.2
+
+        return ProcessingEstimate(
+            total_videos=playlist_count,
+            videos_to_expand=videos_to_expand,
+            estimated_seconds=total_seconds,
+            estimated_minutes=total_seconds / 60,
+            batch_count=batch_count,
+        )
+
     # --------------------------
     # Public entrypoints
     # --------------------------
@@ -196,9 +288,17 @@ class YoutubePlaylistService:
     async def get_playlist_data(
         self,
         playlist_url: str,
-        max_expanded: int = 20,
+        max_expanded: Optional[int] = None,
         progress_callback: callable = None,
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
+        """
+        Fetch playlist data with optional limit on expanded videos.
+
+        Args:
+            playlist_url: YouTube playlist URL
+            max_expanded: Maximum videos to fully process. None = process all videos
+            progress_callback: Optional callback for progress updates
+        """
         if self.backend == "yt-dlp":
             return await self._get_playlist_data_ytdlp(
                 playlist_url, max_expanded, progress_callback
@@ -212,7 +312,7 @@ class YoutubePlaylistService:
         self, playlist_url: str
     ) -> Tuple[str, str, str, int]:
         """
-        "Extract lightweight playlist name, uploader, and thumbnail."
+        Extract lightweight playlist name, uploader, and thumbnail.
         Lightweight preview: (playlist_title, channel_name, channel_thumbnail, playlist_length)
         """
         if self.backend == "yt-dlp":
@@ -255,21 +355,13 @@ class YoutubePlaylistService:
                 return "Preview unavailable", "", "", 0
 
     # --------------------------
-    # yt-dlp implementation
+    # yt-dlp implementation with resilience
     # --------------------------
 
     async def _fetch_dislike_data_async(
-        self, client: httpx.AsyncClient, video_id: str
+        self, client: httpx.AsyncClient, video_id: str, retry_count: int = 0
     ) -> Tuple[str, Dict[str, Any]]:
-        """Fetch dislike data for a video asynchronously.
-
-        Args:
-            client (httpx.AsyncClient): HTTP client for making requests.
-            video_id (str): YouTube video ID.
-
-        Returns:
-            Tuple[str, Dict[str, Any]]: Tuple of (video_id, dislike_data).
-        """
+        """Fetch dislike data for a video asynchronously with retry logic."""
         try:
             # Add small random delay between dislike API requests
             await asyncio.sleep(random.uniform(0.1, 0.3))
@@ -284,17 +376,39 @@ class YoutubePlaylistService:
                     "viewCount_api": data.get("viewCount"),
                     "deleted": data.get("deleted", False),
                 }
+            elif response.status_code == 429:  # Rate limited
+                if retry_count < MAX_RETRIES:
+                    self._processing_stats["rate_limits"] += 1
+                    wait_time = RETRY_DELAY * (2**retry_count)  # Exponential backoff
+                    logger.warning(
+                        f"Rate limited on dislike API for {video_id}. "
+                        f"Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})"
+                    )
+                    await asyncio.sleep(wait_time)
+                    return await self._fetch_dislike_data_async(
+                        client, video_id, retry_count + 1
+                    )
+
             logger.warning(
                 f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
             )
-        except httpx.ReadTimeout:
-            logger.warning(f"Dislike fetch timeout for video {video_id}")
-        except httpx.ConnectTimeout:
-            logger.warning(f"Dislike fetch connect timeout for video {video_id}")
-        except httpx.PoolTimeout:
-            logger.warning(f"Dislike fetch pool timeout for video {video_id}")
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
+            if retry_count < MAX_RETRIES:
+                self._processing_stats["total_retries"] += 1
+                logger.warning(
+                    f"Timeout for video {video_id}. "
+                    f"Retrying (attempt {retry_count + 1}/{MAX_RETRIES})"
+                )
+                await asyncio.sleep(RETRY_DELAY)
+                return await self._fetch_dislike_data_async(
+                    client, video_id, retry_count + 1
+                )
+            logger.warning(
+                f"Dislike fetch timeout for video {video_id} after {MAX_RETRIES} retries"
+            )
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
+
         return video_id, {
             "dislikes": 0,
             "likes": 0,
@@ -303,8 +417,10 @@ class YoutubePlaylistService:
             "deleted": False,
         }
 
-    async def _fetch_video_info_async(self, video_url: str) -> Dict[str, Any]:
-        """Fetch full metadata for a single video asynchronously using asyncio.to_thread."""
+    async def _fetch_video_info_async(
+        self, video_url: str, retry_count: int = 0
+    ) -> Dict[str, Any]:
+        """Fetch full metadata for a single video asynchronously with retry logic."""
         try:
             # Add random delay between video fetches to appear more human-like
             delay = random.uniform(MIN_VIDEO_DELAY, MAX_VIDEO_DELAY)
@@ -314,16 +430,10 @@ class YoutubePlaylistService:
                 self.ydl.extract_info, video_url, download=False
             )
         except Exception as e:
-            # --- FIX: Detect bot challenge from yt-dlp and raise specific error ---
             error_str = str(e)
-            if "Sign in to confirm you're not a bot" in error_str:
-                logger.error(f"YouTube bot challenge detected for video {video_url}")
-                raise YouTubeBotChallengeError(
-                    "YouTube is challenging our server. This is a temporary issue."
-                ) from e
 
-            # Check for other bot-related errors
-            if any(
+            # Check for bot challenge
+            if "Sign in to confirm you're not a bot" in error_str or any(
                 keyword in error_str.lower()
                 for keyword in [
                     "captcha",
@@ -332,41 +442,81 @@ class YoutubePlaylistService:
                     "automated requests",
                 ]
             ):
-                logger.error(f"YouTube bot detection (variant) for video {video_url}")
-                raise YouTubeBotChallengeError(
-                    "YouTube detected automated behavior."
-                ) from e
+                self._processing_stats["bot_challenges"] += 1
+                if retry_count < MAX_RETRIES:
+                    wait_time = RETRY_DELAY * (2**retry_count)
+                    logger.warning(
+                        f"Bot challenge for {video_url}. "
+                        f"Waiting {wait_time}s before retry (attempt {retry_count + 1}/{MAX_RETRIES})"
+                    )
+                    await asyncio.sleep(wait_time)
+                    # Rotate user agent on retry
+                    self.ydl.params["user-agent"] = self._get_random_user_agent()
+                    return await self._fetch_video_info_async(
+                        video_url, retry_count + 1
+                    )
+                else:
+                    logger.error(
+                        f"Bot challenge persists after {MAX_RETRIES} retries for {video_url}"
+                    )
+                    raise YouTubeBotChallengeError(
+                        f"YouTube bot challenge after {MAX_RETRIES} retries"
+                    ) from e
 
-            logger.warning(f"Failed to expand video {video_url}: {e}")
+            # Retry on other errors
+            if retry_count < MAX_RETRIES:
+                self._processing_stats["total_retries"] += 1
+                logger.warning(
+                    f"Failed to fetch {video_url}: {e}. "
+                    f"Retrying (attempt {retry_count + 1}/{MAX_RETRIES})"
+                )
+                await asyncio.sleep(RETRY_DELAY)
+                return await self._fetch_video_info_async(video_url, retry_count + 1)
+
+            logger.warning(
+                f"Failed to expand video {video_url} after {MAX_RETRIES} retries: {e}"
+            )
+            self._processing_stats["failed_videos"] += 1
             return {}
 
     async def _fetch_all_video_data(
         self,
         videos: List[Dict[str, Any]],
-        max_expanded: int,
+        max_expanded: Optional[int],
         playlist_count: int,
         progress_callback: callable = None,
     ) -> List[Dict[str, Any]]:
-        """Fetch full metadata and dislike data for a list of videos concurrently.
-
-        Uses batching and delays to avoid overwhelming YouTube's servers.
         """
-        video_urls = [v.get("url") for v in videos[:max_expanded]]
+        Fetch full metadata and dislike data for videos concurrently.
+
+        Args:
+            videos: List of video entries from playlist
+            max_expanded: Max videos to process (None = all)
+            playlist_count: Total playlist size
+            progress_callback: Progress update callback
+        """
+        # Process all videos if max_expanded is None
+        videos_to_process = videos if max_expanded is None else videos[:max_expanded]
+        video_urls = [v.get("url") for v in videos_to_process]
+
+        logger.info(f"Processing {len(video_urls)} videos in batches of {BATCH_SIZE}")
 
         # Use persistent client for dislike API
         client = await self._get_dislike_client()
 
-        # Batch processing with delays to be more respectful
-        BATCH_SIZE = 5  # Process videos in smaller batches
         all_video_infos = []
         all_dislike_results = []
+        start_time = time.time()
 
         for i in range(0, len(video_urls), BATCH_SIZE):
             batch_urls = video_urls[i : i + BATCH_SIZE]
-            batch_videos = videos[i : i + BATCH_SIZE]
+            batch_videos = videos_to_process[i : i + BATCH_SIZE]
+            batch_num = i // BATCH_SIZE + 1
+            total_batches = (len(video_urls) - 1) // BATCH_SIZE + 1
 
-            logger.debug(
-                f"Processing video batch {i // BATCH_SIZE + 1}/{(len(video_urls) - 1) // BATCH_SIZE + 1}"
+            logger.info(
+                f"Processing batch {batch_num}/{total_batches} "
+                f"(videos {i + 1}-{min(i + BATCH_SIZE, len(video_urls))})"
             )
 
             # Fetch video info and dislike data for this batch
@@ -383,17 +533,30 @@ class YoutubePlaylistService:
                     asyncio.gather(*dislike_tasks, return_exceptions=True),
                 )
 
-                # ✅ Progress update
-                processed = min(i + len(batch_urls), max_expanded)
+                # Progress update with time estimate
+                processed = min(i + len(batch_urls), len(video_urls))
                 if progress_callback:
-                    await progress_callback(processed, playlist_count)
+                    elapsed = time.time() - start_time
+                    if processed > 0:
+                        estimated_total = (elapsed / processed) * len(video_urls)
+                        remaining = estimated_total - elapsed
+                        await progress_callback(
+                            processed,
+                            playlist_count,
+                            {
+                                "elapsed": elapsed,
+                                "remaining": remaining,
+                                "batch": batch_num,
+                                "total_batches": total_batches,
+                            },
+                        )
 
                 # Filter out exceptions and add to results
                 all_video_infos.extend(
                     [
                         info
                         for info in batch_video_infos
-                        if not isinstance(info, Exception)
+                        if not isinstance(info, Exception) and info
                     ]
                 )
                 all_dislike_results.extend(
@@ -404,19 +567,13 @@ class YoutubePlaylistService:
                     ]
                 )
 
-            except YouTubeBotChallengeError:
-                # If we hit a bot challenge, stop processing and re-raise
-                logger.warning(
-                    f"Bot challenge detected in batch {i // BATCH_SIZE + 1}, stopping expansion"
-                )
-                raise
             except Exception as e:
-                logger.error(f"Error processing batch {i // BATCH_SIZE + 1}: {e}")
-                # Continue with next batch
+                logger.error(f"Error processing batch {batch_num}: {e}")
+                # Continue with next batch instead of failing completely
 
             # Add delay between batches (except for the last one)
             if i + BATCH_SIZE < len(video_urls):
-                batch_delay = random.uniform(1.0, 3.0)
+                batch_delay = random.uniform(MIN_BATCH_DELAY, MAX_BATCH_DELAY)
                 logger.debug(f"Waiting {batch_delay:.2f}s before next batch")
                 await asyncio.sleep(batch_delay)
 
@@ -445,30 +602,27 @@ class YoutubePlaylistService:
                     "Rating": dd.get("rating"),
                 }
             )
+
+        logger.info(
+            f"Processing complete. Successfully processed {len(combined)}/{len(video_urls)} videos. "
+            f"Stats: {self._processing_stats}"
+        )
+
         return combined
 
     async def _get_playlist_data_ytdlp(
         self,
         playlist_url: str,
-        max_expanded: int,
+        max_expanded: Optional[int],
         progress_callback: callable = None,
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
-        """Fetch and process video information from a YouTube playlist URL.
+        """
+        Fetch and process video information from a YouTube playlist URL.
 
         Args:
-            playlist_url (str): The URL of the YouTube playlist to analyze.
-            max_expanded (int): Maximum number of videos to process.
-
-        Returns:
-            Tuple[pl.DataFrame, str, str, str, Dict[str, float]]: A tuple containing:
-                - A Polars DataFrame with video information
-                - The playlist name
-                - The channel name
-                - The channel thumbnail URL
-                - A dictionary of summary statistics
-
-        Raises:
-            Exception: If there's an error fetching or processing the playlist data
+            playlist_url: The URL of the YouTube playlist
+            max_expanded: Maximum videos to process (None = all videos)
+            progress_callback: Optional callback for progress updates
         """
         logger.info(f"Starting analysis for playlist: {playlist_url}")
 
@@ -481,13 +635,20 @@ class YoutubePlaylistService:
             channel_name = playlist_info.get("uploader", "Unknown Channel")
             channel_thumb = self._extract_channel_thumbnail(playlist_info)
             entries = playlist_info.get("entries", [])
-            playlist_count = playlist_info.get(
-                "playlist_count", len(playlist_info.get("entries", []))
-            )
+            playlist_count = playlist_info.get("playlist_count", len(entries))
 
             if not entries:
                 logger.warning("No entries in playlist.")
                 return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
+
+            # Log processing estimate
+            estimate = self.estimate_processing_time(
+                playlist_count, expand_all=(max_expanded is None)
+            )
+            logger.info(
+                f"Processing estimate: {estimate.videos_to_expand} videos, "
+                f"~{estimate.batch_count} batches, ETA: {estimate}"
+            )
 
             # Build skeleton DataFrame (lightweight info)
             skeleton_rows = [
@@ -509,7 +670,7 @@ class YoutubePlaylistService:
             ]
             skeleton_df = pl.DataFrame(skeleton_rows)
 
-            # Phase 2: try expanding top N videos
+            # Phase 2: expand videos (all or limited)
             try:
                 expanded = await self._fetch_all_video_data(
                     entries, max_expanded, playlist_count, progress_callback
@@ -540,7 +701,7 @@ class YoutubePlaylistService:
 
             except YouTubeBotChallengeError:
                 logger.warning(
-                    "Expansion blocked by YouTube bot challenge. Returning skeleton only."
+                    "Persistent bot challenge. Returning skeleton data only."
                 )
                 df = skeleton_df
             except Exception as e:
@@ -549,30 +710,30 @@ class YoutubePlaylistService:
 
             # Finalize with enrichment (stats, formatted columns, etc.)
             df, stats = self._enrich_dataframe(df, playlist_count)
+            stats["processing_stats"] = self._processing_stats
             return df, playlist_name, channel_name, channel_thumb, stats
 
         except YouTubeBotChallengeError:
-            # Re-raise the specific error so the worker can handle it
-            # Propagate to worker if even flat fetch is blocked
             logger.error(f"Flat fetch blocked by bot challenge: {playlist_url}")
             raise
         except Exception as e:
-            logger.exception(
-                f"An unexpected error occurred during yt-dlp processing for {playlist_url}: {e}"
-            )
-            # Raise a general exception for other failures
+            logger.exception(f"Unexpected error for {playlist_url}: {e}")
             raise
         finally:
             # Close the dislike client when done
             await self.close()
 
     # --------------------------
-    # YouTube Data API implementation
+    # YouTube Data API implementation (full processing)
     # --------------------------
 
     async def _get_playlist_data_youtubeapi(
-        self, playlist_url: str, max_expanded: int
+        self,
+        playlist_url: str,
+        max_expanded: Optional[int],
+        progress_callback: callable = None,
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
+        """YouTube Data API implementation with full playlist support."""
         m = re.search(r"list=([a-zA-Z0-9_-]+)", playlist_url)
         if not m:
             raise ValueError("Invalid playlist URL")
@@ -581,17 +742,19 @@ class YoutubePlaylistService:
         # Fetch playlist metadata
         resp = (
             self.youtube.playlists()
-            .list(part="snippet", id=playlist_id, maxResults=1)
+            .list(part="snippet,contentDetails", id=playlist_id, maxResults=1)
             .execute()
         )
         if not resp["items"]:
             raise ValueError("Playlist not found")
         sn = resp["items"][0]["snippet"]
+        cd = resp["items"][0].get("contentDetails", {})
         playlist_name = sn.get("title", "Untitled Playlist")
         channel_name = sn.get("channelTitle", "Unknown Channel")
         channel_thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
+        total_count = cd.get("itemCount", 0)
 
-        # Fetch video IDs in the playlist
+        # Fetch ALL video IDs (or up to max_expanded)
         video_ids, nextPageToken = [], None
         while len(video_ids) < max_expanded:
             items_resp = (

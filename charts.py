@@ -91,7 +91,7 @@ def chart_views_by_video(
     # Sort videos by view count descending
     sorted_df = _safe_sort(df, "View Count Raw", descending=True)
 
-    views = (sorted_df["View Count Raw"].fill_null(0) / 1_000_000).round(1).to_list()
+    views = (sorted_df["Views"].fill_null(0) / 1_000_000).round(1).to_list()
     titles = sorted_df["Title"].to_list()
 
     opts = _apex_opts(
@@ -300,8 +300,7 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
         return _empty_chart("treemap", chart_id)
 
     data = [
-        {"x": row["Title"], "y": row["View Count Raw"] or 0}
-        for row in df.iter_rows(named=True)
+        {"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)
     ]
     opts = _apex_opts(
         "treemap",

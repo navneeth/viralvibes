@@ -604,15 +604,15 @@ def AnalyticsDashboardSection(
                 ),
                 cls="mb-6",
             ),
-            Grid(
-                chart_engagement_rate(
-                    df, "engagement-rate"
-                ),  # Individual video engagement
-                chart_total_engagement(
-                    summary, "total-engagement"
-                ),  # Overall engagement split
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
-            ),
+            # Grid(
+            #     chart_engagement_rate(
+            #         df, "engagement-rate"
+            #     ),  # Individual video engagement
+            #     chart_total_engagement(
+            #         summary, "total-engagement"
+            #     ),  # Overall engagement split
+            #     cls="grid-cols-1 md:grid-cols-2 gap-10",
+            # ),
             cls="mb-16",
         ),
         # Group 3: Audience Sentiment & Polarization
@@ -625,15 +625,15 @@ def AnalyticsDashboardSection(
                 "Discover which content creates strong reactions and splits audience opinion.",
                 cls="text-gray-500 mb-6",
             ),
-            Grid(
-                chart_likes_vs_dislikes(
-                    df, "likes-vs-dislikes"
-                ),  # Direct comparison of sentiment
-                chart_polarizing_videos(
-                    df, "polarizing-videos"
-                ),  # Polarization with context (bubble shows views)
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
-            ),
+            # Grid(
+            #     chart_likes_vs_dislikes(
+            #         df, "likes-vs-dislikes"
+            #     ),  # Direct comparison of sentiment
+            #     chart_polarizing_videos(
+            #         df, "polarizing-videos"
+            #     ),  # Polarization with context (bubble shows views)
+            #     cls="grid-cols-1 md:grid-cols-2 gap-10",
+            # ),
             cls="mb-16",
         ),
         # Group 4: Advanced Insights & Patterns
@@ -646,17 +646,17 @@ def AnalyticsDashboardSection(
                 "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
                 cls="text-gray-500 mb-6",
             ),
-            Grid(
-                chart_scatter_likes_dislikes(
-                    df, "scatter-likes"
-                ),  # Correlation analysis
-                chart_bubble_engagement_vs_views(
-                    df, "bubble-engagement"
-                ),  # Multi-dimensional analysis
-                # chart_duration_vs_engagement(df, "duration-engagement"),
-                chart_video_radar(df, "video-radar"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
-            ),
+            # Grid(
+            #     chart_scatter_likes_dislikes(
+            #         df, "scatter-likes"
+            #     ),  # Correlation analysis
+            #     chart_bubble_engagement_vs_views(
+            #         df, "bubble-engagement"
+            #     ),  # Multi-dimensional analysis
+            #     # chart_duration_vs_engagement(df, "duration-engagement"),
+            #     chart_video_radar(df, "video-radar"),
+            #     cls="grid-cols-1 md:grid-cols-2 gap-10",
+            # ),
             cls="mb-16",
         ),
         # Group 5: Content Strategy Insights (if we have controversy data)

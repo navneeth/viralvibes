@@ -276,8 +276,7 @@ def preview_playlist(playlist_url: str):
         logger.info(f"Cache hit for playlist: {playlist_url}. Serving cached data.")
         # If cached, forward to /validate/full
         return Script(
-            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
-            % playlist_url
+            f"htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{playlist_url}'}}}});"
         )
     logger.info(f"Cache miss for playlist: {playlist_url}. Checking job status.")
 
@@ -289,11 +288,10 @@ def preview_playlist(playlist_url: str):
     if job_status == "done":
         logger.info(f"Job is 'done', redirecting to full analysis.")
         return Script(
-            "htmx.ajax('POST', '/validate/full', {target: '#preview-box', values: {playlist_url: '%s'}});"
-            % playlist_url
+            f"htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{playlist_url}'}}}});"
         )
 
-    # Handle 'blocked' status
+    # Handle blocked status
     if job_status == "blocked":
         logger.warning(f"Job for {playlist_url} is blocked by YouTube.")
         return Div(
@@ -308,38 +306,34 @@ def preview_playlist(playlist_url: str):
             cls="p-6 bg-red-50 border border-red-300 rounded-lg text-center",
         )
 
+    # Get minimal playlist info for preview
     preview_info = get_playlist_preview_info(playlist_url)
     if preview_info:
         logger.info(
             f"Found preview info for {playlist_url}: {preview_info.get('title')}"
         )
     else:
-        logger.info(f"No preview info found for {playlist_url}.")
+        logger.info(f"No preview info found for {playlist_url}. Using placeholders.")
+        preview_info = {}
 
     # Determine button state
     is_submitted = job_status in ["pending", "processing"]
     button_text = "Analysis in Progress..." if is_submitted else "Submit for Analysis"
 
-    # Build the HTML response
+    # Build HTML response
     return Div(
-        # Use an f-string with an alternative for the title to handle both found and not-found cases
         H2(
-            f"{preview_info.get('title', 'Playlist Analysis Not Available Yet')}",
+            preview_info.get("title", "Playlist Analysis Not Available Yet"),
             cls="text-lg font-semibold",
         ),
-        (
-            Img(
-                src=preview_info.get("thumbnail", "/static/placeholder.png"),
-                alt="Playlist thumbnail",
-                cls="mx-auto w-16 h-16 rounded-full",
-            )
-            if preview_info and preview_info.get("thumbnail")
-            else None
+        Img(
+            src=preview_info.get("thumbnail", "/static/placeholder.png"),
+            alt="Playlist thumbnail",
+            cls="mx-auto w-16 h-16 rounded-full",
         ),
-        (
-            P(f"Videos: {preview_info['video_count']}", cls="text-gray-500 mt-2")
-            if preview_info and preview_info.get("video_count")
-            else None
+        P(
+            f"Videos: {preview_info.get('video_count', 'N/A')}",
+            cls="text-gray-500 mt-2",
         ),
         P(f"Status: {job_status or 'Not submitted'}", cls="text-gray-400 mb-2"),
         P(f"URL: {playlist_url}", cls="text-gray-500"),
