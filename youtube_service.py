@@ -303,10 +303,12 @@ class YoutubePlaylistService:
             return await self._get_playlist_data_ytdlp(
                 playlist_url, max_expanded, progress_callback
             )
-        else:
+        elif self.backend == "youtubeapi":
             return await self._get_playlist_data_youtubeapi(
                 playlist_url, max_expanded, progress_callback
             )
+        else:
+            raise ValueError(f"Unsupported backend: {self.backend}")
 
     async def get_playlist_preview(
         self, playlist_url: str
