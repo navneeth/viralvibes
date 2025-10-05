@@ -154,9 +154,23 @@ def get_cached_playlist_stats(
 
             logger.info(f"[Cache] Hit for playlist: {playlist_url}")
             # Deserialize JSON fields
-            row["df"] = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
+            try:
+                row["df"] = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
+            except Exception as e:
+                logger.error(
+                    f"[Cache] Failed to deserialize DataFrame for {playlist_url}: {e}"
+                )
+                return None
+
             if row.get("summary_stats"):
-                row["summary_stats"] = json.loads(row["summary_stats"])
+                try:
+                    row["summary_stats"] = json.loads(row["summary_stats"])
+                except json.JSONDecodeError as e:
+                    logger.error(
+                        f"[Cache] Failed to parse summary_stats for {playlist_url}: {e}"
+                    )
+                    row["summary_stats"] = {}
+
             return row
         else:
             logger.info(f"[Cache] Miss for playlist: {playlist_url}")
@@ -182,9 +196,9 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     playlist_url = stats.get("playlist_url")
     if not playlist_url:
         logger.error("No playlist_url provided in stats")
-        return {**stats, "source": "error"}
+        return {**stats, "source": "error", "error": "Missing playlist_url"}
 
-    # --- FIX: Add validation to prevent caching empty DataFrames ---
+    # --- Add validation to prevent caching empty DataFrames ---
     df = stats.get("df")
     if df is None or df.is_empty():
         logger.warning(
@@ -413,13 +427,13 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
         return {}
 
 
-def submit_playlist_job(playlist_url: str) -> None:
+def submit_playlist_job(playlist_url: str) -> bool:
     """Insert a new playlist analysis job into the playlist_jobs table,
     but only if one is not already pending or in progress.
     """
     if not supabase_client:
         logger.warning("Supabase client not available to submit job")
-        return
+        return False
 
     # Check for an existing job that is not finished
     try:
@@ -441,7 +455,7 @@ def submit_playlist_job(playlist_url: str) -> None:
             logger.info(
                 f"Skipping job submission for {playlist_url}. A job with status '{job_status}' created at {job_created_at} is already in progress or pending."
             )
-            return
+            return False
 
     except Exception as e:
         logger.error(f"Error checking for existing jobs: {e}")
@@ -452,6 +466,7 @@ def submit_playlist_job(playlist_url: str) -> None:
         "playlist_url": playlist_url,
         "status": "pending",
         "created_at": datetime.utcnow().isoformat(),
+        "retry_count": 0,
     }
 
     # Use insert instead of upsert to avoid conflicts on non-unique columns
@@ -460,3 +475,5 @@ def submit_playlist_job(playlist_url: str) -> None:
         logger.info(f"Submitted new playlist analysis job for {playlist_url}.")
     else:
         logger.error(f"Failed to submit new job for {playlist_url}.")
+
+    return success
