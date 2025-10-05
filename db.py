@@ -349,33 +349,65 @@ def get_playlist_job_status(playlist_url: str) -> Optional[str]:
 
 def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     """
-    Returns minimal info about a playlist if available (title, thumbnail, video_count, etc.).
+    Returns minimal info about a playlist for preview.
+    Flattens `summary_stats` JSON into usable front-end fields.
     """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch preview info")
         return {}
+
     try:
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("title, channel_thumbnail, video_count")
+            .select("title, channel_thumbnail, summary_stats")
             .eq("playlist_url", playlist_url)
             .limit(1)
             .execute()
         )
-        if response.data:
-            preview_info = response.data[0]
-            logger.info(
-                f"Successfully retrieved preview info. "
-                f"Title: {preview_info.get('title')}, "
-                f"Video Count: {preview_info.get('video_count')}"
+
+        if not response.data:
+            logger.warning(f"No playlist stats found for {playlist_url}")
+            return {}
+
+        data = response.data[0]
+        preview_info = {
+            "title": data.get("title"),
+            "thumbnail": data.get("channel_thumbnail"),
+            "video_count": None,
+        }
+
+        summary_stats_raw = data.get("summary_stats")
+        if summary_stats_raw:
+            # Parse JSON if it's a string
+            if isinstance(summary_stats_raw, str):
+                try:
+                    summary_stats = json.loads(summary_stats_raw)
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in summary_stats for {playlist_url}")
+                    summary_stats = {}
+            else:
+                summary_stats = summary_stats_raw
+
+            # Fill in video_count if missing
+            preview_info["video_count"] = summary_stats.get("actual_playlist_count")
+            # Optional: include other summary stats for future use
+            preview_info.update(
+                {
+                    "total_views": summary_stats.get("total_views"),
+                    "total_likes": summary_stats.get("total_likes"),
+                    "total_dislikes": summary_stats.get("total_dislikes"),
+                    "total_comments": summary_stats.get("total_comments"),
+                    "avg_engagement": summary_stats.get("avg_engagement"),
+                    "processed_video_count": summary_stats.get("processed_video_count"),
+                }
             )
-            return {
-                "title": preview_info.get("title"),
-                "thumbnail": preview_info.get("channel_thumbnail"),
-                "video_count": preview_info.get("video_count"),
-            }
-        logger.warning(f"No preview info found for playlist: {playlist_url}")
-        return {}
+
+        logger.info(
+            f"Retrieved preview info for {playlist_url}: {preview_info.get('title')}, "
+            f"videos: {preview_info.get('video_count')}"
+        )
+        return preview_info
+
     except Exception as e:
         logger.error(f"Error fetching preview info for {playlist_url}: {e}")
         return {}
