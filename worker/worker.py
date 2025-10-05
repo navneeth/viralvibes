@@ -1,7 +1,7 @@
 """
-Render worker: polls Supabase playlist_jobs table for pending jobs,
+Render worker: polls Supabase playlist_jobs table for pending/failed jobs,
 processes playlists with YoutubePlaylistService, caches results via db.upsert_playlist_stats,
-and updates job status.
+and updates job status. Intelligently retries failed jobs with backoff.
 """
 
 import asyncio
@@ -11,7 +11,7 @@ import random
 import signal
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
@@ -28,22 +28,21 @@ from youtube_service import YouTubeBotChallengeError, YoutubePlaylistService
 load_dotenv()
 
 # --- Logging setup ---
-setup_logging()  # <-- Use shared logging config
+setup_logging()
 logger = logging.getLogger("vv_worker")
 
 # --- Config with improved defaults ---
-POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "30"))  # Increased from 10 to 30
-BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "2"))  # Reduced from 3 to 2
-MAX_RUNTIME = int(os.getenv("WORKER_MAX_RUNTIME", "300")) * 60  # minutes → seconds
-MIN_REQUEST_DELAY = float(
-    os.getenv("MIN_REQUEST_DELAY", "2.0")
-)  # Min delay between requests
-MAX_REQUEST_DELAY = float(
-    os.getenv("MAX_REQUEST_DELAY", "5.0")
-)  # Max delay between requests
-BOT_CHALLENGE_BACKOFF = int(
-    os.getenv("BOT_CHALLENGE_BACKOFF", "300")
-)  # 5 minutes cooldown
+POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "30"))
+BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "3"))  # Increased back to 3
+MAX_RUNTIME = int(os.getenv("WORKER_MAX_RUNTIME", "300")) * 60
+MIN_REQUEST_DELAY = float(os.getenv("MIN_REQUEST_DELAY", "1.0"))  # Reduced delay
+MAX_REQUEST_DELAY = float(os.getenv("MAX_REQUEST_DELAY", "3.0"))
+BOT_CHALLENGE_BACKOFF = int(os.getenv("BOT_CHALLENGE_BACKOFF", "180"))  # 3 min
+
+# --- Retry configuration ---
+MAX_RETRY_ATTEMPTS = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
+RETRY_BACKOFF_BASE = int(os.getenv("RETRY_BACKOFF_BASE", "300"))  # 5 minutes
+FAILED_JOB_RETRY_AGE = int(os.getenv("FAILED_JOB_RETRY_AGE", "3600"))  # 1 hour
 
 # --- Services ---
 yt_service = YoutubePlaylistService(backend="youtubeapi")
@@ -94,7 +93,7 @@ async def fetch_pending_jobs():
             supabase_client.table("playlist_jobs")
             .select("*")
             .eq("status", "pending")
-            .order("created_at", desc=False)  # <-- Correct usage for ascending order
+            .order("created_at", desc=False)
             .limit(BATCH_SIZE)
             .execute()
         )
@@ -103,6 +102,39 @@ async def fetch_pending_jobs():
         return jobs
     except Exception as e:
         logger.exception("Failed to fetch pending jobs: %s", e)
+        return []
+
+
+async def fetch_retryable_failed_jobs():
+    """
+    Fetch failed jobs that are eligible for retry.
+    Criteria:
+    - Status is 'failed' (not 'blocked')
+    - retry_count < MAX_RETRY_ATTEMPTS
+    - Last attempt was more than FAILED_JOB_RETRY_AGE seconds ago
+    """
+    try:
+        # Calculate cutoff time for retry eligibility
+        cutoff_time = (
+            datetime.utcnow() - timedelta(seconds=FAILED_JOB_RETRY_AGE)
+        ).isoformat()
+
+        resp = (
+            supabase_client.table("playlist_jobs")
+            .select("*")
+            .eq("status", "failed")
+            .lt("retry_count", MAX_RETRY_ATTEMPTS)
+            .lt("finished_at", cutoff_time)
+            .order("finished_at", desc=False)  # Oldest first
+            .limit(BATCH_SIZE // 2)  # Process fewer retries per batch
+            .execute()
+        )
+        jobs = resp.data or []
+        if jobs:
+            logger.info(f"Found {len(jobs)} retryable failed jobs")
+        return jobs
+    except Exception as e:
+        logger.exception("Failed to fetch retryable jobs: %s", e)
         return []
 
 
@@ -138,11 +170,24 @@ async def mark_job_status(
         return False
 
 
+async def increment_retry_count(job_id: str, current_count: int = 0):
+    """Increment the retry count for a job."""
+    try:
+        new_count = current_count + 1
+        supabase_client.table("playlist_jobs").update({"retry_count": new_count}).eq(
+            "id", job_id
+        ).execute()
+        logger.info(f"[Job {job_id}] Retry count incremented to {new_count}")
+    except Exception as e:
+        logger.warning(f"Failed to update retry count for {job_id}: {e}")
+
+
 async def update_progress(job_id: str, processed: int, total: int):
+    """Update job progress in database."""
     progress = processed / total if total > 0 else 0
     logger.info(f"Job {job_id}: {progress * 100:.1f}% complete")
     try:
-        supabase.table("playlist_jobs").update({"progress": progress}).eq(
+        supabase_client.table("playlist_jobs").update({"progress": progress}).eq(
             "id", job_id
         ).execute()
     except Exception as e:
@@ -162,7 +207,7 @@ async def check_bot_challenge_cooldown():
     elapsed = time.time() - last_bot_challenge_time
 
     # Exponential backoff based on consecutive challenges
-    backoff_multiplier = min(consecutive_bot_challenges, 5)  # Cap at 5x
+    backoff_multiplier = min(consecutive_bot_challenges, 5)
     required_cooldown = BOT_CHALLENGE_BACKOFF * backoff_multiplier
 
     if elapsed < required_cooldown:
@@ -180,27 +225,29 @@ async def check_bot_challenge_cooldown():
     return False
 
 
-async def handle_job(job):
+async def handle_job(job, is_retry: bool = False):
     """Process a single job dict."""
     global last_bot_challenge_time, consecutive_bot_challenges
 
     job_id = job.get("id")
     playlist_url = job.get("playlist_url")
-    logger.info(f"[Job {job_id}] Starting for playlist {playlist_url}")
+    retry_count = job.get("retry_count", 0)
 
-    # Add random delay before processing to appear more human-like
+    retry_label = f" (retry {retry_count}/{MAX_RETRY_ATTEMPTS})" if is_retry else ""
+    logger.info(f"[Job {job_id}] Starting{retry_label} for playlist {playlist_url}")
+
+    # Add random delay before processing
     delay = random.uniform(MIN_REQUEST_DELAY, MAX_REQUEST_DELAY)
     logger.debug(f"[Job {job_id}] Waiting {delay:.2f}s before processing")
     await asyncio.sleep(delay)
 
-    # Start a timer
     start_time = time.time()
     await mark_job_status(
         job_id, "processing", {"started_at": datetime.utcnow().isoformat()}
     )
 
     try:
-        # fetch playlist data
+        # Fetch playlist data
         (
             df,
             playlist_name,
@@ -211,30 +258,42 @@ async def handle_job(job):
             playlist_url, progress_callback=lambda p, t: update_progress(job_id, p, t)
         )
 
-        # --- FIX: Add validation for empty results ---
+        # Validate results
         if df is None or df.is_empty():
             error_message = (
                 "No valid videos found in the playlist or failed to process."
             )
-            # Differentiate blocked vs failed
-            if "Sign in to confirm you're not a bot" in error_message:
-                status = "blocked"
-            else:
-                status = "failed"
 
-            logger.error(f"[Job {job_id}] {error_message}")
-            await mark_job_status(
-                job_id,
-                status,
-                {
-                    "error": error_message,
-                    "finished_at": datetime.utcnow().isoformat(),
-                },
-            )
-            # Stop further execution for this job
+            # Check if we should retry
+            if retry_count < MAX_RETRY_ATTEMPTS:
+                logger.warning(
+                    f"[Job {job_id}] {error_message} - will retry later "
+                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
+                )
+                await increment_retry_count(job_id, retry_count)
+                await mark_job_status(
+                    job_id,
+                    "failed",
+                    {
+                        "error": error_message,
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "retry_scheduled": True,
+                    },
+                )
+            else:
+                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
+                await mark_job_status(
+                    job_id,
+                    "failed",
+                    {
+                        "error": f"{error_message} (max retries exhausted)",
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "retry_scheduled": False,
+                    },
+                )
             return
 
-        # Ensure processed video count is in summary_stats for UI consistency
+        # Ensure processed video count is in summary_stats
         processed_video_count = getattr(df, "height", 0) if df is not None else 0
         summary_stats["processed_video_count"] = processed_video_count
 
@@ -268,23 +327,40 @@ async def handle_job(job):
 
         result = await upsert_playlist_stats(stats_to_cache)
         logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
-        logger.debug(f"[Job {job_id}] Upsert result keys={list(result.keys())}")
 
-        # --- FIX: Fail fast if upsert returns an error ---
+        # Validate upsert result
         if result.get("source") == "error":
             error_message = "Upsert failed due to serialization or DB error."
-            logger.error(f"[Job {job_id}] {error_message}")
-            await mark_job_status(
-                job_id,
-                "failed",
-                {
-                    "error": error_message,
-                    "finished_at": datetime.utcnow().isoformat(),
-                },
-            )
+
+            if retry_count < MAX_RETRY_ATTEMPTS:
+                logger.warning(
+                    f"[Job {job_id}] {error_message} - will retry later "
+                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
+                )
+                await increment_retry_count(job_id, retry_count)
+                await mark_job_status(
+                    job_id,
+                    "failed",
+                    {
+                        "error": error_message,
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "retry_scheduled": True,
+                    },
+                )
+            else:
+                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
+                await mark_job_status(
+                    job_id,
+                    "failed",
+                    {
+                        "error": f"{error_message} (max retries exhausted)",
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "retry_scheduled": False,
+                    },
+                )
             return
 
-        # --- FIX: Validate that the upsert result contains critical data ---
+        # Validate critical data
         df = result.get("df")
         summary_stats = result.get("summary_stats")
 
@@ -292,57 +368,55 @@ async def handle_job(job):
             error_message = (
                 "Incomplete data returned from upsert, critical fields missing."
             )
-            logger.error(f"[Job {job_id}] {error_message}")
-            await mark_job_status(
-                job_id,
-                "failed",
-                {
-                    "error": error_message,
-                    "finished_at": datetime.utcnow().isoformat(),
-                },
-            )
+
+            if retry_count < MAX_RETRY_ATTEMPTS:
+                logger.warning(
+                    f"[Job {job_id}] {error_message} - will retry later "
+                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
+                )
+                await increment_retry_count(job_id, retry_count)
+                await mark_job_status(
+                    job_id,
+                    "failed",
+                    {
+                        "error": error_message,
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "retry_scheduled": True,
+                    },
+                )
+            else:
+                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
+                await mark_job_status(
+                    job_id,
+                    "failed",
+                    {
+                        "error": f"{error_message} (max retries exhausted)",
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "retry_scheduled": False,
+                    },
+                )
             return
 
-        # --- FIX: Check if analysis results are valid ---
-        if result.get("df") is None or result.get("df").is_empty():
-            error_message = "Analysis produced no valid data"
-            logger.error(f"[Job {job_id}] {error_message}")
-            await mark_job_status(
-                job_id,
-                "failed",
-                {
-                    "error": error_message,
-                    "finished_at": datetime.utcnow().isoformat(),
-                },
-            )
-            return
-
+        # Success!
         if result.get("source") in ["cache", "fresh"]:
             # Reset bot challenge counter on success
             consecutive_bot_challenges = 0
             last_bot_challenge_time = None
 
+            success_message = f"Completed successfully (source={result.get('source')})"
+            if is_retry:
+                success_message += f" after {retry_count} retries"
+
             await mark_job_status(
                 job_id,
                 "done",
                 {
-                    "status_message": f"done (source={result.get('source')})",
+                    "status_message": success_message,
                     "finished_at": datetime.utcnow().isoformat(),
                     "result_source": result.get("source"),
                 },
             )
-        else:
-            # If upsert failed, mark the job as failed
-            error_message = "Failed to cache playlist stats after processing."
-            logger.error(f"[Job {job_id}] {error_message}")
-            await mark_job_status(
-                job_id,
-                "failed",
-                {
-                    "error": error_message,
-                    "finished_at": datetime.utcnow().isoformat(),
-                },
-            )
+            logger.info(f"[Job {job_id}] {success_message}")
 
     except YouTubeBotChallengeError as e:
         # Track bot challenges for backoff
@@ -358,6 +432,7 @@ async def handle_job(job):
             f"Entering cooldown period: {BOT_CHALLENGE_BACKOFF * consecutive_bot_challenges}s"
         )
 
+        # Bot challenges get special handling - don't retry immediately
         await mark_job_status(
             job_id,
             "blocked",
@@ -374,16 +449,36 @@ async def handle_job(job):
     except Exception as e:
         tb = traceback.format_exc()
         logger.exception("[Job %s] Unexpected error: %s", job_id, e)
-        # Can still log the time of failure if needed
-        await mark_job_status(
-            job_id,
-            "failed",
-            {
-                "error": str(e)[:1000],
-                "error_trace": tb,
-                "finished_at": datetime.utcnow().isoformat(),
-            },
-        )
+
+        # Decide if we should retry
+        if retry_count < MAX_RETRY_ATTEMPTS:
+            logger.warning(
+                f"[Job {job_id}] Will retry after {RETRY_BACKOFF_BASE}s "
+                f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
+            )
+            await increment_retry_count(job_id, retry_count)
+            await mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": str(e)[:1000],
+                    "error_trace": tb,
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "retry_scheduled": True,
+                },
+            )
+        else:
+            logger.error(f"[Job {job_id}] Max retries exhausted")
+            await mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": f"{str(e)[:1000]} (max retries exhausted)",
+                    "error_trace": tb,
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "retry_scheduled": False,
+                },
+            )
 
     finally:
         elapsed = time.time() - start_time
@@ -391,45 +486,48 @@ async def handle_job(job):
 
 
 async def worker_loop():
-    """Main worker loop that polls for jobs and processes them."""
+    """Main worker loop that polls for pending and failed jobs."""
     start_time = time.time()
     jobs_processed = 0
+    retries_processed = 0
 
     logger.info(
         "Worker starting main loop (poll_interval=%ss, max_runtime=%sm, batch_size=%s, "
-        "request_delay=%s-%ss, bot_backoff=%ss)",
+        "request_delay=%s-%ss, bot_backoff=%ss, max_retries=%s, retry_age=%ss)",
         POLL_INTERVAL,
         MAX_RUNTIME // 60,
         BATCH_SIZE,
         MIN_REQUEST_DELAY,
         MAX_REQUEST_DELAY,
         BOT_CHALLENGE_BACKOFF,
+        MAX_RETRY_ATTEMPTS,
+        FAILED_JOB_RETRY_AGE,
     )
 
     while True:
         elapsed_time = time.time() - start_time
         if elapsed_time >= MAX_RUNTIME:
             logger.info(
-                "Worker reached max runtime (%sm). Processed %s jobs. Exiting.",
+                "Worker reached max runtime (%sm). Processed %s new jobs, %s retries. Exiting.",
                 MAX_RUNTIME // 60,
                 jobs_processed,
+                retries_processed,
             )
             break
 
-        # Check remaining time and log progress periodically
         remaining_time = MAX_RUNTIME - elapsed_time
-        if int(elapsed_time) % 300 == 0 and elapsed_time > 0:  # Log every 5 minutes
+        if int(elapsed_time) % 300 == 0 and elapsed_time > 0:
             logger.info(
-                "Worker progress: %sm elapsed, %sm remaining, %s jobs processed",
+                "Worker progress: %sm elapsed, %sm remaining, %s new jobs, %s retries processed",
                 int(elapsed_time // 60),
                 int(remaining_time // 60),
                 jobs_processed,
+                retries_processed,
             )
 
         try:
-            # Check if we're in bot challenge cooldown
+            # Check bot challenge cooldown
             if await check_bot_challenge_cooldown():
-                # Calculate cooldown sleep time
                 backoff_multiplier = min(consecutive_bot_challenges, 5)
                 cooldown_sleep = min(
                     BOT_CHALLENGE_BACKOFF * backoff_multiplier, remaining_time
@@ -438,9 +536,14 @@ async def worker_loop():
                     await asyncio.sleep(cooldown_sleep)
                 continue
 
-            jobs = await fetch_pending_jobs()
-            if not jobs:
-                # No jobs available, sleep for poll interval or remaining time (whichever is shorter)
+            # Fetch both pending and retryable failed jobs
+            pending_jobs = await fetch_pending_jobs()
+            failed_jobs = await fetch_retryable_failed_jobs()
+
+            # Combine jobs: prioritize pending over retries
+            all_jobs = pending_jobs + failed_jobs
+
+            if not all_jobs:
                 sleep_time = min(POLL_INTERVAL, remaining_time)
                 if sleep_time <= 0:
                     logger.info("No time remaining, exiting worker loop")
@@ -448,7 +551,7 @@ async def worker_loop():
                 await asyncio.sleep(sleep_time)
                 continue
 
-            for job in jobs:
+            for job in all_jobs:
                 job_id = job.get("id")
                 if not job_id:
                     continue
@@ -460,7 +563,7 @@ async def worker_loop():
                     )
                     break
 
-                # --- FIX: Add transactional job claiming to prevent race conditions ---
+                # Claim job atomically
                 try:
                     claim_response = (
                         supabase_client.table("playlist_jobs")
@@ -471,78 +574,83 @@ async def worker_loop():
                             }
                         )
                         .eq("id", job_id)
-                        .eq("status", "pending")  # <-- Conditional update
+                        .in_(
+                            "status", ["pending", "failed"]
+                        )  # Allow claiming failed jobs
                         .execute()
                     )
 
-                    # If data is empty, another worker claimed the job.
                     if not claim_response.data:
-                        logger.info(
-                            f"[Job {job_id}] Claim failed, another worker likely took it. Skipping."
+                        logger.debug(
+                            f"[Job {job_id}] Claim failed, another worker took it. Skipping."
                         )
-                        continue  # Skip to the next job
+                        continue
 
                 except Exception as e:
-                    logger.error(
-                        f"[Job {job_id}] Failed to claim job due to DB error: {e}"
-                    )
-                    continue  # Skip to the next job
+                    logger.error(f"[Job {job_id}] Failed to claim job: {e}")
+                    continue
 
-                # Check time before processing each job
+                # Check time before processing
                 if time.time() - start_time >= MAX_RUNTIME:
                     logger.info("Max runtime reached while processing jobs, stopping")
-                    break  # Break from job processing loop
+                    break
 
-                await handle_job(job)
-                jobs_processed += 1
+                # Process job (with retry flag)
+                is_retry = job in failed_jobs
+                await handle_job(job, is_retry=is_retry)
 
-            # Add small delay between polling cycles
+                if is_retry:
+                    retries_processed += 1
+                else:
+                    jobs_processed += 1
+
+            # Small delay between polling cycles
             await asyncio.sleep(min(0.5, remaining_time))
 
         except Exception:
             logger.exception("Unexpected error in worker loop; sleeping before retry")
-            # Sleep for a short duration before retrying to avoid tight error loop
-            # Allow shorter sleeps when time is running out
-            error_sleep_time = (
-                min(1, remaining_time)
-                if remaining_time < 1
-                else min(POLL_INTERVAL, remaining_time)
-            )
+            error_sleep_time = min(POLL_INTERVAL, remaining_time)
             if error_sleep_time > 0:
                 await asyncio.sleep(error_sleep_time)
             else:
                 logger.info("No time remaining for error retry sleep, exiting")
                 break
 
-    logger.info("Worker loop completed. Total jobs processed: %s", jobs_processed)
-    return jobs_processed
+    logger.info(
+        "Worker loop completed. New jobs: %s, Retries: %s, Total: %s",
+        jobs_processed,
+        retries_processed,
+        jobs_processed + retries_processed,
+    )
+    return jobs_processed + retries_processed
 
 
 def main():
     """Entrypoint for running the worker."""
-    logger.info("Starting ViralVibes worker...")
+    logger.info("Starting ViralVibes worker with retry support...")
     logger.info(
         "Configuration: poll_interval=%ss, batch_size=%s, max_runtime=%sm, "
-        "request_delay=%s-%ss",
+        "request_delay=%s-%ss, max_retries=%s, retry_age=%ss",
         POLL_INTERVAL,
         BATCH_SIZE,
         MAX_RUNTIME // 60,
         MIN_REQUEST_DELAY,
         MAX_REQUEST_DELAY,
+        MAX_RETRY_ATTEMPTS,
+        FAILED_JOB_RETRY_AGE,
     )
 
     try:
-        # Initialize
         asyncio.run(init())
-        # Run worker loop
         jobs_processed = asyncio.run(worker_loop())
-
-        logger.info("Worker completed successfully. Jobs processed: %s", jobs_processed)
+        logger.info(
+            "Worker completed successfully. Total jobs processed: %s", jobs_processed
+        )
 
     except KeyboardInterrupt:
         logger.info("Worker interrupted by user, exiting gracefully.")
     except SystemExit:
-        raise  # Re-raise SystemExit from init()
+        raise
     except Exception as e:
         logger.exception("Worker failed with unexpected error: %s", e)
         raise SystemExit(1) from e
