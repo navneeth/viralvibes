@@ -37,7 +37,7 @@ from constants import (
     maxpx,
     testimonials,
 )
-from db import fetch_playlists
+from db import fetch_playlists, get_cached_playlist_stats
 from utils import format_number
 
 """Define reusable UI components for the ViralVibes application."""
@@ -89,9 +89,15 @@ def accordion(id, question, answer, question_cls="", answer_cls="", container_cl
         ),
         Label(
             P(question, cls=f"flex-grow {question_cls}"),
-            Img(src=f"{icons}/plus-icon.svg", alt="Expand", cls=f"plus-icon w-6 h-6"),
             Img(
-                src=f"{icons}/minus-icon.svg", alt="Collapse", cls=f"minus-icon w-6 h-6"
+                src=f"{icons}/plus-icon.svg",
+                alt="Expand",
+                cls=f"plus-icon w-6 h-6",
+            ),
+            Img(
+                src=f"{icons}/minus-icon.svg",
+                alt="Collapse",
+                cls=f"minus-icon w-6 h-6",
             ),
             _for=f"collapsible-{id}",
             cls="flex items-center cursor-pointer py-4 lg:py-6 pl-6 lg:pl-8 pr-4 lg:pr-6",
@@ -111,7 +117,7 @@ def faq_item(question, answer, id):
         answer=answer,
         question_cls="text-black s-body",
         answer_cls="s-body text-black/80 col-span-full",
-        container_cls=f"{col} justify-between bg-soft-blue rounded-[1.25rem] {bnset}",
+        container_cls=f"{FLEX_COL} justify-between bg-soft-blue rounded-[1.25rem] {bnset}",
     )
 
 
@@ -167,7 +173,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
 
 def AnalysisFormCard() -> Card:
-    """Create the analysis form card component with atomic HTMX triggers."""
+    """Create the analysis form card component with instant DB preview."""
     # Get a random prefill URL from the known playlists
     prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
@@ -182,11 +188,11 @@ def AnalysisFormCard() -> Card:
             ),
             H2(
                 "Analyze Your YouTube Playlist",
-                cls="text-2xl font-bold text-red-600 text-center",  # Red heading
+                cls="text-2xl font-bold text-red-600 text-center",
             ),
             P(
                 "Get deep insights into views, engagement, and virality patterns",
-                cls="text-red-500 text-center mb-4",  # Red description
+                cls="text-red-500 text-center mb-4",
             ),
             # Steps explainer
             H3(
@@ -197,7 +203,7 @@ def AnalysisFormCard() -> Card:
                 ),
             ),
             PlaylistSteps(),
-            # Analysis Input form
+            # Check DB first, then validate URL
             Form(
                 LabelInput(
                     "Playlist URL",
@@ -262,22 +268,18 @@ def AnalysisFormCard() -> Card:
             cls=(
                 "bg-white "
                 "rounded-xl p-10 shadow-lg text-gray-900 space-y-4 "
-                "border border-gray-200"  # Added subtle border
+                "border border-gray-200"
             ),
         ),
         cls="w-full my-12",
-        style=FORM_CARD,  # Fix: Use new style and class variables
+        style=FORM_CARD,
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
 
 
 # Helper: render sample playlist quick-fill buttons
 def SamplePlaylistButtons(input_name: str = "playlist_url", max_items: int = 5) -> Div:
-    """Render quick action buttons from cached playlists in DB.
-    Args:
-        input_name: The name attribute of the input to populate.
-        max_items: Number of sample playlists to show.
-    """
+    """Render quick action buttons from cached playlists in DB."""
     known_playlists = fetch_playlists(max_items=max_items, randomize=True)
     if not known_playlists:
         return Div()
@@ -399,7 +401,7 @@ def NewsletterCard() -> Card:
         ),
         Div(id="newsletter-result", style="margin-top:1rem;"),
         header=CardTitle("Be the first to try it", cls="text-xl font-bold mb-4"),
-        cls=NEWSLETTER_CARD,  # Fix: Use new class and style variables
+        cls=NEWSLETTER_CARD,
         style=NEWSLETTER_CARD,
         body_cls="space-y-6",
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
@@ -451,17 +453,7 @@ def create_tabs(
     tab_cls: str = "uk-active",
     container_cls: str = "space-y-4",
 ) -> Div:
-    """
-    Creates a MonsterUI tab component with optional icons and improved styling.
-    Args:
-        tabs: List of tuples (tab_title, tab_content, icon_name [optional]).
-        tabs_id: Unique id for the tab group.
-        alt: Use alternative tab styling.
-        tab_cls: CSS class for active tab.
-        container_cls: CSS class for the tab container.
-    Returns:
-        A Div containing the tab structure.
-    """
+    """Creates a MonsterUI tab component with optional icons and improved styling."""
     tab_links = []
     tab_content = []
 
@@ -524,25 +516,37 @@ def HomepageAccordion() -> Div:
     )
 
 
+def CachedResultsBanner(cached_at: str) -> Div:
+    """Display a banner indicating results are from cache."""
+    return Div(
+        Div(
+            UkIcon("check-circle", cls="text-green-500 mr-2", height=20, width=20),
+            Span("Instant Results from Cache", cls="font-semibold text-green-700"),
+            Span(f" • Last analyzed: {cached_at}", cls="text-gray-600 text-sm ml-2"),
+            cls="flex items-center",
+        ),
+        cls="bg-green-50 border border-green-200 rounded-lg p-4 mb-6",
+    )
+
+
 def AnalyticsDashboardSection(
     df,
     summary: Dict,
     playlist_name: str,
     channel_name: str,
     playlist_thumbnail: str = None,
+    from_cache: bool = False,
+    cached_at: str = None,
 ):
-    """
-    Create an analytics dashboard section for a playlist.
-    Redesigned with better logical flow and chart grouping.
-    """
-    # Calculate total videos from DataFrame length
-    # total_videos = len(df) if df is not None and not df.is_empty() else 0
+    """Create an analytics dashboard section for a playlist."""
     actual_playlist_count = summary.get("actual_playlist_count", 0)
     processed_count = summary.get(
         "processed_video_count", len(df) if df is not None and not df.is_empty() else 0
     )
 
     return Section(
+        # Show cache banner if results are from DB
+        (CachedResultsBanner(cached_at) if from_cache and cached_at else None),
         # Professional header
         AnalyticsHeader(
             playlist_name,
@@ -677,10 +681,6 @@ def AnalyticsDashboardSection(
     )
 
 
-# Also create a reusable styled button component for consistency
-# Example usage:
-# ViralVibesButton("Analyze Now", icon="search", button_type="submit", full_width=True)
-# ViralVibesButton("Download Report", icon="download", full_width=False)
 def ViralVibesButton(
     text: str,
     icon: str = "chart-bar",
@@ -712,11 +712,7 @@ def AnalyticsHeader(
     playlist_thumbnail: Optional[str] = None,
     channel_url: Optional[str] = None,
 ) -> Div:
-    """
-    Create a professional header for the analytics dashboard.
-    Shows playlist info, context, and future action buttons.
-    """
-    # Show both counts if they're different
+    """Create a professional header for the analytics dashboard."""
     video_info = f"{total_videos} videos"
     if processed_videos < total_videos:
         video_info = f"{processed_videos} of {total_videos} videos analyzed"
@@ -744,7 +740,7 @@ def AnalyticsHeader(
                     P(
                         Span("by ", cls=""),
                         Span(str(channel_name or "Unknown Channel")),
-                        Span(f" • {video_info} videos"),
+                        Span(f" • {video_info}"),
                         cls="text-gray-600 text-sm md:text-base",
                     ),
                     cls="flex-1",
@@ -769,27 +765,8 @@ def AnalyticsHeader(
         ),
         # Solid bar background
         cls="pb-6 mb-8 rounded-lg shadow-md",
-        style="background: linear-gradient(to right, #f0f4f8, #e2e8f0);",  # soft light gradient
+        style="background: linear-gradient(to right, #f0f4f8, #e2e8f0);",
     )
-
-
-def ExtractPlaylistInfoFromSummary(summary: Dict) -> tuple:
-    """
-    Helper to extract playlist info from your existing summary dict.
-    Adapt this based on what data you have available.
-    """
-    # Adjust these keys based on your actual summary structure
-    playlist_title = summary.get("playlist_title", "YouTube Playlist")
-    channel_name = summary.get("channel_name", "Unknown Channel")
-    total_videos = summary.get("video_count", 0)
-    thumbnail = summary.get("playlist_thumbnail", None)
-    channel_url = summary.get("channel_url", None)
-
-    # Clean up the title if it's too long
-    if len(playlist_title) > 80:
-        playlist_title = playlist_title[:77] + "..."
-
-    return playlist_title, channel_name, total_videos, thumbnail
 
 
 def PlaylistPreviewCard(
@@ -799,7 +776,9 @@ def PlaylistPreviewCard(
     playlist_length: Optional[int],
     playlist_url: str,
     meter_id: str = "fetch-progress-meter",
+    show_refresh: bool = False,
 ):
+    """Display playlist preview with optional refresh button for cached results."""
     return Card(
         # Thumbnail + Playlist Info
         DivCentered(
@@ -834,31 +813,51 @@ def PlaylistPreviewCard(
             ),
             cls="space-y-2 mt-4",
         ),
-        # CTA button with consistent styling
-        Button(
-            Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
-            hx_post="/validate/full",
-            hx_vals={
-                "playlist_url": playlist_url,
-                "meter_id": meter_id,
-                "meter_max": playlist_length or 0,
-            },
-            hx_target="#results-box",
-            hx_indicator="#loading-bar",
-            hx_swap="beforeend",  # important for streaming scripts + final HTML
-            cls=(
-                "w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-                "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
-                "text-white border-0 focus:ring-4 focus:ring-red-200 "
-                "transition-all duration-200 hover:scale-105 active:scale-95 transform"
-            ),
+        # Show different button based on cache status
+        (
+            Button(
+                Span(UkIcon("refresh-cw", cls="mr-2"), "Refresh Analysis"),
+                hx_post="/validate/full",
+                hx_vals={
+                    "playlist_url": playlist_url,
+                    "meter_id": meter_id,
+                    "meter_max": playlist_length or 0,
+                    "force_refresh": "true",
+                },
+                hx_target="#results-box",
+                hx_indicator="#loading-bar",
+                hx_swap="beforeend",
+                cls=(
+                    "w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+                    "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 "
+                    "text-white border-0 focus:ring-4 focus:ring-orange-200 "
+                    "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+                ),
+            )
+            if show_refresh
+            else Button(
+                Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
+                hx_post="/validate/full",
+                hx_vals={
+                    "playlist_url": playlist_url,
+                    "meter_id": meter_id,
+                    "meter_max": playlist_length or 0,
+                },
+                hx_target="#results-box",
+                hx_indicator="#loading-bar",
+                hx_swap="beforeend",
+                cls=(
+                    "w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+                    "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+                    "text-white border-0 focus:ring-4 focus:ring-red-200 "
+                    "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+                ),
+            )
         ),
-        # Results + Loading state
         Div(
             Loading(id="loading-bar", cls=(LoadingT.bars, LoadingT.lg)),
             Div(id="results-box", cls="mt-4"),
         ),
-        # Card header
         header=CardTitle("Playlist Preview", cls="text-xl font-bold text-gray-900"),
         cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4",
     )
@@ -899,15 +898,6 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     total_videos = len(df) if df is not None else summary.get("video_count", 0)
     avg_engagement = summary.get("avg_engagement", 0)
 
-    # Debug logging
-    print(
-        f"DEBUG: PlaylistMetricsOverview - total_views: {total_views}, total_videos: {total_videos}, avg_engagement: {avg_engagement}"
-    )
-    if df is not None:
-        print(f"DEBUG: DataFrame columns: {df.columns}")
-        print(f"DEBUG: DataFrame height: {df.height}")
-
-    # Find the top performing video
     if df is not None and len(df) > 0:
         try:
             top_video_views = df.select(pl.col("View Count Raw").max()).item() or 0
@@ -918,7 +908,6 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
         top_video_views = summary.get("max_views", 0)
         avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
 
-    # Create the 4 key metrics
     metrics = [
         MetricCard(
             title="Total Reach",
@@ -1012,9 +1001,7 @@ def footer():
 
 
 def section_wrapper(content, bg_color, xtra="", flex=True):
-    """
-    Wraps a section with background color, layout, and rounded corners.
-    """
+    """Wraps a section with background color, layout, and rounded corners."""
     return Section(
         content,
         cls=f"bg-{bg_color} {section_base1} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
@@ -1044,17 +1031,17 @@ def carousel(items, id="carousel-container", extra_classes=""):
     carousel_content = Div(
         *items,
         id=id,
-        cls=f"hide-scrollbar {col} lg:flex-row gap-4 lg:gap-6 rounded-l-3xl xl:rounded-3xl w-full lg:overflow-hidden xl:overflow-hidden whitespace-nowrap {extra_classes}",
+        cls=f"hide-scrollbar {FLEX_COL} lg:flex-row gap-4 lg:gap-6 rounded-l-3xl xl:rounded-3xl w-full lg:overflow-hidden xl:overflow-hidden whitespace-nowrap {extra_classes}",
     )
 
     arrows = Div(
-        Div(arrow("left"), arrow("right"), cls=f"w-[4.5rem] {between} ml-auto"),
+        Div(arrow("left"), arrow("right"), cls=f"w-[4.5rem] {FLEX_BETWEEN} ml-auto"),
         cls=f"hidden lg:flex xl:flex justify-start {maxrem(41)} py-6 pl-6 pr-20",
     )
     return Div(
         carousel_content,
         arrows,
-        cls=f"max-h-fit {col} items-start lg:-mr-16 {maxpx(1440)} overflow-hidden",
+        cls=f"max-h-fit {FLEX_COL} items-start lg:-mr-16 {maxpx(1440)} overflow-hidden",
     )
 
 
@@ -1102,7 +1089,6 @@ def testimonials_section():
                 center=True,
             ),
             carousel(testimonial_cards),
-            # cls=f"{maxrem(90)} mx-auto flex flex-col items-center gap-8",
             cls=f"{section_base} {maxrem(90)} mx-auto lg:flex-row items-start",
         ),
         bg_color="red-100",
