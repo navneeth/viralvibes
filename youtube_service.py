@@ -758,14 +758,19 @@ class YoutubePlaylistService:
 
         # Fetch ALL video IDs (or up to max_expanded)
         video_ids, nextPageToken = [], None
-        while len(video_ids) < max_expanded:
+        while max_expanded is None or len(video_ids) < max_expanded:
             items_resp = (
                 self.youtube.playlistItems()
                 .list(
                     part="contentDetails",
                     playlistId=playlist_id,
                     maxResults=min(
-                        self.YOUTUBE_API_MAX_RESULTS, max_expanded - len(video_ids)
+                        self.YOUTUBE_API_MAX_RESULTS,
+                        (
+                            max_expanded - len(video_ids)
+                            if max_expanded is not None
+                            else self.YOUTUBE_API_MAX_RESULTS
+                        ),
                     ),
                     pageToken=nextPageToken,
                 )

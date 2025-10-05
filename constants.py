@@ -160,6 +160,13 @@ KNOWN_PLAYLISTS = [
         "channel": None,
         "query_used": "Viral Songs Right Now",
     },
+    {
+        "title": "Pranks",
+        "url": "https://www.youtube.com/playlist?list=PLyzfQprOqzrCGTKaMUPZnwuuo58WinckO",
+        "video_count": 5,
+        "channel": None,
+        "query_used": "Viral Songs Right Now",
+    },
 ]
 
 SEARCH_QUERIES = [
