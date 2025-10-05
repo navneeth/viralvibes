@@ -12,6 +12,8 @@ import signal
 import time
 import traceback
 from datetime import datetime, timedelta
+from socket import timeout as SocketTimeout
+from ssl import SSLEOFError
 from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
@@ -23,6 +25,12 @@ from db import (
     upsert_playlist_stats,
 )
 from youtube_service import YouTubeBotChallengeError, YoutubePlaylistService
+
+try:
+    from httplib2 import ServerNotFoundError
+except ImportError:
+    # Fallback if httplib2 is not available
+    ServerNotFoundError = Exception
 
 # --- Load environment variables early ---
 load_dotenv()
@@ -223,6 +231,45 @@ async def check_bot_challenge_cooldown():
     last_bot_challenge_time = None
     logger.info("Bot challenge cooldown period ended, resuming normal operation")
     return False
+
+
+async def handle_job_failure(
+    job_id: str, retry_count: int, error_message: str, error_trace: str = None
+) -> bool:
+    """
+    Handle job failure with retry logic.
+    Returns True if retry is scheduled, False if max retries exhausted.
+    """
+    if retry_count < MAX_RETRY_ATTEMPTS:
+        logger.warning(
+            f"[Job {job_id}] {error_message} - will retry later "
+            f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
+        )
+        await increment_retry_count(job_id, retry_count)
+
+        meta = {
+            "error": error_message,
+            "finished_at": datetime.utcnow().isoformat(),
+            "retry_scheduled": True,
+        }
+        if error_trace:
+            meta["error_trace"] = error_trace
+
+        await mark_job_status(job_id, "failed", meta)
+        return True
+    else:
+        logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
+
+        meta = {
+            "error": f"{error_message} (max retries exhausted)",
+            "finished_at": datetime.utcnow().isoformat(),
+            "retry_scheduled": False,
+        }
+        if error_trace:
+            meta["error_trace"] = error_trace
+
+        await mark_job_status(job_id, "failed", meta)
+        return False
 
 
 async def handle_job(job, is_retry: bool = False):
@@ -445,6 +492,37 @@ async def handle_job(job, is_retry: bool = False):
                 ).isoformat(),
             },
         )
+
+    except (SSLEOFError, ConnectionResetError, SocketTimeout, ServerNotFoundError) as e:
+        # Network/SSL errors should be retried
+        logger.warning(
+            f"[Job {job_id}] Network/SSL error (attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS}): {type(e).__name__}"
+        )
+
+        if retry_count < MAX_RETRY_ATTEMPTS:
+            await increment_retry_count(job_id, retry_count)
+            await mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": f"Network error: {str(e)}",
+                    "error_type": type(e).__name__,
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "retry_scheduled": True,
+                },
+            )
+        else:
+            logger.error(f"[Job {job_id}] Network error - max retries exhausted")
+            await mark_job_status(
+                job_id,
+                "failed",
+                {
+                    "error": f"Network error after {MAX_RETRY_ATTEMPTS} attempts: {str(e)}",
+                    "error_type": type(e).__name__,
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "retry_scheduled": False,
+                },
+            )
 
     except Exception as e:
         tb = traceback.format_exc()
