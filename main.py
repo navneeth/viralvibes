@@ -39,7 +39,6 @@ from constants import (
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
     SIGNUPS_TABLE,
-    benefits_lst,
 )
 from db import (
     get_cached_playlist_stats,
