@@ -194,15 +194,17 @@ def AnalysisFormCard() -> Card:
                 "Get deep insights into views, engagement, and virality patterns",
                 cls="text-red-500 text-center mb-4",
             ),
-            # Steps explainer
-            H3(
-                "How it works",
+            # 🧭 Dynamic steps placeholder (to be filled during progress)
+            Div(
+                id="steps-container",
                 cls=(
-                    "text-lg font-semibold text-gray-800 text-center "
-                    "bg-gray-50 rounded-xl p-3 shadow-sm"
+                    "flex justify-center mb-6 transition-opacity duration-300 "
+                    "min-h-[120px] opacity-60"
                 ),
+                # Optional fallback — faint ghost steps before analysis
+                children=[PlaylistSteps(completed_steps=0)],
             ),
-            PlaylistSteps(),
+            # 🎯 Form section
             # Check DB first, then validate URL
             Form(
                 LabelInput(
@@ -535,25 +537,37 @@ def AnalyticsDashboardSection(
     playlist_name: str,
     channel_name: str,
     playlist_thumbnail: str = None,
+    channel_thumbnail: str = None,
+    channel_url: str = None,
     from_cache: bool = False,
     cached_at: str = None,
 ):
-    """Create an analytics dashboard section for a playlist."""
+    """Create an analytics dashboard section for a playlist with enhanced header."""
     actual_playlist_count = summary.get("actual_playlist_count", 0)
     processed_count = summary.get(
         "processed_video_count", len(df) if df is not None and not df.is_empty() else 0
     )
 
+    # Extract additional data from summary for enhanced header
+    total_views = summary.get("total_views", 0)
+    engagement_rate = summary.get("avg_engagement", 0)
+    processed_date = summary.get("processed_date") or cached_at
+
     return Section(
         # Show cache banner if results are from DB
         (CachedResultsBanner(cached_at) if from_cache and cached_at else None),
-        # Professional header
+        # Enhanced professional header with all DB fields
         AnalyticsHeader(
-            playlist_name,
-            channel_name,
-            actual_playlist_count,
-            processed_count,
-            playlist_thumbnail,
+            playlist_title=playlist_name,
+            channel_name=channel_name,
+            total_videos=actual_playlist_count,
+            processed_videos=processed_count,
+            playlist_thumbnail=playlist_thumbnail,
+            channel_thumbnail=channel_thumbnail,
+            channel_url=channel_url,
+            processed_date=processed_date,
+            engagement_rate=engagement_rate,
+            total_views=total_views,
         ),
         # Playlist Metrics Overview
         PlaylistMetricsOverview(df, summary),
@@ -711,8 +725,12 @@ def AnalyticsHeader(
     processed_videos: int,
     playlist_thumbnail: Optional[str] = None,
     channel_url: Optional[str] = None,
+    channel_thumbnail: Optional[str] = None,
+    processed_date: Optional[str] = None,
+    engagement_rate: Optional[float] = None,
+    total_views: Optional[int] = None,
 ) -> Div:
-    """Create a professional header for the analytics dashboard."""
+    """Create a professional header for the analytics dashboard with rich DB data."""
     video_info = f"{total_videos} videos"
     if processed_videos < total_videos:
         video_info = f"{processed_videos} of {total_videos} videos analyzed"
@@ -720,34 +738,99 @@ def AnalyticsHeader(
     return Div(
         # Main header content
         Div(
-            # Left side: Playlist info
+            # Left side: Combined playlist and channel info
             Div(
+                # Playlist thumbnail (larger)
                 (
                     Img(
                         src=playlist_thumbnail,
                         alt=f"{playlist_title} thumbnail",
-                        cls="w-16 h-16 rounded-lg shadow-md mr-4 object-cover",
-                        style="min-width: 64px; min-height: 64px;",
+                        cls="w-20 h-20 rounded-lg shadow-md mr-4 object-cover",
+                        style="min-width: 80px; min-height: 80px;",
                     )
                     if playlist_thumbnail
                     else ""
                 ),
                 Div(
-                    H1(
-                        playlist_title,
-                        cls="text-2xl md:text-3xl font-bold text-gray-900 mb-1",
-                    ),
-                    P(
-                        Span("by ", cls=""),
-                        Span(str(channel_name or "Unknown Channel")),
-                        Span(f" • {video_info}"),
-                        cls="text-gray-600 text-sm md:text-base",
+                    # Title and channel with thumbnail
+                    Div(
+                        H1(
+                            playlist_title,
+                            cls="text-2xl md:text-3xl font-bold text-gray-900 mb-2",
+                        ),
+                        # Channel info with thumbnail
+                        Div(
+                            (
+                                Img(
+                                    src=channel_thumbnail,
+                                    alt=f"{channel_name} avatar",
+                                    cls="w-6 h-6 rounded-full border border-gray-300",
+                                )
+                                if channel_thumbnail
+                                else UkIcon("user", cls="w-5 h-5 text-gray-500")
+                            ),
+                            Span(
+                                "by ",
+                                (
+                                    A(
+                                        str(channel_name or "Unknown Channel"),
+                                        href=channel_url,
+                                        target="_blank",
+                                        cls="text-blue-600 hover:text-blue-800 hover:underline",
+                                    )
+                                    if channel_url
+                                    else Span(str(channel_name or "Unknown Channel"))
+                                ),
+                                cls="text-gray-700",
+                            ),
+                            Span("•", cls="text-gray-400 mx-2"),
+                            Span(video_info, cls="text-gray-600"),
+                            cls="flex items-center gap-2 text-sm md:text-base",
+                        ),
+                        # Quick stats row
+                        (
+                            Div(
+                                # Views badge
+                                (
+                                    Span(
+                                        UkIcon("eye", cls="w-4 h-4 mr-1"),
+                                        format_number(total_views),
+                                        cls="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium",
+                                    )
+                                    if total_views
+                                    else None
+                                ),
+                                # Engagement badge
+                                (
+                                    Span(
+                                        UkIcon("heart", cls="w-4 h-4 mr-1"),
+                                        f"{engagement_rate:.1f}% engagement",
+                                        cls="inline-flex items-center px-2 py-1 bg-red-50 text-red-700 rounded-md text-xs font-medium",
+                                    )
+                                    if engagement_rate
+                                    else None
+                                ),
+                                # Date badge
+                                (
+                                    Span(
+                                        UkIcon("calendar", cls="w-4 h-4 mr-1"),
+                                        f"Analyzed {processed_date}",
+                                        cls="inline-flex items-center px-2 py-1 bg-gray-50 text-gray-700 rounded-md text-xs font-medium",
+                                    )
+                                    if processed_date
+                                    else None
+                                ),
+                                cls="flex flex-wrap items-center gap-2 mt-2",
+                            )
+                            if (total_views or engagement_rate or processed_date)
+                            else None
+                        ),
                     ),
                     cls="flex-1",
                 ),
                 cls="flex items-start" if playlist_thumbnail else "",
             ),
-            # Right side: Future action buttons
+            # Right side: Status badge
             Div(
                 Div(
                     UkIcon(
@@ -763,8 +846,8 @@ def AnalyticsHeader(
             ),
             cls="flex flex-col md:flex-row md:items-start md:justify-between gap-4",
         ),
-        # Solid bar background
-        cls="pb-6 mb-8 rounded-lg shadow-md",
+        # Solid bar background with padding
+        cls="p-6 mb-8 rounded-lg shadow-md",
         style="background: linear-gradient(to right, #f0f4f8, #e2e8f0);",
     )
 
@@ -775,91 +858,210 @@ def PlaylistPreviewCard(
     channel_thumbnail: str,
     playlist_length: Optional[int],
     playlist_url: str,
+    playlist_thumbnail: Optional[str] = None,
+    total_views: Optional[int] = None,
+    engagement_rate: Optional[float] = None,
+    last_analyzed: Optional[str] = None,
+    video_count: Optional[int] = None,
     meter_id: str = "fetch-progress-meter",
     show_refresh: bool = False,
-):
-    """Display playlist preview with optional refresh button for cached results."""
+) -> Card:
+    """Display enhanced playlist preview with rich database information."""
+
+    # Use video_count from DB if available, fallback to playlist_length
+    actual_video_count = video_count or playlist_length or 0
+
     return Card(
-        # Thumbnail + Playlist Info
-        DivCentered(
-            Img(
-                src=channel_thumbnail,
-                alt=f"{channel_name} thumbnail",
-                cls="w-20 h-20 rounded-full shadow-md border mb-4",
-            ),
-            H3(playlist_name, cls="text-lg font-semibold text-gray-900"),
-            P(f"by {channel_name}", cls="text-sm text-gray-500"),
-            cls="text-center space-y-2",
-        ),
-        # Playlist length + Progress bar
+        # Visual header with both thumbnails
         Div(
-            P(
-                f"{playlist_length or 0} videos in playlist",
-                cls="text-sm font-medium text-gray-700",
+            # Playlist thumbnail (if available) as background accent
+            (
+                Div(
+                    Img(
+                        src=playlist_thumbnail,
+                        alt="Playlist thumbnail",
+                        cls="w-full h-full object-cover opacity-20",
+                    ),
+                    cls="absolute inset-0 rounded-t-2xl overflow-hidden",
+                )
+                if playlist_thumbnail
+                else None
             ),
-            Progress(
-                value=0,
-                max=playlist_length or 1,
-                id=meter_id,
-                cls=(
-                    "w-full h-2 rounded-full bg-gray-200 "
-                    "[&::-webkit-progress-bar]:bg-gray-200 "
-                    "[&::-webkit-progress-value]:rounded-full "
-                    "[&::-webkit-progress-value]:transition-all "
-                    "[&::-webkit-progress-value]:duration-300 "
-                    "[&::-webkit-progress-value]:bg-red-600 "
-                    "[&::-moz-progress-bar]:bg-red-600"
+            # Channel thumbnail (foreground)
+            DivCentered(
+                Img(
+                    src=channel_thumbnail,
+                    alt=f"{channel_name} thumbnail",
+                    cls="w-20 h-20 rounded-full shadow-lg border-4 border-white relative z-10",
                 ),
+                cls="relative pt-8",
             ),
-            cls="space-y-2 mt-4",
+            cls="relative mb-4",
         ),
-        # Show different button based on cache status
+        # Playlist Info
+        DivCentered(
+            H3(
+                playlist_name,
+                cls="text-lg font-semibold text-gray-900 text-center px-4",
+            ),
+            P(f"by {channel_name}", cls="text-sm text-gray-600"),
+            cls="text-center space-y-1 mb-4",
+        ),
+        # Stats badges (if from cache/DB)
         (
-            Button(
-                Span(UkIcon("refresh-cw", cls="mr-2"), "Refresh Analysis"),
-                hx_post="/validate/full",
-                hx_vals={
-                    "playlist_url": playlist_url,
-                    "meter_id": meter_id,
-                    "meter_max": playlist_length or 0,
-                    "force_refresh": "true",
-                },
-                hx_target="#results-box",
-                hx_indicator="#loading-bar",
-                hx_swap="beforeend",
-                cls=(
-                    "w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-                    "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 "
-                    "text-white border-0 focus:ring-4 focus:ring-orange-200 "
-                    "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+            Div(
+                # Video count
+                Div(
+                    UkIcon("film", cls="w-4 h-4 text-gray-600"),
+                    Span(f"{actual_video_count} videos", cls="text-sm font-medium"),
+                    cls="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 rounded-lg",
                 ),
+                # Total views (if available)
+                (
+                    Div(
+                        UkIcon("eye", cls="w-4 h-4 text-blue-600"),
+                        Span(
+                            format_number(total_views),
+                            cls="text-sm font-medium text-blue-700",
+                        ),
+                        cls="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 rounded-lg",
+                    )
+                    if total_views
+                    else None
+                ),
+                # Engagement rate (if available)
+                (
+                    Div(
+                        UkIcon("heart", cls="w-4 h-4 text-red-600"),
+                        Span(
+                            f"{engagement_rate:.1f}%",
+                            cls="text-sm font-medium text-red-700",
+                        ),
+                        cls="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 rounded-lg",
+                    )
+                    if engagement_rate
+                    else None
+                ),
+                cls="flex flex-wrap justify-center gap-2 mb-4",
             )
-            if show_refresh
-            else Button(
-                Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
-                hx_post="/validate/full",
-                hx_vals={
-                    "playlist_url": playlist_url,
-                    "meter_id": meter_id,
-                    "meter_max": playlist_length or 0,
-                },
-                hx_target="#results-box",
-                hx_indicator="#loading-bar",
-                hx_swap="beforeend",
-                cls=(
-                    "w-full mt-6 py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-                    "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
-                    "text-white border-0 focus:ring-4 focus:ring-red-200 "
-                    "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+            if (actual_video_count or total_views or engagement_rate)
+            else None
+        ),
+        # Cache indicator (if showing cached data)
+        (
+            Div(
+                UkIcon("database", cls="w-4 h-4 text-green-600 mr-1.5"),
+                Span(
+                    f"Cached analysis from {last_analyzed}",
+                    cls="text-xs text-green-700",
                 ),
+                cls="flex items-center justify-center px-3 py-2 bg-green-50 rounded-lg border border-green-200 mb-4",
+            )
+            if show_refresh and last_analyzed
+            # Progress bar for new analysis
+            else (
+                Div(
+                    P(
+                        f"Ready to analyze {actual_video_count} videos",
+                        cls="text-sm font-medium text-gray-700 text-center mb-2",
+                    ),
+                    Progress(
+                        value=0,
+                        max=actual_video_count or 1,
+                        id=meter_id,
+                        cls=(
+                            "w-full h-2 rounded-full bg-gray-200 "
+                            "[&::-webkit-progress-bar]:bg-gray-200 "
+                            "[&::-webkit-progress-value]:rounded-full "
+                            "[&::-webkit-progress-value]:transition-all "
+                            "[&::-webkit-progress-value]:duration-300 "
+                            "[&::-webkit-progress-value]:bg-red-600 "
+                            "[&::-moz-progress-bar]:bg-red-600"
+                        ),
+                    ),
+                    cls="space-y-2",
+                )
+                if not show_refresh
+                else None
             )
         ),
+        # Action buttons
+        Div(
+            (
+                # Refresh button (for cached results)
+                Button(
+                    Span(UkIcon("refresh-cw", cls="mr-2"), "Refresh Analysis"),
+                    hx_post="/validate/full",
+                    hx_vals={
+                        "playlist_url": playlist_url,
+                        "meter_id": meter_id,
+                        "meter_max": actual_video_count,
+                        "force_refresh": "true",
+                    },
+                    hx_target="#results-box",
+                    hx_indicator="#loading-bar",
+                    hx_swap="beforeend",
+                    cls=(
+                        "w-full py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+                        "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 "
+                        "text-white border-0 focus:ring-4 focus:ring-orange-200 "
+                        "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+                    ),
+                )
+                if show_refresh
+                # Start analysis button (for new analysis)
+                else Button(
+                    Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
+                    hx_post="/validate/full",
+                    hx_vals={
+                        "playlist_url": playlist_url,
+                        "meter_id": meter_id,
+                        "meter_max": actual_video_count,
+                    },
+                    hx_target="#results-box",
+                    hx_indicator="#loading-bar",
+                    hx_swap="beforeend",
+                    cls=(
+                        "w-full py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
+                        "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
+                        "text-white border-0 focus:ring-4 focus:ring-red-200 "
+                        "transition-all duration-200 hover:scale-105 active:scale-95 transform"
+                    ),
+                )
+            ),
+            # Secondary action (View in YouTube) if we have data
+            (
+                A(
+                    UkIcon("external-link", cls="w-4 h-4 mr-2"),
+                    "View on YouTube",
+                    href=playlist_url,
+                    target="_blank",
+                    cls=(
+                        "flex items-center justify-center w-full mt-3 py-2 px-4 "
+                        "text-sm font-medium text-gray-700 bg-white border border-gray-300 "
+                        "rounded-lg hover:bg-gray-50 transition-colors"
+                    ),
+                )
+                if show_refresh
+                else None
+            ),
+            cls="space-y-2",
+        ),
+        # Loading and results section
         Div(
             Loading(id="loading-bar", cls=(LoadingT.bars, LoadingT.lg)),
             Div(id="results-box", cls="mt-4"),
         ),
-        header=CardTitle("Playlist Preview", cls="text-xl font-bold text-gray-900"),
-        cls="max-w-md mx-auto p-6 rounded-2xl shadow-lg bg-white space-y-4",
+        header=CardTitle(
+            Span(
+                UkIcon("list", cls="mr-2 inline-block"),
+                "Playlist Preview",
+                cls="flex items-center",
+            ),
+            cls="text-xl font-bold text-gray-900",
+        ),
+        cls="max-w-md mx-auto rounded-2xl shadow-lg bg-white overflow-hidden",
+        style="border: 2px solid #f3f4f6;",
     )
 
 
