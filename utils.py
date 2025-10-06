@@ -131,6 +131,24 @@ def parse_number(val: str) -> int:
         return 0
 
 
+# Helper: convert ISO8601 to "HH:MM:SS"
+def parse_iso_duration(duration: str) -> str:
+    import isodate
+
+    try:
+        td = isodate.parse_duration(duration)
+        total_seconds = int(td.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return (
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            if hours
+            else f"{minutes:02d}:{seconds:02d}"
+        )
+    except Exception:
+        return duration
+
+
 def safe_cell(value):
     return value if value is not None else "N/A"
 

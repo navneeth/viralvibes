@@ -24,7 +24,11 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from youtube_service import YouTubeBotChallengeError, YoutubePlaylistService
+from youtube_service import (
+    YouTubeBotChallengeError,
+    YoutubePlaylistService,
+    normalize_columns,
+)
 
 try:
     from httplib2 import ServerNotFoundError
@@ -339,6 +343,12 @@ async def handle_job(job, is_retry: bool = False):
                     },
                 )
             return
+
+        try:
+            df = normalize_columns(df)
+            logger.info(f"[Job {job_id}] Normalized columns: {df.columns}")
+        except Exception as e:
+            logger.warning(f"[Job {job_id}] Column normalization failed: {e}")
 
         # Ensure processed video count is in summary_stats
         processed_video_count = getattr(df, "height", 0) if df is not None else 0
