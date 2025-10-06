@@ -194,15 +194,17 @@ def AnalysisFormCard() -> Card:
                 "Get deep insights into views, engagement, and virality patterns",
                 cls="text-red-500 text-center mb-4",
             ),
-            # Steps explainer
-            H3(
-                "How it works",
+            # 🧭 Dynamic steps placeholder (to be filled during progress)
+            Div(
+                id="steps-container",
                 cls=(
-                    "text-lg font-semibold text-gray-800 text-center "
-                    "bg-gray-50 rounded-xl p-3 shadow-sm"
+                    "flex justify-center mb-6 transition-opacity duration-300 "
+                    "min-h-[120px] opacity-60"
                 ),
+                # Optional fallback — faint ghost steps before analysis
+                children=[PlaylistSteps(completed_steps=0)],
             ),
-            PlaylistSteps(),
+            # 🎯 Form section
             # Check DB first, then validate URL
             Form(
                 LabelInput(
