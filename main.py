@@ -6,7 +6,7 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -19,6 +19,7 @@ from starlette.responses import StreamingResponse
 from components import (
     AnalysisFormCard,
     AnalyticsDashboardSection,
+    AnalyticsHeader,
     BenefitsCard,
     FeaturesCard,
     HeaderCard,
@@ -707,29 +708,66 @@ def validate_full(
                 )
             )
 
-            # --- 9) Final render: table inside a target container for HTMX swaps ---
+            # --- 9) Final render: steps + header side-by-side, then table, then plots ---
+            # --- inside a target container for HTMX swaps ---
             final_html = str(
                 Div(
-                    StepProgress(len(PLAYLIST_STEPS_CONFIG)),
-                    Table(
-                        thead,
-                        tbody,
-                        tfoot,
-                        id="playlist-table",
-                        cls="uk-table uk-table-divider",
-                    ),
-                    AnalyticsDashboardSection(
-                        df,
-                        summary_stats,
-                        playlist_name,
-                        A(
-                            channel_name,
-                            href=playlist_url,
-                            target="_blank",
-                            cls="text-blue-600 hover:underline",
+                    # Row 1: Steps + Header side by side
+                    Div(
+                        Div(
+                            StepProgress(len(PLAYLIST_STEPS_CONFIG)),
+                            cls="flex-1 p-4 bg-white rounded-xl shadow-sm border border-gray-100",
                         ),
+                        Div(
+                            AnalyticsHeader(
+                                playlist_title=playlist_name,
+                                channel_name=channel_name,
+                                total_videos=summary_stats.get(
+                                    "actual_playlist_count", 0
+                                ),
+                                processed_videos=df.height,
+                                playlist_thumbnail=(
+                                    cached_stats.get("playlist_thumbnail")
+                                    if cached_stats
+                                    else None
+                                ),
+                                channel_url=None,  # optional
+                                channel_thumbnail=channel_thumbnail,
+                                processed_date=date.today().strftime("%b %d, %Y"),
+                                engagement_rate=summary_stats.get("avg_engagement"),
+                                total_views=summary_stats.get("total_views"),
+                            ),
+                            cls="flex-1",
+                        ),
+                        cls="grid grid-cols-1 md:grid-cols-2 gap-6 items-start mb-8",
                     ),
-                    cls="space-y-4",
+                    # Row 2: Table
+                    Div(
+                        Table(
+                            thead,
+                            tbody,
+                            tfoot,
+                            id="playlist-table",
+                            cls="w-full text-sm text-gray-700 border border-gray-200 rounded-lg shadow-sm overflow-hidden",
+                        ),
+                        cls="overflow-x-auto mb-8",
+                    ),
+                    # Row 3: Analytics dashboard / plots
+                    Div(
+                        AnalyticsDashboardSection(
+                            df,
+                            summary_stats,
+                            playlist_name,
+                            A(
+                                channel_name,
+                                href=playlist_url,
+                                target="_blank",
+                                cls="text-blue-600 hover:underline",
+                            ),
+                        ),
+                        cls="mt-6",
+                    ),
+                    cls="space-y-8",
                 )
             )
 
