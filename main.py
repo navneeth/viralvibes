@@ -1,4 +1,8 @@
-import asyncio
+"""
+Main entry point for the ViralVibes web app.
+Modernized with Tailwind-inspired design and MonsterUI components.
+"""
+
 import io
 import logging
 import re
@@ -81,6 +85,14 @@ app, rt = fast_app(
     static_dir="static",
     favicon="/static/favicon.ico",
     apple_touch_icon="/static/favicon.jpeg",
+    meta=[
+        {"charset": "UTF-8"},
+        {"name": "viewport", "content": "width=device-width, initial-scale=1.0"},
+        {
+            "name": "description",
+            "content": "Analyze YouTube playlists instantly — discover engagement, reach, and controversy.",
+        },
+    ],
 )
 
 # Set the favicon
