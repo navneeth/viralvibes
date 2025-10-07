@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+import isodate
 import polars as pl
 
 # Optional imports
@@ -30,7 +31,6 @@ try:
 except ImportError:
     build = None
 
-import isodate
 
 from utils import (
     calculate_engagement_rate,
@@ -78,17 +78,6 @@ class YouTubeServiceError(Exception):
 
 class RateLimitError(YouTubeServiceError):
     """Raised when rate limits are exceeded."""
-
-
-def parse_yt_dlp_output(raw_output: str):
-    try:
-        return json.loads(raw_output)
-    except json.JSONDecodeError:
-        # Likely HTML instead of JSON
-        if "<html" in raw_output.lower():
-            if "captcha" in raw_output.lower() or "consent.youtube.com" in raw_output:
-                raise YouTubeBotChallengeError("YouTube served a validation page.")
-        raise  # propagate other JSON errors
 
 
 def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
