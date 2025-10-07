@@ -24,7 +24,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from youtube_service import (
+from services.youtube_service import (
     YouTubeBotChallengeError,
     YoutubePlaylistService,
     normalize_columns,

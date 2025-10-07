@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 from httpx import Response
 
-from youtube_service import YoutubePlaylistService
+from services.youtube_service import YoutubePlaylistService
 
 
 # --- Fixtures for mock data ---

@@ -11,13 +11,13 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
+from services.youtube_service import YoutubePlaylistService
 from worker.worker import (
     fetch_pending_jobs,
     handle_job,
     mark_job_status,
     worker_loop,
 )
-from youtube_service import YoutubePlaylistService
 
 # --- Setup logging once for CLI ---
 setup_logging()

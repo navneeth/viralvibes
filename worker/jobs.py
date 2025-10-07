@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import polars as pl
 
-from youtube_service import YoutubePlaylistService
+from services.youtube_service import YoutubePlaylistService
 
 # Instantiate service once
 yt_service = YoutubePlaylistService()
@@ -16,9 +16,13 @@ async def process_playlist(playlist_url: str) -> dict:
     Returns a dictionary matching the playlist_stats schema.
     """
     # Fetch full playlist data (limited to 20 videos by default)
-    df, playlist_name, channel_name, channel_thumbnail, summary_stats = (
-        await yt_service.get_playlist_data(playlist_url, max_expanded=20)
-    )
+    (
+        df,
+        playlist_name,
+        channel_name,
+        channel_thumbnail,
+        summary_stats,
+    ) = await yt_service.get_playlist_data(playlist_url, max_expanded=20)
 
     # Compute video_count and avg_duration
     video_count = len(df) if df is not None else 0

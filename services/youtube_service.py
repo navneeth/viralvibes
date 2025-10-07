@@ -39,22 +39,13 @@ from utils import (
     parse_iso_duration,
 )
 
+from .config import YouTubeConfig
+
 # Get logger instance
 logger = logging.getLogger(__name__)
 
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # for YouTube Data API
 DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
-
-# Configuration for rate limiting
-MIN_VIDEO_DELAY = float(os.getenv("MIN_VIDEO_DELAY", "0.5"))
-MAX_VIDEO_DELAY = float(os.getenv("MAX_VIDEO_DELAY", "2.0"))
-MIN_BATCH_DELAY = float(os.getenv("MIN_BATCH_DELAY", "1.0"))
-MAX_BATCH_DELAY = float(os.getenv("MAX_BATCH_DELAY", "3.0"))
-
-# Resilience configuration
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-RETRY_DELAY = float(os.getenv("RETRY_DELAY", "5.0"))
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "5"))
 
 
 @dataclass
@@ -196,7 +187,7 @@ class YoutubePlaylistService:
     ]
     YOUTUBE_API_MAX_RESULTS = 50
 
-    def __init__(self, backend: str = "youtubeapi", ydl_opts: dict = None):
+    def __init__(self, backend: str = "youtubeapi", ydl_opts: dict = None, config=None):
         """
         Initialize the service with optional yt-dlp options.
         Args:
@@ -204,6 +195,7 @@ class YoutubePlaylistService:
             backend: "yt-dlp" or "youtubeapi"
         """
         self.backend = backend
+        self.cfg = config or YouTubeConfig()
         # Persistent HTTP client for dislike API
         self._dislike_client = None
         self._failed_videos = []  # Track failed videos for retry
@@ -285,7 +277,7 @@ class YoutubePlaylistService:
                 timeout=httpx.Timeout(10.0, connect=5.0),
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
                 # Add retry transport
-                transport=httpx.AsyncHTTPTransport(retries=MAX_RETRIES),
+                transport=httpx.AsyncHTTPTransport(retries=self.cfg.max_retries),
             )
         return self._dislike_client
 
@@ -312,16 +304,21 @@ class YoutubePlaylistService:
 
         # Time estimates (in seconds)
         flat_fetch_time = 2.0  # Initial playlist fetch
-        avg_video_fetch_time = (MIN_VIDEO_DELAY + MAX_VIDEO_DELAY) / 2
+        avg_video_fetch_time = (self.cfg.min_video_delay + self.cfg.max_video_delay) / 2
         avg_dislike_fetch_time = 0.2
-        avg_batch_delay = (MIN_BATCH_DELAY + MAX_BATCH_DELAY) / 2
+        avg_batch_delay = (self.cfg.min_batch_delay + self.cfg.max_batch_delay) / 2
 
         # Calculate batch processing time
-        batch_count = (videos_to_expand + BATCH_SIZE - 1) // BATCH_SIZE
+        batch_count = (
+            videos_to_expand + self.cfg.batch_size - 1
+        ) // self.cfg.batch_size
 
         # Time per batch: max(video_fetch, dislike_fetch) since they're concurrent
         time_per_batch = (
-            max(avg_video_fetch_time * BATCH_SIZE, avg_dislike_fetch_time * BATCH_SIZE)
+            max(
+                avg_video_fetch_time * self.cfg.batch_size,
+                avg_dislike_fetch_time * self.cfg.batch_size,
+            )
             + avg_batch_delay
         )
 
@@ -436,12 +433,14 @@ class YoutubePlaylistService:
                     "deleted": data.get("deleted", False),
                 }
             elif response.status_code == 429:  # Rate limited
-                if retry_count < MAX_RETRIES:
+                if retry_count < self.cfg.max_retries:
                     self._processing_stats["rate_limits"] += 1
-                    wait_time = RETRY_DELAY * (2**retry_count)  # Exponential backoff
+                    wait_time = self.cfg.retry_delay * (
+                        2**retry_count
+                    )  # Exponential backoff
                     logger.warning(
                         f"Rate limited on dislike API for {video_id}. "
-                        f"Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})"
+                        f"Retrying in {wait_time}s (attempt {retry_count + 1}/{self.cfg.max_retries})"
                     )
                     await asyncio.sleep(wait_time)
                     return await self._fetch_dislike_data_async(
@@ -452,18 +451,18 @@ class YoutubePlaylistService:
                 f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
             )
         except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
-            if retry_count < MAX_RETRIES:
+            if retry_count < self.cfg.max_retries:
                 self._processing_stats["total_retries"] += 1
                 logger.warning(
                     f"Timeout for video {video_id}. "
-                    f"Retrying (attempt {retry_count + 1}/{MAX_RETRIES})"
+                    f"Retrying (attempt {retry_count + 1}/{self.cfg.max_retries})"
                 )
-                await asyncio.sleep(RETRY_DELAY)
+                await asyncio.sleep(self.cfg.retry_delay)
                 return await self._fetch_dislike_data_async(
                     client, video_id, retry_count + 1
                 )
             logger.warning(
-                f"Dislike fetch timeout for video {video_id} after {MAX_RETRIES} retries"
+                f"Dislike fetch timeout for video {video_id} after {self.cfg.max_retries} retries"
             )
         except Exception as e:
             logger.warning(f"Dislike fetch failed for video {video_id}: {e}")
@@ -482,7 +481,7 @@ class YoutubePlaylistService:
         """Fetch full metadata for a single video asynchronously with retry logic."""
         try:
             # Add random delay between video fetches to appear more human-like
-            delay = random.uniform(MIN_VIDEO_DELAY, MAX_VIDEO_DELAY)
+            delay = random.uniform(self.cfg.min_video_delay, self.cfg.max_video_delay)
             await asyncio.sleep(delay)
 
             return await asyncio.to_thread(
@@ -502,11 +501,11 @@ class YoutubePlaylistService:
                 ]
             ):
                 self._processing_stats["bot_challenges"] += 1
-                if retry_count < MAX_RETRIES:
-                    wait_time = RETRY_DELAY * (2**retry_count)
+                if retry_count < self.cfg.max_retries:
+                    wait_time = self.cfg.retry_delay * (2**retry_count)
                     logger.warning(
                         f"Bot challenge for {video_url}. "
-                        f"Waiting {wait_time}s before retry (attempt {retry_count + 1}/{MAX_RETRIES})"
+                        f"Waiting {wait_time}s before retry (attempt {retry_count + 1}/{self.cfg.max_retries})"
                     )
                     await asyncio.sleep(wait_time)
                     # Rotate user agent on retry
@@ -516,24 +515,24 @@ class YoutubePlaylistService:
                     )
                 else:
                     logger.error(
-                        f"Bot challenge persists after {MAX_RETRIES} retries for {video_url}"
+                        f"Bot challenge persists after {self.cfg.max_retries} retries for {video_url}"
                     )
                     raise YouTubeBotChallengeError(
-                        f"YouTube bot challenge after {MAX_RETRIES} retries"
+                        f"YouTube bot challenge after {self.cfg.max_retries} retries"
                     ) from e
 
             # Retry on other errors
-            if retry_count < MAX_RETRIES:
+            if retry_count < self.cfg.max_retries:
                 self._processing_stats["total_retries"] += 1
                 logger.warning(
                     f"Failed to fetch {video_url}: {e}. "
-                    f"Retrying (attempt {retry_count + 1}/{MAX_RETRIES})"
+                    f"Retrying (attempt {retry_count + 1}/{self.cfg.max_retries})"
                 )
-                await asyncio.sleep(RETRY_DELAY)
+                await asyncio.sleep(self.cfg.retry_delay)
                 return await self._fetch_video_info_async(video_url, retry_count + 1)
 
             logger.warning(
-                f"Failed to expand video {video_url} after {MAX_RETRIES} retries: {e}"
+                f"Failed to expand video {video_url} after {self.cfg.max_retries} retries: {e}"
             )
             self._processing_stats["failed_videos"] += 1
             return {}
@@ -558,7 +557,9 @@ class YoutubePlaylistService:
         videos_to_process = videos if max_expanded is None else videos[:max_expanded]
         video_urls = [v.get("url") for v in videos_to_process]
 
-        logger.info(f"Processing {len(video_urls)} videos in batches of {BATCH_SIZE}")
+        logger.info(
+            f"Processing {len(video_urls)} videos in batches of {self.cfg.batch_size}"
+        )
 
         # Use persistent client for dislike API
         client = await self._get_dislike_client()
@@ -567,15 +568,15 @@ class YoutubePlaylistService:
         all_dislike_results = []
         start_time = time.time()
 
-        for i in range(0, len(video_urls), BATCH_SIZE):
-            batch_urls = video_urls[i : i + BATCH_SIZE]
-            batch_videos = videos_to_process[i : i + BATCH_SIZE]
-            batch_num = i // BATCH_SIZE + 1
-            total_batches = (len(video_urls) - 1) // BATCH_SIZE + 1
+        for i in range(0, len(video_urls), self.cfg.batch_size):
+            batch_urls = video_urls[i : i + self.cfg.batch_size]
+            batch_videos = videos_to_process[i : i + self.cfg.batch_size]
+            batch_num = i // self.cfg.batch_size + 1
+            total_batches = (len(video_urls) - 1) // self.cfg.batch_size + 1
 
             logger.info(
                 f"Processing batch {batch_num}/{total_batches} "
-                f"(videos {i + 1}-{min(i + BATCH_SIZE, len(video_urls))})"
+                f"(videos {i + 1}-{min(i + self.cfg.batch_size, len(video_urls))})"
             )
 
             # Fetch video info and dislike data for this batch
@@ -631,8 +632,10 @@ class YoutubePlaylistService:
                 # Continue with next batch instead of failing completely
 
             # Add delay between batches (except for the last one)
-            if i + BATCH_SIZE < len(video_urls):
-                batch_delay = random.uniform(MIN_BATCH_DELAY, MAX_BATCH_DELAY)
+            if i + self.cfg.batch_size < len(video_urls):
+                batch_delay = random.uniform(
+                    self.cfg.min_batch_delay, self.cfg.max_batch_delay
+                )
                 logger.debug(f"Waiting {batch_delay:.2f}s before next batch")
                 await asyncio.sleep(batch_delay)
 
