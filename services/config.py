@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class YouTubeConfig:
+    """Configuration for YouTube service."""
+
     # Configuration for rate limiting
     min_video_delay: float = float(os.getenv("MIN_VIDEO_DELAY", "0.5"))
     max_video_delay: float = float(os.getenv("MAX_VIDEO_DELAY", "2.0"))
