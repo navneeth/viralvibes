@@ -32,7 +32,12 @@ except ImportError:
 
 import isodate
 
-from utils import calculate_engagement_rate, format_duration, format_number
+from utils import (
+    calculate_engagement_rate,
+    format_duration,
+    format_number,
+    parse_iso_duration,
+)
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -120,6 +125,58 @@ def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         )
     return transformed
+
+
+# --- Normalize dataframe column names between yt-dlp and YouTube API ---
+def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
+    rename_map = {
+        "title": "Title",
+        "videoTitle": "Title",
+        "id": "id",
+        "videoId": "id",
+        "view_count": "View Count",
+        "viewCount": "View Count",
+        "like_count": "Like Count",
+        "likeCount": "Like Count",
+        "comment_count": "Comment Count",
+        "commentCount": "Comment Count",
+        "dislike_count": "Dislike Count",
+        "dislikeCount": "Dislike Count",
+        "duration_string": "Duration",
+        "duration": "Duration",
+        "durationSec": "Duration",
+        "upload_date": "Published Date",
+        "publishedAt": "Published Date",
+        "channel": "Channel",
+        "channelTitle": "Channel",
+        "channel_id": "Channel ID",
+        "channelId": "Channel ID",
+        "thumbnail": "Thumbnail",
+        "thumbnails": "Thumbnail",
+        "tags": "Tags",
+    }
+
+    # Rename columns if present
+    for old, new in rename_map.items():
+        if old in df.columns and new not in df.columns:
+            df = df.rename({old: new})
+
+    # Normalize duration to readable string if ISO 8601
+    if "Duration" in df.columns:
+        df = df.with_columns(
+            pl.col("Duration").map_elements(
+                lambda d: (
+                    parse_iso_duration(d) if isinstance(d, str) and "PT" in d else d
+                )
+            )
+        )
+
+    # Ensure numeric types
+    for col in ["View Count", "Like Count", "Dislike Count", "Comment Count"]:
+        if col in df.columns:
+            df = df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+
+    return df
 
 
 class YoutubePlaylistService:
@@ -713,6 +770,7 @@ class YoutubePlaylistService:
             # Finalize with enrichment (stats, formatted columns, etc.)
             df, stats = self._enrich_dataframe(df, playlist_count)
             stats["processing_stats"] = self._processing_stats
+            df = normalize_columns(df)
             return df, playlist_name, channel_name, channel_thumb, stats
 
         except YouTubeBotChallengeError:
@@ -820,6 +878,8 @@ class YoutubePlaylistService:
 
         df = pl.DataFrame(transformed_videos)
         df, stats = self._enrich_dataframe(df, len(video_ids))
+        df = normalize_columns(df)
+
         return df, playlist_name, channel_name, channel_thumb, stats
 
     # --------------------------
