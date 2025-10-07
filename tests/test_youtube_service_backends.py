@@ -5,7 +5,7 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 
-from youtube_service import YoutubePlaylistService
+from services.youtube_service import YoutubePlaylistService
 
 # Load environment variables at module level
 load_dotenv()

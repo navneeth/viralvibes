@@ -59,8 +59,6 @@ from step_components import StepProgress
 from utils import format_number, parse_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 
-# from youtube_service import YoutubePlaylistService
-
 # Get logger instance
 logger = logging.getLogger(__name__)
 
@@ -135,10 +133,9 @@ def init_app():
 # Initialize the application at the very top of main.py (before any DB usage)
 init_app()
 
-# Initialize YouTube service
-# yt_service = YoutubePlaylistService()
+
 # Manually define the headers here instead of importing them
-# from youtube_service.py
+
 DISPLAY_HEADERS = [
     "Rank",
     "Title",
