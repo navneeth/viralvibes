@@ -3,6 +3,7 @@ Application constants for ViralVibes.
 Centralized configuration for UI components, styling, and feature data.
 """
 
+from fasthtml.components import Path, Svg
 from monsterui.all import StepsT, StepT
 
 # =============================================================================
@@ -228,3 +229,21 @@ icons = ICONS_PATH
 between = FLEX_BETWEEN
 testimonials = TESTIMONIALS
 faqs = FAQS
+
+# Define the YouTube SVG component
+youtube_icon = Svg(
+    Path(
+        d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"
+    ),
+    Path(d="m10 15 5-3-5-3z"),
+    xmlns="http://www.w3.org/2000/svg",
+    width="24",
+    height="24",
+    viewBox="0 0 24 24",
+    fill="none",
+    stroke="currentColor",
+    stroke_width="2",
+    stroke_linecap="round",
+    stroke_linejoin="round",
+    cls="lucide lucide-youtube text-red-600",  # Added text-red-600 for YouTube branding color
+)
