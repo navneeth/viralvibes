@@ -28,6 +28,7 @@ from components import (
     benefit,
     faq_section,
     footer,
+    hero_section,
     section_header,
     section_wrapper,
 )
@@ -241,13 +242,14 @@ def index():
                 uk_scrollspy_nav=True,
                 scrollspy_cls=ScrollspyT.bold,
             ),
-            NavContainer(
-                *map(Li, scrollspy_links),
-                uk_scrollspy_nav=True,
-                sticky=True,
-                cls=(NavT.primary, "pt-20 px-5 pr-10"),
-            ),
+            # NavContainer(
+            #     *map(Li, scrollspy_links),
+            #     uk_scrollspy_nav=True,
+            #     sticky=True,
+            #     cls=(NavT.primary, "pt-20 px-5 pr-10"),
+            # ),
             Container(
+                hero_section(),
                 _Section(HeaderCard(), id="home-section"),
                 _Section(how_it_works_section(), id="how-it-works-section"),
                 _Section(AnalysisFormCard(), id="analyze-section"),

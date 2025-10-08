@@ -26,8 +26,6 @@ from constants import (
     FLEX_CENTER,
     FLEX_COL,
     FORM_CARD,
-    GAP_2,
-    GAP_4,
     HEADER_CARD,
     KNOWN_PLAYLISTS,
     NEWSLETTER_CARD,
@@ -151,6 +149,37 @@ def HeaderCard() -> Card:
     )
 
 
+def hero_section():
+    return Section(
+        Div(
+            File("assets/waves.svg"),
+            cls="absolute z-0 lg:-top-[15%] top-0 left-1/2 -translate-x-1/2 grid grid-cols-1 grid-rows-1 w-[120%] aspect-square max-w-[2048px] min-w-[900px]",
+        ),
+        Div(
+            Div(cls="lg:flex-1 max-lg:basis-[152px]"),
+            Div(
+                H1("ViralVibes", cls="heading-1 max-w-3xl"),
+                P(
+                    "Decode YouTube virality. Instantly.\nAnalyze your YouTube playlists with creator-first insights.\nUnlock curated insights into your audience instantly.",
+                    cls="m-body max-w-[40rem] text-center",
+                ),
+                cls=f"flex-1 {col} items-center justify-center gap-6 text-center w-full text-black",
+            ),
+            Div(
+                A(
+                    "Try it !",
+                    href="#analysis-form",
+                    cls=f"{bnset} m-body px-4 py-1 rounded-full bg-black hover:bg-black/80 transition-colors duration-300 text-white h-[76px] w-full max-w-[350px] flex items-center justify-center",
+                    # ✅ Added smooth scrolling with UIKit/MonsterUI attribute
+                    uk_scroll="offset: 80",
+                ),
+                cls=f"{col} flex-1 relative px-4 lg:px-16",
+            ),
+            cls=f"{col} relative w-full h-screen max-h-[1024px] min-h-[720px] overflow-hidden bg-grey",
+        ),
+    )
+
+
 def PlaylistSteps(completed_steps: int = 0) -> Steps:
     """Create a Steps component explaining the playlist submission process."""
     steps = []
@@ -207,6 +236,7 @@ def AnalysisFormCard() -> Card:
             # 🎯 Form section
             # Check DB first, then validate URL
             Form(
+                # Input field with better styling and placeholder
                 LabelInput(
                     "Playlist URL",
                     type="text",
@@ -276,6 +306,7 @@ def AnalysisFormCard() -> Card:
         cls="w-full my-12",
         style=FORM_CARD,
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
+        id="analysis-form",  # ✅ Added ID for smooth scrolling target
     )
 
 
