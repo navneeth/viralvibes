@@ -120,31 +120,40 @@ def faq_item(question, answer, id):
 
 
 def HeaderCard() -> Card:
-    """Redesigned header card with image on the right side."""
-    return Card(
+    """Simplified, flat header card for ViralVibes — no nested components."""
+    return CardTitle(
         Div(
+            # Text content (left)
             Div(
-                CardTitle(
-                    "Welcome to ViralVibes", cls="text-4xl font-bold text-white mb-4"
+                H1(
+                    "Welcome to ViralVibes",
+                    cls="text-4xl md:text-5xl font-bold text-gray-900 mb-4",
                 ),
-                P("Decode YouTube virality. Instantly.", cls="text-lg mt-2 text-white"),
                 P(
-                    "Analyze your YouTube playlists with creator-first insights.",
-                    cls="text-sm mt-2 text-white",
+                    "Decode YouTube virality. Instantly.",
+                    cls="text-xl text-gray-700 mb-3",
+                ),
+                P(
+                    "Analyze any YouTube playlist to uncover engagement trends, viral patterns, and creator insights — instantly.",
+                    cls="text-base text-gray-500 max-w-lg",
+                ),
+                Button(
+                    UkIcon("chart-bar", cls="mr-2"),
+                    "Start Analyzing",
+                    onclick="document.querySelector('#analyze-section').scrollIntoView({behavior:'smooth'})",
+                    cls="mt-6 bg-red-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-red-700 transition-all duration-200 shadow-md hover:shadow-lg",
                 ),
                 cls="flex-1",
             ),
-            Div(
-                Img(
-                    src="/static/thumbnail.png",
-                    alt="YouTube Playlist Thumbnail",
-                    style="width:180px; height:auto; border-radius:1rem; box-shadow:0 4px 24px rgba(0,0,0,0.15);",
-                ),
-                cls="flex items-center justify-center flex-1",
+            # Image (right)
+            Img(
+                src="/static/thumbnail.png",
+                alt="YouTube Analytics Dashboard",
+                cls="flex-1 w-64 md:w-80 lg:w-96 rounded-2xl shadow-2xl",
             ),
-            cls="flex flex-row gap-8 items-center",
+            cls="flex flex-col md:flex-row gap-10 items-center justify-between",
         ),
-        cls=HEADER_CARD,
+        cls="bg-white rounded-2xl shadow-lg p-8 md:p-12 border border-gray-200",
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
 
@@ -162,8 +171,7 @@ def hero_section():
         Div(
             File("assets/waves.svg"),
             cls=(
-                "absolute z-0 left-1/2 -translate-x-1/2 pointer-events-none "
-                "opacity-80"
+                "absolute z-0 left-1/2 -translate-x-1/2 pointer-events-none opacity-80"
             ),
             # use inline style to ensure fluid sizing without forcing min-widths
             style="width:120vw; max-width:2200px; top: -12vh; transform: translateX(-50%);",
@@ -181,7 +189,7 @@ def hero_section():
             ),
             Div(
                 A(
-                    "Try it !",
+                    "🚀 Try it now",
                     href="#analysis-form",
                     cls=f"{bnset} m-body px-4 py-1 rounded-full bg-black hover:bg-black/80 transition-colors duration-300 text-white h-[76px] w-full max-w-[350px] flex items-center justify-center",
                     uk_scroll="offset: 80",
