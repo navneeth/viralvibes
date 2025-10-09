@@ -210,7 +210,13 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     cached = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached:
         logger.info(f"[Cache] Returning cached stats for {playlist_url}")
-        return {**cached, "source": "cache"}
+        # Return a structured cache result that includes the deserialized df and summary_stats
+        return {
+            "source": "cache",
+            "df": cached.get("df"),
+            "summary_stats": cached.get("summary_stats"),
+            "raw_row": cached,
+        }
 
     # Prepare for fresh insert
     try:
@@ -220,7 +226,7 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
             else None
         )
     except Exception as e:
-        logger.error(f"Error serializing df for {playlist_url}: {e}")
+        logger.exception(f"Error serializing df for {playlist_url}: {e}")
         df_json = None
 
     try:
@@ -230,8 +236,20 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
             else None
         )
     except Exception as e:
-        logger.error(f"Error serializing summary_stats for {playlist_url}: {e}")
+        logger.exception(f"Error serializing summary_stats for {playlist_url}: {e}")
         summary_stats_json = None
+
+    # If serialization failed, do not insert an incomplete row; return error result
+    if not df_json or not summary_stats_json:
+        logger.error(
+            f"[DB] Serialization failed for {playlist_url}. df_json present: {bool(df_json)}, summary_stats_json present: {bool(summary_stats_json)}"
+        )
+        return {
+            "source": "error",
+            "error": "Serialization failed",
+            "df_json_present": bool(df_json),
+            "summary_stats_json_present": bool(summary_stats_json),
+        }
 
     stats_to_insert = {
         **stats,
@@ -257,10 +275,16 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
 
     if success:
         logger.info(f"[DB] Returning fresh stats for {playlist_url}")
-        return {**stats, "source": "fresh"}
+        # Return structured confirmation including the serialized payload sizes
+        return {
+            "source": "fresh",
+            "df_json": df_json,
+            "summary_stats": summary_stats_json,
+            "inserted_row": safe_insert,
+        }
     else:
         logger.error(f"[DB] Failed to insert fresh stats for {playlist_url}")
-        return {**stats, "source": "error"}
+        return {"source": "error", "error": "DB insert failed"}
 
 
 def fetch_playlists(

@@ -385,15 +385,30 @@ async def handle_job(job, is_retry: bool = False):
         result = await upsert_playlist_stats(stats_to_cache)
         logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
 
-        # Validate upsert result
-        if result.get("source") == "error":
-            error_message = "Upsert failed due to serialization or DB error."
+        # Detailed validation: ensure DB confirms presence of serialized payloads
+        # Prefer df (cache case) or df_json (fresh insert confirmation)
+        df_present = bool(result.get("df")) or bool(result.get("df_json"))
+        summary_present = bool(result.get("summary_stats")) or bool(result.get("summary_stats"))
 
+        # Log context: original df size and serialized sizes if available
+        try:
+            original_height = getattr(df, "height", None)
+        except Exception:
+            original_height = None
+
+        df_json_len = len(result.get("df_json") or "") if result.get("df_json") else 0
+        ss_json_len = len(result.get("summary_stats") or "") if result.get("summary_stats") else 0
+
+        logger.info(
+            f"[Job {job_id}] validation context: original_df_height={original_height}, df_json_len={df_json_len}, summary_stats_len={ss_json_len}"
+        )
+
+        # If upsert reported an error or critical payloads missing, fail the job (with retries if available)
+        if result.get("source") != "fresh" and result.get("source") != "cache":
+            error_message = f"Upsert did not return fresh/cache (source={result.get('source')})."
+            logger.error(f"[Job {job_id}] {error_message} result={result}")
+            # schedule retry or mark failed
             if retry_count < MAX_RETRY_ATTEMPTS:
-                logger.warning(
-                    f"[Job {job_id}] {error_message} - will retry later "
-                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
-                )
                 await increment_retry_count(job_id, retry_count)
                 await mark_job_status(
                     job_id,
@@ -405,7 +420,6 @@ async def handle_job(job, is_retry: bool = False):
                     },
                 )
             else:
-                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
                 await mark_job_status(
                     job_id,
                     "failed",
@@ -417,20 +431,12 @@ async def handle_job(job, is_retry: bool = False):
                 )
             return
 
-        # Validate critical data
-        df = result.get("df")
-        summary_stats = result.get("summary_stats")
-
-        if df is None or df.is_empty() or not summary_stats:
-            error_message = (
-                "Incomplete data returned from upsert, critical fields missing."
+        if not df_present or not summary_present:
+            error_message = "Incomplete data after upsert: missing df or summary_stats."
+            logger.error(
+                f"[Job {job_id}] {error_message} (original_df_height={original_height}, df_json_len={df_json_len}, summary_stats_len={ss_json_len})"
             )
-
             if retry_count < MAX_RETRY_ATTEMPTS:
-                logger.warning(
-                    f"[Job {job_id}] {error_message} - will retry later "
-                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
-                )
                 await increment_retry_count(job_id, retry_count)
                 await mark_job_status(
                     job_id,
@@ -442,7 +448,6 @@ async def handle_job(job, is_retry: bool = False):
                     },
                 )
             else:
-                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
                 await mark_job_status(
                     job_id,
                     "failed",
