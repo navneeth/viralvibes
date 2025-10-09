@@ -28,7 +28,11 @@ os.environ.setdefault("SUPABASE_KEY", "anon-key-for-tests")
 # Minimal contract mapping: modules -> expected attributes (tests can assert against this)
 DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
     "worker.worker": ["Worker", "process_one", "handle_job"],
-    "db": ["upsert_playlist_stats", "get_cached_playlist_stats", "PLAYLIST_STATS_TABLE"],
+    "db": [
+        "upsert_playlist_stats",
+        "get_cached_playlist_stats",
+        "PLAYLIST_STATS_TABLE",
+    ],
     "services.youtube_service": ["YoutubePlaylistService", "YouTubeBotChallengeError"],
     "constants": ["PLAYLIST_STATS_TABLE"],
 }
@@ -48,7 +52,9 @@ def _check_module_exports(module_name: str, keys: List[str]):
 
     missing = [k for k in keys if not hasattr(mod, k)]
     if missing:
-        raise AssertionError(f"Module {module_name} missing expected exports: {missing}")
+        raise AssertionError(
+            f"Module {module_name} missing expected exports: {missing}"
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +67,9 @@ def validate_repo_contracts():
     """
     global _validated
     # Ensure minimal env is present for tests
-    assert os.getenv("YOUTUBE_API_KEY") is not None, "YOUTUBE_API_KEY must be set for tests"
+    assert (
+        os.getenv("YOUTUBE_API_KEY") is not None
+    ), "YOUTUBE_API_KEY must be set for tests"
     assert os.getenv("SUPABASE_URL") is not None
     assert os.getenv("SUPABASE_KEY") is not None
 

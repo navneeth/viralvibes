@@ -92,7 +92,9 @@ async def test_process_one_success_returns_done_and_raw_row():
     mock_supabase.table.return_value = mock_table
 
     # Stub out handle_job so process_one doesn't actually run job logic
-    with patch("worker.worker.handle_job", new=AsyncMock(return_value=None)) as mock_handle:
+    with patch(
+        "worker.worker.handle_job", new=AsyncMock(return_value=None)
+    ) as mock_handle:
         worker = Worker(supabase=mock_supabase, yt=None)
         result = await worker.process_one(fake_job)
 

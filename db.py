@@ -226,7 +226,9 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
             try:
                 cached_df_json = cached["df"].write_json()
             except Exception as e:
-                logger.exception(f"[Cache] Failed to re-serialize df for {playlist_url}: {e}")
+                logger.exception(
+                    f"[Cache] Failed to re-serialize df for {playlist_url}: {e}"
+                )
                 cached_df_json = None
 
         # Ensure summary_stats is returned as JSON string when possible
@@ -235,7 +237,9 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
             try:
                 summary_stats_json = json.dumps(summary_stats_json)
             except Exception as e:
-                logger.exception(f"[Cache] Failed to serialize summary_stats for {playlist_url}: {e}")
+                logger.exception(
+                    f"[Cache] Failed to serialize summary_stats for {playlist_url}: {e}"
+                )
                 summary_stats_json = None
 
         return UpsertResult(

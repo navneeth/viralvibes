@@ -198,6 +198,7 @@ def hero_section():
         ),
     )
 
+
 def PlaylistSteps(completed_steps: int = 0) -> Steps:
     """Create a Steps component explaining the playlist submission process."""
     steps = []

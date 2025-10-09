@@ -391,8 +391,8 @@ async def handle_job(job, is_retry: bool = False):
         # Detailed validation: ensure DB confirms presence of serialized payloads
         # Prefer df (cache case) or df_json (fresh insert confirmation)
         df_present = bool(result.get("df")) or bool(result.get("df_json"))
-        summary_present = (
-            bool(result.get("summary_stats")) or bool(result.get("summary_stats_json"))
+        summary_present = bool(result.get("summary_stats")) or bool(
+            result.get("summary_stats_json")
         )
 
         # Log context: original df size and serialized sizes if available
@@ -421,7 +421,9 @@ async def handle_job(job, is_retry: bool = False):
 
         # If upsert reported an error or critical payloads missing, fail the job (with retries if available)
         if result.get("source") != "fresh" and result.get("source") != "cache":
-            error_message = f"Upsert did not return fresh/cache (source={result.get('source')})."
+            error_message = (
+                f"Upsert did not return fresh/cache (source={result.get('source')})."
+            )
             logger.error(f"[Job {job_id}] {error_message} result={result}")
             # schedule retry or mark failed
             if retry_count < MAX_RETRY_ATTEMPTS:
@@ -737,6 +739,7 @@ async def worker_loop():
 @dataclass
 class JobResult:
     """Structured result returned by Worker.process_one for tests."""
+
     job_id: str
     status: Optional[str]
     error: Optional[str] = None
@@ -754,7 +757,9 @@ class Worker:
         # yt may be injected for tests; fallback to module-level yt_service
         self.yt = yt or globals().get("yt_service")
 
-    async def process_one(self, job: Dict[str, Any], is_retry: bool = False) -> JobResult:
+    async def process_one(
+        self, job: Dict[str, Any], is_retry: bool = False
+    ) -> JobResult:
         """
         Process a single job and return a deterministic JobResult.
 
@@ -804,7 +809,9 @@ class Worker:
             if not raw_row and playlist_url:
                 raw_row = get_latest_playlist_job(playlist_url)
         except Exception as e:
-            logger.warning(f"[Worker.process_one] Failed to fetch job row for {job_id}: {e}")
+            logger.warning(
+                f"[Worker.process_one] Failed to fetch job row for {job_id}: {e}"
+            )
 
         if raw_row:
             status = raw_row.get("status")
