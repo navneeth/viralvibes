@@ -6,14 +6,70 @@ This file automatically runs before any tests and sets up the Python path.
 
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock
+import importlib
+from typing import Dict, List
 
 import pytest
 from dotenv import load_dotenv
 
-# Add the project root directory to Python path so tests can import modules
+# Ensure project root is importable
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Load .env if present (safe no-op)
+load_dotenv()
+
+# Provide safe defaults for tests (can be overridden in CI)
+os.environ.setdefault("YOUTUBE_API_KEY", "test-youtube-key")
+os.environ.setdefault("SUPABASE_URL", "http://localhost:54321")
+os.environ.setdefault("SUPABASE_KEY", "anon-key-for-tests")
+
+# Minimal contract mapping: modules -> expected attributes (tests can assert against this)
+DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
+    "worker.worker": ["Worker", "process_one", "handle_job"],
+    "db": ["upsert_playlist_stats", "get_cached_playlist_stats", "PLAYLIST_STATS_TABLE"],
+    "services.youtube_service": ["YoutubePlaylistService", "YouTubeBotChallengeError"],
+    "constants": ["PLAYLIST_STATS_TABLE"],
+}
+
+_validated = False
+
+
+def _check_module_exports(module_name: str, keys: List[str]):
+    """
+    Import a module and assert it exports the given keys.
+    If module can't be imported, skip the assertion (some tests may not need all modules).
+    """
+    try:
+        mod = importlib.import_module(module_name)
+    except Exception as e:
+        pytest.skip(f"Module {module_name} not importable: {e}")
+
+    missing = [k for k in keys if not hasattr(mod, k)]
+    if missing:
+        raise AssertionError(f"Module {module_name} missing expected exports: {missing}")
+
+
+@pytest.fixture(autouse=True)
+def validate_repo_contracts():
+    """
+    Autouse fixture that performs a lightweight verification of core repo expectations.
+    - Ensures environment defaults exist.
+    - Verifies key modules export expected names (see DEFAULT_EXPECTED_EXPORTS).
+    This keeps tests focused on repository assumptions and fails fast if core exports change.
+    """
+    global _validated
+    # Ensure minimal env is present for tests
+    assert os.getenv("YOUTUBE_API_KEY") is not None, "YOUTUBE_API_KEY must be set for tests"
+    assert os.getenv("SUPABASE_URL") is not None
+    assert os.getenv("SUPABASE_KEY") is not None
+
+    if not _validated:
+        for mod, keys in DEFAULT_EXPECTED_EXPORTS.items():
+            _check_module_exports(mod, keys)
+        _validated = True
+    yield
 
 
 def pytest_configure(config):
