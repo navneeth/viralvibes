@@ -11,10 +11,12 @@ import random
 import signal
 import time
 import traceback
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from socket import timeout as SocketTimeout
 from ssl import SSLEOFError
 from typing import Any, Dict, Optional
+import json
 
 from dotenv import load_dotenv
 
@@ -23,6 +25,7 @@ from db import (
     setup_logging,
     supabase_client,
     upsert_playlist_stats,
+    get_latest_playlist_job,
 )
 from services.youtube_service import (
     YouTubeBotChallengeError,
@@ -385,15 +388,45 @@ async def handle_job(job, is_retry: bool = False):
         result = await upsert_playlist_stats(stats_to_cache)
         logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
 
-        # Validate upsert result
-        if result.get("source") == "error":
-            error_message = "Upsert failed due to serialization or DB error."
+        # Detailed validation: ensure DB confirms presence of serialized payloads
+        # Prefer df (cache case) or df_json (fresh insert confirmation)
+        df_present = bool(result.get("df")) or bool(result.get("df_json"))
+        summary_present = bool(result.get("summary_stats")) or bool(
+            result.get("summary_stats_json")
+        )
 
+        # Log context: original df size and serialized sizes if available
+        try:
+            original_height = getattr(df, "height", None)
+        except Exception:
+            original_height = None
+
+        df_json_len = len(result.get("df_json") or "") if result.get("df_json") else 0
+
+        # Prefer measuring the actual serialized JSON length when available.
+        # Fallback to serializing the summary_stats dict to estimate size.
+        summary_stats_json = result.get("summary_stats_json")
+        if summary_stats_json:
+            ss_json_len = len(summary_stats_json)
+        else:
+            ss_obj = result.get("summary_stats")
+            try:
+                ss_json_len = len(json.dumps(ss_obj)) if ss_obj else 0
+            except Exception:
+                ss_json_len = 0
+
+        logger.info(
+            f"[Job {job_id}] validation context: original_df_height={original_height}, df_json_len={df_json_len}, summary_stats_len={ss_json_len}"
+        )
+
+        # If upsert reported an error or critical payloads missing, fail the job (with retries if available)
+        if result.get("source") != "fresh" and result.get("source") != "cache":
+            error_message = (
+                f"Upsert did not return fresh/cache (source={result.get('source')})."
+            )
+            logger.error(f"[Job {job_id}] {error_message} result={result}")
+            # schedule retry or mark failed
             if retry_count < MAX_RETRY_ATTEMPTS:
-                logger.warning(
-                    f"[Job {job_id}] {error_message} - will retry later "
-                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
-                )
                 await increment_retry_count(job_id, retry_count)
                 await mark_job_status(
                     job_id,
@@ -405,7 +438,6 @@ async def handle_job(job, is_retry: bool = False):
                     },
                 )
             else:
-                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
                 await mark_job_status(
                     job_id,
                     "failed",
@@ -417,20 +449,12 @@ async def handle_job(job, is_retry: bool = False):
                 )
             return
 
-        # Validate critical data
-        df = result.get("df")
-        summary_stats = result.get("summary_stats")
-
-        if df is None or df.is_empty() or not summary_stats:
-            error_message = (
-                "Incomplete data returned from upsert, critical fields missing."
+        if not df_present or not summary_present:
+            error_message = "Incomplete data after upsert: missing df or summary_stats."
+            logger.error(
+                f"[Job {job_id}] {error_message} (original_df_height={original_height}, df_json_len={df_json_len}, summary_stats_len={ss_json_len})"
             )
-
             if retry_count < MAX_RETRY_ATTEMPTS:
-                logger.warning(
-                    f"[Job {job_id}] {error_message} - will retry later "
-                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
-                )
                 await increment_retry_count(job_id, retry_count)
                 await mark_job_status(
                     job_id,
@@ -442,7 +466,6 @@ async def handle_job(job, is_retry: bool = False):
                     },
                 )
             else:
-                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
                 await mark_job_status(
                     job_id,
                     "failed",
@@ -711,6 +734,101 @@ async def worker_loop():
         jobs_processed + retries_processed,
     )
     return jobs_processed + retries_processed
+
+
+@dataclass
+class JobResult:
+    """Structured result returned by Worker.process_one for tests."""
+
+    job_id: str
+    status: Optional[str]
+    error: Optional[str] = None
+    retry_scheduled: Optional[bool] = None
+    result_source: Optional[str] = None
+    raw_row: Optional[Dict[str, Any]] = None
+
+
+class Worker:
+    """Worker facade exposing a single-iteration API for tests and orchestration."""
+
+    def __init__(self, supabase=None, yt=None):
+        # Use injected clients if provided (for tests), otherwise fall back to module globals
+        self.supabase = supabase or supabase_client
+        # yt may be injected for tests; fallback to module-level yt_service
+        self.yt = yt or globals().get("yt_service")
+
+    async def process_one(
+        self, job: Dict[str, Any], is_retry: bool = False
+    ) -> JobResult:
+        """
+        Process a single job and return a deterministic JobResult.
+
+        This calls the existing handle_job() implementation (which performs
+        status updates and DB writes). After handle_job returns we fetch the
+        latest job row and return a structured result for assertions in tests.
+        """
+        job_id = job.get("id")
+        playlist_url = job.get("playlist_url")
+
+        # Call existing handler (keeps existing behavior)
+        try:
+            await handle_job(job, is_retry=is_retry)
+        except Exception as e:
+            # If handle_job raises unexpectedly, record as failed result
+            tb = traceback.format_exc()
+            logger.exception(f"[Worker.process_one] handle_job raised: {e}\n{tb}")
+            return JobResult(
+                job_id=job_id or "",
+                status="failed",
+                error=str(e)[:1000],
+                retry_scheduled=None,
+                result_source=None,
+                raw_row=None,
+            )
+
+        # Fetch the final job row from DB for a stable return value
+        raw_row = None
+        status = None
+        error = None
+        retry_scheduled = None
+        result_source = None
+
+        try:
+            # Try to fetch the latest job by id first (fallback to playlist lookup)
+            if self.supabase:
+                resp = (
+                    self.supabase.table("playlist_jobs")
+                    .select("*")
+                    .eq("id", job_id)
+                    .limit(1)
+                    .execute()
+                )
+                if resp.data:
+                    raw_row = resp.data[0]
+            # If not found by id, use helper to get latest job for the playlist
+            if not raw_row and playlist_url:
+                raw_row = get_latest_playlist_job(playlist_url)
+        except Exception as e:
+            logger.warning(
+                f"[Worker.process_one] Failed to fetch job row for {job_id}: {e}"
+            )
+
+        if raw_row:
+            status = raw_row.get("status")
+            error = raw_row.get("error")
+            retry_scheduled = raw_row.get("retry_scheduled")
+            result_source = raw_row.get("result_source") or raw_row.get("result_source")
+        else:
+            logger.warning(f"[Worker.process_one] No job row found for {job_id}")
+
+        return JobResult(
+            job_id=job_id or "",
+            status=status,
+            error=error,
+            retry_scheduled=retry_scheduled,
+            result_source=result_source,
+            raw_row=raw_row,
+        )
 
 
 def main():

@@ -9,6 +9,7 @@ import logging
 import os
 import random
 from datetime import date, datetime
+from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional
 
 import polars as pl
@@ -181,36 +182,72 @@ def get_cached_playlist_stats(
         return None
 
 
-async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
+@dataclass
+class UpsertResult:
+    source: str  # "cache" | "fresh" | "error"
+    df_json: Optional[str] = None
+    summary_stats_json: Optional[str] = None
+    inserted_row: Optional[Dict[str, Any]] = None
+    raw_row: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     """
     Main entrypoint for playlist stats caching:
     - Return cached stats if they exist for today.
-    - Otherwise insert fresh stats and return them.
+    - Otherwise insert fresh stats and return an UpsertResult.
 
-    Args:
-        stats (Dict[str, Any]): Playlist statistics to cache or return.
-
-    Returns:
-        Dict[str, Any]: Stats with source indicator ("cache", "fresh", or "error").
+    Note: This function intentionally does NOT return a Polars DataFrame.
     """
     playlist_url = stats.get("playlist_url")
     if not playlist_url:
         logger.error("No playlist_url provided in stats")
-        return {**stats, "source": "error", "error": "Missing playlist_url"}
+        return UpsertResult(source="error", error="Missing playlist_url")
 
-    # --- Add validation to prevent caching empty DataFrames ---
+    # --- Prevent caching empty DataFrames ---
     df = stats.get("df")
     if df is None or df.is_empty():
         logger.warning(
             f"Attempted to cache empty or missing DataFrame for {playlist_url}. Aborting cache."
         )
-        return {**stats, "source": "error", "error": "Empty DataFrame provided"}
+        return UpsertResult(source="error", error="Empty DataFrame provided")
 
     # Check cache first
     cached = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached:
         logger.info(f"[Cache] Returning cached stats for {playlist_url}")
-        return {**cached, "source": "cache"}
+        # Prefer any stored df_json present in the raw row, otherwise reserialize the in-memory df
+        cached_df_json = cached.get("df_json")
+        if not cached_df_json and cached.get("df") is not None:
+            try:
+                cached_df_json = cached["df"].write_json()
+            except Exception as e:
+                logger.exception(
+                    f"[Cache] Failed to re-serialize df for {playlist_url}: {e}"
+                )
+                cached_df_json = None
+
+        # Ensure summary_stats is returned as JSON string when possible
+        summary_stats_json = cached.get("summary_stats")
+        if isinstance(summary_stats_json, dict):
+            try:
+                summary_stats_json = json.dumps(summary_stats_json)
+            except Exception as e:
+                logger.exception(
+                    f"[Cache] Failed to serialize summary_stats for {playlist_url}: {e}"
+                )
+                summary_stats_json = None
+
+        return UpsertResult(
+            source="cache",
+            df_json=cached_df_json,
+            summary_stats_json=summary_stats_json,
+            raw_row=cached,
+        )
 
     # Prepare for fresh insert
     try:
@@ -220,7 +257,7 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
             else None
         )
     except Exception as e:
-        logger.error(f"Error serializing df for {playlist_url}: {e}")
+        logger.exception(f"Error serializing df for {playlist_url}: {e}")
         df_json = None
 
     try:
@@ -230,8 +267,17 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
             else None
         )
     except Exception as e:
-        logger.error(f"Error serializing summary_stats for {playlist_url}: {e}")
+        logger.exception(f"Error serializing summary_stats for {playlist_url}: {e}")
         summary_stats_json = None
+
+    # If serialization failed, do not insert an incomplete row; return error result
+    if not df_json or not summary_stats_json:
+        err_msg = (
+            f"[DB] Serialization failed for {playlist_url}. "
+            f"df_json present: {bool(df_json)}, summary_stats_json present: {bool(summary_stats_json)}"
+        )
+        logger.error(err_msg)
+        return UpsertResult(source="error", error=err_msg)
 
     stats_to_insert = {
         **stats,
@@ -257,10 +303,15 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
 
     if success:
         logger.info(f"[DB] Returning fresh stats for {playlist_url}")
-        return {**stats, "source": "fresh"}
+        return UpsertResult(
+            source="fresh",
+            df_json=df_json,
+            summary_stats_json=summary_stats_json,
+            inserted_row=safe_insert,
+        )
     else:
         logger.error(f"[DB] Failed to insert fresh stats for {playlist_url}")
-        return {**stats, "source": "error"}
+        return UpsertResult(source="error", error="DB insert failed")
 
 
 def fetch_playlists(

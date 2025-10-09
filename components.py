@@ -150,11 +150,25 @@ def HeaderCard() -> Card:
 
 
 def hero_section():
+    """
+    Responsive hero that scales between mobile and desktop:
+    - hides horizontal overflow at the section level to avoid "floating" scroll.
+    - uses a single responsive decorative SVG sized with vw units so it scales,
+      avoiding fixed min-widths that produce horizontal scrollbars.
+    - uses viewport-based min-heights so mobile/desktop feel proportional.
+    """
     return Section(
+        # Decorative background — responsive width using vw so it scales smoothly.
         Div(
             File("assets/waves.svg"),
-            cls="absolute z-0 lg:-top-[15%] top-0 left-1/2 -translate-x-1/2 grid grid-cols-1 grid-rows-1 w-[120%] aspect-square max-w-[2048px] min-w-[900px]",
+            cls=(
+                "absolute z-0 left-1/2 -translate-x-1/2 pointer-events-none "
+                "opacity-80"
+            ),
+            # use inline style to ensure fluid sizing without forcing min-widths
+            style="width:120vw; max-width:2200px; top: -12vh; transform: translateX(-50%);",
         ),
+        # Content container — hide horizontal overflow here to prevent floating scroll
         Div(
             Div(cls="lg:flex-1 max-lg:basis-[152px]"),
             Div(
@@ -170,12 +184,17 @@ def hero_section():
                     "Try it !",
                     href="#analysis-form",
                     cls=f"{bnset} m-body px-4 py-1 rounded-full bg-black hover:bg-black/80 transition-colors duration-300 text-white h-[76px] w-full max-w-[350px] flex items-center justify-center",
-                    # ✅ Added smooth scrolling with UIKit/MonsterUI attribute
                     uk_scroll="offset: 80",
                 ),
                 cls=f"{col} flex-1 relative px-4 lg:px-16",
             ),
-            cls=f"{col} relative w-full h-screen max-h-[1024px] min-h-[720px] overflow-hidden bg-grey",
+            # Responsive min-heights:
+            # - mobile: comfortable fraction of viewport (65vh)
+            # - tablet/desktop: larger min-height (75vh -> 90vh) for visual presence
+            cls=(
+                f"{col} relative w-full min-h-[65vh] md:min-h-[75vh] lg:min-h-[90vh] "
+                "max-h-[1024px] overflow-x-hidden overflow-y-visible bg-grey"
+            ),
         ),
     )
 
