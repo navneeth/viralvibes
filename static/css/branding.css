@@ -1,0 +1,38 @@
+/* Minimal branding variables and a couple utilities. Tailwind remains primary. */
+:root {
+  --vv-electric: #00A3FF;
+  --vv-fiery:    #FF4500;
+  --vv-soft:     #F8F9FA;
+  --vv-on-primary: #ffffff;
+  --vv-shadow-subtle: 0 8px 24px rgba(12,24,48,0.06);
+}
+
+/* Lightweight button helpers — prefer Tailwind for layout, use these for consistent color */
+.vv-primary {
+  background: var(--vv-electric);
+  color: var(--vv-on-primary) !important;
+  box-shadow: var(--vv-shadow-subtle);
+  border-radius: .6rem;
+}
+.vv-primary:hover { filter: brightness(.95); }
+
+.vv-accent {
+  background: var(--vv-fiery);
+  color: var(--vv-on-primary) !important;
+  box-shadow: 0 6px 18px rgba(255,69,0,0.08);
+  border-radius: .5rem;
+}
+.vv-accent:hover { filter: brightness(.95); }
+
+/* Subtle section divider helper (used where you want explicit separators) */
+.vv-divider {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vv-electric), var(--vv-fiery));
+  width: 100%;
+  margin: 1rem 0 1.25rem;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.05);
+}
+
+/* Soft background utility */
+.bg-soft { background-color: var(--vv-soft); }
