@@ -937,10 +937,10 @@ def PlaylistPreviewCard(
 
     return Card(
         # Visual header with both thumbnails
-        Div(
+        styled_div(
             # Playlist thumbnail (if available) as background accent
             (
-                Div(
+                styled_div(
                     Img(
                         src=playlist_thumbnail,
                         alt="Playlist thumbnail",
@@ -958,7 +958,7 @@ def PlaylistPreviewCard(
                     alt=f"{channel_name} thumbnail",
                     cls="w-20 h-20 rounded-full shadow-lg border-4 border-white relative z-10",
                 ),
-                cls="relative pt-8",
+                cls="relative pt-8 {THEME['flex_center']}",
             ),
             cls="relative mb-4",
         ),
@@ -1134,7 +1134,7 @@ def MetricCard(
 ) -> Card:
     """Create a clean metric card with icon, value, and context."""
     return Card(
-        Div(
+        styled_div(
             # Icon in top-left
             UkIcon(icon, cls=f"text-{color}-500 mb-3", height=24, width=24),
             # Main value - big and bold
@@ -1243,7 +1243,7 @@ def footer():
     legal = ["Terms of Service", "Privacy Policy", "Cookie Settings", "Accessibility"]
 
     return Container(cls="uk-background-muted py-12")(
-        Div(
+        styled_div(
             DivFullySpaced(
                 H3("ViralVibes"),
                 DivHStacked(
