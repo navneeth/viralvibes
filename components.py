@@ -1,10 +1,13 @@
+# Standard library and typing
 import random
 from typing import Dict, List, Optional, Tuple
 
+# Third-party libraries
 import polars as pl
 from fasthtml.common import *
 from monsterui.all import *
 
+# Local modules
 from charts import (
     chart_bubble_engagement_vs_views,
     chart_controversy_score,
@@ -31,6 +34,7 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
+    THEME,
     faqs,
     maxpx,
     testimonials,
@@ -66,19 +70,32 @@ def DivFullySpaced(*args, **kwargs) -> Div:
     return Div(*args, **kwargs, cls=f"flex justify-between items-center")
 
 
+def styled_div(*children, cls: str = "", **kwargs) -> Div:
+    """Flexible Div factory with theme integration."""
+    full_cls = f"{THEME['flex_col']} {cls}" if "flex-col" in cls else cls
+    return Div(*children, cls=full_cls, **kwargs)
+
+
 def maxrem(rem):
     return f"w-full max-w-[{rem}rem]"
 
 
-def benefit(title, content):
-    return Div(
-        H3(title, cls=f"text-white heading-3"),
-        P(content, cls=f"l-body mt-6 lg:mt-6"),
-        cls="w-full p-6 bg-red-500 rounded-2xl xl:p-12 lg:h-[22rem] lg:w-[26rem]",
+def benefit(title: str, content: str) -> Div:
+    return styled_div(
+        H3(title, cls="text-white text-xl font-bold"),
+        P(content, cls="text-gray-200 text-base mt-4"),
+        cls=f"w-full p-6 {THEME['primary_bg']} rounded-2xl lg:h-[22rem] lg:w-[26rem]",
     )
 
 
-def accordion(id, question, answer, question_cls="", answer_cls="", container_cls=""):
+def accordion(
+    id: str,
+    question: str,
+    answer: str,
+    question_cls: str = "",
+    answer_cls: str = "",
+    container_cls: str = "",
+) -> Div:
     return Div(
         Input(
             id=f"collapsible-{id}",
@@ -108,14 +125,14 @@ def accordion(id, question, answer, question_cls="", answer_cls="", container_cl
     )
 
 
-def faq_item(question, answer, id):
+def faq_item(question: str, answer: str, id: int) -> Div:
     return accordion(
-        id=id,
+        id=str(id),
         question=question,
         answer=answer,
-        question_cls="text-black s-body",
-        answer_cls="s-body text-black/80 col-span-full",
-        container_cls=f"{FLEX_COL} justify-between bg-soft-blue rounded-[1.25rem] {bnset}",
+        question_cls="text-black text-sm font-medium",
+        answer_cls="text-black/80 text-sm",
+        container_cls=f"bg-blue-50 rounded-2xl shadow-inner",
     )
 
 
@@ -127,7 +144,7 @@ def HeaderCard() -> Card:
             Div(
                 H1(
                     "Welcome to ViralVibes",
-                    cls="text-4xl md:text-5xl font-bold text-gray-900 mb-4",
+                    cls="text-4xl md:text-5xl font-poppins text-blue-700 mb-4",
                 ),
                 P(
                     "Decode YouTube virality. Instantly.",
@@ -141,7 +158,8 @@ def HeaderCard() -> Card:
                     UkIcon("chart-bar", cls="mr-2"),
                     "Start Analyzing",
                     onclick="document.querySelector('#analyze-section').scrollIntoView({behavior:'smooth'})",
-                    cls="mt-6 bg-red-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-red-700 transition-all duration-200 shadow-md hover:shadow-lg",
+                    # cls="mt-6 bg-red-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-red-700 transition-all duration-200 shadow-md hover:shadow-lg",
+                    cls=f"mt-6 {THEME['primary_bg']} {THEME['primary_hover']} text-white px-6 py-3 rounded-lg shadow-md",
                 ),
                 cls="flex-1",
             ),
@@ -150,10 +168,12 @@ def HeaderCard() -> Card:
                 src="/static/thumbnail.png",
                 alt="YouTube Analytics Dashboard",
                 cls="flex-1 w-64 md:w-80 lg:w-96 rounded-2xl shadow-2xl",
+                loading="lazy",
             ),
+            # Overall container
             cls="flex flex-col md:flex-row gap-10 items-center justify-between",
         ),
-        cls="bg-white rounded-2xl shadow-lg p-8 md:p-12 border border-gray-200",
+        cls=THEME["card_base"],
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
 
@@ -168,33 +188,33 @@ def hero_section():
     """
     return Section(
         # Decorative background — responsive width using vw so it scales smoothly.
-        Div(
+        styled_div(
             File("assets/waves.svg"),
-            cls=(
-                "absolute z-0 left-1/2 -translate-x-1/2 pointer-events-none opacity-80"
-            ),
-            # use inline style to ensure fluid sizing without forcing min-widths
-            style="width:120vw; max-width:2200px; top: -12vh; transform: translateX(-50%);",
+            cls="absolute z-0 left-1/2 -translate-x-1/2 pointer-events-none opacity-80",
+            style="width: clamp(100vw, 120vw, 2200px); top: -12vh;",
         ),
         # Content container — hide horizontal overflow here to prevent floating scroll
-        Div(
-            Div(cls="lg:flex-1 max-lg:basis-[152px]"),
-            Div(
-                H1("ViralVibes", cls="heading-1 max-w-3xl"),
+        styled_div(
+            styled_div(cls="lg:flex-1 max-lg:basis-[152px]"),
+            styled_div(
+                H1(
+                    "ViralVibes",
+                    cls=f"text-4xl md:text-5xl font-poppins {THEME['secondary_text']}",
+                ),
                 P(
                     "Decode YouTube virality. Instantly.\nAnalyze your YouTube playlists with creator-first insights.\nUnlock curated insights into your audience instantly.",
-                    cls="m-body max-w-[40rem] text-center",
+                    cls="text-lg md:text-xl font-inter text-gray-800 max-w-[40rem] text-center leading-relaxed",
                 ),
                 cls=f"flex-1 {col} items-center justify-center gap-6 text-center w-full text-black",
             ),
-            Div(
+            styled_div(
                 A(
                     "🚀 Try it now",
                     href="#analysis-form",
-                    cls=f"{bnset} m-body px-4 py-1 rounded-full bg-black hover:bg-black/80 transition-colors duration-300 text-white h-[76px] w-full max-w-[350px] flex items-center justify-center",
+                    cls=f"shadow-inner m-body px-4 py-1 rounded-full {THEME['primary_bg']} {THEME['primary_hover']} text-white h-[76px] w-full max-w-[350px] {THEME['flex_center']}",
                     uk_scroll="offset: 80",
                 ),
-                cls=f"{col} flex-1 relative px-4 lg:px-16",
+                cls=f"{THEME['flex_col']} flex-1 relative px-4 lg:px-16",
             ),
             # Responsive min-heights:
             # - mobile: comfortable fraction of viewport (65vh)
@@ -272,7 +292,10 @@ def AnalysisFormCard() -> Div:
                 ),
                 style="color: #333;",
             ),
-            P("💡 Works with any public playlist", cls="text-xs text-gray-500 mt-1"),
+            P(
+                "💡 Works with any public playlist",
+                cls="italic text-yellow-600 text-xs mt-1",
+            ),
             # Action button
             Button(
                 Span(UkIcon("chart-bar", cls="mr-2"), "Analyze Playlist"),

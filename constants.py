@@ -43,6 +43,19 @@ FORM_CARD = (
 )
 NEWSLETTER_CARD = FORM_CARD  # Keep backwards compatibility
 
+# Centralized theme for styles (reduces repetition)
+THEME = {
+    "primary_bg": "bg-red-500",
+    "primary_hover": "hover:bg-red-600",
+    "secondary_text": "text-blue-700",
+    "neutral_bg": "bg-gray-100",
+    "card_base": "bg-white rounded-2xl shadow-lg p-8 border border-gray-200",
+    "flex_col": "flex flex-col",
+    "flex_center": "flex items-center justify-center",
+    "gap_sm": "gap-4",
+    # Add more as needed
+}
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
