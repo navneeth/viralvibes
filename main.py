@@ -93,7 +93,15 @@ app, rt = fast_app(
             "content": "Analyze YouTube playlists instantly — discover engagement, reach, and controversy.",
         },
     ],
+    head=Head(
+        # ✅ Add Google Fonts
+        Link(
+            rel="stylesheet",
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap",
+        )
+    ),
 )
+
 
 # Set the favicon
 app.favicon = "/static/favicon.ico"
