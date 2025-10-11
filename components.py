@@ -254,12 +254,13 @@ def AnalysisFormCard() -> Div:
     # Get a random prefill URL from the known playlists
     prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
-    return Div(
+    return styled_div(
         # --- Hero image and heading ---
         Img(
             src="/static/celebration.webp",
             alt="YouTube Analytics Celebration",
             cls="w-28 mx-auto drop-shadow-lg mb-4",
+            loading="lazy",
         ),
         H2(
             "Analyze Your YouTube Playlist",
@@ -270,7 +271,7 @@ def AnalysisFormCard() -> Div:
             cls="text-red-500 text-center mb-4",
         ),
         # --- Steps Placeholder ---
-        Div(
+        styled_div(
             id="steps-container",
             children=[PlaylistSteps(completed_steps=0)],
             cls=(
@@ -300,7 +301,7 @@ def AnalysisFormCard() -> Div:
             Button(
                 Span(UkIcon("chart-bar", cls="mr-2"), "Analyze Playlist"),
                 type="submit",
-                cls=f"{ButtonT.primary} w-full hover:scale-105 transition-transform mt-4",
+                cls=f"{ButtonT.primary} w-full {THEME['primary_hover']} transition-transform mt-4",
             ),
             # Quick action buttons for demo playlists
             (
@@ -328,17 +329,14 @@ def AnalysisFormCard() -> Div:
             cls="space-y-3 mt-6",
         ),
         # --- Feedback + Results sections ---
-        Div(id="validation-feedback", cls="mt-6 text-gray-900"),
-        Div(id="preview-box", cls="mt-6 text-gray-900"),
-        Div(
+        styled_div(id="validation-feedback", cls="mt-6 text-gray-900"),
+        styled_div(id="preview-box", cls="mt-6 text-gray-900"),
+        styled_div(
             id="result",
-            cls="mt-8 min-h-[400px] border-t pt-6 text-gray-900 bg-white/5 rounded-lg",
+            cls="mt-8 min-h-[400px] border-t pt-6 text-gray-900 {THEME['neutral_bg']} rounded-lg",
         ),
         # --- Styling (outermost container only) ---
-        cls=(
-            "bg-white rounded-2xl p-10 shadow-xl text-gray-900 space-y-4 "
-            "border border-gray-200 w-full my-12"
-        ),
+        cls=f"{THEME['card_base']} space-y-4 w-full my-12",
         style=FORM_CARD,
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
         id="analysis-form",
@@ -454,7 +452,7 @@ def NewsletterCard() -> Card:
             Button(
                 "Notify Me",
                 type="submit",
-                className=f"{ButtonT.primary} hover:scale-105 transition-transform",
+                className=f"{ButtonT.primary} {THEME['primary_hover']} transition-transform",
             ),
             Loading(
                 id="loading",
@@ -558,7 +556,7 @@ def create_tabs(
 
 def HomepageAccordion() -> Div:
     """Create an accordion section containing Features, Benefits, and Newsletter cards."""
-    return Div(
+    return styled_div(
         H2("Explore ViralVibes", cls="text-3xl font-bold text-center mb-8"),
         Accordion(
             AccordionItem(
@@ -586,8 +584,8 @@ def HomepageAccordion() -> Div:
 
 def CachedResultsBanner(cached_at: str) -> Div:
     """Display a banner indicating results are from cache."""
-    return Div(
-        Div(
+    return styled_div(
+        styled_div(
             UkIcon("check-circle", cls="text-green-500 mr-2", height=20, width=20),
             Span("Instant Results from Cache", cls="font-semibold text-green-700"),
             Span(f" • Last analyzed: {cached_at}", cls="text-gray-600 text-sm ml-2"),
@@ -939,10 +937,10 @@ def PlaylistPreviewCard(
 
     return Card(
         # Visual header with both thumbnails
-        Div(
+        styled_div(
             # Playlist thumbnail (if available) as background accent
             (
-                Div(
+                styled_div(
                     Img(
                         src=playlist_thumbnail,
                         alt="Playlist thumbnail",
@@ -960,7 +958,7 @@ def PlaylistPreviewCard(
                     alt=f"{channel_name} thumbnail",
                     cls="w-20 h-20 rounded-full shadow-lg border-4 border-white relative z-10",
                 ),
-                cls="relative pt-8",
+                cls="relative pt-8 {THEME['flex_center']}",
             ),
             cls="relative mb-4",
         ),
@@ -1136,7 +1134,7 @@ def MetricCard(
 ) -> Card:
     """Create a clean metric card with icon, value, and context."""
     return Card(
-        Div(
+        styled_div(
             # Icon in top-left
             UkIcon(icon, cls=f"text-{color}-500 mb-3", height=24, width=24),
             # Main value - big and bold
@@ -1245,7 +1243,7 @@ def footer():
     legal = ["Terms of Service", "Privacy Policy", "Cookie Settings", "Accessibility"]
 
     return Container(cls="uk-background-muted py-12")(
-        Div(
+        styled_div(
             DivFullySpaced(
                 H3("ViralVibes"),
                 DivHStacked(
