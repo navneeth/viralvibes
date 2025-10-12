@@ -6,7 +6,6 @@ A powerful web application that analyzes YouTube playlists to uncover viral tren
 
 _Live Example: https://www.viralvibes.fyi_
 
-
 ## Features
 
 - 🔍 Analyze any YouTube playlist for viral trends
@@ -110,6 +109,14 @@ The application follows a modern serverless architecture with three main layers:
 - Real-time data processing
 - Secure data storage
 - Efficient caching mechanisms
+
+### Key Files and Responsibilities
+- **[youtube_service.YoutubePlaylistService](https://github.com/navneeth/viralvibes/blob/main/services/youtube_service.py)**: Core service for handling YouTube playlist data retrieval and processing, located in the `services` package due to its heavy logic.
+- **[worker.py](https://github.com/navneeth/viralvibes/blob/main/worker.py)**: Manages the job loop, handles job processing, and interacts with the database for task scheduling and execution.
+- **[db.py](https://github.com/navneeth/viralvibes/blob/main/db.py)**: Contains Supabase helper functions for database operations, including caching and upsert mechanisms.
+- **[components.py](https://github.com/navneeth/viralvibes/blob/main/components.py)**: Defines MonsterUI components for building the application's user interface.
+- **[main.py](https://github.com/navneeth/viralvibes/blob/main/main.py)**: Handles web requests and composes the UI using FastHTML for server-side rendering.
+- **[tests/](https://github.com/navneeth/viralvibes/tree/main/tests)**: Directory containing test suites with good coverage, though dependent on global environment and configuration settings.
 
 ![App Architecture](static/Diagram.png)
 
