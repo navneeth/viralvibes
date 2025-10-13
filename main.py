@@ -25,10 +25,12 @@ from components import (
     HeaderCard,
     HomepageAccordion,
     NewsletterCard,
+    ExploreGridSection,
+    hero_section,
+    SectionDivider,
     benefit,
     faq_section,
     footer,
-    hero_section,
     section_header,
     section_wrapper,
 )
@@ -108,9 +110,10 @@ app.favicon = "/static/favicon.ico"
 
 # Navigation links
 scrollspy_links = (
-    A("Home", href="#home-section"),
-    A("Analyze", href="#analyze-section"),
-    A("Explore", href="#explore-section"),
+    A("Why ViralVibes", href="#home-section"),
+    A("Product", href="#analyze-section"),
+    A("About", href="#explore-section"),
+    Button("Try ViralVibes", cls=ButtonT.primary, onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})"),
 )
 
 
@@ -241,6 +244,7 @@ def index():
     return Titled(
         "ViralVibes",
         Container(
+            # MonsterUI NavBar with sticky behavior and primary CTA
             NavBar(
                 *scrollspy_links,
                 brand=DivLAligned(
@@ -249,21 +253,23 @@ def index():
                 sticky=True,
                 uk_scrollspy_nav=True,
                 scrollspy_cls=ScrollspyT.bold,
+                cls="backdrop-blur bg-white/60 shadow-sm px-4 py-3",
             ),
-            # NavContainer(
-            #     *map(Li, scrollspy_links),
-            #     uk_scrollspy_nav=True,
-            #     sticky=True,
-            #     cls=(NavT.primary, "pt-20 px-5 pr-10"),
-            # ),
             Container(
                 hero_section(),
+                SectionDivider(),
                 _Section(HeaderCard(), id="home-section"),
+                SectionDivider(),
                 _Section(how_it_works_section(), id="how-it-works-section"),
+                SectionDivider(),
                 _Section(AnalysisFormCard(), id="analyze-section"),
+                # grid-first Explore, then accordion for details
+                #SectionDivider(),
+                #_Section(ExploreGridSection(), id="explore-grid"),
+                SectionDivider(),
                 _Section(HomepageAccordion(), id="explore-section"),
+                SectionDivider(),
                 _Section(faq_section(), id="faq-section"),
-                # _Section(testimonials_section(), id="testimonials-section"), # disabled for now. buggy
                 footer(),
                 cls=(ContainerT.xl, "uk-container-expand"),
             ),

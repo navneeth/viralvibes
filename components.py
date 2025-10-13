@@ -1383,3 +1383,26 @@ def faq_section():
         bg_color="red-700",
         flex=False,
     )
+
+
+def ExploreGridSection() -> Div:
+    """Use MonsterUI Grid + Card to present Explore cards in 1→3 columns responsively."""
+    cards = [FeaturesCard(), BenefitsCard(), NewsletterCard()]
+    return Section(
+        Container(
+            H2("Explore ViralVibes", cls="text-3xl font-bold text-center mb-8"),
+            Grid(
+                *[Card(c, cls="h-full p-6") for c in cards],
+                cols_md=3,
+                gap=6,
+                cls="max-w-7xl mx-auto",
+            ),
+            cls="px-4 sm:px-6 md:px-8",
+        ),
+        cls="py-12",
+    )
+
+
+def SectionDivider() -> Div:
+    """Thin gradient divider that creates breathing room and rhythm (Tailwind-only)."""
+    return Div(cls="w-full h-1 rounded-full bg-gradient-to-r from-[#00A3FF] via-[#FF4500] to-[#00A3FF] my-4 shadow-sm")
