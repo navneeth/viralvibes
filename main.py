@@ -113,7 +113,11 @@ scrollspy_links = (
     A("Why ViralVibes", href="#home-section"),
     A("Product", href="#analyze-section"),
     A("About", href="#explore-section"),
-    Button("Try ViralVibes", cls=ButtonT.primary, onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})"),
+    Button(
+        "Try ViralVibes",
+        cls=ButtonT.primary,
+        onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})",
+    ),
 )
 
 
@@ -264,8 +268,8 @@ def index():
                 SectionDivider(),
                 _Section(AnalysisFormCard(), id="analyze-section"),
                 # grid-first Explore, then accordion for details
-                #SectionDivider(),
-                #_Section(ExploreGridSection(), id="explore-grid"),
+                # SectionDivider(),
+                # _Section(ExploreGridSection(), id="explore-grid"),
                 SectionDivider(),
                 _Section(HomepageAccordion(), id="explore-section"),
                 SectionDivider(),
