@@ -56,6 +56,24 @@ THEME = {
     # Add more as needed
 }
 
+# --- centralized reusable Tailwind clusters (start small) ---
+STYLES = {
+    "hero_title": "text-4xl md:text-5xl font-poppins font-extrabold text-gray-900 leading-tight",
+    "hero_subhead": "mt-4 text-lg text-gray-700 max-w-xl",
+    "cta_primary": "bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg shadow-md",
+    "cta_secondary": "ml-4 inline-flex items-center px-4 py-3 rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200",
+    "trust_line": "mt-4 text-sm text-gray-500",
+    "card_thumbnail": "w-full rounded-2xl object-cover shadow-2xl",
+    "hero_grid": "grid grid-cols-1 md:grid-cols-2 gap-8 items-center max-w-7xl mx-auto px-4 sm:px-6 py-12",
+    # New consolidated clusters
+    "btn_full": "w-full py-3 px-6 text-base font-semibold rounded-lg shadow-lg bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white border-0 focus:ring-4 focus:ring-red-200 transition-all duration-200 hover:scale-105 active:scale-95 transform",
+    "btn_refresh": "w-full py-3 px-6 text-base font-semibold rounded-lg shadow-lg bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white border-0 focus:ring-4 focus:ring-orange-200 transition-all duration-200 hover:scale-105 active:scale-95 transform",
+    "badge_small": "inline-flex items-center px-2 py-1 bg-gray-50 rounded-md text-xs font-medium",
+    "badge_info": "inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700",
+    "progress_meter": "w-full h-2 rounded-full bg-gray-200 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-red-600 [&::-moz-progress-bar]:bg-red-600",
+    "table_base": "w-full text-sm text-gray-700 border border-gray-200 rounded-lg shadow-sm overflow-hidden",
+}
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
