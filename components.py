@@ -87,7 +87,11 @@ def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> 
     }
     cls_key = kind_map.get(kind, "btn_full")
     icon_comp = UkIcon(icon, cls="mr-2") if icon else None
-    return Button(Span(icon_comp, text) if icon_comp else text, cls=STYLES.get(cls_key, STYLES["btn_full"]), **kwargs)
+    return Button(
+        Span(icon_comp, text) if icon_comp else text,
+        cls=STYLES.get(cls_key, STYLES["btn_full"]),
+        **kwargs,
+    )
 
 
 # --- small UI helpers (minimal, safe) ---
@@ -800,7 +804,9 @@ def ViralVibesButton(
     # reuse centralized style
     base = STYLES.get("btn_full")
     cls = f"{width_class} {base}"
-    return Button(Span(UkIcon(icon, cls="mr-2"), text), type=button_type, cls=cls, **kwargs)
+    return Button(
+        Span(UkIcon(icon, cls="mr-2"), text), type=button_type, cls=cls, **kwargs
+    )
 
 
 def AnalyticsHeader(
@@ -876,11 +882,29 @@ def AnalyticsHeader(
                         (
                             Div(
                                 # Views badge
-                                (small_badge(format_number(total_views), icon="eye") if total_views else None),
+                                (
+                                    small_badge(format_number(total_views), icon="eye")
+                                    if total_views
+                                    else None
+                                ),
                                 # Engagement badge
-                                (small_badge(f"{engagement_rate:.1f}% engagement", icon="heart", kind="info") if engagement_rate else None),
+                                (
+                                    small_badge(
+                                        f"{engagement_rate:.1f}% engagement",
+                                        icon="heart",
+                                        kind="info",
+                                    )
+                                    if engagement_rate
+                                    else None
+                                ),
                                 # Date badge
-                                (small_badge(f"Analyzed {processed_date}", icon="calendar") if processed_date else None),
+                                (
+                                    small_badge(
+                                        f"Analyzed {processed_date}", icon="calendar"
+                                    )
+                                    if processed_date
+                                    else None
+                                ),
                                 cls="flex flex-wrap items-center gap-2 mt-2",
                             )
                             if (total_views or engagement_rate or processed_date)
@@ -1037,22 +1061,50 @@ def PlaylistPreviewCard(
         Div(
             (
                 # Refresh button (for cached results)
-                cta("Refresh Analysis", icon="refresh-cw", kind="refresh", hx_post="/validate/full", hx_vals={
-                    "playlist_url": playlist_url,
-                    "meter_id": meter_id,
-                    "meter_max": actual_video_count,
-                    "force_refresh": "true",
-                }, hx_target="#results-box", hx_indicator="#loading-bar", hx_swap="beforeend")
+                cta(
+                    "Refresh Analysis",
+                    icon="refresh-cw",
+                    kind="refresh",
+                    hx_post="/validate/full",
+                    hx_vals={
+                        "playlist_url": playlist_url,
+                        "meter_id": meter_id,
+                        "meter_max": actual_video_count,
+                        "force_refresh": "true",
+                    },
+                    hx_target="#results-box",
+                    hx_indicator="#loading-bar",
+                    hx_swap="beforeend",
+                )
                 if show_refresh
                 # Start analysis button (for new analysis)
-                else cta("Start Full Analysis", icon="chart-bar", kind="full", hx_post="/validate/full", hx_vals={
-                    "playlist_url": playlist_url,
-                    "meter_id": meter_id,
-                    "meter_max": actual_video_count,
-                }, hx_target="#results-box", hx_indicator="#loading-bar", hx_swap="beforeend")
+                else cta(
+                    "Start Full Analysis",
+                    icon="chart-bar",
+                    kind="full",
+                    hx_post="/validate/full",
+                    hx_vals={
+                        "playlist_url": playlist_url,
+                        "meter_id": meter_id,
+                        "meter_max": actual_video_count,
+                    },
+                    hx_target="#results-box",
+                    hx_indicator="#loading-bar",
+                    hx_swap="beforeend",
+                )
             ),
             # Secondary action (View in YouTube) if we have data
-            (A(UkIcon("external-link", cls="w-4 h-4 mr-2"), "View on YouTube", href=playlist_url, target="_blank", cls=STYLES["cta_secondary"]) if show_refresh else None),
+            (
+                A(
+                    UkIcon("external-link", cls="w-4 h-4 mr-2"),
+                    "View on YouTube",
+                    href=playlist_url,
+                    target="_blank",
+                    cls=STYLES["cta_secondary"],
+                )
+                if show_refresh
+                else None
+            ),
             cls="space-y-2",
         ),
         # Loading and results section
@@ -1349,4 +1401,6 @@ def ExploreGridSection() -> Div:
 
 def SectionDivider() -> Div:
     """Thin gradient divider that creates breathing room and rhythm (Tailwind-only)."""
-    return Div(cls="w-full h-1 rounded-full bg-gradient-to-r from-[#00A3FF] via-[#FF4500] to-[#00A3FF] my-4 shadow-sm")
+    return Div(
+        cls="w-full h-1 rounded-full bg-gradient-to-r from-[#00A3FF] via-[#FF4500] to-[#00A3FF] my-4 shadow-sm"
+    )
