@@ -38,6 +38,7 @@ from constants import (
     faqs,
     maxpx,
     testimonials,
+    STYLES,
 )
 from db import fetch_playlists, get_cached_playlist_stats
 from utils import format_number
@@ -74,6 +75,38 @@ def styled_div(*children, cls: str = "", **kwargs) -> Div:
     """Flexible Div factory with theme integration."""
     full_cls = f"{THEME['flex_col']} {cls}" if "flex-col" in cls else cls
     return Div(*children, cls=full_cls, **kwargs)
+
+
+# --- NEW: small UI helpers to centralize repeated Tailwind patterns ---
+def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> Button:
+    """Create a CTA using centralized STYLES (kind='full'|'refresh'|'secondary')."""
+    kind_map = {
+        "full": "btn_full",
+        "refresh": "btn_refresh",
+        "secondary": "cta_secondary",
+    }
+    cls_key = kind_map.get(kind, "btn_full")
+    icon_comp = UkIcon(icon, cls="mr-2") if icon else None
+    return Button(
+        Span(icon_comp, text) if icon_comp else text,
+        cls=STYLES.get(cls_key, STYLES["btn_full"]),
+        **kwargs,
+    )
+
+
+# --- small UI helpers (minimal, safe) ---
+def small_badge(text: str, icon: Optional[str] = None, kind: str = "small") -> Span:
+    """Small inline badge used for views/engagement/date."""
+    cls_key = "badge_small" if kind == "small" else "badge_info"
+    if icon:
+        return Span(UkIcon(icon, cls="w-4 h-4 mr-1"), text, cls=STYLES[cls_key])
+    return Span(text, cls=STYLES[cls_key])
+
+
+def progress_meter(el_id: str, max_val: int = 1, cls: Optional[str] = None) -> Progress:
+    """Return a progress element with centralized meter classes."""
+    meter_cls = cls or STYLES["progress_meter"]
+    return Progress(value=0, max=max_val or 1, id=el_id, cls=meter_cls)
 
 
 def maxrem(rem):
@@ -144,7 +177,7 @@ def HeaderCard() -> Card:
             Div(
                 H1(
                     "Welcome to ViralVibes",
-                    cls="text-4xl md:text-5xl font-poppins text-blue-700 mb-4",
+                    cls=STYLES["hero_title"] + " text-blue-700 mb-4",
                 ),
                 P(
                     "Decode YouTube virality. Instantly.",
@@ -158,16 +191,15 @@ def HeaderCard() -> Card:
                     UkIcon("chart-bar", cls="mr-2"),
                     "Start Analyzing",
                     onclick="document.querySelector('#analyze-section').scrollIntoView({behavior:'smooth'})",
-                    # cls="mt-6 bg-red-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-red-700 transition-all duration-200 shadow-md hover:shadow-lg",
-                    cls=f"mt-6 {THEME['primary_bg']} {THEME['primary_hover']} text-white px-6 py-3 rounded-lg shadow-md",
+                    cls="mt-6 " + STYLES["cta_primary"],
                 ),
                 cls="flex-1",
             ),
             # Image (right)
             Img(
                 src="/static/thumbnail.png",
-                alt="YouTube Analytics Dashboard",
-                cls="flex-1 w-64 md:w-80 lg:w-96 rounded-2xl shadow-2xl",
+                alt="YouTube Analytics Dashboard Preview",
+                cls="flex-1 w-64 md:w-80 lg:w-96 " + STYLES["card_thumbnail"],
                 loading="lazy",
             ),
             # Overall container
@@ -202,7 +234,7 @@ def hero_section():
                     cls=f"text-4xl md:text-5xl font-poppins {THEME['secondary_text']}",
                 ),
                 P(
-                    "Decode YouTube virality. Instantly.\nAnalyze your YouTube playlists with creator-first insights.\nUnlock curated insights into your audience instantly.",
+                    "Decode YouTube virality - Instantly.\nAnalyze your YouTube playlists with creator-first insights.\nUnlock curated insights into your audience instantly.",
                     cls="text-lg md:text-xl font-inter text-gray-800 max-w-[40rem] text-center leading-relaxed",
                 ),
                 cls=f"flex-1 {col} items-center justify-center gap-6 text-center w-full text-black",
@@ -769,16 +801,11 @@ def ViralVibesButton(
     """Create a consistently styled ViralVibes button."""
     width_class = "w-full" if full_width else ""
 
+    # reuse centralized style
+    base = STYLES.get("btn_full")
+    cls = f"{width_class} {base}"
     return Button(
-        Span(UkIcon(icon, cls="mr-2"), text),
-        type=button_type,
-        cls=(
-            f"{width_class} py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-            "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
-            "text-white border-0 focus:ring-4 focus:ring-red-200 "
-            "transition-all duration-200 hover:scale-105 active:scale-95 transform"
-        ),
-        **kwargs,
+        Span(UkIcon(icon, cls="mr-2"), text), type=button_type, cls=cls, **kwargs
     )
 
 
@@ -856,30 +883,24 @@ def AnalyticsHeader(
                             Div(
                                 # Views badge
                                 (
-                                    Span(
-                                        UkIcon("eye", cls="w-4 h-4 mr-1"),
-                                        format_number(total_views),
-                                        cls="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium",
-                                    )
+                                    small_badge(format_number(total_views), icon="eye")
                                     if total_views
                                     else None
                                 ),
                                 # Engagement badge
                                 (
-                                    Span(
-                                        UkIcon("heart", cls="w-4 h-4 mr-1"),
+                                    small_badge(
                                         f"{engagement_rate:.1f}% engagement",
-                                        cls="inline-flex items-center px-2 py-1 bg-red-50 text-red-700 rounded-md text-xs font-medium",
+                                        icon="heart",
+                                        kind="info",
                                     )
                                     if engagement_rate
                                     else None
                                 ),
                                 # Date badge
                                 (
-                                    Span(
-                                        UkIcon("calendar", cls="w-4 h-4 mr-1"),
-                                        f"Analyzed {processed_date}",
-                                        cls="inline-flex items-center px-2 py-1 bg-gray-50 text-gray-700 rounded-md text-xs font-medium",
+                                    small_badge(
+                                        f"Analyzed {processed_date}", icon="calendar"
                                     )
                                     if processed_date
                                     else None
@@ -1029,20 +1050,7 @@ def PlaylistPreviewCard(
                         f"Ready to analyze {actual_video_count} videos",
                         cls="text-sm font-medium text-gray-700 text-center mb-2",
                     ),
-                    Progress(
-                        value=0,
-                        max=actual_video_count or 1,
-                        id=meter_id,
-                        cls=(
-                            "w-full h-2 rounded-full bg-gray-200 "
-                            "[&::-webkit-progress-bar]:bg-gray-200 "
-                            "[&::-webkit-progress-value]:rounded-full "
-                            "[&::-webkit-progress-value]:transition-all "
-                            "[&::-webkit-progress-value]:duration-300 "
-                            "[&::-webkit-progress-value]:bg-red-600 "
-                            "[&::-moz-progress-bar]:bg-red-600"
-                        ),
-                    ),
+                    progress_meter(meter_id, actual_video_count),
                     cls="space-y-2",
                 )
                 if not show_refresh
@@ -1053,8 +1061,10 @@ def PlaylistPreviewCard(
         Div(
             (
                 # Refresh button (for cached results)
-                Button(
-                    Span(UkIcon("refresh-cw", cls="mr-2"), "Refresh Analysis"),
+                cta(
+                    "Refresh Analysis",
+                    icon="refresh-cw",
+                    kind="refresh",
                     hx_post="/validate/full",
                     hx_vals={
                         "playlist_url": playlist_url,
@@ -1065,17 +1075,13 @@ def PlaylistPreviewCard(
                     hx_target="#results-box",
                     hx_indicator="#loading-bar",
                     hx_swap="beforeend",
-                    cls=(
-                        "w-full py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-                        "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 "
-                        "text-white border-0 focus:ring-4 focus:ring-orange-200 "
-                        "transition-all duration-200 hover:scale-105 active:scale-95 transform"
-                    ),
                 )
                 if show_refresh
                 # Start analysis button (for new analysis)
-                else Button(
-                    Span(UkIcon("chart-bar", cls="mr-2"), "Start Full Analysis"),
+                else cta(
+                    "Start Full Analysis",
+                    icon="chart-bar",
+                    kind="full",
                     hx_post="/validate/full",
                     hx_vals={
                         "playlist_url": playlist_url,
@@ -1085,12 +1091,6 @@ def PlaylistPreviewCard(
                     hx_target="#results-box",
                     hx_indicator="#loading-bar",
                     hx_swap="beforeend",
-                    cls=(
-                        "w-full py-3 px-6 text-base font-semibold rounded-lg shadow-lg "
-                        "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 "
-                        "text-white border-0 focus:ring-4 focus:ring-red-200 "
-                        "transition-all duration-200 hover:scale-105 active:scale-95 transform"
-                    ),
                 )
             ),
             # Secondary action (View in YouTube) if we have data
@@ -1100,11 +1100,7 @@ def PlaylistPreviewCard(
                     "View on YouTube",
                     href=playlist_url,
                     target="_blank",
-                    cls=(
-                        "flex items-center justify-center w-full mt-3 py-2 px-4 "
-                        "text-sm font-medium text-gray-700 bg-white border border-gray-300 "
-                        "rounded-lg hover:bg-gray-50 transition-colors"
-                    ),
+                    cls=STYLES["cta_secondary"],
                 )
                 if show_refresh
                 else None
@@ -1382,4 +1378,29 @@ def faq_section():
         ),
         bg_color="red-700",
         flex=False,
+    )
+
+
+def ExploreGridSection() -> Div:
+    """Use MonsterUI Grid + Card to present Explore cards in 1→3 columns responsively."""
+    cards = [FeaturesCard(), BenefitsCard(), NewsletterCard()]
+    return Section(
+        Container(
+            H2("Explore ViralVibes", cls="text-3xl font-bold text-center mb-8"),
+            Grid(
+                *[Card(c, cls="h-full p-6") for c in cards],
+                cols_md=3,
+                gap=6,
+                cls="max-w-7xl mx-auto",
+            ),
+            cls="px-4 sm:px-6 md:px-8",
+        ),
+        cls="py-12",
+    )
+
+
+def SectionDivider() -> Div:
+    """Thin gradient divider that creates breathing room and rhythm (Tailwind-only)."""
+    return Div(
+        cls="w-full h-1 rounded-full bg-gradient-to-r from-[#00A3FF] via-[#FF4500] to-[#00A3FF] my-4 shadow-sm"
     )
