@@ -1,0 +1,65 @@
+name: Run Tests (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.11'
+    secrets:
+      NEXT_PUBLIC_SUPABASE_URL:
+        required: false
+      NEXT_PUBLIC_SUPABASE_ANON_KEY:
+        required: false
+      YOUTUBE_API_KEY:
+        required: false
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANon_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install pytest pytest-asyncio httpx starlette; fi
+
+      - name: Prepare reports dir
+        run: mkdir -p reports
+
+      - name: Run tests (pytest)
+        run: pytest -q --junitxml=reports/junit.xml
+
+      - name: Upload JUnit XML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-junit
+          path: reports/junit.xml
+
+      - name: Publish test report to Checks (JUnit)
+        uses: dorny/test-reporter@v1
+        with:
+          name: pytest
+          path: reports/junit.xml
+          reporter: junit
+          fail_on_error: false
