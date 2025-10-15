@@ -77,7 +77,7 @@ async def test_get_playlist_data_ytdlp_success(
     with (
         patch(
             "services.youtube_service.asyncio.to_thread",
-            new=AsyncMock(
+            new=MagicMock(
                 side_effect=[
                     mock_playlist_info,
                     mock_video_info_1,
@@ -88,7 +88,7 @@ async def test_get_playlist_data_ytdlp_success(
         patch.object(
             service,
             "_fetch_dislike_data_async",
-            new=AsyncMock(return_value=("video1", {"dislikes": 10, "likes": 500})),
+            new=MagicMock(return_value=("video1", {"dislikes": 10, "likes": 500})),
         ),
     ):
         df, name, channel, thumb, stats = await service.get_playlist_data(
