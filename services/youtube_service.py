@@ -220,8 +220,8 @@ class YoutubePlaylistService:
                 # Add user agent rotation
                 "user-agent": self._get_random_user_agent(),
                 # Add retries at yt-dlp level
-                "retries": MAX_RETRIES,
-                "fragment_retries": MAX_RETRIES,
+                "retries": self.cfg.max_retries,
+                "fragment_retries": self.cfg.max_retries,
             }
 
             self.ydl_opts = base_opts.copy()
