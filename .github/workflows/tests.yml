@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANon_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
     steps:
       - name: Checkout repository
@@ -48,7 +48,7 @@ jobs:
         run: mkdir -p reports
 
       - name: Run tests (pytest)
-        run: pytest -q --junitxml=reports/junit.xml
+        run: pytest tests/ -q --junitxml=reports/junit.xml
 
       - name: Upload JUnit XML artifact
         uses: actions/upload-artifact@v4
@@ -63,3 +63,4 @@ jobs:
           path: reports/junit.xml
           reporter: junit
           fail_on_error: false
+          fail_fast: true  # Stop on test failures
