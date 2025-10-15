@@ -27,7 +27,7 @@ os.environ.setdefault("SUPABASE_KEY", "anon-key-for-tests")
 
 # Minimal contract mapping: modules -> expected attributes (tests can assert against this)
 DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
-    "worker.worker": ["Worker", "handle_job"],  
+    "worker.worker": ["Worker", "handle_job"],
     "db": [
         "upsert_playlist_stats",
         "get_cached_playlist_stats",
@@ -136,5 +136,7 @@ def validate_required_env_vars():
     """Fail fast if essential environment variables are missing."""
     missing = [k for k in REQUIRED_ENV_VARS if not os.getenv(k)]
     if missing:
-        pytest.fail(f"Missing required environment variables (set .env or CI secrets): {missing}")
+        pytest.fail(
+            f"Missing required environment variables (set .env or CI secrets): {missing}"
+        )
     yield
