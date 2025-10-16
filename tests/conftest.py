@@ -77,10 +77,84 @@ def setup_test_environment():
 
 @pytest.fixture
 def mock_youtube_api():
-    """Mock YouTube API."""
-    mock_youtube = MagicMock()
-    mock_youtube.playlistItems().list().execute = AsyncMock(
-        return_value={"items": [], "nextPageToken": None}
-    )
-    mock_youtube.videos().list().execute = AsyncMock(return_value={"items": []})
-    return mock_youtube
+    """Fully synchronous YouTube Data API mock compatible with YoutubePlaylistService."""
+    mock = MagicMock()
+
+    # Chained API interface
+    mock.playlists.return_value = mock
+    mock.playlistItems.return_value = mock
+    mock.videos.return_value = mock
+
+    def list(**kwargs):
+        mock._last_kwargs = kwargs
+        return mock
+
+    def execute():
+        kwargs = getattr(mock, "_last_kwargs", {})
+
+        # --- 1️⃣ Playlist metadata ---
+        if (
+            "id" in kwargs
+            and "playlistId" not in kwargs
+            and "videos" not in mock._last_kwargs.get("part", "")
+            and "statistics" not in mock._last_kwargs.get("part", "")
+        ):
+            return {
+                "items": [
+                    {
+                        "snippet": {
+                            "title": "Mock Playlist",
+                            "channelTitle": "Mock Channel",
+                            "thumbnails": {
+                                "high": {"url": "https://example.com/mock_thumb.jpg"}
+                            },
+                        },
+                        "contentDetails": {"itemCount": 3},
+                    }
+                ]
+            }
+
+        # --- 2️⃣ Playlist items ---
+        if "playlistId" in kwargs:
+            return {
+                "items": [
+                    {"contentDetails": {"videoId": f"video_{i}"}} for i in range(3)
+                ]
+            }
+
+        # --- 3️⃣ Video details (this is where the 'id' KeyError happened) ---
+        if (
+            "id" in kwargs
+            and "snippet" in kwargs.get("part", "")
+            and "statistics" in kwargs.get("part", "")
+        ):
+            ids = kwargs["id"]
+            video_ids = ids.split(",") if isinstance(ids, str) else ids
+            return {
+                "items": [
+                    {
+                        "id": vid,
+                        "snippet": {
+                            "title": f"Mock Video {i}",
+                            "channelTitle": "Mock Channel",
+                            "thumbnails": {
+                                "high": {"url": f"https://example.com/{vid}.jpg"}
+                            },
+                        },
+                        "statistics": {
+                            "viewCount": "1000",
+                            "likeCount": "100",
+                            "commentCount": "10",
+                        },
+                        "contentDetails": {"duration": "PT3M45S"},
+                    }
+                    for i, vid in enumerate(video_ids)
+                ]
+            }
+
+        return {"items": []}
+
+    mock.list.side_effect = list
+    mock.execute.side_effect = execute
+
+    return mock

@@ -19,7 +19,7 @@ TEST_PLAYLIST_URL = (
 @pytest.mark.asyncio
 async def test_schema_contract_between_backends(mock_youtube_api):
     """Tests that both backends return the same schema."""
-    with patch("youtube_service.build", return_value=mock_youtube_api):
+    with patch("services.youtube_service.build", return_value=mock_youtube_api):
         # yt-dlp backend
         yt_service = YoutubePlaylistService(backend="yt-dlp")
         (
@@ -39,6 +39,10 @@ async def test_schema_contract_between_backends(mock_youtube_api):
             api_thumb,
             api_stats,
         ) = await api_service.get_playlist_data(TEST_PLAYLIST_URL, max_expanded=5)
+
+        yt_stats.pop("processing_stats", None)
+        api_stats.pop("processing_stats", None)
+        assert set(yt_stats.keys()) == set(api_stats.keys())
 
         # Verify schemas match
         assert set(yt_df.columns) == set(api_df.columns)
