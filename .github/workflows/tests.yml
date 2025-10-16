@@ -57,7 +57,7 @@ jobs:
           path: reports/junit.xml
 
       - name: Publish test report to Checks (JUnit)
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@a7b6e7e3e5e5e3e7b7c1e6c2e2a1b2c3d4e5f6a7
         with:
           name: pytest
           path: reports/junit.xml
