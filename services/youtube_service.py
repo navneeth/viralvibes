@@ -1,5 +1,4 @@
 # youtube_service.py
-
 """
 YouTube Service for fetching and processing YouTube playlist data.
 This module provides functionality to fetch and process YouTube playlist data using yt-dlp.
@@ -7,7 +6,6 @@ Enhanced with full playlist processing, resilience features, and time estimation
 """
 
 import asyncio
-import json
 import logging
 import os
 import random
@@ -31,9 +29,7 @@ try:
 except ImportError:
     build = None
 
-
 from utils import (
-    calculate_engagement_rate,
     format_duration,
     format_number,
     parse_iso_duration,
@@ -109,24 +105,31 @@ def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 # --- Normalize dataframe column names between yt-dlp and YouTube API ---
 def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
+    # Canonicalize to internal schema: "Views", "Likes", "Dislikes", "Comments"
     rename_map = {
         "title": "Title",
         "videoTitle": "Title",
         "id": "id",
         "videoId": "id",
-        "view_count": "View Count",
-        "viewCount": "View Count",
-        # YouTube API / transform_api_df outputs these capitalized keys — map them too
-        "Views": "View Count",
-        "Likes": "Like Count",
-        "Dislikes": "Dislike Count",
-        "Comments": "Comment Count",
-        "like_count": "Like Count",
-        "likeCount": "Like Count",
-        "comment_count": "Comment Count",
-        "commentCount": "Comment Count",
-        "dislike_count": "Dislike Count",
-        "dislikeCount": "Dislike Count",
+        # map any variants into canonical columns
+        "view_count": "Views",
+        "viewCount": "Views",
+        "View Count": "Views",
+        "like_count": "Likes",
+        "likeCount": "Likes",
+        "Like Count": "Likes",
+        "dislike_count": "Dislikes",
+        "dislikeCount": "Dislikes",
+        "Dislike Count": "Dislikes",
+        "comment_count": "Comments",
+        "commentCount": "Comments",
+        "Comment Count": "Comments",
+        # keep canonical names if already present
+        "Views": "Views",
+        "Likes": "Likes",
+        "Dislikes": "Dislikes",
+        "Comments": "Comments",
+        # other fields
         "duration_string": "Duration",
         "duration": "Duration",
         "durationSec": "Duration",
@@ -146,6 +149,17 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         if old in df.columns and new not in df.columns:
             df = df.rename({old: new})
 
+    # Mirror canonical columns back to legacy "... Count" names if they are missing
+    mirrors = [
+        ("Views", "View Count"),
+        ("Likes", "Like Count"),
+        ("Dislikes", "Dislike Count"),
+        ("Comments", "Comment Count"),
+    ]
+    for src, mirror in mirrors:
+        if src in df.columns and mirror not in df.columns:
+            df = df.with_columns(pl.col(src).alias(mirror))
+
     # Normalize duration to readable string if ISO 8601
     if "Duration" in df.columns:
         df = df.with_columns(
@@ -156,8 +170,18 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
             )
         )
 
-    # Ensure numeric types
-    for col in ["View Count", "Like Count", "Dislike Count", "Comment Count"]:
+    # Ensure numeric types for both canonical and legacy mirrors
+    numeric_cols = [
+        "Views",
+        "Likes",
+        "Dislikes",
+        "Comments",
+        "View Count",
+        "Like Count",
+        "Dislike Count",
+        "Comment Count",
+    ]
+    for col in numeric_cols:
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
 
