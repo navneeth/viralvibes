@@ -48,13 +48,14 @@ jobs:
         run: mkdir -p reports
 
       - name: Run tests (pytest)
-        run: pytest tests/ -q --junitxml=reports/junit.xml
+        run: pytest tests/ -vv -s --log-cli-level=INFO --junitxml=reports/junit.xml
 
       - name: Upload JUnit XML artifact
         uses: actions/upload-artifact@v4
         with:
           name: pytest-junit
           path: reports/junit.xml
+          if-no-files-found: warn
 
       # - name: Publish test report to Checks (JUnit)
       #   uses: dorny/test-reporter@a7b6e7e3e5e5e3e7b7c1e6c2e2a1b2c3d4e5f6a7
