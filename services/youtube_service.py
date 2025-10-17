@@ -116,6 +116,11 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         "videoId": "id",
         "view_count": "View Count",
         "viewCount": "View Count",
+        # YouTube API / transform_api_df outputs these capitalized keys — map them too
+        "Views": "View Count",
+        "Likes": "Like Count",
+        "Dislikes": "Dislike Count",
+        "Comments": "Comment Count",
         "like_count": "Like Count",
         "likeCount": "Like Count",
         "comment_count": "Comment Count",
@@ -220,8 +225,8 @@ class YoutubePlaylistService:
                 # Add user agent rotation
                 "user-agent": self._get_random_user_agent(),
                 # Add retries at yt-dlp level
-                "retries": MAX_RETRIES,
-                "fragment_retries": MAX_RETRIES,
+                "retries": self.cfg.max_retries,
+                "fragment_retries": self.cfg.max_retries,
             }
 
             self.ydl_opts = base_opts.copy()

@@ -21,16 +21,16 @@ from components import (
     AnalyticsDashboardSection,
     AnalyticsHeader,
     BenefitsCard,
+    ExploreGridSection,
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
     NewsletterCard,
-    ExploreGridSection,
-    hero_section,
     SectionDivider,
     benefit,
     faq_section,
     footer,
+    hero_section,
     section_header,
     section_wrapper,
 )
@@ -547,6 +547,7 @@ def validate_full(
             ):
                 df = df.with_columns(
                     pl.col("Engagement Rate (%)")
+                    .cast(pl.Utf8)
                     .str.replace("%", "")
                     .str.replace(",", "")
                     .cast(pl.Float64)
