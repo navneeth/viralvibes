@@ -89,7 +89,7 @@ def chart_views_by_video(
         return _empty_chart("line", chart_id)
 
     # Sort videos by view count descending
-    sorted_df = _safe_sort(df, "View Count Raw", descending=True)
+    sorted_df = _safe_sort(df, "Views", descending=True)
 
     views = (sorted_df["Views"].fill_null(0) / 1_000_000).round(1).to_list()
     titles = sorted_df["Title"].to_list()
@@ -118,11 +118,7 @@ def chart_polarizing_videos(
         return _empty_chart("bubble", chart_id)
 
     # Vectorized extraction
-    mask = (
-        (df["Like Count Raw"] > 0)
-        & (df["Dislike Count Raw"] > 0)
-        & (df["View Count Raw"] > 0)
-    )
+    mask = (df["Likes"] > 0) & (df["Dislikes"] > 0) & (df["Views"] > 0)
     filtered = df.filter(mask)
 
     if len(filtered) == 0:
@@ -131,9 +127,9 @@ def chart_polarizing_videos(
     else:
         data = [
             {
-                "x": int(row["Like Count Raw"]),
-                "y": int(row["Dislike Count Raw"]),
-                "z": round(row["View Count Raw"] / 1_000_000, 2),
+                "x": int(row["Likes"]),
+                "y": int(row["Dislikes"]),
+                "z": round(row["Views"] / 1_000_000, 2),
                 "name": row["Title"][:40],
             }
             for row in filtered.iter_rows(named=True)
@@ -188,12 +184,14 @@ def chart_engagement_rate(
         return _empty_chart("bar", chart_id)
 
     # Sort videos by engagement rate descending
-    sorted_df = _safe_sort(df, "Engagement Rate (%)", descending=True)
-    rates = sorted_df["Engagement Rate (%)"].cast(pl.Float64).fill_null(0).to_list()
+    sorted_df = _safe_sort(df, "Engagement Rate Formatted", descending=True)
+    rates = (
+        sorted_df["Engagement Rate Formatted"].cast(pl.Float64).fill_null(0).to_list()
+    )
     titles = sorted_df["Title"].to_list()
 
     # Compute average benchmark
-    avg_rate = float(sorted_df["Engagement Rate (%)"].mean() or 0)
+    avg_rate = float(sorted_df["Engagement Rate Formatted"].mean() or 0)
 
     opts = _apex_opts(
         "bar",
@@ -232,10 +230,10 @@ def chart_likes_vs_dislikes(
         "bar",
         300,
         series=[
-            {"name": "👍 Likes", "data": df["Like Count Raw"].fill_null(0).to_list()},
+            {"name": "👍 Likes", "data": df["Likes"].fill_null(0).to_list()},
             {
                 "name": "👎 Dislikes",
-                "data": df["Dislike Count Raw"].fill_null(0).to_list(),
+                "data": df["Dislikes"].fill_null(0).to_list(),
             },
         ],
         xaxis={
@@ -324,8 +322,8 @@ def chart_scatter_likes_dislikes(
     # Use dicts with x, y, and custom field "title"
     data = [
         {
-            "x": int(row["Like Count Raw"] or 0),
-            "y": int(row["Dislike Count Raw"] or 0),
+            "x": int(row["Likes"] or 0),
+            "y": int(row["Dislikes"] or 0),
             "title": row["Title"][:40],  # truncate to avoid overflow
         }
         for row in df.iter_rows(named=True)
@@ -363,9 +361,9 @@ def chart_bubble_engagement_vs_views(
     # Build data as required: array of [x, y, z] with extra "title" kept separately
     data = [
         {
-            "x": round((row["View Count Raw"] or 0) / 1_000_000, 2),
-            "y": float(row["Engagement Rate (%)"] or 0.0),
-            "z": round(float(row["Controversy Raw"] or 0.0) * 100, 1),
+            "x": round((row["Views"] or 0) / 1_000_000, 2),
+            "y": float(row["Engagement Rate Raw"] or 0.0),
+            "z": round(float(row["Controversy"] or 0.0) * 100, 1),
             "title": row["Title"][:60],  # truncate long titles
         }
         for row in df.iter_rows(named=True)
@@ -449,14 +447,14 @@ def chart_video_radar(
         return _empty_chart("radar", chart_id)
 
     # Pick top videos by view count
-    sorted_df = _safe_sort(df, "View Count Raw", descending=True).head(top_n)
+    sorted_df = _safe_sort(df, "Views", descending=True).head(top_n)
 
     # Columns we want to normalize
     numeric_cols = [
-        "View Count Raw",
-        "Like Count Raw",
-        "Comment Count Raw",
-        "Engagement Rate (%)",
+        "Views",
+        "Likes",
+        "Comments",
+        "Engagement Rate Raw",
     ]
 
     # Cast numeric columns explicitly to Float64 for safe arithmetic

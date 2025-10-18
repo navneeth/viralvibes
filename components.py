@@ -34,11 +34,11 @@ from constants import (
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
+    STYLES,
     THEME,
     faqs,
     maxpx,
     testimonials,
-    STYLES,
 )
 from db import fetch_playlists, get_cached_playlist_stats
 from utils import format_number
@@ -739,15 +739,15 @@ def AnalyticsDashboardSection(
                 "Discover which content creates strong reactions and splits audience opinion.",
                 cls="text-gray-500 mb-6",
             ),
-            # Grid(
-            #     chart_likes_vs_dislikes(
-            #         df, "likes-vs-dislikes"
-            #     ),  # Direct comparison of sentiment
-            #     chart_polarizing_videos(
-            #         df, "polarizing-videos"
-            #     ),  # Polarization with context (bubble shows views)
-            #     cls="grid-cols-1 md:grid-cols-2 gap-10",
-            # ),
+            Grid(
+                chart_likes_vs_dislikes(
+                    df, "likes-vs-dislikes"
+                ),  # Direct comparison of sentiment
+                chart_polarizing_videos(
+                    df, "polarizing-videos"
+                ),  # Polarization with context (bubble shows views)
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
             cls="mb-16",
         ),
         # Group 4: Advanced Insights & Patterns
@@ -760,17 +760,17 @@ def AnalyticsDashboardSection(
                 "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
                 cls="text-gray-500 mb-6",
             ),
-            # Grid(
-            #     chart_scatter_likes_dislikes(
-            #         df, "scatter-likes"
-            #     ),  # Correlation analysis
-            #     chart_bubble_engagement_vs_views(
-            #         df, "bubble-engagement"
-            #     ),  # Multi-dimensional analysis
-            #     # chart_duration_vs_engagement(df, "duration-engagement"),
-            #     chart_video_radar(df, "video-radar"),
-            #     cls="grid-cols-1 md:grid-cols-2 gap-10",
-            # ),
+            Grid(
+                chart_scatter_likes_dislikes(
+                    df, "scatter-likes"
+                ),  # Correlation analysis
+                chart_bubble_engagement_vs_views(
+                    df, "bubble-engagement"
+                ),  # Multi-dimensional analysis
+                # chart_duration_vs_engagement(df, "duration-engagement"),
+                chart_video_radar(df, "video-radar"),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
             cls="mb-16",
         ),
         # Group 5: Content Strategy Insights (if we have controversy data)
