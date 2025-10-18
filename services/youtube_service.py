@@ -995,6 +995,9 @@ class YoutubePlaylistService:
                 pl.col("Engagement Rate Raw")
                 .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
                 .alias("Engagement Rate Formatted"),
+                pl.col("Engagement Rate Raw")
+                .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
+                .alias("Engagement Rate (%)"),
             ]
         )
         return df, stats

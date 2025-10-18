@@ -718,15 +718,15 @@ def AnalyticsDashboardSection(
                 ),
                 cls="mb-6",
             ),
-            # Grid(
-            #     chart_engagement_rate(
-            #         df, "engagement-rate"
-            #     ),  # Individual video engagement
-            #     chart_total_engagement(
-            #         summary, "total-engagement"
-            #     ),  # Overall engagement split
-            #     cls="grid-cols-1 md:grid-cols-2 gap-10",
-            # ),
+            Grid(
+                chart_engagement_rate(
+                    df, "engagement-rate"
+                ),  # Individual video engagement
+                chart_total_engagement(
+                    summary, "total-engagement"
+                ),  # Overall engagement split
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
             cls="mb-16",
         ),
         # Group 3: Audience Sentiment & Polarization

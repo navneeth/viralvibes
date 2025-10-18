@@ -184,12 +184,14 @@ def chart_engagement_rate(
         return _empty_chart("bar", chart_id)
 
     # Sort videos by engagement rate descending
-    sorted_df = _safe_sort(df, "Engagement Rate (%)", descending=True)
-    rates = sorted_df["Engagement Rate (%)"].cast(pl.Float64).fill_null(0).to_list()
+    sorted_df = _safe_sort(df, "Engagement Rate Formatted", descending=True)
+    rates = (
+        sorted_df["Engagement Rate Formatted"].cast(pl.Float64).fill_null(0).to_list()
+    )
     titles = sorted_df["Title"].to_list()
 
     # Compute average benchmark
-    avg_rate = float(sorted_df["Engagement Rate (%)"].mean() or 0)
+    avg_rate = float(sorted_df["Engagement Rate Formatted"].mean() or 0)
 
     opts = _apex_opts(
         "bar",
@@ -361,7 +363,7 @@ def chart_bubble_engagement_vs_views(
         {
             "x": round((row["Views"] or 0) / 1_000_000, 2),
             "y": float(row["Engagement Rate Raw"] or 0.0),
-            "z": round(float(row["Controversy Raw"] or 0.0) * 100, 1),
+            "z": round(float(row["Controversy"] or 0.0) * 100, 1),
             "title": row["Title"][:60],  # truncate long titles
         }
         for row in df.iter_rows(named=True)
