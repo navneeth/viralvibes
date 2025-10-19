@@ -384,25 +384,30 @@ class YoutubePlaylistService:
 
     async def get_playlist_preview(
         self, playlist_url: str
-    ) -> Tuple[str, str, str, int]:
+    ) -> Tuple[str, str, str, int, str, str, str]:
         """
-        Extract lightweight playlist name, uploader, and thumbnail.
-        Lightweight preview: (playlist_title, channel_name, channel_thumbnail, playlist_length)
+        Extract lightweight playlist name, uploader, thumbnail, and metadata.
+        Returns: (playlist_title, channel_name, channel_thumbnail, playlist_length,
+                description, privacy_status, published_date)
         """
         if self.backend == "yt-dlp":
             try:
                 info = await asyncio.to_thread(
                     self.ydl.extract_info, playlist_url, download=False
                 )
-                # Fallbacks in case metadata is sparse
                 title = info.get("title", "Untitled Playlist")
                 channel = info.get("uploader", "Unknown Channel")
                 thumb = self._extract_channel_thumbnail(info)
                 length = info.get("playlist_count", len(info.get("entries", [])))
-                return title, channel, thumb, length
+                description = info.get("description", "")
+                # yt-dlp doesn't expose privacy status easily, set to unknown
+                privacy = "Unknown"
+                published = info.get("upload_date", "")
+
+                return title, channel, thumb, length, description, privacy, published
             except Exception as e:
                 logger.warning(f"Failed to fetch yt-dlp preview: {e}")
-                return "Preview unavailable", "", "", 0
+                return "Preview unavailable", "", "", 0, "", "Unknown", ""
 
         elif self.backend == "youtubeapi":
             try:
@@ -410,23 +415,45 @@ class YoutubePlaylistService:
                 if not m:
                     raise ValueError("Invalid playlist URL")
                 playlist_id = m.group(1)
+
+                # Fetch with status and localized fields
                 resp = (
                     self.youtube.playlists()
-                    .list(part="snippet,contentDetails", id=playlist_id, maxResults=1)
+                    .list(
+                        part="snippet,contentDetails,status",
+                        id=playlist_id,
+                        maxResults=1,
+                    )
                     .execute()
                 )
                 if not resp["items"]:
-                    return "Preview unavailable", "", "", 0
-                sn = resp["items"][0]["snippet"]
-                cd = resp["items"][0].get("contentDetails", {})
+                    return "Preview unavailable", "", "", 0, "", "Unknown", ""
+
+                item = resp["items"][0]
+                sn = item["snippet"]
+                cd = item.get("contentDetails", {})
+                status = item.get("status", {})
+
                 title = sn.get("title", "Untitled Playlist")
                 channel = sn.get("channelTitle", "Unknown Channel")
                 thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
                 length = cd.get("itemCount", 0)
-                return title, channel, thumb, length
+                description = sn.get("description", "")
+                privacy_status = status.get("privacyStatus", "Unknown")
+                published = sn.get("publishedAt", "")
+
+                return (
+                    title,
+                    channel,
+                    thumb,
+                    length,
+                    description,
+                    privacy_status,
+                    published,
+                )
             except Exception as e:
                 logger.warning(f"Failed to fetch API preview: {e}")
-                return "Preview unavailable", "", "", 0
+                return "Preview unavailable", "", "", 0, "", "Unknown", ""
 
     # --------------------------
     # yt-dlp implementation with resilience
@@ -696,14 +723,7 @@ class YoutubePlaylistService:
         max_expanded: Optional[int],
         progress_callback: callable = None,
     ) -> Tuple[pl.DataFrame, str, str, str, Dict[str, float]]:
-        """
-        Fetch and process video information from a YouTube playlist URL.
-
-        Args:
-            playlist_url: The URL of the YouTube playlist
-            max_expanded: Maximum videos to process (None = all videos)
-            progress_callback: Optional callback for progress updates
-        """
+        """Fetch and process video information from a YouTube playlist URL."""
         logger.info(f"Starting analysis for playlist: {playlist_url}")
 
         try:
@@ -717,11 +737,16 @@ class YoutubePlaylistService:
             entries = playlist_info.get("entries", [])
             playlist_count = playlist_info.get("playlist_count", len(entries))
 
+            # NEW: Extract metadata available from yt-dlp
+            description = playlist_info.get("description", "")
+            published = playlist_info.get("upload_date", "")
+
+            logger.info(f"Playlist: {playlist_name} | Published: {published}")
+
             if not entries:
                 logger.warning("No entries in playlist.")
                 return pl.DataFrame(), playlist_name, channel_name, channel_thumb, {}
 
-            # Log processing estimate
             estimate = self.estimate_processing_time(
                 playlist_count, expand_all=(max_expanded is None)
             )
@@ -791,6 +816,19 @@ class YoutubePlaylistService:
             # Finalize with enrichment (stats, formatted columns, etc.)
             df, stats = self._enrich_dataframe(df, playlist_count)
             stats["processing_stats"] = self._processing_stats
+
+            # NEW: Add metadata to stats (yt-dlp doesn't have privacy/podcast info)
+            stats.update(
+                {
+                    "description": description,
+                    "privacy_status": "Unknown",  # yt-dlp doesn't expose this
+                    "published_at": published,
+                    "default_language": "",
+                    "podcast_status": "unknown",
+                    "backend": self.backend,
+                }
+            )
+
             df = normalize_columns(df)
             return df, playlist_name, channel_name, channel_thumb, stats
 
@@ -820,20 +858,38 @@ class YoutubePlaylistService:
             raise ValueError("Invalid playlist URL")
         playlist_id = m.group(1)
 
-        # Fetch playlist metadata
+        # Fetch playlist metadata with new fields
         resp = (
             self.youtube.playlists()
-            .list(part="snippet,contentDetails", id=playlist_id, maxResults=1)
+            .list(part="snippet,contentDetails,status", id=playlist_id, maxResults=1)
             .execute()
         )
         if not resp["items"]:
             raise ValueError("Playlist not found")
-        sn = resp["items"][0]["snippet"]
-        cd = resp["items"][0].get("contentDetails", {})
+
+        item = resp["items"][0]
+        sn = item["snippet"]
+        cd = item.get("contentDetails", {})
+        status = item.get("status", {})
+
         playlist_name = sn.get("title", "Untitled Playlist")
         channel_name = sn.get("channelTitle", "Unknown Channel")
         channel_thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
         total_count = cd.get("itemCount", 0)
+
+        # NEW: Extract additional metadata
+        description = sn.get("description", "")
+        privacy_status = status.get(
+            "privacyStatus", "Unknown"
+        )  # public, private, unlisted
+        published_at = sn.get("publishedAt", "")
+        default_language = sn.get("defaultLanguage", "")
+        podcast_status = status.get("podcastStatus", "disabled")
+
+        logger.info(
+            f"Playlist: {playlist_name} | Privacy: {privacy_status} | "
+            f"Published: {published_at} | Podcast: {podcast_status}"
+        )
 
         # Fetch ALL video IDs (or up to max_expanded)
         video_ids, nextPageToken = [], None
@@ -881,7 +937,7 @@ class YoutubePlaylistService:
                         "Title": sn.get("title", "N/A"),
                         "Views": int(stats.get("viewCount", 0)),
                         "Likes": int(stats.get("likeCount", 0)),
-                        "Dislikes": 0,  # API does not expose
+                        "Dislikes": 0,
                         "Comments": int(stats.get("commentCount", 0)),
                         "Duration": self._parse_iso8601_duration(
                             cd.get("duration", "PT0S")
@@ -894,12 +950,22 @@ class YoutubePlaylistService:
                     }
                 )
 
-        # --- Transform for compatibility ---
         transformed_videos = transform_api_df(videos)
-
         df = pl.DataFrame(transformed_videos)
         df, stats = self._enrich_dataframe(df, len(video_ids))
         df = normalize_columns(df)
+
+        # NEW: Add playlist-level metadata to stats
+        stats.update(
+            {
+                "description": description,
+                "privacy_status": privacy_status,
+                "published_at": published_at,
+                "default_language": default_language,
+                "podcast_status": podcast_status,
+                "backend": self.backend,
+            }
+        )
 
         return df, playlist_name, channel_name, channel_thumb, stats
 
