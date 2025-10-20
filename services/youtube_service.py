@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -188,6 +189,89 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
+class YouTubeBackendBase(ABC):
+    """Abstract base class for YouTube data backends."""
+
+    @abstractmethod
+    async def get_playlist_data(
+        self,
+        playlist_url: str,
+        max_expanded: Optional[int],
+        progress_callback: callable,
+    ):
+        pass
+
+    @abstractmethod
+    async def get_playlist_preview(self, playlist_url: str):
+        pass
+
+
+class YouTubeBackendYTDLP(YouTubeBackendBase):
+    def __init__(self, cfg, ydl_opts=None):
+        if yt_dlp is None:
+            raise ImportError("yt-dlp is not installed.")
+
+        cookies_file = os.getenv("COOKIES_FILE", "/tmp/cookies.txt")
+        if not os.path.exists(cookies_file):
+            logger.warning(
+                f"[YouTubeService] Cookies file not found at {cookies_file}. "
+                f"YouTube may block requests."
+            )
+        else:
+            logger.info(f"[YouTubeService] Using cookies from {cookies_file}")
+
+        # 1. Define base default options
+        base_opts = {
+            "quiet": True,
+            "nocheckcertificate": True,
+            # 🚀 Allows lightweight fetch with URLs
+            "extract_flat": "in_playlist",
+            # 🚀 prevent yt-dlp from writing to ~/.cache
+            "cachedir": False,
+            "skip_download": True,
+            "cookiefile": cookies_file,
+            # Add user agent rotation
+            "user-agent": self._get_random_user_agent(),
+            # Add retries at yt-dlp level
+            "retries": self.cfg.max_retries,
+            "fragment_retries": self.cfg.max_retries,
+        }
+
+        self.ydl_opts = base_opts.copy()
+        if ydl_opts:
+            self.ydl_opts.update(ydl_opts)
+
+        cookies_file = os.getenv("COOKIES_FILE")
+        if cookies_file and os.path.exists(cookies_file):
+            logger.info(f"Using cookies from file: {cookies_file}")
+            self.ydl_opts["cookiefile"] = cookies_file
+        elif cookies_file:
+            logger.warning(f"COOKIES_FILE set, but file not found at: {cookies_file}")
+        self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
+
+    # These will be delegated from YoutubePlaylistService
+    async def get_playlist_data(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def get_playlist_preview(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class YouTubeBackendAPI(YouTubeBackendBase):
+    def __init__(self):
+        if build is None:
+            raise ImportError("google-api-python-client is not installed.")
+        if not YOUTUBE_API_KEY:
+            raise ValueError("YOUTUBE_API_KEY environment variable not set.")
+        self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+
+    async def get_playlist_data(self, *args, **kwargs):
+        raise NotImplementedError
+
+    async def get_playlist_preview(self, *args, **kwargs):
+        raise NotImplementedError
+
+
 class YoutubePlaylistService:
     """Service for fetching and processing YouTube playlist data."""
 
@@ -225,55 +309,11 @@ class YoutubePlaylistService:
         }
 
         if backend == "yt-dlp":
-            if yt_dlp is None:
-                raise ImportError("yt-dlp is not installed.")
-            cookies_file = os.getenv("COOKIES_FILE", "/tmp/cookies.txt")
-            if not os.path.exists(cookies_file):
-                logger.warning(
-                    f"[YouTubeService] Cookies file not found at {cookies_file}. "
-                    f"YouTube may block requests."
-                )
-            else:
-                logger.info(f"[YouTubeService] Using cookies from {cookies_file}")
-
-            # 1. Define base default options
-            base_opts = {
-                "quiet": True,
-                "nocheckcertificate": True,
-                # 🚀 Allows lightweight fetch with URLs
-                "extract_flat": "in_playlist",
-                # 🚀 prevent yt-dlp from writing to ~/.cache
-                "cachedir": False,
-                "skip_download": True,
-                "cookiefile": cookies_file,
-                # Add user agent rotation
-                "user-agent": self._get_random_user_agent(),
-                # Add retries at yt-dlp level
-                "retries": self.cfg.max_retries,
-                "fragment_retries": self.cfg.max_retries,
-            }
-
-            self.ydl_opts = base_opts.copy()
-            if ydl_opts:
-                self.ydl_opts.update(ydl_opts)
-
-            cookies_file = os.getenv("COOKIES_FILE")
-            if cookies_file and os.path.exists(cookies_file):
-                logger.info(f"Using cookies from file: {cookies_file}")
-                self.ydl_opts["cookiefile"] = cookies_file
-            elif cookies_file:
-                logger.warning(
-                    f"COOKIES_FILE set, but file not found at: {cookies_file}"
-                )
-            self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
-
+            self.handler = YouTubeBackendYTDLP(self.cfg, ydl_opts)
+            self.ydl = self.handler.ydl  # backward compatible
         elif backend == "youtubeapi":
-            if build is None:
-                raise ImportError("google-api-python-client is not installed.")
-            if not YOUTUBE_API_KEY:
-                raise ValueError("YOUTUBE_API_KEY environment variable not set.")
-            self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
-
+            self.handler = YouTubeBackendAPI()
+            self.youtube = self.handler.youtube  # backward compatible
         else:
             raise ValueError("backend must be 'yt-dlp' or 'youtubeapi'")
 
