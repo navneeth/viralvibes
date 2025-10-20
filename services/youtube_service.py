@@ -249,12 +249,67 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
             logger.warning(f"COOKIES_FILE set, but file not found at: {cookies_file}")
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
 
-    # These will be delegated from YoutubePlaylistService
-    async def get_playlist_data(self, *args, **kwargs):
-        raise NotImplementedError
+    async def get_playlist_preview(
+        self, playlist_url: str
+    ) -> Tuple[str, str, str, int, str, str, str]:
+        try:
+            info = await asyncio.to_thread(
+                self.ydl.extract_info, playlist_url, download=False
+            )
+            title = info.get("title", "Untitled Playlist")
+            channel = info.get("uploader", "Unknown Channel")
+            thumb = self._extract_channel_thumbnail(info)
+            length = info.get("playlist_count", len(info.get("entries", [])))
+            description = info.get("description", "")
+            # yt-dlp doesn't expose privacy status easily, set to unknown
+            privacy = "Unknown"
+            published = info.get("upload_date", "")
 
-    async def get_playlist_preview(self, *args, **kwargs):
-        raise NotImplementedError
+            return title, channel, thumb, length, description, privacy, published
+        except Exception as e:
+            logger.warning(f"Failed to fetch yt-dlp preview: {e}")
+            return "Preview unavailable", "", "", 0, "", "Unknown", ""
+
+    async def get_playlist_data(
+        self,
+        service: "YoutubePlaylistService",
+        playlist_url: str,
+        max_expanded: Optional[int],
+        progress_callback: callable,
+    ):
+        """Moved from YoutubePlaylistService._get_playlist_data_ytdlp"""
+        return await service._get_playlist_data_ytdlp(
+            playlist_url, max_expanded, progress_callback
+        )
+
+    def _extract_channel_thumbnail(self, playlist_info: dict) -> str:
+        """Extract the channel thumbnail URL from playlist info.
+
+        Args:
+            playlist_info (dict): The playlist information dictionary.
+
+        Returns:
+            str: The channel thumbnail URL.
+        """
+        if "thumbnails" in playlist_info:
+            thumbs = sorted(
+                playlist_info["thumbnails"],
+                key=lambda x: x.get("width", 0),
+                reverse=True,
+            )
+            return thumbs[0].get("url", "") if thumbs else ""
+        return ""
+
+    def _get_random_user_agent(self) -> str:
+        """Return a random realistic user agent string."""
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ]
+        return random.choice(user_agents)
 
 
 class YouTubeBackendAPI(YouTubeBackendBase):
@@ -265,11 +320,53 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             raise ValueError("YOUTUBE_API_KEY environment variable not set.")
         self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
-    async def get_playlist_data(self, *args, **kwargs):
-        raise NotImplementedError
+    async def get_playlist_data(
+        self,
+        service: "YoutubePlaylistService",
+        playlist_url: str,
+        max_expanded: Optional[int],
+        progress_callback: callable,
+    ):
+        """Moved from YoutubePlaylistService._get_playlist_data_youtubeapi"""
+        return await service._get_playlist_data_youtubeapi(
+            playlist_url, max_expanded, progress_callback
+        )
 
-    async def get_playlist_preview(self, *args, **kwargs):
-        raise NotImplementedError
+    async def get_playlist_preview(self, playlist_url: str):
+        try:
+            m = re.search(r"list=([a-zA-Z0-9_-]+)", playlist_url)
+            if not m:
+                raise ValueError("Invalid playlist URL")
+            playlist_id = m.group(1)
+
+            # Fetch with status and localized fields
+            resp = (
+                self.youtube.playlists()
+                .list(
+                    part="snippet,contentDetails,status", id=playlist_id, maxResults=1
+                )
+                .execute()
+            )
+            if not resp["items"]:
+                return "Preview unavailable", "", "", 0, "", "Unknown", ""
+
+            item = resp["items"][0]
+            sn = item["snippet"]
+            cd = item.get("contentDetails", {})
+            status = item.get("status", {})
+
+            title = sn.get("title", "Untitled Playlist")
+            channel = sn.get("channelTitle", "Unknown Channel")
+            thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
+            length = cd.get("itemCount", 0)
+            description = sn.get("description", "")
+            privacy_status = status.get("privacyStatus", "Unknown")
+            published = sn.get("publishedAt", "")
+
+            return title, channel, thumb, length, description, privacy_status, published
+        except Exception as e:
+            logger.warning(f"Failed to fetch API preview: {e}")
+            return "Preview unavailable", "", "", 0, "", "Unknown", ""
 
 
 class YoutubePlaylistService:
@@ -316,17 +413,6 @@ class YoutubePlaylistService:
             self.youtube = self.handler.youtube  # backward compatible
         else:
             raise ValueError("backend must be 'yt-dlp' or 'youtubeapi'")
-
-    def _get_random_user_agent(self) -> str:
-        """Return a random realistic user agent string."""
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ]
-        return random.choice(user_agents)
 
     async def _get_dislike_client(self) -> httpx.AsyncClient:
         """Get or create persistent HTTP client for dislike API."""
@@ -411,16 +497,9 @@ class YoutubePlaylistService:
             max_expanded: Maximum videos to fully process. None = process all videos
             progress_callback: Optional callback for progress updates
         """
-        if self.backend == "yt-dlp":
-            return await self._get_playlist_data_ytdlp(
-                playlist_url, max_expanded, progress_callback
-            )
-        elif self.backend == "youtubeapi":
-            return await self._get_playlist_data_youtubeapi(
-                playlist_url, max_expanded, progress_callback
-            )
-        else:
-            raise ValueError(f"Unsupported backend: {self.backend}")
+        return await self.handler.get_playlist_data(
+            self, playlist_url, max_expanded, progress_callback
+        )
 
     async def get_playlist_preview(
         self, playlist_url: str
@@ -430,70 +509,7 @@ class YoutubePlaylistService:
         Returns: (playlist_title, channel_name, channel_thumbnail, playlist_length,
                 description, privacy_status, published_date)
         """
-        if self.backend == "yt-dlp":
-            try:
-                info = await asyncio.to_thread(
-                    self.ydl.extract_info, playlist_url, download=False
-                )
-                title = info.get("title", "Untitled Playlist")
-                channel = info.get("uploader", "Unknown Channel")
-                thumb = self._extract_channel_thumbnail(info)
-                length = info.get("playlist_count", len(info.get("entries", [])))
-                description = info.get("description", "")
-                # yt-dlp doesn't expose privacy status easily, set to unknown
-                privacy = "Unknown"
-                published = info.get("upload_date", "")
-
-                return title, channel, thumb, length, description, privacy, published
-            except Exception as e:
-                logger.warning(f"Failed to fetch yt-dlp preview: {e}")
-                return "Preview unavailable", "", "", 0, "", "Unknown", ""
-
-        elif self.backend == "youtubeapi":
-            try:
-                m = re.search(r"list=([a-zA-Z0-9_-]+)", playlist_url)
-                if not m:
-                    raise ValueError("Invalid playlist URL")
-                playlist_id = m.group(1)
-
-                # Fetch with status and localized fields
-                resp = (
-                    self.youtube.playlists()
-                    .list(
-                        part="snippet,contentDetails,status",
-                        id=playlist_id,
-                        maxResults=1,
-                    )
-                    .execute()
-                )
-                if not resp["items"]:
-                    return "Preview unavailable", "", "", 0, "", "Unknown", ""
-
-                item = resp["items"][0]
-                sn = item["snippet"]
-                cd = item.get("contentDetails", {})
-                status = item.get("status", {})
-
-                title = sn.get("title", "Untitled Playlist")
-                channel = sn.get("channelTitle", "Unknown Channel")
-                thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
-                length = cd.get("itemCount", 0)
-                description = sn.get("description", "")
-                privacy_status = status.get("privacyStatus", "Unknown")
-                published = sn.get("publishedAt", "")
-
-                return (
-                    title,
-                    channel,
-                    thumb,
-                    length,
-                    description,
-                    privacy_status,
-                    published,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to fetch API preview: {e}")
-                return "Preview unavailable", "", "", 0, "", "Unknown", ""
+        return await self.handler.get_playlist_preview(playlist_url)
 
     # --------------------------
     # yt-dlp implementation with resilience
@@ -1012,24 +1028,6 @@ class YoutubePlaylistService:
     # --------------------------
     # Common helpers
     # --------------------------
-
-    def _extract_channel_thumbnail(self, playlist_info: dict) -> str:
-        """Extract the channel thumbnail URL from playlist info.
-
-        Args:
-            playlist_info (dict): The playlist information dictionary.
-
-        Returns:
-            str: The channel thumbnail URL.
-        """
-        if "thumbnails" in playlist_info:
-            thumbs = sorted(
-                playlist_info["thumbnails"],
-                key=lambda x: x.get("width", 0),
-                reverse=True,
-            )
-            return thumbs[0].get("url", "") if thumbs else ""
-        return ""
 
     def _parse_iso8601_duration(self, duration: str) -> int:
         try:
