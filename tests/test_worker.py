@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Any, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import polars as pl
 import pytest
 
+from services.youtube_service import RateLimitError, YouTubeBotChallengeError
 from worker.worker import JobResult, Worker, handle_job, init
 from worker.worker import Worker as worker_module
 
@@ -18,9 +20,9 @@ class MockPostgrestResponse:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Temporarily disabled for debugging")
-async def test_worker_processes_a_pending_job_and_completes():
-    """Tests that the worker loop correctly fetches and processes a pending job."""
+@pytest.mark.parametrize("backend", ["yt-dlp", "youtubeapi"])
+async def test_worker_processes_a_pending_job_and_completes(backend):
+    """Tests that the worker loop correctly fetches and processes a pending job for both backends."""
     # Create a mock pending job
     fake_job_data = [
         {
@@ -38,25 +40,81 @@ async def test_worker_processes_a_pending_job_and_completes():
     mock_table.select.return_value.eq.return_value.order.return_value.limit.return_value = (
         mock_execute
     )
+    mock_table.update.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    # Mock handle_job return value
+    mock_stats = {
+        "total_views": 1000,
+        "processed_video_count": 1,
+        "backend": backend,
+        "description": "Mock playlist description",
+        "published_at": "2023-01-01T00:00:00Z",
+        "default_language": "",
+        "podcast_status": "disabled" if backend == "youtubeapi" else "unknown",
+        "privacy_status": "public" if backend == "youtubeapi" else "Unknown",
+    }
 
     # Set up patches
     with (
         patch("worker.worker.supabase_client") as mock_supabase,
         patch("worker.worker.handle_job") as mock_handle_job,
         patch("asyncio.sleep", new=AsyncMock()),
+        patch("worker.worker.upsert_playlist_stats") as mock_upsert_playlist_stats,
     ):
         mock_supabase.table.return_value = mock_table
-        mock_handle_job.return_value = None
+        mock_handle_job.return_value = (
+            pl.DataFrame({"Title": ["Test Video"], "Views": [1000], "Likes": [100]}),
+            "Mock Playlist",
+            "Mock Channel",
+            "http://thumbnail.url",
+            mock_stats,
+        )
+        mock_upsert_playlist_stats.return_value = {
+            "source": "fresh",
+            "df_json": "{}",
+            "summary_stats_json": str(mock_stats),
+        }
+
         # Initialize worker
         await init()
 
+        # Create worker with specific backend
+        worker = worker_module(supabase=mock_supabase, backend=backend)
+
+        # Mock progress callback
+        mock_progress_callback = AsyncMock()
+        worker.progress_callback = mock_progress_callback
+
         # Run one iteration of the worker loop
-        jobs = await worker_module(supabase=mock_supabase).fetch_pending_jobs()
+        jobs = await worker.fetch_pending_jobs()
         if jobs:
-            await worker_module(supabase=None).handle_job(jobs[0])
+            await worker.handle_job(jobs[0])
 
         # Verify handler was called with correct job
-        mock_handle_job.assert_awaited_once_with(fake_job_data[0])
+        mock_handle_job.assert_awaited_once_with(fake_job_data[0], is_retry=False)
+
+        # Verify progress callback was called (if applicable)
+        if backend == "yt-dlp":  # yt-dlp uses progress callback
+            mock_progress_callback.assert_awaited()
+
+        # Verify Supabase update
+        mock_supabase.table.assert_called_with("youtube_jobs")
+        mock_table.update.assert_called()
+        update_call = mock_table.update.call_args[0][0]
+        assert update_call["id"] == "abc-123"
+        assert update_call["status"] == "done"
+
+        # Verify upsert of playlist stats
+        mock_upsert_playlist_stats.assert_called_once()
+        upsert_call = mock_upsert_playlist_stats.call_args[0][0]
+        assert upsert_call["summary_stats_json"] == str(mock_stats)
+        assert upsert_call["source"] == "fresh"
+        assert mock_stats["backend"] == backend
+        assert mock_stats["privacy_status"] == (
+            "public" if backend == "youtubeapi" else "Unknown"
+        )
 
 
 @pytest.mark.asyncio

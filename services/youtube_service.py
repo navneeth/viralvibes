@@ -337,11 +337,11 @@ class YouTubeBackendBase(ABC):
 
 
 class YouTubeBackendYTDLP(YouTubeBackendBase):
-    def __init__(self, cfg, ydl_opts=None):
+    def __init__(self, cfg=None, ydl_opts=None):
         if yt_dlp is None:
             raise ImportError("yt-dlp is not installed.")
 
-        self.cfg = cfg
+        self.cfg = cfg or YouTubeConfig()
         self._dislike_client = None
         self._processing_stats = {
             "total_retries": 0,
@@ -850,13 +850,13 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
     YOUTUBE_API_MAX_RESULTS = 50
 
-    def __init__(self, cfg: YouTubeConfig):
+    def __init__(self, cfg: YouTubeConfig = None):
         if build is None:
             raise ImportError("google-api-python-client is not installed.")
         if not YOUTUBE_API_KEY:
             raise ValueError("YOUTUBE_API_KEY environment variable not set.")
 
-        self.cfg = cfg
+        self.cfg = cfg or YouTubeConfig()
         self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
     async def get_playlist_preview(
