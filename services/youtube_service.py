@@ -12,6 +12,7 @@ import random
 import re
 import time
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -131,6 +132,13 @@ def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # --- Normalize dataframe column names between yt-dlp and YouTube API ---
 def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
     """Normalize dataframe column names between different backends."""
+    if df is None or not isinstance(df, pl.DataFrame):
+        logger.warning(f"Invalid DataFrame in normalize_columns: received {type(df)}")
+        return None
+    if df.is_empty():
+        logger.info("Empty DataFrame received in normalize_columns")
+        return None
+
     # Canonicalize to internal schema: "Views", "Likes", "Dislikes", "Comments"
     rename_map = {
         "title": "Title",
@@ -218,6 +226,13 @@ def _enrich_dataframe(
     self, df: pl.DataFrame, actual_playlist_count: int = None
 ) -> Tuple[pl.DataFrame, Dict[str, Any]]:
     """Calculate summary statistics for the playlist."""
+    # Check if df is a Polars DataFrame or None
+    if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
+        logger.warning(
+            f"Invalid or empty DataFrame received in _enrich_dataframe: {type(df)}"
+        )
+        return None, {"total_views": 0, "processed_video_count": 0}
+
     if df.is_empty():
         return df, {
             "total_views": 0,
@@ -316,6 +331,9 @@ def get_category_name(category_id: str) -> str:
 class YouTubeBackendBase(ABC):
     """Abstract base class for YouTube data backends."""
 
+    def __init__(self, cfg=None):
+        self.cfg = cfg or YouTubeConfig()
+
     @abstractmethod
     async def get_playlist_data(
         self,
@@ -335,13 +353,62 @@ class YouTubeBackendBase(ABC):
         """Optional cleanup. Override if needed."""
         pass
 
+    def estimate_processing_time(
+        self, playlist_count: int, expand_all: bool = True
+    ) -> ProcessingEstimate:
+        """
+        Estimate the time required to process a playlist.
+
+        Args:
+            playlist_count: Total number of videos in playlist
+            expand_all: Whether to expand all videos (True) or use default limit
+
+        Returns:
+            ProcessingEstimate object with timing information
+        """
+        videos_to_expand = playlist_count if expand_all else min(20, playlist_count)
+
+        # Time estimates (in seconds)
+        flat_fetch_time = 2.0  # Initial playlist fetch
+        avg_video_fetch_time = (self.cfg.min_video_delay + self.cfg.max_video_delay) / 2
+        avg_dislike_fetch_time = 0.2
+        avg_batch_delay = (self.cfg.min_batch_delay + self.cfg.max_batch_delay) / 2
+
+        # Calculate batch processing time
+        batch_count = (
+            videos_to_expand + self.cfg.batch_size - 1
+        ) // self.cfg.batch_size
+
+        # Time per batch: max(video_fetch, dislike_fetch) since they're concurrent
+        time_per_batch = (
+            max(
+                avg_video_fetch_time * self.cfg.batch_size,
+                avg_dislike_fetch_time * self.cfg.batch_size,
+            )
+            + avg_batch_delay
+        )
+
+        total_seconds = flat_fetch_time + (time_per_batch * batch_count)
+
+        # Add buffer for retries and overhead (20%)
+        total_seconds *= 1.2
+
+        return ProcessingEstimate(
+            total_videos=playlist_count,
+            videos_to_expand=videos_to_expand,
+            estimated_seconds=total_seconds,
+            estimated_minutes=total_seconds / 60,
+            batch_count=batch_count,
+        )
+
 
 class YouTubeBackendYTDLP(YouTubeBackendBase):
     def __init__(self, cfg=None, ydl_opts=None):
+        super().__init__(cfg)
+
         if yt_dlp is None:
             raise ImportError("yt-dlp is not installed.")
 
-        self.cfg = cfg or YouTubeConfig()
         self._dislike_client = None
         self._processing_stats = {
             "total_retries": 0,
@@ -553,7 +620,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
                 df = skeleton_df
 
             # Finalize with enrichment (stats, formatted columns, etc.)
-            df, stats = self._enrich_dataframe(df, playlist_count)
+            df, stats = _enrich_dataframe(df, playlist_count)
             stats["processing_stats"] = self._processing_stats
 
             # NEW: Add metadata to stats (yt-dlp doesn't have privacy/podcast info)
@@ -564,7 +631,6 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
                     "published_at": published,
                     "default_language": "",
                     "podcast_status": "unknown",
-                    "backend": self.backend,
                 }
             )
 
@@ -851,12 +917,13 @@ class YouTubeBackendAPI(YouTubeBackendBase):
     YOUTUBE_API_MAX_RESULTS = 50
 
     def __init__(self, cfg: YouTubeConfig = None):
+        super().__init__(cfg)
+
         if build is None:
             raise ImportError("google-api-python-client is not installed.")
         if not YOUTUBE_API_KEY:
             raise ValueError("YOUTUBE_API_KEY environment variable not set.")
 
-        self.cfg = cfg or YouTubeConfig()
         self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
     async def get_playlist_preview(
@@ -1008,7 +1075,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
         transformed_videos = transform_api_df(videos)
         df = pl.DataFrame(transformed_videos)
-        df, stats = self._enrich_dataframe(df, len(video_ids))
+        df, stats = _enrich_dataframe(df, len(video_ids))
         df = normalize_columns(df)
 
         # NEW: Add playlist-level metadata to stats
@@ -1068,6 +1135,13 @@ class YoutubePlaylistService:
         """
         self.backend = backend
         self.cfg = config or YouTubeConfig()
+
+        if backend == "yt-dlp" and yt_dlp is None:
+            raise ImportError("yt-dlp is required for the yt-dlp backend")
+        if backend == "youtubeapi" and build is None:
+            raise ImportError(
+                "google-api-python-client is required for the youtubeapi backend"
+            )
 
         # Persistent HTTP client for dislike API
         self._dislike_client = None
@@ -1129,54 +1203,6 @@ class YoutubePlaylistService:
     async def close(self):
         """Close any persistent connections."""
         await self.handler.close()
-
-    def estimate_processing_time(
-        self, playlist_count: int, expand_all: bool = True
-    ) -> ProcessingEstimate:
-        """
-        Estimate the time required to process a playlist.
-
-        Args:
-            playlist_count: Total number of videos in playlist
-            expand_all: Whether to expand all videos (True) or use default limit
-
-        Returns:
-            ProcessingEstimate object with timing information
-        """
-        videos_to_expand = playlist_count if expand_all else min(20, playlist_count)
-
-        # Time estimates (in seconds)
-        flat_fetch_time = 2.0  # Initial playlist fetch
-        avg_video_fetch_time = (self.cfg.min_video_delay + self.cfg.max_video_delay) / 2
-        avg_dislike_fetch_time = 0.2
-        avg_batch_delay = (self.cfg.min_batch_delay + self.cfg.max_batch_delay) / 2
-
-        # Calculate batch processing time
-        batch_count = (
-            videos_to_expand + self.cfg.batch_size - 1
-        ) // self.cfg.batch_size
-
-        # Time per batch: max(video_fetch, dislike_fetch) since they're concurrent
-        time_per_batch = (
-            max(
-                avg_video_fetch_time * self.cfg.batch_size,
-                avg_dislike_fetch_time * self.cfg.batch_size,
-            )
-            + avg_batch_delay
-        )
-
-        total_seconds = flat_fetch_time + (time_per_batch * batch_count)
-
-        # Add buffer for retries and overhead (20%)
-        total_seconds *= 1.2
-
-        return ProcessingEstimate(
-            total_videos=playlist_count,
-            videos_to_expand=videos_to_expand,
-            estimated_seconds=total_seconds,
-            estimated_minutes=total_seconds / 60,
-            batch_count=batch_count,
-        )
 
     @classmethod
     def get_display_headers(cls) -> List[str]:

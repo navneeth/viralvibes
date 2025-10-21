@@ -5,6 +5,7 @@ and updates job status. Intelligently retries failed jobs with backoff.
 """
 
 import asyncio
+import json
 import logging
 import os
 import random
@@ -16,16 +17,15 @@ from datetime import datetime, timedelta
 from socket import timeout as SocketTimeout
 from ssl import SSLEOFError
 from typing import Any, Dict, Optional
-import json
 
 from dotenv import load_dotenv
 
 from db import (
+    get_latest_playlist_job,
     init_supabase,
     setup_logging,
     supabase_client,
     upsert_playlist_stats,
-    get_latest_playlist_job,
 )
 from services.youtube_service import (
     YouTubeBotChallengeError,
@@ -754,8 +754,9 @@ class Worker:
     def __init__(self, supabase=None, yt=None):
         # Use injected clients if provided (for tests), otherwise fall back to module globals
         self.supabase = supabase or supabase_client
-        # yt may be injected for tests; fallback to module-level yt_service
+        # Use injected yt_service if provided; otherwise create new with specified backend
         self.yt = yt or globals().get("yt_service")
+        logger.info(f"Worker initialized with backend: {backend}")
 
     async def process_one(
         self, job: Dict[str, Any], is_retry: bool = False

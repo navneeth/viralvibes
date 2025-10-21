@@ -171,12 +171,141 @@ async def test_process_one_handles_handler_exception_and_returns_failed():
 
 
 @pytest.mark.asyncio
-async def test_process_one_retry_flag():
-    fake_job = {"id": "retry-1", "playlist_url": "mock"}
-    with patch("worker.worker.handle_job", new=AsyncMock(return_value=None)):
-        worker = worker_module(supabase=None)
-        await worker.process_one(fake_job, is_retry=True)
-        # Assert retry flag passed through
+@pytest.mark.parametrize("backend", ["yt-dlp", "youtubeapi"])
+async def test_process_one_retry_flag(backend):
+    """Tests that Worker.process_one passes is_retry=True to handle_job and handles success case."""
+    fake_job = {
+        "id": "retry-1",
+        "playlist_url": "https://youtube.com/playlist?list=MOCK",
+        "status": "pending",
+        "retry_count": 1,  # Simulate a retry attempt
+    }
+
+    # Mock Supabase client
+    mock_supabase = MagicMock()
+    mock_table = MagicMock()
+    mock_supabase.table.return_value = mock_table
+    mock_table.update.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    # Mock handle_job return value
+    mock_stats = {
+        "total_views": 1000,
+        "processed_video_count": 1,
+        "backend": backend,
+        "description": "Mock playlist description",
+        "published_at": "2023-01-01T00:00:00Z",
+        "default_language": "",
+        "podcast_status": "disabled" if backend == "youtubeapi" else "unknown",
+        "privacy_status": "public" if backend == "youtubeapi" else "Unknown",
+        "processing_stats": {
+            "total_retries": 0,
+            "failed_videos": 0,
+            "bot_challenges": 0,
+            "rate_limits": 0,
+        },
+    }
+
+    with (
+        patch("worker.worker.supabase_client", mock_supabase),
+        patch("worker.worker.handle_job", new=AsyncMock()) as mock_handle_job,
+        patch("worker.worker.upsert_playlist_stats") as mock_upsert_playlist_stats,
+    ):
+        mock_handle_job.return_value = (
+            pl.DataFrame({"Title": ["Test Video"], "Views": [1000], "Likes": [100]}),
+            "Mock Playlist",
+            "Mock Channel",
+            "http://thumbnail.url",
+            mock_stats,
+        )
+        mock_upsert_playlist_stats.return_value = {
+            "source": "fresh",
+            "df_json": "{}",
+            "summary_stats_json": str(mock_stats),
+        }
+
+        worker = Worker(supabase=mock_supabase, backend=backend)
+        result = await worker.process_one(fake_job, is_retry=True)
+
+        # Verify handle_job was called with is_retry=True
+        mock_handle_job.assert_awaited_once_with(fake_job, is_retry=True)
+
+        # Verify Supabase update
+        mock_supabase.table.assert_called_with("youtube_jobs")
+        mock_table.update.assert_called()
+        update_call = mock_table.update.call_args[0][0]
+        assert update_call["id"] == "retry-1"
+        assert update_call["status"] == "done"
+        assert update_call["retry_count"] == 1  # Ensure retry_count is preserved
+        assert update_call["error"] is None
+
+        # Verify upsert of playlist stats
+        mock_upsert_playlist_stats.assert_called_once()
+        upsert_call = mock_upsert_playlist_stats.call_args[0][0]
+        assert upsert_call["summary_stats_json"] == str(mock_stats)
+        assert upsert_call["source"] == "fresh"
+
+        # Verify JobResult
+        assert isinstance(result, JobResult)
+        assert result.job_id == "retry-1"
+        assert result.status == "done"
+        assert result.error is None
+        assert result.result_source == "fresh"
+        assert result.raw_row["backend"] == backend
+        assert result.raw_row["privacy_status"] == (
+            "public" if backend == "youtubeapi" else "Unknown"
+        )
+        assert result.raw_row["retry_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_process_one_retry_flag_handles_bot_challenge():
+    """Tests that Worker.process_one handles YouTubeBotChallengeError with is_retry=True."""
+    fake_job = {
+        "id": "retry-1",
+        "playlist_url": "https://youtube.com/playlist?list=MOCK",
+        "status": "pending",
+        "retry_count": 1,
+    }
+
+    mock_supabase = MagicMock()
+    mock_table = MagicMock()
+    mock_supabase.table.return_value = mock_table
+    mock_table.update.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[]
+    )
+
+    with (
+        patch("worker.worker.supabase_client", mock_supabase),
+        patch(
+            "worker.worker.handle_job",
+            new=AsyncMock(
+                side_effect=YouTubeBotChallengeError("Bot challenge detected")
+            ),
+        ),
+    ):
+        worker = Worker(supabase=mock_supabase, backend="yt-dlp")
+        result = await worker.process_one(fake_job, is_retry=True)
+
+        # Verify handle_job was called with is_retry=True
+        mock_handle_job.assert_awaited_once_with(fake_job, is_retry=True)
+
+        # Verify Supabase update
+        mock_supabase.table.assert_called_with("youtube_jobs")
+        mock_table.update.assert_called()
+        update_call = mock_table.update.call_args[0][0]
+        assert update_call["id"] == "retry-1"
+        assert update_call["status"] == "blocked"
+        assert update_call["retry_count"] == 1
+        assert "Bot challenge" in update_call["error"]
+
+        # Verify JobResult
+        assert isinstance(result, JobResult)
+        assert result.job_id == "retry-1"
+        assert result.status == "blocked"
+        assert "Bot challenge" in result.error
+        assert result.raw_row["retry_count"] == 1
 
 
 @pytest.mark.parametrize(
