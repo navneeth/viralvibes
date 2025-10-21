@@ -208,6 +208,8 @@ class YouTubeBackendBase(ABC):
 
 class YouTubeBackendYTDLP(YouTubeBackendBase):
     def __init__(self, cfg, ydl_opts=None):
+        self.cfg = cfg
+
         if yt_dlp is None:
             raise ImportError("yt-dlp is not installed.")
 
