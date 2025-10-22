@@ -751,7 +751,7 @@ class JobResult:
 class Worker:
     """Worker facade exposing a single-iteration API for tests and orchestration."""
 
-    def __init__(self, supabase=None, yt=None):
+    def __init__(self, supabase=None, yt=None, backend="youtubeapi"):
         # Use injected clients if provided (for tests), otherwise fall back to module globals
         self.supabase = supabase or supabase_client
         # Use injected yt_service if provided; otherwise create new with specified backend
