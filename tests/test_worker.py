@@ -75,24 +75,21 @@ def fake_db():
 
 @pytest.fixture
 def fake_df():
-    class DF:
-        def __init__(self):
-            self.height = 2
+    import polars as pl
 
-        def is_empty(self):
-            return False
-
-    return DF()
+    return pl.DataFrame({"title": ["Test"], "view_count": [100]})
 
 
 @pytest.fixture
 def patch_upsert(monkeypatch):
     async def fake_upsert(stats):
-        return {
-            "source": "fresh",
-            "df_json": "[]",
-            "summary_stats_json": json.dumps(stats.get("summary_stats", {})),
-        }
+        from db import UpsertResult  # Import inside fixture to avoid import issues
+
+        return UpsertResult(
+            source="fresh",
+            df="[]",
+            summary_stats=json.dumps(stats.get("summary_stats", {})),
+        )
 
     monkeypatch.setattr(wk, "upsert_playlist_stats", fake_upsert)
 
@@ -159,9 +156,14 @@ async def test_worker_processes_pending_job_successfully(
     result = await worker.process_one(
         {"id": "job123", "playlist_url": "https://youtube.com/playlist?list=abc"}
     )
-    assert isinstance(result, JobResult)
-    assert result.job_id == "job123"
-    assert fake_db.tables["playlist_jobs"][0]["status"] in ("processing", "done")
+    assert isinstance(result, JobResult), f"Expected JobResult, got {type(result)}"
+    assert result.job_id == "job123", f"Expected job_id 'job123', got {result.job_id}"
+    assert result.status == "done", f"Expected status 'done', got {result.status}"
+    assert fake_db.tables["playlist_jobs"][0]["status"] == "done", (
+        f"Expected job status 'done', got {fake_db.tables['playlist_jobs'][0]['status']}, "
+        f"job state: {fake_db.tables['playlist_jobs']}"
+    )
+    assert fake_db.tables["playlist_jobs"][0]["result_source"] == "fresh"
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,11 @@
 import asyncio
-import pytest
 import json
 from types import SimpleNamespace
-from worker.worker import Worker, JobResult
+
+import pytest
+
 import worker.worker as wk
+from worker.worker import JobResult, Worker
 
 
 @pytest.mark.asyncio
@@ -15,6 +17,7 @@ async def test_worker_process_one_success(monkeypatch):
     class FakeDF:
         def __init__(self):
             self.height = 2
+            self.columns = ["Title", "Views"]
 
         def is_empty(self):
             return False
@@ -40,12 +43,13 @@ async def test_worker_process_one_success(monkeypatch):
     )
 
     async def fake_upsert(stats):
-        # simulate db upsert success
-        return {
-            "source": "fresh",
-            "df_json": "[]",
-            "summary_stats_json": json.dumps(stats.get("summary_stats", {})),
-        }
+        from db import UpsertResult  # Import inside to avoid import issues
+
+        return UpsertResult(
+            source="fresh",
+            df="[]",
+            # summary_stats=json.dumps(stats.get("summary_stats", {})),
+        )
 
     # override upsert_playlist_stats used in worker
     monkeypatch.setattr(wk, "upsert_playlist_stats", fake_upsert)

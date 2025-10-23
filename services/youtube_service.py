@@ -1086,7 +1086,6 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                 "published_at": published_at,
                 "default_language": default_language,
                 "podcast_status": podcast_status,
-                "backend": self.backend,
             }
         )
 
