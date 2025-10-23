@@ -433,7 +433,6 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
                     "error": f"Network error: {str(e)}",
                     "error_type": type(e).__name__,
                     "finished_at": datetime.utcnow().isoformat(),
-                    "retry_scheduled": True,
                 },
             )
         else:
@@ -445,7 +444,6 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
                     "error": f"Network error after {MAX_RETRY_ATTEMPTS} attempts: {str(e)}",
                     "error_type": type(e).__name__,
                     "finished_at": datetime.utcnow().isoformat(),
-                    "retry_scheduled": False,
                 },
             )
 
@@ -467,7 +465,6 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
                     "error": str(e)[:1000],
                     "error_trace": tb,
                     "finished_at": datetime.utcnow().isoformat(),
-                    "retry_scheduled": True,
                 },
             )
         else:
@@ -479,7 +476,6 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
                     "error": f"{str(e)[:1000]} (max retries exhausted)",
                     "error_trace": tb,
                     "finished_at": datetime.utcnow().isoformat(),
-                    "retry_scheduled": False,
                 },
             )
 
