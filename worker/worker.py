@@ -386,7 +386,7 @@ async def handle_job(job, is_retry: bool = False):
         logger.debug(f"[Job {job_id}] Upsert payload={safe_payload}")
 
         result = await upsert_playlist_stats(stats_to_cache)
-        logger.info(f"[Job {job_id}] Upsert result source={result.get('source')}")
+        logger.info(f"[Job {job_id}] Upsert result source={result.source}")
 
         # Detailed validation: ensure DB confirms presence of serialized payloads
         # Prefer df (cache case) or df_json (fresh insert confirmation)
