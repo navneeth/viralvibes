@@ -369,43 +369,13 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
             await handle_job_failure(job_id, retry_count, error_message)
             return
 
-        # If upsert reported an error or critical payloads missing, fail the job (with retries if available)
-        if result.get("source") != "fresh" and result.get("source") != "cache":
-            error_message = (
-                f"Upsert did not return fresh/cache (source={result.get('source')})."
-            )
-            logger.error(f"[Job {job_id}] {error_message} result={result}")
-            # schedule retry or mark failed
-            if retry_count < MAX_RETRY_ATTEMPTS:
-                await increment_retry_count(job_id, retry_count)
-                await mark_job_status(
-                    job_id,
-                    "failed",
-                    {
-                        "error": error_message,
-                        "finished_at": datetime.utcnow().isoformat(),
-                        "retry_scheduled": True,
-                    },
-                )
-            else:
-                await mark_job_status(
-                    job_id,
-                    "failed",
-                    {
-                        "error": f"{error_message} (max retries exhausted)",
-                        "finished_at": datetime.utcnow().isoformat(),
-                        "retry_scheduled": False,
-                    },
-                )
-            return
-
-        # Success!
+        # ✅ Success — mark job as done
         if result.source in ["cache", "fresh"]:
             # Reset bot challenge counter on success
             consecutive_bot_challenges = 0
             last_bot_challenge_time = None
 
-            success_message = f"Completed successfully (source={result.get('source')})"
+            success_message = f"Completed successfully (source={result.source})"
             if is_retry:
                 success_message += f" after {retry_count} retries"
 
@@ -415,7 +385,7 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
                 {
                     "status_message": success_message,
                     "finished_at": datetime.utcnow().isoformat(),
-                    "result_source": result.get("source"),
+                    "result_source": result.source,
                 },
             )
             logger.info(f"[Job {job_id}] {success_message}")
