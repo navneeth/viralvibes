@@ -184,15 +184,12 @@ def get_cached_playlist_stats(
 
 @dataclass
 class UpsertResult:
-    source: str  # "cache" | "fresh" | "error"
-    df_json: Optional[str] = None
-    summary_stats_json: Optional[str] = None
-    inserted_row: Optional[Dict[str, Any]] = None
-    raw_row: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    """Result of upserting playlist stats to the database."""
 
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+    source: str  # 'cache', 'fresh', 'error'
+    df: Optional[pl.DataFrame] = None
+    summary_stats: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
 
 
 async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
