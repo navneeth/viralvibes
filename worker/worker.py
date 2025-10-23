@@ -18,6 +18,7 @@ from socket import timeout as SocketTimeout
 from ssl import SSLEOFError
 from typing import Any, Dict, Optional
 
+import polars as pl
 from dotenv import load_dotenv
 
 from db import (
@@ -279,7 +280,7 @@ async def handle_job_failure(
         return False
 
 
-async def handle_job(job, is_retry: bool = False):
+async def handle_job(job: dict[str, Any], is_retry: bool = False):
     """Process a single job dict."""
     global last_bot_challenge_time, consecutive_bot_challenges
 
@@ -313,45 +314,11 @@ async def handle_job(job, is_retry: bool = False):
         )
 
         # Validate results
-        if df is None or df.is_empty():
-            error_message = (
-                "No valid videos found in the playlist or failed to process."
-            )
-
-            # Check if we should retry
-            if retry_count < MAX_RETRY_ATTEMPTS:
-                logger.warning(
-                    f"[Job {job_id}] {error_message} - will retry later "
-                    f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
-                )
-                await increment_retry_count(job_id, retry_count)
-                await mark_job_status(
-                    job_id,
-                    "failed",
-                    {
-                        "error": error_message,
-                        "finished_at": datetime.utcnow().isoformat(),
-                        "retry_scheduled": True,
-                    },
-                )
-            else:
-                logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
-                await mark_job_status(
-                    job_id,
-                    "failed",
-                    {
-                        "error": f"{error_message} (max retries exhausted)",
-                        "finished_at": datetime.utcnow().isoformat(),
-                        "retry_scheduled": False,
-                    },
-                )
+        if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
+            error_message = "Empty or invalid playlist data returned."
+            logger.warning(f"[Job {job_id}] {error_message}")
+            await handle_job_failure(job_id, retry_count, error_message)
             return
-
-        try:
-            df = normalize_columns(df)
-            logger.info(f"[Job {job_id}] Normalized columns: {df.columns}")
-        except Exception as e:
-            logger.warning(f"[Job {job_id}] Column normalization failed: {e}")
 
         # Ensure processed video count is in summary_stats
         processed_video_count = getattr(df, "height", 0) if df is not None else 0
@@ -388,36 +355,19 @@ async def handle_job(job, is_retry: bool = False):
         result = await upsert_playlist_stats(stats_to_cache)
         logger.info(f"[Job {job_id}] Upsert result source={result.source}")
 
-        # Detailed validation: ensure DB confirms presence of serialized payloads
-        # Prefer df (cache case) or df_json (fresh insert confirmation)
-        df_present = bool(result.get("df")) or bool(result.get("df_json"))
-        summary_present = bool(result.get("summary_stats")) or bool(
-            result.get("summary_stats_json")
-        )
+        # Handle database errors
+        if result.source == "error" or result.error:
+            error_message = f"DB upsert failed: {result.error or 'unknown error'}"
+            await handle_job_failure(job_id, retry_count, error_message)
+            return
 
-        # Log context: original df size and serialized sizes if available
-        try:
-            original_height = getattr(df, "height", None)
-        except Exception:
-            original_height = None
-
-        df_json_len = len(result.get("df_json") or "") if result.get("df_json") else 0
-
-        # Prefer measuring the actual serialized JSON length when available.
-        # Fallback to serializing the summary_stats dict to estimate size.
-        summary_stats_json = result.get("summary_stats_json")
-        if summary_stats_json:
-            ss_json_len = len(summary_stats_json)
-        else:
-            ss_obj = result.get("summary_stats")
-            try:
-                ss_json_len = len(json.dumps(ss_obj)) if ss_obj else 0
-            except Exception:
-                ss_json_len = 0
-
-        logger.info(
-            f"[Job {job_id}] validation context: original_df_height={original_height}, df_json_len={df_json_len}, summary_stats_len={ss_json_len}"
-        )
+        # Sanity check results
+        if not result.df or not result.summary_stats:
+            error_message = (
+                "Incomplete data after DB upsert (missing df or summary_stats)"
+            )
+            await handle_job_failure(job_id, retry_count, error_message)
+            return
 
         # If upsert reported an error or critical payloads missing, fail the job (with retries if available)
         if result.get("source") != "fresh" and result.get("source") != "cache":
@@ -449,36 +399,8 @@ async def handle_job(job, is_retry: bool = False):
                 )
             return
 
-        if not df_present or not summary_present:
-            error_message = "Incomplete data after upsert: missing df or summary_stats."
-            logger.error(
-                f"[Job {job_id}] {error_message} (original_df_height={original_height}, df_json_len={df_json_len}, summary_stats_len={ss_json_len})"
-            )
-            if retry_count < MAX_RETRY_ATTEMPTS:
-                await increment_retry_count(job_id, retry_count)
-                await mark_job_status(
-                    job_id,
-                    "failed",
-                    {
-                        "error": error_message,
-                        "finished_at": datetime.utcnow().isoformat(),
-                        "retry_scheduled": True,
-                    },
-                )
-            else:
-                await mark_job_status(
-                    job_id,
-                    "failed",
-                    {
-                        "error": f"{error_message} (max retries exhausted)",
-                        "finished_at": datetime.utcnow().isoformat(),
-                        "retry_scheduled": False,
-                    },
-                )
-            return
-
         # Success!
-        if result.get("source") in ["cache", "fresh"]:
+        if result.source in ["cache", "fresh"]:
             # Reset bot challenge counter on success
             consecutive_bot_challenges = 0
             last_bot_challenge_time = None
