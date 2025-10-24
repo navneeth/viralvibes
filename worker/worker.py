@@ -280,13 +280,41 @@ async def handle_job_failure(
         return False
 
 
-async def handle_job(job: dict[str, Any], is_retry: bool = False):
+def _result_to_mapping(result) -> Dict[str, Any]:
+    """Convert UpsertResult dataclass to dict for backward compatibility."""
+    if hasattr(result, "__dict__"):
+        return vars(result)
+    elif isinstance(result, dict):
+        return result
+    else:
+        # Fallback: try to access as dataclass
+        return {
+            "source": getattr(result, "source", None),
+            "df": getattr(result, "df", None),
+            "df_json": getattr(result, "df_json", None),
+            "summary_stats": getattr(result, "summary_stats", None),
+            "summary_stats_json": getattr(result, "summary_stats_json", None),
+            "error": getattr(result, "error", None),
+        }
+
+
+async def handle_job(job: Dict[str, Any], is_retry: bool = False):
     """Process a single job dict."""
     global last_bot_challenge_time, consecutive_bot_challenges
 
     job_id = job.get("id")
     playlist_url = job.get("playlist_url")
     retry_count = job.get("retry_count", 0)
+
+    # Track current stage for precise error location
+    current_stage = "start"
+
+    def _set_stage(name: str):
+        nonlocal current_stage
+        current_stage = name
+        logger.info(f"[Job {job_id}] STAGE: {name}")
+
+    _set_stage("start")
 
     retry_label = f" (retry {retry_count}/{MAX_RETRY_ATTEMPTS})" if is_retry else ""
     logger.info(f"[Job {job_id}] Starting{retry_label} for playlist {playlist_url}")
@@ -297,11 +325,14 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
     await asyncio.sleep(delay)
 
     start_time = time.time()
-    await mark_job_status(
+    _set_stage("mark-processing")
+    started_ok = await mark_job_status(
         job_id, "processing", {"started_at": datetime.utcnow().isoformat()}
     )
+    logger.info(f"[Job {job_id}] mark_job_status(processing) returned: {started_ok}")
 
     try:
+        _set_stage("fetch-playlist-data")
         # Fetch playlist data
         (
             df,
@@ -312,14 +343,23 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
         ) = await yt_service.get_playlist_data(
             playlist_url, progress_callback=lambda p, t: update_progress(job_id, p, t)
         )
+        _set_stage("fetched-playlist-data")
 
+        logger.info(
+            f"[Job {job_id}] Fetched playlist data: playlist_name={playlist_name} "
+            f"channel={channel_name} df_type={type(df)}"
+        )
+
+        _set_stage("validate-df")
         # Validate results
         if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
             error_message = "Empty or invalid playlist data returned."
             logger.warning(f"[Job {job_id}] {error_message}")
             await handle_job_failure(job_id, retry_count, error_message)
             return
+        _set_stage("df-validated")
 
+        _set_stage("prepare-stats")
         # Ensure processed video count is in summary_stats
         processed_video_count = getattr(df, "height", 0) if df is not None else 0
         summary_stats["processed_video_count"] = processed_video_count
@@ -350,32 +390,40 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
         logger.info(
             f"[Job {job_id}] Prepared stats for upsert (playlist={playlist_url})"
         )
-        logger.debug(f"[Job {job_id}] Upsert payload={safe_payload}")
+        logger.debug(f"[Job {job_id}] Upsert payload keys={list(safe_payload.keys())}")
+
+        _set_stage("upsert-to-db")
 
         result = await upsert_playlist_stats(stats_to_cache)
-        logger.info(f"[Job {job_id}] Upsert result source={result.source}")
+        result_map = _result_to_mapping(result)
+        logger.info(
+            f"[Job {job_id}] Upsert result mapping keys={list(result_map.keys())}"
+        )
+        _set_stage("upsert-done")
 
-        # Handle database errors
-        if result.source == "error" or result.error:
-            error_message = f"DB upsert failed: {result.error or 'unknown error'}"
+        # Detailed validation: ensure DB confirms presence of serialized payloads
+        df_present = bool(result_map.get("df")) or bool(result_map.get("df_json"))
+        summary_present = bool(result_map.get("summary_stats")) or bool(
+            result_map.get("summary_stats_json")
+        )
+
+        if not df_present or not summary_present:
+            error_message = "Upsert did not return expected data frames (df or summary_stats missing)"
+            logger.warning(f"[Job {job_id}] {error_message}")
             await handle_job_failure(job_id, retry_count, error_message)
             return
-
-        # Sanity check results
-        if not result.df or not result.summary_stats:
-            error_message = (
-                "Incomplete data after DB upsert (missing df or summary_stats)"
-            )
-            await handle_job_failure(job_id, retry_count, error_message)
-            return
+        _set_stage("validate-upsert-response")
 
         # ✅ Success — mark job as done
-        if result.source in ["cache", "fresh"]:
+        source = result_map.get("source")
+        if source in ["cache", "fresh"]:
             # Reset bot challenge counter on success
             consecutive_bot_challenges = 0
             last_bot_challenge_time = None
 
-            success_message = f"Completed successfully (source={result.source})"
+            success_message = (
+                f"Completed successfully (source={result_map.get('source')})"
+            )
             if is_retry:
                 success_message += f" after {retry_count} retries"
 
@@ -385,10 +433,22 @@ async def handle_job(job: dict[str, Any], is_retry: bool = False):
                 {
                     "status_message": success_message,
                     "finished_at": datetime.utcnow().isoformat(),
-                    "result_source": result.source,
+                    "result_source": result_map.get("source"),
                 },
             )
+            _set_stage("marked-done")
             logger.info(f"[Job {job_id}] {success_message}")
+        elif source == "error":
+            error_msg = result_map.get("error", "Unknown upsert error")
+            logger.error(f"[Job {job_id}] Upsert failed: {error_msg}")
+            await handle_job_failure(
+                job_id, retry_count, f"DB upsert error: {error_msg}"
+            )
+        else:
+            logger.error(f"[Job {job_id}] Unknown upsert source: {source}")
+            await handle_job_failure(
+                job_id, retry_count, f"Unknown upsert result: {source}"
+            )
 
     except YouTubeBotChallengeError as e:
         # Track bot challenges for backoff
@@ -706,7 +766,7 @@ class Worker:
             status = raw_row.get("status")
             error = raw_row.get("error")
             retry_scheduled = raw_row.get("retry_scheduled")
-            result_source = raw_row.get("result_source") or raw_row.get("result_source")
+            result_source = raw_row.get("result_source")
         else:
             logger.warning(f"[Worker.process_one] No job row found for {job_id}")
 
