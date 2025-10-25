@@ -106,7 +106,7 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _enrich_dataframe(
-    self, df: pl.DataFrame, actual_playlist_count: int = None
+    df: pl.DataFrame, actual_playlist_count: int = None
 ) -> Tuple[pl.DataFrame, Dict[str, Any]]:
     """Calculate summary statistics for the playlist."""
     # Check if df is a Polars DataFrame or None

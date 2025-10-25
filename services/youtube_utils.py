@@ -51,7 +51,7 @@ class ProcessingEstimate:
 
 def get_category_name(category_id: str) -> str:
     """Convert YouTube category ID to human-readable name."""
-    return YOUTUBE_CATEGORIES.get(str(category_id), f"Category {category_id}")
+    return YOUTUBE_CATEGORIES.get(category_id, f"Category {category_id}")
 
 
 def extract_all_tags(videos: List[Dict]) -> List[str]:
