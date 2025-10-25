@@ -42,7 +42,7 @@ from .config import YouTubeConfig
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # for YouTube Data API
+
 DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
 
 # YouTube category ID mapping
@@ -912,7 +912,12 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
 
 
 class YouTubeBackendAPI(YouTubeBackendBase):
-    """Self-contained YouTube Data API v3 backend implementation."""
+    """Self-contained YouTube Data API v3 backend implementation.
+    - Validates data at every step
+    - Returns valid (but empty) structures on failure
+    - Logs detailed diagnostic info
+    - Never returns None for DataFrames
+    """
 
     YOUTUBE_API_MAX_RESULTS = 50
 
@@ -921,20 +926,60 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
         if build is None:
             raise ImportError("google-api-python-client is not installed.")
+
+        YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # for YouTube Data API
         if not YOUTUBE_API_KEY:
             raise ValueError("YOUTUBE_API_KEY environment variable not set.")
 
         self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+
+    def _create_empty_dataframe(self) -> pl.DataFrame:
+        """
+        Create a valid empty DataFrame with all required columns.
+        This ensures consistency when playlists have no videos.
+        """
+        return pl.DataFrame(
+            {
+                "Rank": [],
+                "id": [],
+                "Title": [],
+                "Views": [],
+                "Likes": [],
+                "Dislikes": [],
+                "Comments": [],
+                "Duration": [],
+                "Uploader": [],
+                "Thumbnail": [],
+                "Rating": [],
+            }
+        )
+
+    def _create_empty_stats(self, actual_count: int = 0) -> Dict[str, Any]:
+        """Create default stats for empty playlists."""
+        return {
+            "total_views": 0,
+            "total_likes": 0,
+            "total_dislikes": 0,
+            "total_comments": 0,
+            "avg_engagement": 0.0,
+            "actual_playlist_count": actual_count,
+            "processed_video_count": 0,
+            "backend": "youtubeapi",
+        }
+
+    def _extract_playlist_id(self, playlist_url: str) -> str:
+        """Extract playlist ID from URL with validation."""
+        m = re.search(r"list=([a-zA-Z0-9_-]+)", playlist_url)
+        if not m:
+            raise ValueError(f"Invalid playlist URL: {playlist_url}")
+        return m.group(1)
 
     async def get_playlist_preview(
         self, playlist_url: str
     ) -> Tuple[str, str, str, int, str, str, str]:
         """Get lightweight playlist preview."""
         try:
-            m = re.search(r"list=([a-zA-Z0-9_-]+)", playlist_url)
-            if not m:
-                raise ValueError("Invalid playlist URL")
-            playlist_id = m.group(1)
+            playlist_id = self._extract_playlist_id(playlist_url)
 
             # Fetch with status and localized fields
             resp = (
@@ -945,6 +990,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                 .execute()
             )
             if not resp["items"]:
+                logger.warning(f"Playlist not found: {playlist_id}")
                 return "Preview unavailable", "", "", 0, "", "Unknown", ""
 
             item = resp["items"][0]
@@ -963,7 +1009,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             return title, channel, thumb, length, description, privacy_status, published
 
         except Exception as e:
-            logger.warning(f"Failed to fetch API preview: {e}")
+            logger.error(f"Failed to fetch playlist preview for {playlist_url}: {e}")
             return "Preview unavailable", "", "", 0, "", "Unknown", ""
 
     async def get_playlist_data(
@@ -975,121 +1021,416 @@ class YouTubeBackendAPI(YouTubeBackendBase):
         """
         YouTube Data API implementation with full playlist support.
         Fetch complete playlist data with extended metadata.
+
+        Returns valid (possibly empty) structures even on failure.
+        Never returns None for DataFrames.
         """
-        m = re.search(r"list=([a-zA-Z0-9_-]+)", playlist_url)
-        if not m:
-            raise ValueError("Invalid playlist URL")
-        playlist_id = m.group(1)
+        playlist_id = None
+        playlist_name = "Unknown Playlist"
+        channel_name = "Unknown Channel"
+        channel_thumb = ""
 
-        # Fetch playlist metadata with new fields
-        resp = (
-            self.youtube.playlists()
-            .list(part="snippet,contentDetails,status", id=playlist_id, maxResults=1)
-            .execute()
-        )
-        if not resp["items"]:
-            raise ValueError("Playlist not found")
+        try:
+            # ==================== Step 1: Extract Playlist ID ====================
+            playlist_id = self._extract_playlist_id(playlist_url)
+            logger.info(f"[YouTubeAPI] Fetching playlist: {playlist_id}")
 
-        item = resp["items"][0]
-        sn = item["snippet"]
-        cd = item.get("contentDetails", {})
-        status = item.get("status", {})
-
-        playlist_name = sn.get("title", "Untitled Playlist")
-        channel_name = sn.get("channelTitle", "Unknown Channel")
-        channel_thumb = sn.get("thumbnails", {}).get("high", {}).get("url", "")
-        total_count = cd.get("itemCount", 0)
-
-        # NEW: Extract additional metadata
-        description = sn.get("description", "")
-        privacy_status = status.get(
-            "privacyStatus", "Unknown"
-        )  # public, private, unlisted
-        published_at = sn.get("publishedAt", "")
-        default_language = sn.get("defaultLanguage", "")
-        podcast_status = status.get("podcastStatus", "disabled")
-
-        logger.info(
-            f"Playlist: {playlist_name} | Privacy: {privacy_status} | "
-            f"Published: {published_at} | Podcast: {podcast_status}"
-        )
-
-        # Fetch ALL video IDs (or up to max_expanded)
-        video_ids, nextPageToken = [], None
-        while max_expanded is None or len(video_ids) < max_expanded:
-            items_resp = (
-                self.youtube.playlistItems()
-                .list(
-                    part="contentDetails",
-                    playlistId=playlist_id,
-                    maxResults=min(
-                        self.YOUTUBE_API_MAX_RESULTS,
-                        (
-                            max_expanded - len(video_ids)
-                            if max_expanded is not None
-                            else self.YOUTUBE_API_MAX_RESULTS
-                        ),
-                    ),
-                    pageToken=nextPageToken,
+            # ==================== Step 2: Fetch Playlist Metadata ====================
+            playlist_metadata = await self._fetch_playlist_metadata(playlist_id)
+            if not playlist_metadata:
+                logger.error(f"Failed to fetch metadata for playlist {playlist_id}")
+                return (
+                    self._create_empty_dataframe(),
+                    playlist_name,
+                    channel_name,
+                    channel_thumb,
+                    self._create_empty_stats(),
                 )
-                .execute()
-            )
-            for it in items_resp["items"]:
-                video_ids.append(it["contentDetails"]["videoId"])
-            nextPageToken = items_resp.get("nextPageToken")
-            if not nextPageToken:
-                break
 
-        # Fetch video statistics in batches
+            # Unpack metadata
+            playlist_name = playlist_metadata["playlist_name"]
+            channel_name = playlist_metadata["channel_name"]
+            channel_thumb = playlist_metadata["channel_thumb"]
+            total_count = playlist_metadata["total_count"]
+
+            logger.info(
+                f"[YouTubeAPI] Playlist: {playlist_name} | "
+                f"Channel: {channel_name} | Videos: {total_count}"
+            )
+
+            # ==================== Step 3: Fetch Video IDs ====================
+            video_ids = await self._fetch_video_ids(
+                playlist_id, max_expanded, progress_callback
+            )
+
+            if not video_ids:
+                logger.warning(
+                    f"[YouTubeAPI] Playlist {playlist_id} has no accessible videos. "
+                    f"This could be due to: age restrictions, privacy settings, "
+                    f"deleted videos, or geographic restrictions."
+                )
+
+                # Return empty but valid structure with metadata
+                empty_stats = self._create_empty_stats(total_count)
+                empty_stats.update(playlist_metadata["extra_metadata"])
+
+                return (
+                    self._create_empty_dataframe(),
+                    playlist_name,
+                    channel_name,
+                    channel_thumb,
+                    empty_stats,
+                )
+
+            logger.info(f"[YouTubeAPI] Found {len(video_ids)} accessible videos")
+
+            # ==================== Step 4: Fetch Video Details ====================
+            videos = await self._fetch_video_details(video_ids, progress_callback)
+
+            if not videos:
+                logger.warning(
+                    f"[YouTubeAPI] Failed to fetch details for any videos in {playlist_id}"
+                )
+                empty_stats = self._create_empty_stats(total_count)
+                empty_stats.update(playlist_metadata["extra_metadata"])
+
+                return (
+                    self._create_empty_dataframe(),
+                    playlist_name,
+                    channel_name,
+                    channel_thumb,
+                    empty_stats,
+                )
+
+            logger.info(
+                f"[YouTubeAPI] Successfully fetched {len(videos)} video details"
+            )
+
+            # ==================== Step 5: Create and Enrich DataFrame ====================
+            df = self._create_dataframe_from_videos(videos)
+
+            # Validate DataFrame creation
+            if df is None or not isinstance(df, pl.DataFrame):
+                logger.error(
+                    f"[YouTubeAPI] DataFrame creation failed for {playlist_id}"
+                )
+                df = self._create_empty_dataframe()
+
+            # Normalize and enrich
+            df = normalize_columns(df)
+            df, stats = enrich_dataframe(df, total_count)
+
+            # Add playlist-level metadata
+            stats.update(playlist_metadata["extra_metadata"])
+            stats["backend"] = "youtubeapi"
+            stats["analyzed_videos"] = len(videos)
+
+            # Add enhanced metadata if videos were processed
+            if len(videos) > 0:
+                stats["videos_with_captions"] = len(
+                    [v for v in videos if v.get("Caption")]
+                )
+                stats["hd_videos_count"] = len(
+                    [v for v in videos if v.get("Definition") == "hd"]
+                )
+                stats["tags_list"] = extract_all_tags(videos)
+                stats["categories"] = extract_categories(videos)
+
+            logger.info(f"[YouTubeAPI] Processing complete for {playlist_id}")
+
+            return df, playlist_name, channel_name, channel_thumb, stats
+
+        except ValueError as e:
+            # Invalid URL or playlist ID
+            logger.error(f"[YouTubeAPI] Invalid input: {e}")
+            return (
+                self._create_empty_dataframe(),
+                playlist_name,
+                channel_name,
+                channel_thumb,
+                self._create_empty_stats(),
+            )
+
+        except Exception as e:
+            # Catch-all for unexpected errors
+            logger.exception(
+                f"[YouTubeAPI] Unexpected error processing {playlist_id}: {e}"
+            )
+            return (
+                self._create_empty_dataframe(),
+                playlist_name,
+                channel_name,
+                channel_thumb,
+                self._create_empty_stats(),
+            )
+
+    async def _fetch_video_details(
+        self,
+        video_ids: List[str],
+        progress_callback: Optional[callable],
+    ) -> List[Dict[str, Any]]:
+        """Fetch detailed video information in batches."""
         videos = []
-        for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
-            batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
-            resp = (
-                self.youtube.videos()
-                .list(part="snippet,statistics,contentDetails", id=",".join(batch))
-                .execute()
-            )
-            for idx, it in enumerate(resp["items"], start=i + 1):
-                stats = it.get("statistics", {})
-                sn = it.get("snippet", {})
-                cd = it.get("contentDetails", {})
-                videos.append(
-                    {
-                        "Rank": idx,
-                        "id": it["id"],
-                        "Title": sn.get("title", "N/A"),
-                        "Views": int(stats.get("viewCount", 0)),
-                        "Likes": int(stats.get("likeCount", 0)),
-                        "Dislikes": 0,
-                        "Comments": int(stats.get("commentCount", 0)),
-                        "Duration": self._parse_iso8601_duration(
-                            cd.get("duration", "PT0S")
-                        ),
-                        "Uploader": sn.get("channelTitle", "N/A"),
-                        "Thumbnail": sn.get("thumbnails", {})
-                        .get("high", {})
-                        .get("url", ""),
-                        "Rating": None,
-                    }
+
+        try:
+            for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
+                batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
+                batch_num = i // self.YOUTUBE_API_MAX_RESULTS + 1
+
+                logger.debug(
+                    f"[YouTubeAPI] Fetching batch {batch_num} ({len(batch)} videos)"
                 )
 
-        transformed_videos = transform_api_df(videos)
-        df = pl.DataFrame(transformed_videos)
-        df, stats = _enrich_dataframe(df, len(video_ids))
-        df = normalize_columns(df)
+                resp = (
+                    self.youtube.videos()
+                    .list(
+                        part="snippet,statistics,contentDetails",
+                        id=",".join(batch),
+                    )
+                    .execute()
+                )
 
-        # NEW: Add playlist-level metadata to stats
-        stats.update(
-            {
-                "description": description,
-                "privacy_status": privacy_status,
-                "published_at": published_at,
-                "default_language": default_language,
-                "podcast_status": podcast_status,
+                items = resp.get("items", [])
+                if not items:
+                    logger.warning(f"[YouTubeAPI] Batch {batch_num} returned no items")
+                    continue
+
+                for idx, it in enumerate(items, start=i + 1):
+                    video_data = self._parse_video_item(it, idx)
+                    if video_data:
+                        videos.append(video_data)
+
+                # Progress callback
+                if progress_callback:
+                    await progress_callback(len(videos), len(video_ids), {})
+
+            return videos
+
+        except Exception as e:
+            logger.error(f"Failed to fetch video details: {e}")
+            return videos  # Return partial results
+
+    async def _fetch_playlist_metadata(
+        self, playlist_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch and parse playlist metadata."""
+        try:
+            resp = (
+                self.youtube.playlists()
+                .list(
+                    part="snippet,contentDetails,status",
+                    id=playlist_id,
+                    maxResults=1,
+                )
+                .execute()
+            )
+
+            if not resp.get("items"):
+                logger.error(f"Playlist not found: {playlist_id}")
+                return None
+
+            item = resp["items"][0]
+            sn = item.get("snippet", {})
+            cd = item.get("contentDetails", {})
+            status = item.get("status", {})
+
+            return {
+                "playlist_name": sn.get("title", "Untitled Playlist"),
+                "channel_name": sn.get("channelTitle", "Unknown Channel"),
+                "channel_id": sn.get("channelId", ""),
+                "channel_thumb": sn.get("thumbnails", {})
+                .get("high", {})
+                .get("url", ""),
+                "total_count": cd.get("itemCount", 0),
+                "extra_metadata": {
+                    "description": sn.get("description", ""),
+                    "privacy_status": status.get("privacyStatus", "Unknown"),
+                    "published_at": sn.get("publishedAt", ""),
+                    "default_language": sn.get("defaultLanguage", ""),
+                    "podcast_status": status.get("podcastStatus", "disabled"),
+                    "playlist_id": playlist_id,
+                },
             }
-        )
 
-        return df, playlist_name, channel_name, channel_thumb, stats
+        except Exception as e:
+            logger.error(f"Failed to fetch metadata for {playlist_id}: {e}")
+            return None
+
+    async def _fetch_video_ids(
+        self,
+        playlist_id: str,
+        max_expanded: Optional[int],
+        progress_callback: Optional[callable],
+    ) -> List[str]:
+        """Fetch all video IDs from playlist with pagination."""
+        video_ids = []
+        nextPageToken = None
+        page_count = 0
+
+        try:
+            while max_expanded is None or len(video_ids) < max_expanded:
+                page_count += 1
+
+                items_resp = (
+                    self.youtube.playlistItems()
+                    .list(
+                        part="contentDetails",
+                        playlistId=playlist_id,
+                        maxResults=min(
+                            self.YOUTUBE_API_MAX_RESULTS,
+                            (
+                                max_expanded - len(video_ids)
+                                if max_expanded is not None
+                                else self.YOUTUBE_API_MAX_RESULTS
+                            ),
+                        ),
+                        pageToken=nextPageToken,
+                    )
+                    .execute()
+                )
+
+                items = items_resp.get("items", [])
+                if not items:
+                    logger.warning(
+                        f"[YouTubeAPI] No items returned on page {page_count} for {playlist_id}"
+                    )
+                    break
+
+                for it in items:
+                    video_id = it.get("contentDetails", {}).get("videoId")
+                    if video_id:
+                        video_ids.append(video_id)
+
+                logger.debug(
+                    f"[YouTubeAPI] Page {page_count}: fetched {len(items)} video IDs "
+                    f"(total: {len(video_ids)})"
+                )
+
+                nextPageToken = items_resp.get("nextPageToken")
+                if not nextPageToken:
+                    break
+
+            return video_ids
+
+        except Exception as e:
+            logger.error(f"Failed to fetch video IDs for {playlist_id}: {e}")
+            return video_ids  # Return partial results
+
+    async def _fetch_video_details(
+        self,
+        video_ids: List[str],
+        progress_callback: Optional[callable],
+    ) -> List[Dict[str, Any]]:
+        """Fetch detailed video information in batches."""
+        videos = []
+
+        try:
+            for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
+                batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
+                batch_num = i // self.YOUTUBE_API_MAX_RESULTS + 1
+
+                logger.debug(
+                    f"[YouTubeAPI] Fetching batch {batch_num} ({len(batch)} videos)"
+                )
+
+                resp = (
+                    self.youtube.videos()
+                    .list(
+                        part="snippet,statistics,contentDetails",
+                        id=",".join(batch),
+                    )
+                    .execute()
+                )
+
+                items = resp.get("items", [])
+                if not items:
+                    logger.warning(f"[YouTubeAPI] Batch {batch_num} returned no items")
+                    continue
+
+                for idx, it in enumerate(items, start=i + 1):
+                    video_data = self._parse_video_item(it, idx)
+                    if video_data:
+                        videos.append(video_data)
+
+                # Progress callback
+                if progress_callback:
+                    await progress_callback(len(videos), len(video_ids), {})
+
+            return videos
+
+        except Exception as e:
+            logger.error(f"Failed to fetch video details: {e}")
+            return videos  # Return partial results
+
+    def _parse_video_item(
+        self, item: Dict[str, Any], rank: int
+    ) -> Optional[Dict[str, Any]]:
+        """Parse a single video item from API response."""
+        try:
+            video_id = item.get("id", "")
+            sn = item.get("snippet", {})
+            stats = item.get("statistics", {})
+            cd = item.get("contentDetails", {})
+
+            return {
+                "Rank": rank,
+                "id": video_id,
+                "Title": sn.get("title", "N/A"),
+                "Description": sn.get("description", ""),
+                "Views": int(stats.get("viewCount", 0)),
+                "Likes": int(stats.get("likeCount", 0)),
+                "Dislikes": 0,  # YouTube API doesn't expose dislikes
+                "Comments": int(stats.get("commentCount", 0)),
+                "Duration": self._parse_iso8601_duration(cd.get("duration", "PT0S")),
+                "PublishedAt": sn.get("publishedAt", ""),
+                "Uploader": sn.get("channelTitle", "N/A"),
+                "Thumbnail": sn.get("thumbnails", {}).get("high", {}).get("url", ""),
+                "Tags": sn.get("tags", []),
+                "CategoryId": sn.get("categoryId", ""),
+                "CategoryName": get_category_name(sn.get("categoryId", "")),
+                "Caption": cd.get("caption", "false").lower() == "true",
+                "Licensed": cd.get("licensedContent", False),
+                "Definition": cd.get("definition", "sd"),
+                "Dimension": cd.get("dimension", "2d"),
+                "Rating": None,
+            }
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse video item {item.get('id', 'unknown')}: {e}"
+            )
+            return None
+
+    def _create_dataframe_from_videos(
+        self, videos: List[Dict[str, Any]]
+    ) -> pl.DataFrame:
+        """
+        Create DataFrame from video list with validation.
+        Always returns a valid DataFrame (possibly empty).
+        """
+        try:
+            if not videos:
+                logger.warning("[YouTubeAPI] No videos to create DataFrame from")
+                return self._create_empty_dataframe()
+
+            df = pl.DataFrame(videos)
+
+            # Validate DataFrame
+            if df is None or not isinstance(df, pl.DataFrame):
+                logger.error("[YouTubeAPI] DataFrame creation returned invalid type")
+                return self._create_empty_dataframe()
+
+            if df.is_empty():
+                logger.warning("[YouTubeAPI] Created empty DataFrame from videos")
+                return self._create_empty_dataframe()
+
+            logger.info(
+                f"[YouTubeAPI] Created DataFrame with {df.height} rows, {df.width} columns"
+            )
+            return df
+
+        except Exception as e:
+            logger.error(f"[YouTubeAPI] Failed to create DataFrame: {e}")
+            return self._create_empty_dataframe()
 
     def _parse_iso8601_duration(self, duration: str) -> int:
         """Parse ISO 8601 duration string to seconds."""
