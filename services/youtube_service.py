@@ -1118,7 +1118,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
             # Normalize and enrich
             df = normalize_columns(df)
-            df, stats = enrich_dataframe(df, total_count)
+            df, stats = _enrich_dataframe(df, total_count)
 
             # Add playlist-level metadata
             stats.update(playlist_metadata["extra_metadata"])
