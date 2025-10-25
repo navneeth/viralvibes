@@ -12,8 +12,6 @@ import random
 import re
 import time
 from abc import ABC, abstractmethod
-from collections import Counter
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -31,10 +29,18 @@ try:
 except ImportError:
     build = None
 
-from utils import (
-    format_duration,
-    format_number,
-    parse_iso_duration,
+
+from services.youtube_errors import (
+    RateLimitError,
+    YouTubeBotChallengeError,
+    YouTubeServiceError,
+)
+from services.youtube_transforms import _enrich_dataframe, normalize_columns
+from services.youtube_utils import (
+    ProcessingEstimate,
+    extract_all_tags,
+    extract_categories,
+    get_category_name,
 )
 
 from .config import YouTubeConfig
@@ -44,57 +50,6 @@ logger = logging.getLogger(__name__)
 
 
 DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
-
-# YouTube category ID mapping
-YOUTUBE_CATEGORIES = {
-    "1": "Film & Animation",
-    "2": "Autos & Vehicles",
-    "10": "Music",
-    "15": "Pets & Animals",
-    "17": "Sports",
-    "19": "Travel & Events",
-    "20": "Gaming",
-    "22": "People & Blogs",
-    "23": "Comedy",
-    "24": "Entertainment",
-    "25": "News & Politics",
-    "26": "Howto & Style",
-    "27": "Education",
-    "28": "Science & Tech",
-    "29": "Nonprofits & Activism",
-}
-
-
-@dataclass
-class ProcessingEstimate:
-    """Estimate for processing time and resources."""
-
-    total_videos: int
-    videos_to_expand: int
-    estimated_seconds: float
-    estimated_minutes: float
-    batch_count: int
-
-    def __str__(self):
-        if self.estimated_minutes < 1:
-            return f"~{int(self.estimated_seconds)} seconds"
-        elif self.estimated_minutes < 60:
-            return f"~{int(self.estimated_minutes)} minutes"
-        else:
-            hours = self.estimated_minutes / 60
-            return f"~{hours:.1f} hours"
-
-
-class YouTubeBotChallengeError(Exception):
-    """Raised when YouTube serves a validation or CAPTCHA page."""
-
-
-class YouTubeServiceError(Exception):
-    """Base exception for YouTube service errors."""
-
-
-class RateLimitError(YouTubeServiceError):
-    """Raised when rate limits are exceeded."""
 
 
 def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -122,205 +77,6 @@ def transform_api_df(api_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         )
     return transformed
-
-
-# ============================================================================
-# Utility Functions (Shared)
-# ============================================================================
-
-
-# --- Normalize dataframe column names between yt-dlp and YouTube API ---
-def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """Normalize dataframe column names between different backends."""
-    if df is None or not isinstance(df, pl.DataFrame):
-        logger.warning(f"Invalid DataFrame in normalize_columns: received {type(df)}")
-        return None
-    if df.is_empty():
-        logger.info("Empty DataFrame received in normalize_columns")
-        return None
-
-    # Canonicalize to internal schema: "Views", "Likes", "Dislikes", "Comments"
-    rename_map = {
-        "title": "Title",
-        "videoTitle": "Title",
-        "id": "id",
-        "videoId": "id",
-        # map any variants into canonical columns
-        "view_count": "Views",
-        "viewCount": "Views",
-        "View Count": "Views",
-        "like_count": "Likes",
-        "likeCount": "Likes",
-        "Like Count": "Likes",
-        "dislike_count": "Dislikes",
-        "dislikeCount": "Dislikes",
-        "Dislike Count": "Dislikes",
-        "comment_count": "Comments",
-        "commentCount": "Comments",
-        "Comment Count": "Comments",
-        # keep canonical names if already present
-        "Views": "Views",
-        "Likes": "Likes",
-        "Dislikes": "Dislikes",
-        "Comments": "Comments",
-        # other fields
-        "duration_string": "Duration",
-        "duration": "Duration",
-        "durationSec": "Duration",
-        "upload_date": "Published Date",
-        "publishedAt": "Published Date",
-        "channel": "Channel",
-        "channelTitle": "Channel",
-        "channel_id": "Channel ID",
-        "channelId": "Channel ID",
-        "thumbnail": "Thumbnail",
-        "thumbnails": "Thumbnail",
-        "tags": "Tags",
-    }
-
-    # Rename columns if present
-    for old, new in rename_map.items():
-        if old in df.columns and new not in df.columns:
-            df = df.rename({old: new})
-
-    # Mirror canonical columns back to legacy "... Count" names if they are missing
-    mirrors = [
-        ("Views", "View Count"),
-        ("Likes", "Like Count"),
-        ("Dislikes", "Dislike Count"),
-        ("Comments", "Comment Count"),
-    ]
-    for src, mirror in mirrors:
-        if src in df.columns and mirror not in df.columns:
-            df = df.with_columns(pl.col(src).alias(mirror))
-
-    # Normalize duration to readable string if ISO 8601
-    if "Duration" in df.columns:
-        df = df.with_columns(
-            pl.col("Duration").map_elements(
-                lambda d: (
-                    parse_iso_duration(d) if isinstance(d, str) and "PT" in d else d
-                )
-            )
-        )
-
-    # Ensure numeric types for both canonical and legacy mirrors
-    numeric_cols = [
-        "Views",
-        "Likes",
-        "Dislikes",
-        "Comments",
-        "View Count",
-        "Like Count",
-        "Dislike Count",
-        "Comment Count",
-    ]
-    for col in numeric_cols:
-        if col in df.columns:
-            df = df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
-
-    return df
-
-
-def _enrich_dataframe(
-    self, df: pl.DataFrame, actual_playlist_count: int = None
-) -> Tuple[pl.DataFrame, Dict[str, Any]]:
-    """Calculate summary statistics for the playlist."""
-    # Check if df is a Polars DataFrame or None
-    if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
-        logger.warning(
-            f"Invalid or empty DataFrame received in _enrich_dataframe: {type(df)}"
-        )
-        return None, {"total_views": 0, "processed_video_count": 0}
-
-    if df.is_empty():
-        return df, {
-            "total_views": 0,
-            "total_likes": 0,
-            "total_dislikes": 0,
-            "total_comments": 0,
-            "avg_engagement": 0.0,
-            "actual_playlist_count": actual_playlist_count or 0,
-            "processed_video_count": 0,
-        }
-    df = df.with_columns(
-        [
-            (
-                1
-                - (pl.col("Likes") - pl.col("Dislikes")).abs()
-                / (pl.col("Likes") + pl.col("Dislikes"))
-            )
-            .fill_nan(0.0)
-            .alias("Controversy"),
-            (
-                (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
-                / pl.col("Views")
-            )
-            .fill_nan(0.0)
-            .alias("Engagement Rate Raw"),
-        ]
-    )
-    stats = {
-        "total_views": df["Views"].sum(),
-        "total_likes": df["Likes"].sum(),
-        "total_dislikes": df["Dislikes"].sum(),
-        "total_comments": df["Comments"].sum(),
-        "avg_engagement": df["Engagement Rate Raw"].mean(),
-        "actual_playlist_count": actual_playlist_count or df.height,
-        "processed_video_count": df.height,
-    }
-    df = df.with_columns(
-        [
-            pl.col("Views")
-            .map_elements(format_number, return_dtype=pl.String)
-            .alias("Views Formatted"),
-            pl.col("Likes")
-            .map_elements(format_number, return_dtype=pl.String)
-            .alias("Likes Formatted"),
-            pl.col("Dislikes")
-            .map_elements(format_number, return_dtype=pl.String)
-            .alias("Dislikes Formatted"),
-            pl.col("Comments")
-            .map_elements(format_number, return_dtype=pl.String)
-            .alias("Comments Formatted"),
-            pl.col("Duration")
-            .map_elements(format_duration, return_dtype=pl.String)
-            .alias("Duration Formatted"),
-            pl.col("Controversy")
-            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
-            .alias("Controversy Formatted"),
-            pl.col("Engagement Rate Raw")
-            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
-            .alias("Engagement Rate Formatted"),
-            pl.col("Engagement Rate Raw")
-            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
-            .alias("Engagement Rate (%)"),
-        ]
-    )
-    return df, stats
-
-
-def extract_all_tags(videos: List[Dict]) -> List[str]:
-    """Extract and aggregate all tags from videos."""
-    all_tags = []
-    for video in videos:
-        tags = video.get("Tags", [])
-        if isinstance(tags, list):
-            all_tags.extend(tags)
-
-    tag_counts = Counter(all_tags)
-    return [tag for tag, count in tag_counts.most_common(50)]
-
-
-def extract_categories(videos: List[Dict]) -> Dict[str, int]:
-    """Extract and count video categories."""
-    categories = [v.get("CategoryName", "Unknown") for v in videos]
-    return dict(Counter(categories))
-
-
-def get_category_name(category_id: str) -> str:
-    """Convert YouTube category ID to human-readable name."""
-    return YOUTUBE_CATEGORIES.get(str(category_id), f"Category {category_id}")
 
 
 # ============================================================================
@@ -1118,7 +874,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
             # Normalize and enrich
             df = normalize_columns(df)
-            df, stats = enrich_dataframe(df, total_count)
+            df, stats = _enrich_dataframe(df, total_count)
 
             # Add playlist-level metadata
             stats.update(playlist_metadata["extra_metadata"])
