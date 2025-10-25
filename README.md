@@ -1,6 +1,6 @@
-# ViralVibes - YouTube Trends, Decoded
+# 🎬 ViralVibes - YouTube Trends, Decoded
 
-A powerful web application that analyzes YouTube playlists to uncover viral trends and engagement patterns. Built with FastHTML and MonsterUI for a modern, responsive interface.
+A web application that analyzes YouTube playlists to uncover viral trends and engagement patterns. Built with FastHTML and MonsterUI for a modern, responsive interface.
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/vercel/examples/tree/main/framework-boilerplates/fasthtml&template=fasthtml)
 
@@ -118,6 +118,17 @@ The application follows a modern serverless architecture with three main layers:
 - **[main.py](https://github.com/navneeth/viralvibes/blob/main/main.py)**: Handles web requests and composes the UI using FastHTML for server-side rendering.
 - **[tests/](https://github.com/navneeth/viralvibes/tree/main/tests)**: Directory containing test suites with good coverage, though dependent on global environment and configuration settings.
 
+```mermaid
+graph TD
+    A[Frontend - main.py] -->|POST /validate| B[YouTube Service - services/youtube_service.py]
+    B -->|Compute metrics| C[Database Layer - db.py]
+    C -->|Upsert playlist stats| D[Supabase/Postgres]
+    D -->|Trigger job state update| E[Worker - worker/worker.py]
+    E -->|Fetch & process playlist| B
+    E -->|Write job status| C
+    F[Tests] -->|Validate| A & B & E
+```
+
 ![App Architecture](static/Diagram.png)
 
 ## Deployment
@@ -131,7 +142,7 @@ vercel --prod
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Fork the repository, open a branch, and submit a PR.
 
 ## License
 
