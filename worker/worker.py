@@ -5,7 +5,6 @@ and updates job status. Intelligently retries failed jobs with backoff.
 """
 
 import asyncio
-import json
 import logging
 import os
 import random
@@ -31,7 +30,6 @@ from db import (
 from services.youtube_service import (
     YouTubeBotChallengeError,
     YoutubePlaylistService,
-    normalize_columns,
 )
 
 try:
