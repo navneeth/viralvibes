@@ -31,7 +31,6 @@ except ImportError:
 
 
 from services.youtube_errors import (
-    RateLimitError,
     YouTubeBotChallengeError,
     YouTubeServiceError,
 )
