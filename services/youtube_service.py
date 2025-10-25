@@ -30,9 +30,13 @@ except ImportError:
     build = None
 
 
-from youtube_errors import RateLimitError, YooTubeBotChallengeError, YouTubeServiceError
-from youtube_transforms import _enrich_dataframe, normalize_columns
-from youtube_utils import (
+from services.youtube_errors import (
+    RateLimitError,
+    YouTubeBotChallengeError,
+    YouTubeServiceError,
+)
+from services.youtube_transforms import _enrich_dataframe, normalize_columns
+from services.youtube_utils import (
     ProcessingEstimate,
     extract_all_tags,
     extract_categories,

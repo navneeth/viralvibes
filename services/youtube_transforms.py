@@ -5,6 +5,7 @@ Polars-based normalization and enrichment of playlist DataFrames.
 """
 
 import logging
+from typing import Any, Dict, Tuple
 
 import polars as pl
 
