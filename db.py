@@ -105,6 +105,26 @@ def init_supabase() -> Optional[Client]:
         return None
 
 
+def _is_empty_json(json_str: Optional[str]) -> bool:
+    """Check if JSON string represents empty/null data."""
+    if not json_str:
+        return True
+
+    stripped = json_str.strip()
+    if stripped in ("[]", "{}", "null", '""'):
+        return True
+
+    # Additional check: try parsing and check if actually empty
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, (list, dict)) and len(parsed) == 0:
+            return True
+    except json.JSONDecodeError:
+        pass
+
+    return False
+
+
 # --- General DB Helpers ---
 def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> bool:
     """Inserts or updates a row in a given table.
@@ -168,7 +188,7 @@ def get_cached_playlist_stats(
             # --- FIX: Validate the integrity of the cached data ---
             df_json = row.get("df_json")
             # Check if df_json is missing, empty, or represents an empty list/object.
-            if not df_json or df_json.strip() in ('""', "[]", "{}"):
+            if _is_empty_json(df_json):
                 logger.warning(
                     f"[Cache] Found invalid/empty cache entry for {playlist_url}. Treating as miss."
                 )
@@ -209,8 +229,14 @@ class UpsertResult:
 
     source: str  # 'cache', 'fresh', 'error'
     df_json: Optional[str] = None
-    summary_stats_json: Optional[Dict[str, Any]] = None
+    summary_stats_json: Optional[str] = None
     error: Optional[str] = None
+    raw_row: Optional[Dict[str, Any]] = None
+
+    @property
+    def success(self) -> bool:
+        """Check if operation was successful."""
+        return self.source in ("cache", "fresh")
 
 
 def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
