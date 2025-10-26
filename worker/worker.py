@@ -392,7 +392,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
         _set_stage("upsert-to-db")
 
-        result = await upsert_playlist_stats(stats_to_cache)
+        result = upsert_playlist_stats(stats_to_cache)
         result_map = _result_to_mapping(result)
         logger.info(
             f"[Job {job_id}] Upsert result mapping keys={list(result_map.keys())}"
