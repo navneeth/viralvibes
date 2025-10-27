@@ -3,14 +3,17 @@ Database operations module.
 Handles Supabase client initialization, logging setup, and caching functionality.
 """
 
+from __future__ import annotations
+
+import asyncio
 import io
 import json
 import logging
 import os
 import random
+from dataclasses import dataclass
 from datetime import date, datetime
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, TypedDict
 
 import polars as pl
 from supabase import Client, create_client
@@ -21,8 +24,27 @@ from constants import PLAYLIST_JOBS_TABLE, PLAYLIST_STATS_TABLE, SIGNUPS_TABLE
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
 
-# Global Supabase client
-supabase_client: Optional[Client] = None
+
+# ==============================================================
+# 🧩 Protocol-based Dependency Injection
+# ==============================================================
+
+
+class SupabaseLike(Protocol):
+    """Protocol to allow fake/mocked Supabase clients in tests."""
+
+    def table(self, name: str) -> Any: ...
+
+
+# Global Supabase client# Global Supabase client
+supabase_client: Optional[SupabaseLike] = None
+
+
+def set_supabase_client(client: SupabaseLike) -> None:
+    """Dependency injection hook for tests."""
+    global supabase_client
+    supabase_client = client
+    logger.info("[DB] Supabase client overridden")
 
 
 def setup_logging():
@@ -60,16 +82,15 @@ def init_supabase() -> Optional[Client]:
     if supabase_client is not None:
         return supabase_client
 
+    url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+    key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+    if not url or not key:
+        logger.warning(
+            "Missing Supabase environment variables - running without Supabase"
+        )
+        return None
+
     try:
-        url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-        key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
-
-        if not url or not key:
-            logger.warning(
-                "Missing Supabase environment variables - running without Supabase"
-            )
-            return None
-
         client = create_client(url, key)
 
         # Test the connection
@@ -82,6 +103,26 @@ def init_supabase() -> Optional[Client]:
     except Exception as e:
         logger.error(f"Failed to initialize Supabase client: {e}")
         return None
+
+
+def _is_empty_json(json_str: Optional[str]) -> bool:
+    """Check if JSON string represents empty/null data."""
+    if not json_str:
+        return True
+
+    stripped = json_str.strip()
+    if stripped in ("[]", "{}", "null", '""'):
+        return True
+
+    # Additional check: try parsing and check if actually empty
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, (list, dict)) and len(parsed) == 0:
+            return True
+    except json.JSONDecodeError:
+        pass
+
+    return False
 
 
 # --- General DB Helpers ---
@@ -147,7 +188,7 @@ def get_cached_playlist_stats(
             # --- FIX: Validate the integrity of the cached data ---
             df_json = row.get("df_json")
             # Check if df_json is missing, empty, or represents an empty list/object.
-            if not df_json or df_json.strip() in ('""', "[]", "{}"):
+            if _is_empty_json(df_json):
                 logger.warning(
                     f"[Cache] Found invalid/empty cache entry for {playlist_url}. Treating as miss."
                 )
@@ -187,12 +228,18 @@ class UpsertResult:
     """Result of upserting playlist stats to the database."""
 
     source: str  # 'cache', 'fresh', 'error'
-    df: Optional[pl.DataFrame] = None
-    summary_stats: Optional[Dict[str, Any]] = None
+    df_json: Optional[str] = None
+    summary_stats_json: Optional[str] = None
     error: Optional[str] = None
+    raw_row: Optional[Dict[str, Any]] = None
+
+    @property
+    def success(self) -> bool:
+        """Check if operation was successful."""
+        return self.source in ("cache", "fresh")
 
 
-async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
+def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     """
     Main entrypoint for playlist stats caching:
     - Return cached stats if they exist for today.
@@ -207,7 +254,7 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
 
     # --- Prevent caching empty DataFrames ---
     df = stats.get("df")
-    if df is None or df.is_empty():
+    if df is None or getattr(df, "is_empty", lambda: True)():
         logger.warning(
             f"Attempted to cache empty or missing DataFrame for {playlist_url}. Aborting cache."
         )
@@ -246,23 +293,15 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
             raw_row=cached,
         )
 
-    # Prepare for fresh insert
+    # --- Prepare for fresh insert ---
     try:
-        df_json = (
-            stats.get("df").write_json()
-            if "df" in stats and stats.get("df") is not None
-            else None
-        )
+        df_json = df.write_json() if df is not None else None
     except Exception as e:
         logger.exception(f"Error serializing df for {playlist_url}: {e}")
         df_json = None
 
     try:
-        summary_stats_json = (
-            json.dumps(stats.get("summary_stats"))
-            if "summary_stats" in stats and stats.get("summary_stats") is not None
-            else None
-        )
+        summary_stats_json = json.dumps(stats.get("summary_stats", {}))
     except Exception as e:
         logger.exception(f"Error serializing summary_stats for {playlist_url}: {e}")
         summary_stats_json = None
@@ -284,15 +323,11 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     }
 
     # Remove Polars DataFrame before inserting
-    if "df" in stats_to_insert:
-        del stats_to_insert["df"]
+    stats_to_insert.pop("df", None)
 
-    safe_insert = {
-        k: v
-        for k, v in stats_to_insert.items()
-        if k not in ["df_json", "summary_stats"]
-    }
-    logger.debug(f"[DB] Final stats_to_insert for {playlist_url}: {safe_insert}")
+    logger.debug(
+        f"[DB] Final stats_to_insert for {playlist_url}: {stats_to_insert.keys()}"
+    )
 
     success = upsert_row(
         PLAYLIST_STATS_TABLE, stats_to_insert, ["playlist_url", "processed_date"]
@@ -304,7 +339,6 @@ async def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
             source="fresh",
             df_json=df_json,
             summary_stats_json=summary_stats_json,
-            inserted_row=safe_insert,
         )
     else:
         logger.error(f"[DB] Failed to insert fresh stats for {playlist_url}")
