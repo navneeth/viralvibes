@@ -1,4 +1,3 @@
-import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -82,13 +81,13 @@ def fake_df():
 
 @pytest.fixture
 def patch_upsert(monkeypatch):
-    async def fake_upsert(stats):
+    def fake_upsert(stats):
         from db import UpsertResult  # Import inside fixture to avoid import issues
 
         return UpsertResult(
             source="fresh",
-            df="[]",
-            summary_stats=json.dumps(stats.get("summary_stats", {})),
+            df_json="[]",
+            summary_stats_json=json.dumps(stats.get("summary_stats", {})),
         )
 
     monkeypatch.setattr(wk, "upsert_playlist_stats", fake_upsert)
