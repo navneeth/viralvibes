@@ -332,15 +332,34 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
     try:
         _set_stage("fetch-playlist-data")
         # Fetch playlist data
+
+        # progress callback tolerant to different caller signatures.
+        def _progress_cb(*args, **kwargs):
+            try:
+                # support callers that pass (processed, total) or (idx, processed, total) etc.
+                processed = None
+                total = None
+                if len(args) >= 2:
+                    processed, total = args[0], args[1]
+                elif len(args) == 1:
+                    processed = args[0]
+                    total = kwargs.get("total") or kwargs.get("total_items") or 0
+                else:
+                    processed = kwargs.get("processed") or kwargs.get("progress") or 0
+                    total = kwargs.get("total") or kwargs.get("total_items") or 0
+
+                # schedule the async update (do not await inside caller)
+                asyncio.create_task(update_progress(job_id, int(processed or 0), int(total or 0)))
+            except Exception:
+                logger.exception(f"[Job {job_id}] progress callback failed")
+
         (
             df,
             playlist_name,
             channel_name,
             channel_thumbnail,
             summary_stats,
-        ) = await yt_service.get_playlist_data(
-            playlist_url, progress_callback=lambda p, t: update_progress(job_id, p, t)
-        )
+        ) = await yt_service.get_playlist_data(playlist_url, progress_callback=_progress_cb)
         _set_stage("fetched-playlist-data")
 
         logger.info(
