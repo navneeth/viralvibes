@@ -349,7 +349,9 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     total = kwargs.get("total") or kwargs.get("total_items") or 0
 
                 # schedule the async update (do not await inside caller)
-                asyncio.create_task(update_progress(job_id, int(processed or 0), int(total or 0)))
+                asyncio.create_task(
+                    update_progress(job_id, int(processed or 0), int(total or 0))
+                )
             except Exception:
                 logger.exception(f"[Job {job_id}] progress callback failed")
 
@@ -359,7 +361,9 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             channel_name,
             channel_thumbnail,
             summary_stats,
-        ) = await yt_service.get_playlist_data(playlist_url, progress_callback=_progress_cb)
+        ) = await yt_service.get_playlist_data(
+            playlist_url, progress_callback=_progress_cb
+        )
         _set_stage("fetched-playlist-data")
 
         logger.info(
