@@ -695,17 +695,26 @@ class YouTubeBackendAPI(YouTubeBackendBase):
         """
         return pl.DataFrame(
             {
-                "Rank": [],
-                "id": [],
-                "Title": [],
-                "Views": [],
-                "Likes": [],
-                "Dislikes": [],
-                "Comments": [],
-                "Duration": [],
-                "Uploader": [],
-                "Thumbnail": [],
-                "Rating": [],
+                "Rank": pl.Series([], dtype=pl.Int64),
+                "id": pl.Series([], dtype=pl.Utf8),
+                "Title": pl.Series([], dtype=pl.Utf8),
+                "Description": pl.Series([], dtype=pl.Utf8),
+                "Views": pl.Series([], dtype=pl.Int64),
+                "Likes": pl.Series([], dtype=pl.Int64),
+                "Dislikes": pl.Series([], dtype=pl.Int64),
+                "Comments": pl.Series([], dtype=pl.Int64),
+                "Duration": pl.Series([], dtype=pl.Int64),
+                "PublishedAt": pl.Series([], dtype=pl.Utf8),
+                "Uploader": pl.Series([], dtype=pl.Utf8),
+                "Thumbnail": pl.Series([], dtype=pl.Utf8),
+                "Tags": pl.Series([], dtype=pl.List(pl.Utf8)),
+                "CategoryId": pl.Series([], dtype=pl.Utf8),
+                "CategoryName": pl.Series([], dtype=pl.Utf8),
+                "Caption": pl.Series([], dtype=pl.Boolean),
+                "Licensed": pl.Series([], dtype=pl.Boolean),
+                "Definition": pl.Series([], dtype=pl.Utf8),
+                "Dimension": pl.Series([], dtype=pl.Utf8),
+                "Rating": pl.Series([], dtype=pl.Float64),
             }
         )
 
@@ -1092,30 +1101,58 @@ class YouTubeBackendAPI(YouTubeBackendBase):
     def _parse_video_item(
         self, item: Dict[str, Any], rank: int
     ) -> Optional[Dict[str, Any]]:
-        """Parse a single video item from API response."""
+        """Parse a single video item from API response (defensive)."""
         try:
-            video_id = item.get("id", "")
-            sn = item.get("snippet", {})
-            stats = item.get("statistics", {})
-            cd = item.get("contentDetails", {})
+            # id is usually present at top-level for videos.list results
+            video_id = item.get("id") or ""
+            sn = item.get("snippet", {}) or {}
+            stats = item.get("statistics", {}) or {}
+            cd = item.get("contentDetails", {}) or {}
+
+            # safe numeric parsing with fallbacks
+            def safe_int(x, default=0):
+                try:
+                    return int(x)
+                except Exception:
+                    return default
+
+            title = sn.get("title", "N/A")
+            description = sn.get("description", "")
+            view_count = safe_int(stats.get("viewCount", 0))
+            like_count = safe_int(stats.get("likeCount", 0))
+            comment_count = safe_int(stats.get("commentCount", 0))
+            duration_iso = cd.get("duration", "PT0S")
+            duration_seconds = self._parse_iso8601_duration(duration_iso)
+
+            tags = sn.get("tags", []) or []
+            category_id = sn.get("categoryId", "")
+            category_name = get_category_name(category_id)
+
+            # caption/captions field handling: contentDetails 'caption' may be boolean-string
+            caption_field = cd.get("caption", "false")
+            has_caption = False
+            if isinstance(caption_field, bool):
+                has_caption = caption_field
+            elif isinstance(caption_field, str):
+                has_caption = caption_field.lower() == "true"
 
             return {
                 "Rank": rank,
                 "id": video_id,
-                "Title": sn.get("title", "N/A"),
-                "Description": sn.get("description", ""),
-                "Views": int(stats.get("viewCount", 0)),
-                "Likes": int(stats.get("likeCount", 0)),
+                "Title": title,
+                "Description": description,
+                "Views": view_count,
+                "Likes": like_count,
                 "Dislikes": 0,  # YouTube API doesn't expose dislikes
-                "Comments": int(stats.get("commentCount", 0)),
-                "Duration": self._parse_iso8601_duration(cd.get("duration", "PT0S")),
+                "Comments": comment_count,
+                "Duration": duration_seconds,
                 "PublishedAt": sn.get("publishedAt", ""),
                 "Uploader": sn.get("channelTitle", "N/A"),
                 "Thumbnail": sn.get("thumbnails", {}).get("high", {}).get("url", ""),
-                "Tags": sn.get("tags", []),
-                "CategoryId": sn.get("categoryId", ""),
-                "CategoryName": get_category_name(sn.get("categoryId", "")),
-                "Caption": cd.get("caption", "false").lower() == "true",
+                "Tags": tags,
+                "CategoryId": category_id,
+                "CategoryName": category_name,
+                "Caption": has_caption,
                 "Licensed": cd.get("licensedContent", False),
                 "Definition": cd.get("definition", "sd"),
                 "Dimension": cd.get("dimension", "2d"),
@@ -1123,7 +1160,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             }
         except Exception as e:
             logger.warning(
-                f"Failed to parse video item {item.get('id', 'unknown')}: {e}"
+                f"[YouTubeAPI] Failed to parse video item {item.get('id', 'unknown')}: {e}"
             )
             return None
 
@@ -1131,28 +1168,43 @@ class YouTubeBackendAPI(YouTubeBackendBase):
         self, videos: List[Dict[str, Any]]
     ) -> pl.DataFrame:
         """
-        Create DataFrame from video list with validation.
+        Create DataFrame from video list with validation and consistent columns.
         Always returns a valid DataFrame (possibly empty).
         """
-        try:
-            if not videos:
-                logger.warning("[YouTubeAPI] No videos to create DataFrame from")
-                return self._create_empty_dataframe()
+        if not videos:
+            return self._create_empty_dataframe()
 
+        try:
+            # Build DataFrame; Polars will infer dtypes
             df = pl.DataFrame(videos)
 
-            # Validate DataFrame
-            if df is None or not isinstance(df, pl.DataFrame):
-                logger.error("[YouTubeAPI] DataFrame creation returned invalid type")
-                return self._create_empty_dataframe()
+            # Get expected schema from empty template
+            template = self._create_empty_dataframe()
+            expected_cols = template.schema
 
-            if df.is_empty():
-                logger.warning("[YouTubeAPI] Created empty DataFrame from videos")
-                return self._create_empty_dataframe()
+            # Add missing columns with appropriate defaults
+            for col_name, col_dtype in expected_cols.items():
+                if col_name not in df.columns:
+                    df = df.with_columns(
+                        pl.Series(col_name, [None] * df.height, dtype=col_dtype)
+                    )
 
-            logger.info(
-                f"[YouTubeAPI] Created DataFrame with {df.height} rows, {df.width} columns"
-            )
+            # Ensure columns match expected schema and ordering
+            df = df.select(list(expected_cols.keys()))
+
+            # Type coercion for numeric columns
+            for col_name, col_dtype in expected_cols.items():
+                if col_name in df.columns:
+                    if col_dtype in (pl.Int64, pl.Int32):
+                        df = df.with_columns(
+                            pl.col(col_name).fill_null(0).cast(col_dtype)
+                        )
+                    elif col_dtype == pl.Float64:
+                        df = df.with_columns(
+                            pl.col(col_name).fill_null(None).cast(col_dtype)
+                        )
+
+            logger.info(f"[YouTubeAPI] Created DataFrame with {df.height} rows")
             return df
 
         except Exception as e:
