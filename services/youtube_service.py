@@ -1071,52 +1071,6 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             logger.error(f"Failed to fetch video IDs for {playlist_id}: {e}")
             return video_ids  # Return partial results
 
-    async def _fetch_video_details(
-        self,
-        video_ids: List[str],
-        progress_callback: Optional[callable],
-    ) -> List[Dict[str, Any]]:
-        """Fetch detailed video information in batches."""
-        videos = []
-
-        try:
-            for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
-                batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
-                batch_num = i // self.YOUTUBE_API_MAX_RESULTS + 1
-
-                logger.debug(
-                    f"[YouTubeAPI] Fetching batch {batch_num} ({len(batch)} videos)"
-                )
-
-                resp = (
-                    self.youtube.videos()
-                    .list(
-                        part="snippet,statistics,contentDetails",
-                        id=",".join(batch),
-                    )
-                    .execute()
-                )
-
-                items = resp.get("items", [])
-                if not items:
-                    logger.warning(f"[YouTubeAPI] Batch {batch_num} returned no items")
-                    continue
-
-                for idx, it in enumerate(items, start=i + 1):
-                    video_data = self._parse_video_item(it, idx)
-                    if video_data:
-                        videos.append(video_data)
-
-                # Progress callback
-                if progress_callback:
-                    await progress_callback(len(videos), len(video_ids), {})
-
-            return videos
-
-        except Exception as e:
-            logger.error(f"Failed to fetch video details: {e}")
-            return videos  # Return partial results
-
     def _parse_video_item(
         self, item: Dict[str, Any], rank: int
     ) -> Optional[Dict[str, Any]]:
