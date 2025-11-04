@@ -196,7 +196,7 @@ async def increment_retry_count(job_id: str, current_count: int = 0):
         logger.warning(f"Failed to update retry count for {job_id}: {e}")
 
 
-async def update_progress(job_id: str, processed: int, total: int):
+def update_progress(job_id: str, processed: int, total: int):
     """Update job progress in database."""
     progress = processed / total if total > 0 else 0
     logger.info(f"Job {job_id}: {progress * 100:.1f}% complete")

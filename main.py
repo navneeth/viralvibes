@@ -378,7 +378,7 @@ def preview_playlist(playlist_url: str):
 
     # Calculate batch count (assuming batch size of 10)
     batch_size = 10
-    batch_count = (video_count + batch_size - 1) // batch_size if video_count else 6
+    batch_count = (video_count + batch_size - 1) // batch_size if video_count else 0
 
     # Determine button state and text
     is_submitted = job_status in ["pending", "processing"]
@@ -600,9 +600,9 @@ def preview_playlist(playlist_url: str):
         # Action button
         Button(
             (
-                UkIcon("trending-up", width=20, height=20, cls="mr-2")
-                if not is_submitted
-                else None
+                None
+                if is_submitted
+                else UkIcon("trending-up", width=20, height=20, cls="mr-2")
             ),
             button_text,
             hx_post="/submit-job",
