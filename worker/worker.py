@@ -196,104 +196,29 @@ async def increment_retry_count(job_id: str, current_count: int = 0):
         logger.warning(f"Failed to update retry count for {job_id}: {e}")
 
 
-def update_progress(job_id: str, processed: int, total: int):
+async def update_progress(job_id: str, processed: int, total: int):
     """Update job progress in database."""
-    progress = processed / total if total > 0 else 0
+    if total <= 0:
+        return
+
+    progress = processed / total
     logger.info(f"Job {job_id}: {progress * 100:.1f}% complete")
+
     try:
-        supabase_client.table("playlist_jobs").update({"progress": progress}).eq(
+        await supabase_client.table("playlist_jobs").update({"progress": progress}).eq(
             "id", job_id
         ).execute()
     except Exception as e:
         logger.warning(f"Failed to update progress for {job_id}: {e}")
 
 
-async def check_bot_challenge_cooldown():
-    """
-    Check if we're in a bot challenge cooldown period.
-    Returns True if we should pause processing.
-    """
-    global last_bot_challenge_time, consecutive_bot_challenges
+async def _make_progress_callback(job_id: str):
+    """Creates an async progress callback for the YouTube service."""
 
-    if last_bot_challenge_time is None:
-        return False
+    async def callback(processed: int, total: int, meta: dict = None):
+        await update_progress(job_id, processed, total)
 
-    elapsed = time.time() - last_bot_challenge_time
-
-    # Exponential backoff based on consecutive challenges
-    backoff_multiplier = min(consecutive_bot_challenges, 5)
-    required_cooldown = BOT_CHALLENGE_BACKOFF * backoff_multiplier
-
-    if elapsed < required_cooldown:
-        remaining = required_cooldown - elapsed
-        logger.warning(
-            f"Bot challenge cooldown active: {int(remaining)}s remaining "
-            f"(attempt {consecutive_bot_challenges})"
-        )
-        return True
-
-    # Cooldown period has passed, reset counter
-    consecutive_bot_challenges = 0
-    last_bot_challenge_time = None
-    logger.info("Bot challenge cooldown period ended, resuming normal operation")
-    return False
-
-
-async def handle_job_failure(
-    job_id: str, retry_count: int, error_message: str, error_trace: str = None
-) -> bool:
-    """
-    Handle job failure with retry logic.
-    Returns True if retry is scheduled, False if max retries exhausted.
-    """
-    if retry_count < MAX_RETRY_ATTEMPTS:
-        logger.warning(
-            f"[Job {job_id}] {error_message} - will retry later "
-            f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
-        )
-        await increment_retry_count(job_id, retry_count)
-
-        meta = {
-            "error": error_message,
-            "finished_at": datetime.utcnow().isoformat(),
-            "retry_scheduled": True,
-        }
-        if error_trace:
-            meta["error_trace"] = error_trace
-
-        await mark_job_status(job_id, "failed", meta)
-        return True
-    else:
-        logger.error(f"[Job {job_id}] {error_message} - max retries exhausted")
-
-        meta = {
-            "error": f"{error_message} (max retries exhausted)",
-            "finished_at": datetime.utcnow().isoformat(),
-            "retry_scheduled": False,
-        }
-        if error_trace:
-            meta["error_trace"] = error_trace
-
-        await mark_job_status(job_id, "failed", meta)
-        return False
-
-
-def _result_to_mapping(result) -> Dict[str, Any]:
-    """Convert UpsertResult dataclass to dict for backward compatibility."""
-    if hasattr(result, "__dict__"):
-        return vars(result)
-    elif isinstance(result, dict):
-        return result
-    else:
-        # Fallback: try to access as dataclass
-        return {
-            "source": getattr(result, "source", None),
-            "df": getattr(result, "df", None),
-            "df_json": getattr(result, "df_json", None),
-            "summary_stats": getattr(result, "summary_stats", None),
-            "summary_stats_json": getattr(result, "summary_stats_json", None),
-            "error": getattr(result, "error", None),
-        }
+    return callback
 
 
 async def handle_job(job: Dict[str, Any], is_retry: bool = False):
@@ -331,7 +256,10 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
     try:
         _set_stage("fetch-playlist-data")
-        # Fetch playlist data
+        # Create progress callback
+        progress_cb = await _make_progress_callback(job_id)
+
+        # Fetch playlist data with progress callback
         (
             df,
             playlist_name,
@@ -339,8 +267,9 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             channel_thumbnail,
             summary_stats,
         ) = await yt_service.get_playlist_data(
-            playlist_url, progress_callback=lambda p, t: update_progress(job_id, p, t)
+            playlist_url, progress_callback=progress_cb
         )
+
         _set_stage("fetched-playlist-data")
 
         logger.info(

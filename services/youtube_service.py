@@ -931,14 +931,16 @@ class YouTubeBackendAPI(YouTubeBackendBase):
     async def _fetch_video_details(
         self,
         video_ids: List[str],
-        progress_callback: Optional[callable],
+        progress_callback: Optional[callable] = None,
     ) -> List[Dict[str, Any]]:
-        """Fetch detailed video information in batches (robust; returns partial results)."""
+        """Fetch detailed video information in batches."""
         videos = []
 
         try:
-            # iterate in batches (max 50 per YouTube API)
-            for i in range(0, len(video_ids), self.YOUTUBE_API_MAX_RESULTS):
+            total_videos = len(video_ids)
+
+            # iterate in batches
+            for i in range(0, total_videos, self.YOUTUBE_API_MAX_RESULTS):
                 batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
                 batch_num = i // self.YOUTUBE_API_MAX_RESULTS + 1
 
@@ -990,7 +992,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
         except Exception as e:
             logger.exception(f"[YouTubeAPI] Failed to fetch video details: {e}")
-            return videos  # return whatever partial results we have
+            return videos  # return partial results
 
     async def _fetch_playlist_metadata(
         self, playlist_id: str
