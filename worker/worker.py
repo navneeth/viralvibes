@@ -335,11 +335,19 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
         # progress callback tolerant to different caller signatures.
         def _progress_cb(*args, **kwargs):
+            """Tolerant progress callback that schedules the sync update_progress in an executor.
+
+            Returns an awaitable (Future) so backends can safely 'await progress_callback(...)'
+            or call it without awaiting (the work is still scheduled).
+            """
             try:
                 # support callers that pass (processed, total) or (idx, processed, total) etc.
                 processed = None
                 total = None
-                if len(args) >= 2:
+                if len(args) == 3:
+                    # maybe (index, processed, total)
+                    processed, total = args[1], args[2]
+                elif len(args) == 2:
                     processed, total = args[0], args[1]
                 elif len(args) == 1:
                     processed = args[0]
@@ -348,12 +356,25 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     processed = kwargs.get("processed") or kwargs.get("progress") or 0
                     total = kwargs.get("total") or kwargs.get("total_items") or 0
 
-                # schedule the async update (do not await inside caller)
-                asyncio.create_task(
-                    update_progress(job_id, int(processed or 0), int(total or 0))
+                processed = int(processed or 0)
+                total = int(total or 0)
+
+                # Schedule the sync update_progress in the default executor.
+                # loop.run_in_executor returns a Future which is awaitable.
+                loop = asyncio.get_running_loop()
+                return loop.run_in_executor(
+                    None, update_progress, job_id, processed, total
                 )
             except Exception:
                 logger.exception(f"[Job {job_id}] progress callback failed")
+                # return a completed Future-like (None) to callers; use loop.create_future if needed
+                try:
+                    loop = asyncio.get_running_loop()
+                    fut = loop.create_future()
+                    fut.set_result(None)
+                    return fut
+                except Exception:
+                    return None
 
         (
             df,
