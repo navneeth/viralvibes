@@ -335,46 +335,63 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
         # progress callback tolerant to different caller signatures.
         def _progress_cb(*args, **kwargs):
-            """Tolerant progress callback that schedules the sync update_progress in an executor.
-
-            Returns an awaitable (Future) so backends can safely 'await progress_callback(...)'
-            or call it without awaiting (the work is still scheduled).
+            """
+            Tolerant progress callback that handles various argument patterns.
+            Returns an awaitable Future for compatibility with async callers.
             """
             try:
-                # support callers that pass (processed, total) or (idx, processed, total) etc.
+                # Extract processed and total from various argument patterns
                 processed = None
                 total = None
-                if len(args) == 3:
-                    # maybe (index, processed, total)
-                    processed, total = args[1], args[2]
+                meta = {}
+
+                if len(args) >= 3:
+                    # (processed, total, meta) or (index, processed, total)
+                    if isinstance(args[2], dict):
+                        processed, total, meta = args[0], args[1], args[2]
+                    else:
+                        _, processed, total = args[0], args[1], args[2]
                 elif len(args) == 2:
+                    # (processed, total)
                     processed, total = args[0], args[1]
                 elif len(args) == 1:
-                    processed = args[0]
-                    total = kwargs.get("total") or kwargs.get("total_items") or 0
+                    # Single argument could be processed count or a dict
+                    if isinstance(args[0], dict):
+                        meta = args[0]
+                        processed = meta.get("processed") or meta.get("current", 0)
+                        total = meta.get("total") or meta.get("total_items", 0)
+                    else:
+                        processed = args[0]
+                        total = kwargs.get("total") or kwargs.get("total_items", 0)
                 else:
-                    processed = kwargs.get("processed") or kwargs.get("progress") or 0
-                    total = kwargs.get("total") or kwargs.get("total_items") or 0
+                    # No positional args, look in kwargs
+                    processed = kwargs.get("processed") or kwargs.get("progress", 0)
+                    total = kwargs.get("total") or kwargs.get("total_items", 0)
+                    meta = kwargs.get("meta", {})
 
-                processed = int(processed or 0)
-                total = int(total or 0)
+                # Ensure numeric values
+                try:
+                    processed = int(float(processed or 0))
+                    total = int(float(total or 0))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        f"Invalid progress values: processed={processed}, total={total}"
+                    )
+                    processed, total = 0, 0
 
-                # Schedule the sync update_progress in the default executor.
-                # loop.run_in_executor returns a Future which is awaitable.
+                # Schedule the sync update_progress in the default executor
                 loop = asyncio.get_running_loop()
                 return loop.run_in_executor(
                     None, update_progress, job_id, processed, total
                 )
-            except Exception:
-                logger.exception(f"[Job {job_id}] progress callback failed")
-                # return a completed Future-like (None) to callers; use loop.create_future if needed
-                try:
-                    loop = asyncio.get_running_loop()
-                    fut = loop.create_future()
-                    fut.set_result(None)
-                    return fut
-                except Exception:
-                    return None
+
+            except Exception as e:
+                logger.exception(f"[Job {job_id}] Progress callback failed: {e}")
+                # Return a completed Future
+                loop = asyncio.get_running_loop()
+                fut = loop.create_future()
+                fut.set_result(None)
+                return fut
 
         (
             df,
