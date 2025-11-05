@@ -112,11 +112,18 @@ def _enrich_dataframe(
 ) -> Tuple[pl.DataFrame, Dict[str, Any]]:
     """Calculate summary statistics for the playlist."""
     # Check if df is a Polars DataFrame or None
-    if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
-        logger.warning(
-            f"Invalid or empty DataFrame received in _enrich_dataframe: {type(df)}"
-        )
-        return None, {"total_views": 0, "processed_video_count": 0}
+    if df is None or not isinstance(df, pl.DataFrame):
+        logger.warning(f"Invalid DataFrame received in _enrich_dataframe: {type(df)}")
+        empty_stats = {
+            "total_views": 0,
+            "total_likes": 0,
+            "total_dislikes": 0,
+            "total_comments": 0,
+            "avg_engagement": 0.0,
+            "actual_playlist_count": actual_playlist_count or 0,
+            "processed_video_count": 0,
+        }
+        return pl.DataFrame(), empty_stats  # Return empty DataFrame, not None
 
     if df.is_empty():
         return df, {
@@ -128,6 +135,8 @@ def _enrich_dataframe(
             "actual_playlist_count": actual_playlist_count or 0,
             "processed_video_count": 0,
         }
+
+    # Use fill_null with value parameter
     df = df.with_columns(
         [
             (
@@ -135,13 +144,13 @@ def _enrich_dataframe(
                 - (pl.col("Likes") - pl.col("Dislikes")).abs()
                 / (pl.col("Likes") + pl.col("Dislikes"))
             )
-            .fill_nan(0.0)
+            .fill_null(value=0.0)  # Explicit value parameter
             .alias("Controversy"),
             (
                 (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
                 / pl.col("Views")
             )
-            .fill_nan(0.0)
+            .fill_null(value=0.0)  # Explicit value parameter
             .alias("Engagement Rate Raw"),
         ]
     )
