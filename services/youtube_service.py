@@ -1201,7 +1201,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                         )
                     elif col_dtype == pl.Float64:
                         df = df.with_columns(
-                            pl.col(col_name).fill_null(None).cast(col_dtype)
+                            pl.col(col_name).fill_null(0.0).cast(col_dtype)
                         )
 
             logger.info(f"[YouTubeAPI] Created DataFrame with {df.height} rows")
