@@ -213,49 +213,63 @@ def HeaderCard() -> Card:
 def hero_section():
     """
     Responsive hero that scales between mobile and desktop:
-    - hides horizontal overflow at the section level to avoid "floating" scroll.
-    - uses a single responsive decorative SVG sized with vw units so it scales,
-      avoiding fixed min-widths that produce horizontal scrollbars.
-    - uses viewport-based min-heights so mobile/desktop feel proportional.
+    - High-quality background image (Unsplash)
+    - Gradient overlay for text readability
+    - Better typography hierarchy
+    - Glassmorphism effect for CTA
+
     """
     return Section(
-        # Decorative background — responsive width using vw so it scales smoothly.
+        # Premium background image with gradient overlay
         styled_div(
-            File("assets/waves.svg"),
-            cls="absolute z-0 left-1/2 -translate-x-1/2 pointer-events-none opacity-80",
-            style="width: clamp(100vw, 120vw, 2200px); top: -12vh;",
+            Img(
+                src="https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1920&q=80",
+                alt="YouTube Analytics Background",
+                cls="absolute inset-0 w-full h-full object-cover",
+            ),
+            styled_div(
+                cls="absolute inset-0 bg-gradient-to-b from-black/40 via-black/50 to-black/70"
+            ),
+            cls="absolute inset-0 z-0",
         ),
-        # Content container — hide horizontal overflow here to prevent floating scroll
+        # Main content container
         styled_div(
-            styled_div(cls="lg:flex-1 max-lg:basis-[152px]"),
+            # Text content
             styled_div(
                 H1(
-                    "ViralVibes",
-                    cls=f"text-4xl md:text-5xl font-poppins {THEME['secondary_text']}",
+                    "Decode YouTube Virality.",
+                    cls="text-5xl md:text-6xl font-bold text-white mb-4 leading-tight",
+                ),
+                H1(
+                    "Instantly.",
+                    cls="text-5xl md:text-6xl font-bold bg-gradient-to-r from-red-400 to-pink-400 bg-clip-text text-transparent mb-6",
                 ),
                 P(
-                    "Decode YouTube virality - Instantly.\nAnalyze your YouTube playlists with creator-first insights.\nUnlock curated insights into your audience instantly.",
-                    cls="text-lg md:text-xl font-inter text-gray-800 max-w-[40rem] text-center leading-relaxed",
+                    "Analyze any YouTube playlist to uncover engagement trends, viral patterns, and creator insights.",
+                    cls="text-lg md:text-xl text-gray-200 max-w-2xl mb-8 leading-relaxed",
                 ),
-                cls=f"flex-1 {col} items-center justify-center gap-6 text-center w-full text-black",
-            ),
-            styled_div(
-                A(
-                    "🚀 Try it now",
-                    href="#analysis-form",
-                    cls=f"shadow-inner m-body px-4 py-1 rounded-full {THEME['primary_bg']} {THEME['primary_hover']} text-white h-[76px] w-full max-w-[350px] {THEME['flex_center']}",
-                    uk_scroll="offset: 80",
+                # Glassmorphism CTA buttons
+                styled_div(
+                    A(
+                        "🚀 Start Analyzing",
+                        href="#analysis-form",
+                        cls="px-8 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-full font-semibold hover:shadow-lg hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105 inline-block",
+                    ),
+                    A(
+                        "📚 Learn More",
+                        href="#features",
+                        cls="px-8 py-4 bg-white/10 backdrop-blur-md text-white rounded-full font-semibold border border-white/20 hover:bg-white/20 transition-all duration-300 inline-block ml-4",
+                    ),
+                    cls="flex gap-4 flex-wrap justify-center lg:justify-start",
                 ),
-                cls=f"{THEME['flex_col']} flex-1 relative px-4 lg:px-16",
+                cls="max-w-4xl text-center lg:text-left",
             ),
-            # Responsive min-heights:
-            # - mobile: comfortable fraction of viewport (65vh)
-            # - tablet/desktop: larger min-height (75vh -> 90vh) for visual presence
             cls=(
-                f"{col} relative w-full min-h-[65vh] md:min-h-[75vh] lg:min-h-[90vh] "
-                "max-h-[1024px] overflow-x-hidden overflow-y-visible bg-grey"
+                f"{THEME['flex_col']} lg:{THEME['flex_row']} items-center justify-center "
+                "px-4 lg:px-16 h-screen relative z-10 w-full"
             ),
         ),
+        cls="relative overflow-hidden w-full min-h-screen bg-black",
     )
 
 
