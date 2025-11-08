@@ -51,6 +51,7 @@ THEME = {
     "neutral_bg": "bg-gray-100",
     "card_base": "bg-white rounded-2xl shadow-lg p-8 border border-gray-200",
     "flex_col": "flex flex-col",
+    "flex_row": "flex-row",
     "flex_center": "flex items-center justify-center",
     "gap_sm": "gap-4",
     # Add more as needed
