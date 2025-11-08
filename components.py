@@ -257,7 +257,8 @@ def hero_section():
                     ),
                     A(
                         "📚 Learn More",
-                        href="#features",
+                        href="#faq-section",
+                        onclick="document.getElementById('faq-section').scrollIntoView({behavior:'smooth'}); return false;",
                         cls="px-8 py-4 bg-white/10 backdrop-blur-md text-white rounded-full font-semibold border border-white/20 hover:bg-white/20 transition-all duration-300 inline-block ml-4",
                     ),
                     cls="flex gap-4 flex-wrap justify-center lg:justify-start",
