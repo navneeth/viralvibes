@@ -348,7 +348,7 @@ def AnalysisFormCard() -> Div:
             styled_div(
                 # Hero image - premium look
                 Img(
-                    src="https://images.unsplash.com/photo-1460925895917-adf4e565db7d?w=400&h=300&fit=crop",
+                    src="https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=400&h300&q=80",
                     alt="YouTube Analytics Dashboard",
                     cls="w-full h-48 object-cover rounded-lg shadow-lg mb-6",
                     loading="lazy",
