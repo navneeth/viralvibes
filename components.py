@@ -280,10 +280,39 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
     return Steps(*steps, cls=STEPS_CLS)
 
 
-def AnalysisFormCard() -> Div:
-    """Single-layer Analysis Form card with clean layout (no nested Card)."""
+def paste_button(target_id: str) -> Button:
+    """Single-purpose paste button with inline JS."""
+    status_id = f"{target_id}_status"
+    onclick = f"""
+        const btn = this, input = document.getElementById('{target_id}'), status = document.getElementById('{status_id}');
+        btn.disabled = true;
+        navigator.clipboard.readText()
+            .then(text => {{
+                input.value = text.trim();
+                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                status.textContent = 'Pasted!'; status.className = 'text-green-600 text-xs font-medium';
+                setTimeout(() => status.textContent = '', 1500);
+            }})
+            .catch(() => {{
+                status.textContent = 'Paste failed'; status.className = 'text-red-600 text-xs font-medium';
+                setTimeout(() => status.textContent = '', 2000);
+            }})
+            .finally(() => btn.disabled = false);
+    """
+    return Button(
+        UkIcon("clipboard", cls="w-4 h-4"),
+        type="button",
+        onclick=onclick,
+        cls="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-600 transition-colors duration-200 focus:outline-none",
+        title="Paste from clipboard",
+        aria_label="Paste from clipboard",
+    )
 
+
+def AnalysisFormCard() -> Div:
+    """Single-layer Analysis Form card with integrated paste button."""
     # Get a random prefill URL from the known playlists
+
     prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
     return styled_div(
@@ -313,18 +342,25 @@ def AnalysisFormCard() -> Div:
         ),
         # --- Playlist Form ---
         Form(
-            LabelInput(
-                "Playlist URL",
-                type="text",
-                name="playlist_url",
-                placeholder="Paste YouTube Playlist URL",
-                value=prefill_url,
-                className=(
-                    "px-4 py-2 w-full border rounded-md text-gray-900 placeholder-gray-500 "
-                    "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
+            # URL Input with integrated paste button
+            Div(
+                LabelInput(
+                    "Playlist URL",
+                    type="text",
+                    name="playlist_url",
+                    id="playlist_url",
+                    placeholder="Paste YouTube Playlist URL",
+                    value=prefill_url,
+                    className=(
+                        "px-4 py-2 w-full pr-12 border rounded-md text-gray-900 placeholder-gray-500 "
+                        "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
+                    ),
+                    style="color: #333;",
                 ),
-                style="color: #333;",
+                paste_button("playlist_url"),
+                cls="relative",
             ),
+            Span("", id="playlist_url_status", cls="text-xs", aria_live="polite"),
             P(
                 "💡 Works with any public playlist",
                 cls="italic text-yellow-600 text-xs mt-1",
