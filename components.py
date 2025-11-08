@@ -296,7 +296,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
 
 def paste_button(target_id: str) -> Button:
-    """Single-purpose paste button with inline JS."""
+    """Paste button with icon swap and premium styling."""
     status_id = f"{target_id}_status"
     onclick = f"""
         const btn = this, input = document.getElementById('{target_id}'), status = document.getElementById('{status_id}');
@@ -305,20 +305,27 @@ def paste_button(target_id: str) -> Button:
             .then(text => {{
                 input.value = text.trim();
                 input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                status.textContent = 'Pasted!'; status.className = 'text-green-600 text-xs font-medium';
+
+                status.textContent = '✓ Pasted';
+                status.className = 'text-green-600 text-xs font-semibold';
+
                 setTimeout(() => status.textContent = '', 1500);
             }})
             .catch(() => {{
-                status.textContent = 'Paste failed'; status.className = 'text-red-600 text-xs font-medium';
+                status.textContent = '✗ Paste failed';
+                status.className = 'text-red-600 text-xs font-semibold';
                 setTimeout(() => status.textContent = '', 2000);
             }})
             .finally(() => btn.disabled = false);
     """
     return Button(
-        UkIcon("clipboard", cls="w-4 h-4"),
+        UkIcon("clipboard", cls="w-5 h-5"),
         type="button",
         onclick=onclick,
-        cls="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-600 transition-colors duration-200 focus:outline-none",
+        cls=(
+            "text-gray-400 hover:text-red-600 focus:outline-none disabled:opacity-50 "
+            "transition-colors duration-200 hover:scale-110"
+        ),
         title="Paste from clipboard",
         aria_label="Paste from clipboard",
     )
@@ -331,70 +338,145 @@ def AnalysisFormCard() -> Div:
     prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
     return styled_div(
-        # --- Hero image and heading ---
-        Img(
-            src="/static/celebration.webp",
-            alt="YouTube Analytics Celebration",
-            cls="w-28 mx-auto drop-shadow-lg mb-4",
-            loading="lazy",
+        # --- Hero image section with gradient background ---
+        styled_div(
+            # Background gradient
+            Div(
+                cls="absolute inset-0 bg-gradient-to-br from-red-50 via-white to-orange-50 rounded-t-2xl",
+            ),
+            # Content overlay
+            styled_div(
+                # Hero image - premium look
+                Img(
+                    src="https://images.unsplash.com/photo-1460925895917-adf4e565db7d?w=400&h=300&fit=crop",
+                    alt="YouTube Analytics Dashboard",
+                    cls="w-full h-48 object-cover rounded-lg shadow-lg mb-6",
+                    loading="lazy",
+                ),
+                # Heading with better hierarchy
+                H2(
+                    "Analyze Your YouTube Playlist",
+                    cls="text-4xl font-bold text-gray-900 text-center mb-2",
+                ),
+                P(
+                    "Get deep insights into views, engagement, and virality patterns",
+                    cls="text-gray-600 text-center text-lg mb-6 max-w-2xl mx-auto",
+                ),
+                # Trust indicators
+                styled_div(
+                    Div(
+                        Span(
+                            "✓ Real-time Analytics",
+                            cls="flex items-center gap-2 text-sm text-gray-700",
+                        ),
+                        Span(
+                            "✓ Creator Insights",
+                            cls="flex items-center gap-2 text-sm text-gray-700",
+                        ),
+                        Span(
+                            "✓ Viral Patterns",
+                            cls="flex items-center gap-2 text-sm text-gray-700",
+                        ),
+                        cls="flex flex-wrap gap-4 justify-center",
+                    ),
+                    cls="mb-8",
+                ),
+                cls=f"{col} items-center justify-center px-6 pt-8 pb-6 relative z-10",
+            ),
+            cls="relative mb-6 rounded-t-2xl overflow-hidden",
         ),
-        H2(
-            "Analyze Your YouTube Playlist",
-            cls="text-3xl font-bold text-red-600 text-center",
-        ),
-        P(
-            "Get deep insights into views, engagement, and virality patterns",
-            cls="text-red-500 text-center mb-4",
-        ),
-        # --- Steps Placeholder ---
+        # --- Steps with better styling ---
         styled_div(
             id="steps-container",
             children=[PlaylistSteps(completed_steps=0)],
             cls=(
-                "flex justify-center mb-6 transition-opacity duration-300 "
-                "min-h-[120px] opacity-60"
+                "flex justify-center mb-8 transition-opacity duration-300 "
+                "min-h-[120px] opacity-80"
             ),
         ),
-        # --- Playlist Form ---
+        # --- Playlist Form with premium styling ---
         Form(
-            # URL Input with integrated paste button
-            Div(
-                LabelInput(
-                    "Playlist URL",
-                    type="text",
-                    name="playlist_url",
-                    id="playlist_url",
-                    placeholder="Paste YouTube Playlist URL",
-                    value=prefill_url,
-                    className=(
-                        "px-4 py-2 w-full pr-12 border rounded-md text-gray-900 placeholder-gray-500 "
-                        "focus:ring-2 focus:ring-red-500 focus:border-red-500 transition"
+            # Input section with label and hint
+            styled_div(
+                Label(
+                    Span(
+                        "🔗 Playlist URL",
+                        cls="block text-sm font-semibold text-gray-900 mb-2",
                     ),
-                    style="color: #333;",
+                    Span(
+                        "Paste your YouTube playlist link below",
+                        cls="block text-xs text-gray-500 mb-3",
+                    ),
+                    cls="block",
                 ),
-                paste_button("playlist_url"),
-                cls="relative",
-            ),
-            Span("", id="playlist_url_status", cls="text-xs", aria_live="polite"),
-            P(
-                "💡 Works with any public playlist",
-                cls="italic text-yellow-600 text-xs mt-1",
-            ),
-            # Action button
-            Button(
-                Span(UkIcon("chart-bar", cls="mr-2"), "Analyze Playlist"),
-                type="submit",
-                cls=f"{ButtonT.primary} w-full {THEME['primary_hover']} transition-transform mt-4",
-            ),
-            # Quick action buttons for demo playlists
-            (
-                Details(
-                    Summary(
-                        "Try sample playlists",
-                        cls="text-sm text-gray-600 cursor-pointer hover:text-gray-800",
+                # Premium input group
+                Div(
+                    # Leading play icon
+                    Span(
+                        UkIcon("play", cls="w-5 h-5 text-red-500 font-bold"),
+                        cls="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none",
                     ),
-                    SamplePlaylistButtons(),
-                    cls="mt-3 max-h-40 overflow-y-auto",
+                    # Input field with enhanced styling
+                    Input(
+                        type="text",
+                        name="playlist_url",
+                        id="playlist_url",
+                        placeholder="https://youtube.com/playlist?list=...",
+                        value=prefill_url,
+                        className=(
+                            "w-full pl-10 pr-10 py-3 border-2 border-gray-200 rounded-lg "
+                            "text-gray-900 placeholder-gray-400 focus:border-red-500 focus:ring-2 "
+                            "focus:ring-red-500/20 focus:outline-none transition-all duration-200 "
+                            "font-medium bg-white"
+                        ),
+                        style="color: #333;",
+                    ),
+                    # Trailing paste button
+                    Div(
+                        paste_button("playlist_url"),
+                        cls="absolute right-2.5 top-1/2 -translate-y-1/2",
+                    ),
+                    cls="relative",
+                ),
+                # Status indicator (hidden by default)
+                Span(
+                    "", id="playlist_url_status", cls="text-xs mt-2", aria_live="polite"
+                ),
+                # Helper text
+                P(
+                    "💡 Works with any public YouTube playlist. Copy the link and click the clipboard icon above.",
+                    cls="text-xs text-gray-500 mt-2 italic leading-relaxed",
+                ),
+                cls="mb-6",
+            ),
+            # Primary action button with enhanced styling
+            Button(
+                Span(
+                    UkIcon("chart-bar", cls="mr-2"),
+                    "Analyze Playlist",
+                ),
+                type="submit",
+                cls=(
+                    f"w-full {ButtonT.primary} {THEME['primary_hover']} transition-all duration-300 "
+                    "py-3 text-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] "
+                    "active:scale-95"
+                ),
+            ),
+            # Quick action section with better styling
+            (
+                styled_div(
+                    Details(
+                        Summary(
+                            Span(
+                                UkIcon("star", cls="w-4 h-4 mr-2 inline"),
+                                "Try sample playlists",
+                            ),
+                            cls="text-sm font-medium text-gray-700 cursor-pointer hover:text-red-600 transition-colors py-2 px-3 rounded-lg hover:bg-gray-100",
+                        ),
+                        SamplePlaylistButtons(),
+                        cls="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50",
+                    ),
+                    cls="mb-6",
                 )
                 if KNOWN_PLAYLISTS
                 else None
@@ -405,21 +487,34 @@ def AnalysisFormCard() -> Div:
                 cls=(LoadingT.bars, LoadingT.lg),
                 htmx_indicator=True,
             ),
+            # HTMX configuration
             hx_post="/validate/url",
             hx_target="#validation-feedback",
             hx_swap="innerHTML",
             hx_indicator="#loading",
-            cls="space-y-3 mt-6",
+            cls="space-y-4 mt-6 px-6 pb-6",
         ),
-        # --- Feedback + Results sections ---
-        styled_div(id="validation-feedback", cls="mt-6 text-gray-900"),
-        styled_div(id="preview-box", cls="mt-6 text-gray-900"),
+        # --- Feedback + Results sections with better styling ---
+        styled_div(
+            id="validation-feedback",
+            cls="mt-6 text-gray-900 px-6",
+        ),
+        styled_div(
+            id="preview-box",
+            cls="mt-6 text-gray-900 px-6",
+        ),
         styled_div(
             id="result",
-            cls="mt-8 min-h-[400px] border-t pt-6 text-gray-900 {THEME['neutral_bg']} rounded-lg",
+            cls=(
+                "mt-8 min-h-[400px] border-t pt-6 text-gray-900 "
+                f"{THEME['neutral_bg']} rounded-b-2xl px-6 py-6"
+            ),
         ),
         # --- Styling (outermost container only) ---
-        cls=f"{THEME['card_base']} space-y-4 w-full my-12",
+        cls=(
+            f"{THEME['card_base']} space-y-0 w-full my-12 rounded-2xl shadow-xl "
+            "border border-gray-200 overflow-hidden"
+        ),
         style=FORM_CARD,
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
         id="analysis-form",
