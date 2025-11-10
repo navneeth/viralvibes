@@ -13,6 +13,9 @@ from services.youtube_backend_base import DISLIKE_API_URL, YouTubeBackendBase
 from services.youtube_errors import YouTubeBotChallengeError
 from services.youtube_transforms import _enrich_dataframe, normalize_columns
 
+# Get logger instance
+logger = logging.getLogger(__name__)
+
 
 class YouTubeBackendYTDLP(YouTubeBackendBase):
     def __init__(self, cfg=None, ydl_opts=None):

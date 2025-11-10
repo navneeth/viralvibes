@@ -95,31 +95,47 @@ class YoutubePlaylistService:
         self.backend = backend
         self.cfg = config or YouTubeConfig()
 
-        if backend == "yt-dlp" and yt_dlp is None:
-            raise ImportError("yt-dlp is required for the yt-dlp backend")
-        if backend == "youtubeapi" and build is None:
-            raise ImportError(
-                "google-api-python-client is required for the youtubeapi backend"
+        self.ydl_opts = ydl_opts
+        self.handler = None  # Lazy-loaded on first use
+        self.ydl = None  # Backward compat: set when yt-dlp backend is loaded
+        self.youtube = None  # Backward compat: set when API backend is loaded
+
+        # Lazy-load the backend handler on first use.
+        if self.handler is not None:
+            return  # Already initialized
+
+        if self.backend == "yt-dlp":
+            try:
+                import yt_dlp
+            except ImportError:
+                raise ImportError(
+                    "yt-dlp is required for the yt-dlp backend. "
+                    "Install with: pip install yt-dlp"
+                )
+
+            self.handler = YouTubeBackendYTDLP(self.cfg, ydl_opts)
+            self.ydl = self.handler.ydl  # Backward compatible access
+
+        elif backend == "youtubeapi":
+            try:
+                from googleapiclient.discovery import build
+            except ImportError:
+                raise ImportError(
+                    "google-api-python-client is required for the youtubeapi backend. "
+                    "Install with: pip install google-api-python-client"
+                )
+
+            self.handler = YouTubeBackendAPI(self.cfg)
+            self.youtube = self.handler.youtube  # Backward compatible access
+
+        else:
+            raise ValueError(
+                f"backend must be 'yt-dlp' or 'youtubeapi', got '{self.backend}'"
             )
 
         # Persistent HTTP client for dislike API
         self._dislike_client = None
         self._failed_videos = []  # Track failed videos for retry
-        self._processing_stats = {
-            "total_retries": 0,
-            "failed_videos": 0,
-            "bot_challenges": 0,
-            "rate_limits": 0,
-        }
-
-        if backend == "yt-dlp":
-            self.handler = YouTubeBackendYTDLP(self.cfg, ydl_opts)
-            self.ydl = self.handler.ydl  # backward compatible
-        elif backend == "youtubeapi":
-            self.handler = YouTubeBackendAPI()
-            self.youtube = self.handler.youtube  # backward compatible
-        else:
-            raise ValueError("backend must be 'yt-dlp' or 'youtubeapi'")
 
     # --------------------------
     # Public entrypoints
