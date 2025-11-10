@@ -154,3 +154,25 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [MonsterUI](https://monsterui.dev/) for UI components
 - [Supabase](https://supabase.io/) for backend services
 - [Vercel](https://vercel.com) for deployment
+
+## Pre-commit hooks
+
+This repository uses pre-commit to run linters and formatters locally before commits.
+
+Quick setup (run once after cloning):
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Run all hooks against the repository (useful for CI or one-time fixes):
+
+```bash
+pre-commit run --all-files
+```
+
+Notes
+- The hook configuration lives in `.pre-commit-config.yaml` at the repo root.
+- Common hooks include formatters and linters (e.g., black/isort/ruff/mypy), plus basic checks (trailing-whitespace, end-of-file-fixer).
+- In CI, run `pre-commit run --all-files` to ensure code meets the repo hooks before merging.
