@@ -260,7 +260,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
             logger.info(f"[YouTubeAPI] Processing complete for {playlist_id}")
 
-            df = self._canonicalize_api_df(df)
+            # df = self._canonicalize_api_df(df)
 
             return df, playlist_name, channel_name, channel_thumb, stats
 
