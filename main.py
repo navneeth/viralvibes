@@ -414,8 +414,12 @@ def preview_playlist(playlist_url: str):
                         ),
                         cls="text-gray-600 text-sm ml-1 font-mono",
                     ),
+                    href=playlist_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
                     cls="flex items-center gap-1 mb-2",
                 ),
+                # New vs Previously Analyzed badge
                 (
                     Span(
                         "Previously Analyzed",
@@ -466,7 +470,7 @@ def preview_playlist(playlist_url: str):
             # Stats card (views or engagement)
             Div(
                 Div(
-                    UkIcon("trending-up", width=24, height=24, cls="text-green-600"),
+                    UkIcon("trending-up", width=32, height=32, cls="text-green-600"),
                     cls="mb-2",
                 ),
                 Div(
@@ -599,18 +603,14 @@ def preview_playlist(playlist_url: str):
         ),
         # Action button
         Button(
-            (
-                None
-                if is_submitted
-                else UkIcon("trending-up", width=20, height=20, cls="mr-2")
-            ),
+            (None if is_submitted else UkIcon("zap", width=24, height=24, cls="mr-2")),
             button_text,
             hx_post="/submit-job",
             hx_vals={"playlist_url": playlist_url},
             hx_target="#preview-box",
             hx_indicator="#loading-bar",
             cls=(
-                "mt-8 block mx-auto w-fit px-6 py-3 rounded-lg shadow-md transition duration-300",
+                "mt-10 block mx-auto w-fit px-6 py-3 rounded-xl shadow-md transition duration-300",
                 (
                     "bg-gray-400 cursor-not-allowed"
                     if is_submitted

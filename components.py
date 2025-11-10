@@ -1090,6 +1090,10 @@ def PlaylistPreviewCard(
     playlist_length: Optional[int],
     playlist_url: str,
     playlist_thumbnail: Optional[str] = None,
+    channel_id: Optional[str] = None,
+    description: Optional[str] = None,
+    privacy_status: Optional[str] = None,
+    published_at: Optional[str] = None,
     total_views: Optional[int] = None,
     engagement_rate: Optional[float] = None,
     last_analyzed: Optional[str] = None,
@@ -1101,6 +1105,38 @@ def PlaylistPreviewCard(
 
     # Use video_count from DB if available, fallback to playlist_length
     actual_video_count = video_count or playlist_length or 0
+
+    # Build channel URL if ID available
+    channel_url = (
+        f"https://www.youtube.com/channel/{channel_id}" if channel_id else None
+    )
+
+    # Format published date
+    published_display = None
+    if published_at:
+        try:
+            # Assume datetime is imported outside; handle ISO formats
+            if "T" in published_at:
+                dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+            else:
+                dt = datetime.fromisoformat(published_at)
+            published_display = dt.strftime("%B %d, %Y")
+        except Exception:
+            published_display = published_at
+
+    # Privacy badge classes
+    privacy_badge_cls = {
+        "public": "bg-green-50 text-green-700",
+        "unlisted": "bg-yellow-50 text-yellow-700",
+        "private": "bg-red-50 text-red-700",
+    }.get(privacy_status.lower() if privacy_status else "", "bg-gray-50 text-gray-700")
+
+    # Truncate description
+    desc_preview = (
+        description[:120] + "..."
+        if description and len(description) > 120
+        else description
+    )
 
     return Card(
         # Visual header with both thumbnails
@@ -1125,6 +1161,8 @@ def PlaylistPreviewCard(
                     alt=f"{channel_name} thumbnail",
                     cls="w-20 h-20 rounded-full shadow-lg border-4 border-white relative z-10",
                 ),
+                href=channel_url,
+                target="_blank",
                 cls="relative pt-8 {THEME['flex_center']}",
             ),
             cls="relative mb-4",

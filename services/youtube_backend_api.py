@@ -260,6 +260,8 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
             logger.info(f"[YouTubeAPI] Processing complete for {playlist_id}")
 
+            # df = self._canonicalize_api_df(df)
+
             return df, playlist_name, channel_name, channel_thumb, stats
 
         except ValueError as e:
@@ -576,3 +578,60 @@ class YouTubeBackendAPI(YouTubeBackendBase):
         except (isodate.ISO8601Error, TypeError, ValueError) as e:
             logger.error(f"Failed to parse ISO8601 duration '{duration}': {e}")
             return 0
+
+    def _canonicalize_api_df(df: Optional[pl.DataFrame]) -> pl.DataFrame:
+        if df is None or df.is_empty():
+            return df
+
+        # Helper function to find column by possible names
+        def find_col(possible_names):
+            for name in possible_names:
+                if name in df.columns:
+                    return name
+            return None
+
+        # Rename columns to consistent format
+        df = df.rename(
+            {
+                # snippet fields
+                "snippet.title": "Title",
+                "snippet.description": "Description",
+                "snippet.thumbnails.default.url": "Thumbnail",
+                "snippet.thumbnails.medium.url": "Thumbnail",
+                "snippet.thumbnails.high.url": "Thumbnail",
+                "snippet.channelTitle": "Uploader",
+                "snippet.publishedAt": "PublishedAt",
+                "snippet.categoryId": "CategoryId",
+                "snippet.tags": "Tags",
+                # statistics fields
+                "statistics.viewCount": "Views",
+                "statistics.likeCount": "Likes",
+                "statistics.dislikeCount": "Dislikes",
+                "statistics.commentCount": "Comments",
+                # contentDetails fields
+                "contentDetails.duration": "Duration",
+                "contentDetails.definition": "Definition",
+                "contentDetails.dimension": "Dimension",
+                "contentDetails.caption": "Caption",
+                "contentDetails.licensedContent": "Licensed",
+                # other
+                "id": "id",
+            }
+        )
+
+        # after mapping title/rank/counts/duration/etc, add:
+        if "id" in df.columns:
+            # build short youtube url column reliably
+            df = df.with_columns(
+                (
+                    pl.concat_str(
+                        [pl.lit("https://youtu.be/"), pl.col("id").cast(pl.Utf8)]
+                    )
+                ).alias("video_url")
+            )
+        # normalize thumbnail column name
+        thumb_src = find_col(["Thumbnail", "thumbnail", "thumbnailUrl"])
+        if thumb_src:
+            df = df.with_columns(pl.col(thumb_src).cast(pl.Utf8).alias("thumbnail"))
+
+        return df
