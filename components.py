@@ -785,9 +785,19 @@ def AnalyticsDashboardSection(
     cached_at: str = None,
 ):
     """Create an analytics dashboard section for a playlist with enhanced header."""
-    actual_playlist_count = summary.get("actual_playlist_count", 0)
-    processed_count = summary.get(
-        "processed_video_count", len(df) if df is not None and not df.is_empty() else 0
+    # Derive total / processed counts with a clear precedence to avoid empty/missing keys
+    # precedence: explicit summary keys -> common aliases -> df height -> 0
+    actual_playlist_count = (
+        summary.get("actual_playlist_count")
+        or summary.get("video_count")
+        or summary.get("total_count")
+        or (df.height if (df is not None and hasattr(df, "height")) else 0)
+    )
+
+    processed_count = (
+        summary.get("processed_video_count")
+        if summary.get("processed_video_count") is not None
+        else (df.height if (df is not None and hasattr(df, "height")) else 0)
     )
 
     # Extract additional data from summary for enhanced header
