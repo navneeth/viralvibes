@@ -131,6 +131,35 @@ graph TD
 
 ![App Architecture](static/Diagram.png)
 
+## DataFrame schema (expected columns)
+
+The YouTube service returns a Polars DataFrame with the canonical columns below. Code expects these exact names and types when reading/processing playlist results.
+
+| Column | Type | Description |
+|---|---:|---|
+| Rank | int64 | Position in playlist (1-based) |
+| id | string | YouTube video ID (e.g. `dQw4w9WgXcQ`) |
+| Title | string | Video title |
+| Description | string | Video description |
+| Views | int64 | View count |
+| Likes | int64 | Like count |
+| Dislikes | int64 | Always 0 (YouTube API no longer returns dislikes) |
+| Comments | int64 | Comment count |
+| Duration | int64 | Duration in seconds |
+| PublishedAt | string | ISO publish date (e.g. `2023-05-12T15:30:00Z`) |
+| Uploader | string | Channel name |
+| Thumbnail | string | URL to high-res thumbnail |
+| Tags | list[string] | List of tags |
+| CategoryId | string | YouTube category ID |
+| CategoryName | string | Human-readable category (e.g. `Music`) |
+| Caption | boolean | True if captions/subtitles exist |
+| Licensed | boolean | True if licensed content |
+| Definition | string | `hd` or `sd` |
+| Dimension | string | `2d` or `3d` |
+| Rating | float64 | Reserved / typically null |
+
+Place this section near "Key Files and Responsibilities" or under the "Data Layer" section so it's visible to contributors and tests.
+
 ## Deployment
 
 Deploy to Vercel with one click using the button above, or use the CLI:

@@ -2,6 +2,7 @@
 youtube_transforms.py
 ---------------------
 Polars-based normalization and enrichment of playlist DataFrames.
+Clean, fast, UI-ready. Works with both yt-dlp and YouTube Data API backends.
 """
 
 import logging
@@ -16,15 +17,15 @@ logger = logging.getLogger(__name__)
 
 # --- Normalize dataframe column names between yt-dlp and YouTube API ---
 def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """Normalize dataframe column names between different backends."""
-    if df is None or not isinstance(df, pl.DataFrame):
-        logger.warning(f"Invalid DataFrame in normalize_columns: received {type(df)}")
-        return None
+    """Normalize column names across backends → canonical schema."""
+    if not isinstance(df, pl.DataFrame):
+        logger.warning(f"Invalid DataFrame in normalize_columns: {type(df)}")
+        return df
     if df.is_empty():
         logger.info("Empty DataFrame received in normalize_columns")
-        return None
+        return df
 
-    # Canonicalize to internal schema: "Views", "Likes", "Dislikes", "Comments"
+    # Map any known variants → canonical names
     rename_map = {
         "title": "Title",
         "videoTitle": "Title",
@@ -43,19 +44,13 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         "comment_count": "Comments",
         "commentCount": "Comments",
         "Comment Count": "Comments",
-        # keep canonical names if already present
-        "Views": "Views",
-        "Likes": "Likes",
-        "Dislikes": "Dislikes",
-        "Comments": "Comments",
-        # other fields
         "duration_string": "Duration",
         "duration": "Duration",
         "durationSec": "Duration",
-        "upload_date": "Published Date",
-        "publishedAt": "Published Date",
-        "channel": "Channel",
-        "channelTitle": "Channel",
+        "upload_date": "PublishedAt",
+        "publishedAt": "PublishedAt",
+        "channel": "Uploader",
+        "channelTitle": "Uploader",
         "channel_id": "Channel ID",
         "channelId": "Channel ID",
         "thumbnail": "Thumbnail",
@@ -63,12 +58,9 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         "tags": "Tags",
     }
 
-    # Rename columns if present
-    for old, new in rename_map.items():
-        if old in df.columns and new not in df.columns:
-            df = df.rename({old: new})
+    df = df.rename({old: new for old, new in rename_map.items() if old in df.columns})
 
-    # Mirror canonical columns back to legacy "... Count" names if they are missing
+    # Mirror legacy "X Count" names for backward compatibility
     mirrors = [
         ("Views", "View Count"),
         ("Likes", "Like Count"),
@@ -79,17 +71,23 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         if src in df.columns and mirror not in df.columns:
             df = df.with_columns(pl.col(src).alias(mirror))
 
-    # Normalize duration to readable string if ISO 8601
+    # Convert ISO duration strings → seconds (if needed)
     if "Duration" in df.columns:
         df = df.with_columns(
-            pl.col("Duration").map_elements(
-                lambda d: (
-                    parse_iso_duration(d) if isinstance(d, str) and "PT" in d else d
+            pl.when(pl.col("Duration").is_in([None, ""]))
+            .then(None)
+            .otherwise(
+                pl.col("Duration").map_elements(
+                    lambda d: (
+                        parse_iso_duration(d) if isinstance(d, str) and "PT" in d else d
+                    ),
+                    return_dtype=pl.Int64,
                 )
             )
+            .cast(pl.Int64, strict=False)
         )
 
-    # Ensure numeric types for both canonical and legacy mirrors
+    # Ensure numeric columns are Int64
     numeric_cols = [
         "Views",
         "Likes",
@@ -110,10 +108,9 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
 def _enrich_dataframe(
     df: pl.DataFrame, actual_playlist_count: int = None
 ) -> Tuple[pl.DataFrame, Dict[str, Any]]:
-    """Calculate summary statistics for the playlist."""
-    # Check if df is a Polars DataFrame or None
-    if df is None or not isinstance(df, pl.DataFrame):
-        logger.warning(f"Invalid DataFrame received in _enrich_dataframe: {type(df)}")
+    """Add UI-ready columns + rich stats. Never returns None."""
+    if not isinstance(df, pl.DataFrame):
+        logger.warning(f"Invalid DataFrame in _enrich_dataframe: {type(df)}")
         empty_stats = {
             "total_views": 0,
             "total_likes": 0,
@@ -123,7 +120,7 @@ def _enrich_dataframe(
             "actual_playlist_count": actual_playlist_count or 0,
             "processed_video_count": 0,
         }
-        return pl.DataFrame(), empty_stats  # Return empty DataFrame, not None
+        return pl.DataFrame(), empty_stats
 
     if df.is_empty():
         return df, {
@@ -136,59 +133,70 @@ def _enrich_dataframe(
             "processed_video_count": 0,
         }
 
-    # Use fill_null with value parameter
+    # === Controversy & Engagement (raw numeric) ===
     df = df.with_columns(
         [
             (
                 1
                 - (pl.col("Likes") - pl.col("Dislikes")).abs()
-                / (pl.col("Likes") + pl.col("Dislikes"))
+                / (pl.col("Likes") + pl.col("Dislikes") + 1)
             )
             .fill_null(value=0.0)  # Explicit value parameter
             .alias("Controversy"),
             (
                 (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
-                / pl.col("Views")
+                / (pl.col("Views") + 1)
             )
             .fill_null(value=0.0)  # Explicit value parameter
             .alias("Engagement Rate Raw"),
         ]
     )
-    stats = {
-        "total_views": df["Views"].sum(),
-        "total_likes": df["Likes"].sum(),
-        "total_dislikes": df["Dislikes"].sum(),
-        "total_comments": df["Comments"].sum(),
-        "avg_engagement": df["Engagement Rate Raw"].mean(),
-        "actual_playlist_count": actual_playlist_count or df.height,
-        "processed_video_count": df.height,
-    }
+
+    # === Human-readable date ===
+    if "PublishedAt" in df.columns:
+        df = df.with_columns(
+            pl.col("PublishedAt")
+            .str.to_datetime(strict=False)
+            .dt.strftime("%b %d, %Y")
+            .alias("Published Date")
+        )
+
+    # === Formatted columns (for direct UI use) ===
     df = df.with_columns(
         [
             pl.col("Views")
-            .map_elements(format_number, return_dtype=pl.String)
+            .map_elements(format_number, return_dtype=pl.Utf8)
             .alias("Views Formatted"),
             pl.col("Likes")
-            .map_elements(format_number, return_dtype=pl.String)
+            .map_elements(format_number, return_dtype=pl.Utf8)
             .alias("Likes Formatted"),
             pl.col("Dislikes")
-            .map_elements(format_number, return_dtype=pl.String)
+            .map_elements(format_number, return_dtype=pl.Utf8)
             .alias("Dislikes Formatted"),
             pl.col("Comments")
-            .map_elements(format_number, return_dtype=pl.String)
+            .map_elements(format_number, return_dtype=pl.Utf8)
             .alias("Comments Formatted"),
             pl.col("Duration")
-            .map_elements(format_duration, return_dtype=pl.String)
+            .map_elements(format_duration, return_dtype=pl.Utf8)
             .alias("Duration Formatted"),
             pl.col("Controversy")
-            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
-            .alias("Controversy Formatted"),
+            .map_elements(lambda x: f"{x:.1%}", return_dtype=pl.Utf8)
+            .alias("Controversy %"),
             pl.col("Engagement Rate Raw")
-            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
-            .alias("Engagement Rate Formatted"),
-            pl.col("Engagement Rate Raw")
-            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.String)
+            .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.Utf8)
             .alias("Engagement Rate (%)"),
         ]
     )
+
+    # === Stats dict ===
+    stats = {
+        "total_views": int(df["Views"].sum()),
+        "total_likes": int(df["Likes"].sum()),
+        "total_dislikes": int(df["Dislikes"].sum()),
+        "total_comments": int(df["Comments"].sum()),
+        "avg_engagement": float(df["Engagement Rate Raw"].mean()),
+        "actual_playlist_count": actual_playlist_count or df.height,
+        "processed_video_count": df.height,
+    }
+
     return df, stats

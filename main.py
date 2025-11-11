@@ -808,18 +808,14 @@ def validate_full(
             display_to_df = {
                 "Rank": "Rank",
                 "Title": "Title",
-                "Views": "View Count",
-                "Likes": "Like Count",
-                "Dislikes": "Dislike Count",
-                "Comments": "Comment Count",
+                "Views": "Views",
+                "Likes": "Likes",
+                "Dislikes": "Dislikes",
+                "Comments": "Comments",
                 "Duration": "Duration",
                 "Engagement Rate": "Engagement Rate (%)",
                 "Controversy": "Controversy Raw",
                 # fallback aliases (in case you used "View Count" directly earlier)
-                "View Count": "View Count",
-                "Like Count": "Like Count",
-                "Dislike Count": "Dislike Count",
-                "Comment Count": "Comment Count",
                 "Engagement Rate (%)": "Engagement Rate (%)",
             }
 
@@ -930,10 +926,10 @@ def validate_full(
                                 cls="text-blue-600 hover:underline",
                             )
                         ),
-                        Td(row.get("View Count")),
-                        Td(row.get("Like Count")),
-                        Td(row.get("Dislike Count")),
-                        Td(row.get("Comment Count")),
+                        Td(row.get("Views")),
+                        Td(row.get("Likes")),
+                        Td(row.get("Dislikes")),
+                        Td(row.get("Comments")),
                         Td(row.get("Duration")),
                         Td(row.get("Engagement Rate (%)")),
                         # show controversy nicely (expect a float 0..1)
