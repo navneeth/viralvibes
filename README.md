@@ -160,6 +160,49 @@ The YouTube service returns a Polars DataFrame with the canonical columns below.
 
 Place this section near "Key Files and Responsibilities" or under the "Data Layer" section so it's visible to contributors and tests.
 
+#### Class diagram for DataFrame normalization and enrichment changes
+
+```mermaid
+classDiagram
+    class YouTubeDataFrame {
+        +Rank: int64
+        +id: string
+        +Title: string
+        +Description: string
+        +Views: int64
+        +Likes: int64
+        +Dislikes: int64
+        +Comments: int64
+        +Duration: int64
+        +PublishedAt: string
+        +Uploader: string
+        +Thumbnail: string
+        +Tags: list[string]
+        +CategoryId: string
+        +CategoryName: string
+        +Caption: bool
+        +Licensed: bool
+        +Definition: string
+        +Dimension: string
+        +Rating: float64
+        +Controversy: float64
+        +Engagement Rate Raw: float64
+        +Views Formatted: string
+        +Likes Formatted: string
+        +Dislikes Formatted: string
+        +Comments Formatted: string
+        +Duration Formatted: string
+        +Controversy %: string
+        +Engagement Rate (%): string
+    }
+    class YouTubeTransforms {
+        +normalize_columns(df: DataFrame): DataFrame
+        +_enrich_dataframe(df: DataFrame, actual_playlist_count: int): (DataFrame, Dict)
+    }
+    YouTubeTransforms --> YouTubeDataFrame : returns/operates on
+```
+
+
 ## Deployment
 
 Deploy to Vercel with one click using the button above, or use the CLI:
