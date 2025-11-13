@@ -930,7 +930,7 @@ def validate_full(
                         format_number(summary_stats.get("total_comments", 0)),
                         cls="text-right font-bold",
                     ),
-                    Td("", cls="text-center"),
+                    Td("", cls="text-center"),  # Duration (empty)
                     Td(
                         f"{summary_stats.get('avg_engagement', 0):.2%}",
                         cls="text-center font-bold text-green-600",
