@@ -651,15 +651,17 @@ def validate_full(
 
                 # reconstruct df other fields from cache row
                 df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
-                logger.info("=" * 60)
-                logger.info("DataFrame columns:")
-                for col in df.columns:
-                    if col in df.columns:
-                        sample = df[col].head(1).to_list()
-                        logger.info(f"✓ {col}: {sample}")
-                    else:
-                        logger.warning(f"✗ {col} MISSING")
-                logger.info("=" * 60)
+                # TODO: Move this code to worker
+                # if logger.isEnabledFor(logging.DEBUG):
+                # logger.info("=" * 60)
+                # logger.info("DataFrame columns:")
+                # for col in df.columns:
+                #     if col in df.columns:
+                #         sample = df[col].head(1).to_list()
+                #         logger.info(f"✓ {col}: {sample}")
+                #     else:
+                #         logger.warning(f"✗ {col} MISSING")
+                # logger.info("=" * 60)
                 playlist_name = cached_stats["title"]
                 channel_name = cached_stats.get("channel_name", "")
                 channel_thumbnail = cached_stats.get("channel_thumbnail", "")
@@ -783,7 +785,7 @@ def validate_full(
                 "Title": "Title",
                 "Views": "Views",  # raw Int64
                 "Likes": "Likes",  # raw
-                "Dislikes": "Dislikes",  # raw
+                # "Dislikes": "Dislikes",  # raw
                 "Comments": "Comments",  # raw
                 "Duration": "Duration",  # seconds
                 "Engagement Rate": "Engagement Rate Raw",  # raw float
@@ -795,7 +797,7 @@ def validate_full(
                 "Title": "Title",
                 "Views": "Views Formatted",
                 "Likes": "Likes Formatted",
-                "Dislikes": "Dislikes Formatted",
+                # "Dislikes": "Dislikes Formatted",
                 "Comments": "Comments Formatted",
                 "Duration": "Duration Formatted",
                 "Engagement Rate": "Engagement Rate (%)",
@@ -865,56 +867,47 @@ def validate_full(
             tbody = Tbody(
                 *[
                     Tr(
-                        Td(row["Rank"], cls="text-gray-600 font-medium"),
-                        Td(
-                            Div(
-                                A(
-                                    row.get("Title", "N/A"),
-                                    href=f"https://youtube.com/watch?v={row.get('id')}",
-                                    target="_blank",
-                                    cls="text-blue-600 hover:underline font-medium",
+                        *[
+                            Td(
+                                # Special handling for Title (make it a link)
+                                (
+                                    Div(
+                                        A(
+                                            row.get("Title", "N/A"),
+                                            href=f"https://youtube.com/watch?v={row.get('id')}",
+                                            target="_blank",
+                                            cls="text-blue-600 hover:underline font-medium",
+                                        ),
+                                        cls="max-w-xs truncate",
+                                    )
+                                    if h == "Title"
+                                    else row.get(display_to_formatted.get(h, h), "")
                                 ),
-                                cls="max-w-xs truncate",
-                            ),
-                            cls="py-3",
-                        ),
-                        Td(
-                            row.get(display_to_formatted.get("Views", "Views")),
-                            cls="text-right font-medium",
-                        ),
-                        Td(
-                            row.get(display_to_formatted.get("Likes", "Likes")),
-                            cls="text-right",
-                        ),
-                        Td(
-                            row.get(display_to_formatted.get("Dislikes", "Dislikes")),
-                            cls="text-right text-gray-500",
-                        ),
-                        Td(
-                            row.get(display_to_formatted.get("Comments", "Comments")),
-                            cls="text-right",
-                        ),
-                        Td(
-                            row.get(display_to_formatted.get("Duration", "Duration")),
-                            cls="text-center text-sm",
-                        ),
-                        Td(
-                            row.get(
-                                display_to_formatted.get(
-                                    "Engagement Rate", "Engagement Rate (%)"
-                                )
-                            ),
-                            cls="text-center font-medium text-green-600",
-                        ),
-                        Td(
-                            row.get(
-                                display_to_formatted.get(
-                                    "Controversy", "Controversy Formatted"
+                                cls=(
+                                    "text-gray-600 font-medium"
+                                    if h == "Rank"
+                                    else (
+                                        "py-3"
+                                        if h == "Title"
+                                        else (
+                                            "text-right"
+                                            if h in ("Views", "Likes", "Comments")
+                                            else (
+                                                "text-center"
+                                                if h
+                                                in (
+                                                    "Duration",
+                                                    "Engagement Rate",
+                                                    "Controversy",
+                                                )
+                                                else ""
+                                            )
+                                        )
+                                    )
                                 ),
-                                "",
-                            ),
-                            cls="text-center text-purple-600 font-medium",
-                        ),
+                            )
+                            for h in DISPLAY_HEADERS  # ← Dynamic! Always matches THEAD
+                        ]
                     )
                     for row in df.iter_rows(named=True)
                 ],
