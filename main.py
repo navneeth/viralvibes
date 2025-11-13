@@ -151,17 +151,27 @@ init_app()
 
 
 # Manually define the headers here instead of importing them
+COLUMNS = {
+    "Rank": ("Rank", "Rank"),
+    "Title": ("Title", "Title"),
+    "Views": ("Views", "Views Formatted"),
+    "Likes": ("Likes", "Likes Formatted"),
+    "Comments": ("Comments", "Comments Formatted"),
+    "Duration": ("Duration", "Duration Formatted"),
+    "Engagement Rate": ("Engagement Rate Raw", "Engagement Rate (%)"),
+    "Controversy": ("Controversy", "Controversy Formatted"),
+}
+DISPLAY_HEADERS = list(COLUMNS.keys())
 
-DISPLAY_HEADERS = [
-    "Rank",
-    "Title",
-    "Views",
-    "Likes",
-    "Comments",
-    "Duration",
-    "Engagement Rate",
-    "Controversy",
-]
+
+def get_sort_col(header: str) -> str:
+    """Get raw column for sorting."""
+    return COLUMNS[header][0]
+
+
+def get_render_col(header: str) -> str:
+    """Get formatted column for display."""
+    return COLUMNS[header][1]
 
 
 @rt("/debug/supabase")
@@ -803,14 +813,13 @@ def validate_full(
                 "Engagement Rate": "Engagement Rate (%)",
                 "Controversy": "Controversy Formatted",
             }
+
             # Build sortable_map: header → raw numeric column
-            sortable_map = {}
-            for h in svc_headers:
-                raw_col = display_to_raw.get(h)
-                if raw_col and raw_col in df.columns:
-                    dtype = df[raw_col].dtype
-                    if dtype in (pl.Int64, pl.Float64, pl.Int32, pl.Float32):
-                        sortable_map[h] = raw_col
+            sortable_map = {
+                h: get_sort_col(h)
+                for h in DISPLAY_HEADERS
+                if get_sort_col(h) in df.columns
+            }
 
             # --- 6) Normalize sort_by ---
             valid_sort = sort_by if sort_by in sortable_map else "Views"
@@ -881,7 +890,7 @@ def validate_full(
                                         cls="max-w-xs truncate",
                                     )
                                     if h == "Title"
-                                    else row.get(display_to_formatted.get(h, h), "")
+                                    else row.get(get_render_col(h), "")
                                 ),
                                 cls=(
                                     "text-gray-600 font-medium"
