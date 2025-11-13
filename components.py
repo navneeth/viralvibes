@@ -930,19 +930,19 @@ def AnalyticsDashboardSection(
             cls="mb-16",
         ),
         # Group 5: Content Strategy Insights (if we have controversy data)
-        Div(
-            H3(
-                "🎯 Content Strategy Insights",
-                cls="text-2xl font-semibold text-gray-800 mb-4",
-            ),
-            P(
-                "Strategic insights to help optimize your content mix and audience targeting.",
-                cls="text-gray-500 mb-6",
-            ),
-            # Single chart that gives strategic insight
-            chart_controversy_score(df, "controversy-score"),
-            cls="mb-16",
-        ),
+        # Div(
+        #     H3(
+        #         "🎯 Content Strategy Insights",
+        #         cls="text-2xl font-semibold text-gray-800 mb-4",
+        #     ),
+        #     P(
+        #         "Strategic insights to help optimize your content mix and audience targeting.",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     # Single chart that gives strategic insight
+        #     chart_controversy_score(df, "controversy-score"),
+        #     cls="mb-16",
+        # ),
         cls="mt-20 pt-12 border-t border-gray-200 space-y-12",
     )
 
