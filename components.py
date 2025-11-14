@@ -10,16 +10,23 @@ from monsterui.all import *
 # Local modules
 from charts import (
     chart_bubble_engagement_vs_views,
+    chart_category_performance,
+    chart_comments_engagement,
+    chart_controversy_distribution,
     chart_controversy_score,
+    chart_duration_impact,
     chart_duration_vs_engagement,
-    chart_engagement_rate,
+    chart_engagement_ranking,
+    chart_likes_per_1k_views,
     chart_likes_vs_dislikes,
     chart_polarizing_videos,
     chart_scatter_likes_dislikes,
-    chart_total_engagement,
+    chart_top_performers_radar,
+    chart_treemap_reach,
     chart_treemap_views,
     chart_video_radar,
-    chart_views_by_video,
+    chart_views_ranking,
+    chart_views_vs_likes,
 )
 from constants import (
     BENEFITS,
@@ -832,103 +839,129 @@ def AnalyticsDashboardSection(
             ),
             cls="text-center",
         ),
-        # Group 1: Content Overview & Performance
+        # =====================================================================
+        # BLOCK 1: REACH & PERFORMANCE
+        # =====================================================================
         Div(
             H3(
-                "📺 Content Overview & Performance",
+                "👀 Reach & Performance",
                 cls="text-2xl font-semibold text-gray-800 mb-4",
             ),
             P(
-                "See how individual videos contribute to your playlist's overall reach and performance.",
+                "How your videos are reaching your audience - which ones drive the most views?",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_views_by_video(
-                    df, "views-by-video"
-                ),  # Shows performance hierarchy
-                chart_treemap_views(
-                    df, "treemap-views"
-                ),  # Shows contribution distribution
+                chart_views_ranking(df, "views-ranking"),
+                chart_treemap_reach(df, "treemap-reach"),
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
-            cls="mb-16",
+            cls="mb-16 pb-12 border-b border-gray-200",
         ),
-        # Group 2: Audience Engagement Analysis
+        # =====================================================================
+        # BLOCK 2: AUDIENCE ENGAGEMENT QUALITY
+        # =====================================================================
         Div(
             H3(
-                "💬 Audience Engagement Analysis",
-                cls="text-2xl font-semibold text-gray-800 mb-4",
+                "💬 Engagement Quality", cls="text-2xl font-semibold text-gray-800 mb-4"
             ),
             P(
-                "Understand how actively your audience participates - likes, comments, and overall engagement patterns.",
+                "Beyond views - how engaged is your audience? Likes per view & comment rates.",
                 cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                chart_engagement_ranking(df, "engagement-ranking"),
+                chart_likes_per_1k_views(df, "likes-per-1k"),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
             Div(
                 H4(
-                    "ℹ️ How is Engagement Rate calculated?",
-                    cls="text-md font-semibold text-gray-800 mb-2 flex items-center",
+                    "📝 Engagement Rate Formula",
+                    cls="text-sm font-semibold text-gray-700 mt-6 mb-2",
                 ),
                 P(
-                    "Engagement Rate (%) = ((Likes + Comments) ÷ Views) × 100",
-                    cls="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200",
+                    "Engagement = (Likes + Comments) ÷ Views × 100",
+                    cls="text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-200",
                 ),
-                cls="mb-6",
+                cls="mt-6",
             ),
-            Grid(
-                chart_engagement_rate(
-                    df, "engagement-rate"
-                ),  # Individual video engagement
-                chart_total_engagement(
-                    summary, "total-engagement"
-                ),  # Overall engagement split
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
-            ),
-            cls="mb-16",
+            cls="mb-16 pb-12 border-b border-gray-200",
         ),
-        # Group 3: Audience Sentiment & Polarization
+        # =====================================================================
+        # BLOCK 3: CONTENT INTERACTION
+        # =====================================================================
         Div(
             H3(
-                "🔥 Audience Sentiment & Polarization",
+                "🎯 Content Interaction",
                 cls="text-2xl font-semibold text-gray-800 mb-4",
             ),
             P(
-                "Discover which content creates strong reactions and splits audience opinion.",
+                "How views convert to likes and comments - understand audience behavior.",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_likes_vs_dislikes(
-                    df, "likes-vs-dislikes"
-                ),  # Direct comparison of sentiment
-                chart_polarizing_videos(
-                    df, "polarizing-videos"
-                ),  # Polarization with context (bubble shows views)
+                chart_views_vs_likes(df, "views-vs-likes"),
+                chart_comments_engagement(df, "comments-engagement"),
                 cls="grid-cols-1 md:grid-cols-2 gap-10",
             ),
-            cls="mb-16",
+            cls="mb-16 pb-12 border-b border-gray-200",
         ),
+        # =====================================================================
+        # BLOCK 4: CONTENT FACTORS
+        # =====================================================================
+        Div(
+            H3("⚙️ Content Factors", cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P(
+                "What makes content perform? Explore duration and category impact.",
+                cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                chart_duration_impact(df, "duration-impact"),
+                # chart_category_performance(df, "category-performance"),
+                cls="grid-cols-1 md:grid-cols-2 gap-10",
+            ),
+            cls="mb-16 pb-12 border-b border-gray-200",
+        ),
+        # =====================================================================
+        # BLOCK 5: AUDIENCE SENTIMENT
+        # =====================================================================
+        # Div(
+        #     H3(
+        #         "🔥 Audience Sentiment", cls="text-2xl font-semibold text-gray-800 mb-4"
+        #     ),
+        #     P(
+        #         "Which videos create the strongest reactions? Controversy & polarization.",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     Grid(
+        #         chart_controversy_distribution(df, "controversy-dist"),
+        #         cls="grid-cols-1 gap-10",
+        #     ),
+        #     cls="mb-16 pb-12 border-b border-gray-200",
+        # ),
         # Group 4: Advanced Insights & Patterns
-        Div(
-            H3(
-                "📈 Advanced Insights & Patterns",
-                cls="text-2xl font-semibold text-gray-800 mb-4",
-            ),
-            P(
-                "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
-                cls="text-gray-500 mb-6",
-            ),
-            Grid(
-                chart_scatter_likes_dislikes(
-                    df, "scatter-likes"
-                ),  # Correlation analysis
-                chart_bubble_engagement_vs_views(
-                    df, "bubble-engagement"
-                ),  # Multi-dimensional analysis
-                # chart_duration_vs_engagement(df, "duration-engagement"),
-                chart_video_radar(df, "video-radar"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
-            ),
-            cls="mb-16",
-        ),
+        # Div(
+        #     H3(
+        #         "📈 Advanced Insights & Patterns",
+        #         cls="text-2xl font-semibold text-gray-800 mb-4",
+        #     ),
+        #     P(
+        #         "Uncover deeper relationships between viewership, engagement, and controversy across your content.",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     Grid(
+        #         chart_scatter_likes_dislikes(
+        #             df, "scatter-likes"
+        #         ),  # Correlation analysis
+        #         chart_bubble_engagement_vs_views(
+        #             df, "bubble-engagement"
+        #         ),  # Multi-dimensional analysis
+        #         # chart_duration_vs_engagement(df, "duration-engagement"),
+        #         chart_video_radar(df, "video-radar"),
+        #         cls="grid-cols-1 md:grid-cols-2 gap-10",
+        #     ),
+        #     cls="mb-16",
+        # ),
         # Group 5: Content Strategy Insights (if we have controversy data)
         # Div(
         #     H3(
@@ -943,6 +976,21 @@ def AnalyticsDashboardSection(
         #     chart_controversy_score(df, "controversy-score"),
         #     cls="mb-16",
         # ),
+        # =====================================================================
+        # BLOCK 6: TOP PERFORMERS COMPARISON
+        # =====================================================================
+        Div(
+            H3("🏆 Top Performers", cls="text-2xl font-semibold text-gray-800 mb-4"),
+            P(
+                "Compare your best videos across all key metrics.",
+                cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                chart_top_performers_radar(df, "top-radar", top_n=5),
+                cls="grid-cols-1 gap-10",
+            ),
+            cls="mb-16",
+        ),
         cls="mt-20 pt-12 border-t border-gray-200 space-y-12",
     )
 

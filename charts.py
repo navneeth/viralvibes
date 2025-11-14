@@ -78,9 +78,7 @@ def _empty_chart(chart_type: str, chart_id: str) -> ApexChart:
 # ----------------------
 
 
-def chart_views_by_video(
-    df: pl.DataFrame, chart_id: str = "views-by-video"
-) -> ApexChart:
+def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> ApexChart:
     """
     Line chart of views per video, sorted by view count descending.
     Gives instant insight into top and bottom performers.
@@ -91,13 +89,13 @@ def chart_views_by_video(
     # Sort videos by view count descending
     sorted_df = _safe_sort(df, "Views", descending=True)
 
-    views = (sorted_df["Views"].fill_null(0) / 1_000_000).round(1).to_list()
+    views_m = (sorted_df["Views"].fill_null(0) / 1_000_000).round(1).to_list()
     titles = sorted_df["Title"].to_list()
 
     opts = _apex_opts(
-        "line",
+        "bar",
         300,
-        series=[{"name": "Views (in Millions)", "data": views}],
+        series=[{"name": "Views (in Millions)", "data": views_m}],
         xaxis={
             "categories": titles,
             "title": {"text": "Video Title"},
@@ -106,7 +104,7 @@ def chart_views_by_video(
         yaxis={"title": {"text": "Views (Millions)"}},
         chart={"id": chart_id, "zoom": {"enabled": False}, "toolbar": {"show": False}},
         tooltip={"enabled": True},
-        title={"text": "Top Performing Videos", "align": "center"},
+        title={"text": "🏆 Top Videos by Views", "align": "left"},
     )
     return ApexChart(opts=opts, cls="w-full h-80")
 
@@ -173,51 +171,84 @@ def chart_polarizing_videos(
     return ApexChart(opts=opts, cls="w-full h-96")
 
 
-def chart_engagement_rate(
-    df: pl.DataFrame, chart_id: str = "engagement-rate"
+def chart_engagement_ranking(
+    df: pl.DataFrame, chart_id: str = "engagement-ranking"
 ) -> ApexChart:
-    """
-    Horizontal bar chart of engagement rate per video, sorted descending.
-    Includes an average benchmark line for context.
-    """
+    """Horizontal bar: Videos ranked by engagement rate."""
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
-    # Sort videos by engagement rate descending
-    sorted_df = _safe_sort(df, "Engagement Rate Formatted", descending=True)
-    rates = (
-        sorted_df["Engagement Rate Formatted"].cast(pl.Float64).fill_null(0).to_list()
-    )
+    sorted_df = _safe_sort(df, "Engagement Rate Raw", descending=True)
     titles = sorted_df["Title"].to_list()
+    eng_rates = (sorted_df["Engagement Rate Raw"] * 100).fill_null(0).to_list()
+    avg_eng = float(sorted_df["Engagement Rate Raw"].mean() or 0) * 100
 
-    # Compute average benchmark
-    avg_rate = float(sorted_df["Engagement Rate Formatted"].mean() or 0)
-
-    opts = _apex_opts(
-        "bar",
-        350,
-        series=[{"name": "Engagement Rate (%)", "data": rates}],
-        xaxis={"title": {"text": "Engagement Rate (%)"}},
-        yaxis={"categories": titles, "title": {"text": "Video Title"}},
-        plotOptions={"bar": {"horizontal": True}},
-        chart={"id": chart_id},
-        tooltip={"enabled": True},
-        colors=["#f59e42"],  # Orange for engagement
-        title={"text": "Videos Sorted by Engagement Rate", "align": "center"},
-        annotations={
-            "xaxis": [
-                {
-                    "x": avg_rate,
-                    "borderColor": "#FF4560",
-                    "label": {
-                        "style": {"color": "#fff", "background": "#FF4560"},
-                        "text": f"Avg: {avg_rate:.2f}%",
-                    },
-                }
-            ]
+    return ApexChart(
+        opts={
+            "chart": {"type": "bar", "id": chart_id},
+            "series": [{"name": "Engagement Rate (%)", "data": eng_rates}],
+            "plotOptions": {"bar": {"horizontal": True}},
+            "xaxis": {"title": {"text": "Engagement Rate (%)"}},
+            "yaxis": {"categories": titles},
+            "colors": ["#F59E0B"],
+            "title": {"text": "💬 Videos Ranked by Engagement", "align": "left"},
+            "annotations": {
+                "xaxis": [
+                    {
+                        "x": avg_eng,
+                        "borderColor": "#EF4444",
+                        "label": {"text": f"Avg: {avg_eng:.1f}%"},
+                    }
+                ]
+            },
         },
+        cls="w-full h-96",
     )
-    return ApexChart(opts=opts, cls="w-full h-[22rem]")
+
+
+def chart_likes_per_1k_views(
+    df: pl.DataFrame, chart_id: str = "likes-per-1k"
+) -> ApexChart:
+    """Scatter: Likes per 1K views (engagement quality metric)."""
+    if df is None or df.is_empty():
+        return _empty_chart("scatter", chart_id)
+
+    df_calc = df.with_columns(
+        (pl.col("Likes") / (pl.col("Views") / 1000)).alias("Likes_per_1K")
+    )
+
+    data = [
+        {
+            "x": round((row["Views"] or 0) / 1_000_000, 1),
+            "y": float(row["Likes_per_1K"] or 0),
+            "title": row["Title"][:40],
+        }
+        for row in df_calc.iter_rows(named=True)
+    ]
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "scatter", "id": chart_id, "zoom": {"enabled": True}},
+            "series": [{"name": "Videos", "data": data}],
+            "xaxis": {"title": {"text": "Views (Millions)"}},
+            "yaxis": {"title": {"text": "Likes per 1K Views"}},
+            "title": {
+                "text": "📊 Audience Quality: Likes per 1K Views",
+                "align": "left",
+            },
+            "tooltip": {
+                "custom": (
+                    "function({series, seriesIndex, dataPointIndex, w}) {"
+                    "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
+                    "return `<div style='padding:6px;'><b>${pt.title}</b><br>"
+                    "👀 Views: ${pt.x}M<br>"
+                    "👍 Likes per 1K: ${pt.y.toFixed(2)}</div>`;"
+                    "}"
+                )
+            },
+        },
+        cls="w-full h-80",
+    )
 
 
 def chart_likes_vs_dislikes(
@@ -267,25 +298,6 @@ def chart_controversy_score(
         plotOptions={"bar": {"horizontal": True}},
         chart={"id": chart_id},
         tooltip={"enabled": True},
-    )
-    return ApexChart(opts=opts, cls="w-full h-80")
-
-
-def chart_total_engagement(
-    summary: Dict, chart_id: str = "total-engagement"
-) -> ApexChart:
-    if not summary or "total_likes" not in summary:
-        return _empty_chart("donut", chart_id)
-
-    estimated_dislikes = int(summary.get("total_views", 0) * 0.02)
-    opts = _apex_opts(
-        "donut",
-        300,
-        labels=["Total Likes", "Est. Dislikes"],
-        series=[summary["total_likes"], estimated_dislikes],
-        chart={"id": chart_id},
-        tooltip={"enabled": True},
-        colors=["#22C55E", "#EF4444"],
     )
     return ApexChart(opts=opts, cls="w-full h-80")
 
@@ -487,3 +499,225 @@ def chart_video_radar(
     )
 
     return ApexChart(opts=opts, cls="w-full h-96")
+
+
+def chart_comments_engagement(
+    df: pl.DataFrame, chart_id: str = "comments-engagement"
+) -> ApexChart:
+    """Scatter: Comments vs Engagement Rate."""
+    if df is None or df.is_empty():
+        return _empty_chart("scatter", chart_id)
+
+    data = [
+        {
+            "x": row["Comments"] or 0,
+            "y": float(row["Engagement Rate Raw"] or 0) * 100,
+            "title": row["Title"][:40],
+        }
+        for row in df.iter_rows(named=True)
+    ]
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "scatter", "id": chart_id, "zoom": {"enabled": True}},
+            "series": [{"name": "Videos", "data": data}],
+            "xaxis": {"title": {"text": "💬 Comments"}},
+            "yaxis": {"title": {"text": "Engagement Rate (%)"}},
+            "title": {"text": "💬 Comments vs Engagement", "align": "left"},
+        },
+        cls="w-full h-80",
+    )
+
+
+def chart_views_vs_likes(
+    df: pl.DataFrame, chart_id: str = "views-vs-likes"
+) -> ApexChart:
+    """Bubble: Views (X) vs Likes (Y), size = Comments."""
+    if df is None or df.is_empty():
+        return _empty_chart("bubble", chart_id)
+
+    data = [
+        {
+            "x": round((row["Views"] or 0) / 1_000_000, 1),
+            "y": round((row["Likes"] or 0) / 1000, 1),
+            "z": int((row["Comments"] or 0) / 100),
+            "title": row["Title"][:40],
+        }
+        for row in df.iter_rows(named=True)
+    ]
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "bubble", "id": chart_id, "zoom": {"enabled": True}},
+            "series": [{"name": "Videos", "data": data}],
+            "xaxis": {"title": {"text": "👀 Views (Millions)"}},
+            "yaxis": {"title": {"text": "👍 Likes (Thousands)"}},
+            "title": {
+                "text": "🎯 Views vs Likes (bubble size = comments)",
+                "align": "left",
+            },
+            "tooltip": {
+                "custom": (
+                    "function({series, seriesIndex, dataPointIndex, w}) {"
+                    "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
+                    "return `<div style='padding:6px;'><b>${pt.title}</b><br>"
+                    "👀 Views: ${pt.x}M<br>"
+                    "👍 Likes: ${pt.y}K<br>"
+                    "💬 Comments: ~${(pt.z*100).toLocaleString()}</div>`;"
+                    "}"
+                )
+            },
+            "plotOptions": {"bubble": {"minBubbleRadius": 4, "maxBubbleRadius": 25}},
+        },
+        cls="w-full h-96",
+    )
+
+
+def chart_duration_impact(
+    df: pl.DataFrame, chart_id: str = "duration-impact"
+) -> ApexChart:
+    """Line: Engagement rate by video duration (sorted)."""
+    if df is None or df.is_empty():
+        return _empty_chart("line", chart_id)
+
+    sorted_df = _safe_sort(df, "Duration", descending=False)
+    durations = (
+        sorted_df["Duration"].cast(pl.Float64) / 60
+    ).to_list()  # Convert to minutes
+    eng_rates = (sorted_df["Engagement Rate Raw"]).to_list()
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "line", "id": chart_id},
+            "series": [{"name": "Engagement Rate (%)", "data": eng_rates}],
+            "xaxis": {
+                "title": {"text": "Video Duration (minutes)"},
+                "categories": [f"{d:.1f}m" for d in durations],
+            },
+            "yaxis": {"title": {"text": "Engagement Rate (%)"}},
+            "title": {"text": "⏱️ Does Duration Affect Engagement?", "align": "left"},
+            "stroke": {"curve": "smooth"},
+        },
+        cls="w-full h-80",
+    )
+
+
+def chart_category_performance(
+    df: pl.DataFrame, chart_id: str = "category-performance"
+) -> ApexChart:
+    """Bar: Average engagement by category."""
+    if df is None or df.is_empty():
+        return _empty_chart("bar", chart_id)
+
+    by_cat = df.group_by("CategoryName").agg(
+        pl.col("Views").mean().alias("Avg_Views"),
+        pl.col("Engagement Rate Raw").mean().alias("Avg_Engagement"),
+        pl.col("id").count().alias("Count"),
+    )
+
+    categories = by_cat["CategoryName"].to_list()
+    avg_eng = (by_cat["Avg_Engagement"] * 100).fill_null(0).to_list()
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "bar", "id": chart_id},
+            "series": [{"name": "Avg Engagement (%)", "data": avg_eng}],
+            "xaxis": {"categories": categories, "labels": {"rotate": -45}},
+            "colors": ["#10B981"],
+            "title": {"text": "📁 Average Engagement by Category", "align": "left"},
+        },
+        cls="w-full h-80",
+    )
+
+
+def chart_controversy_distribution(
+    df: pl.DataFrame, chart_id: str = "controversy-dist"
+) -> ApexChart:
+    """Horizontal bar: Controversy score by video."""
+    if df is None or df.is_empty():
+        return _empty_chart("bar", chart_id)
+
+    sorted_df = _safe_sort(df, "Controversy", descending=True)
+    titles = sorted_df["Title"].to_list()
+    controversy = (sorted_df["Controversy"] * 100).fill_null(0).to_list()
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "bar", "id": chart_id},
+            "series": [{"name": "Controversy (%)", "data": controversy}],
+            "plotOptions": {"bar": {"horizontal": True}},
+            "xaxis": {"title": {"text": "Controversy %"}},
+            "yaxis": {"categories": titles},
+            "colors": ["#FF6B6B"],
+            "title": {
+                "text": "🔥 Most Polarizing Videos (0=Unanimous, 100=Split)",
+                "align": "left",
+            },
+        },
+        cls="w-full h-96",
+    )
+
+
+def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> ApexChart:
+    """Treemap: Video contribution to total views."""
+    if df is None or df.is_empty():
+        return _empty_chart("treemap", chart_id)
+
+    data = [
+        {"x": row["Title"][:50], "y": row["Views"] or 0}
+        for row in df.iter_rows(named=True)
+    ]
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "treemap", "id": chart_id},
+            "series": [{"data": data}],
+            "title": {
+                "text": "📊 Reach Distribution (larger = more views)",
+                "align": "left",
+            },
+            "dataLabels": {"enabled": True},
+        },
+        cls="w-full h-80",
+    )
+
+
+def chart_top_performers_radar(
+    df: pl.DataFrame, chart_id: str = "top-radar", top_n: int = 5
+) -> ApexChart:
+    """Radar: Top N videos across 4 metrics."""
+    if df is None or df.is_empty():
+        return _empty_chart("radar", chart_id)
+
+    sorted_df = _safe_sort(df, "Views", descending=True).head(top_n)
+    metrics = ["Views", "Likes", "Comments", "Engagement Rate Raw"]
+
+    cast_df = sorted_df.with_columns(
+        [pl.col(c).cast(pl.Float64).fill_null(0) for c in metrics]
+    )
+
+    norm_df = cast_df.with_columns(
+        [(pl.col(c) / pl.col(c).max() * 100).alias(f"{c}_norm") for c in metrics]
+    )
+
+    series = []
+    for row in norm_df.iter_rows(named=True):
+        series.append(
+            {
+                "name": row["Title"][:25],
+                "data": [row[f"{c}_norm"] for c in metrics],
+            }
+        )
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "radar", "id": chart_id},
+            "series": series,
+            "labels": ["Views", "Likes", "Comments", "Engagement %"],
+            "title": {
+                "text": f"🌟 Top {top_n} Videos: Multi-Metric Radar",
+                "align": "left",
+            },
+        },
+        cls="w-full h-80",
+    )
