@@ -1368,100 +1368,185 @@ def PlaylistPreviewCard(
 
 
 def MetricCard(
-    title: str, value: str, subtitle: str, icon: str, color: str = "red"
+    title: str,
+    value: str,
+    subtitle: str,
+    icon: str,
+    color: str = "red",
 ) -> Card:
     """Create a clean metric card with icon, value, and context."""
     return Card(
-        styled_div(
-            # Icon in top-left
-            UkIcon(icon, cls=f"text-{color}-500 mb-3", height=24, width=24),
-            # Main value - big and bold
+        Div(
+            # Icon with explicit color
+            UkIcon(icon, cls=f"text-{color}-500", height=28, width=28),
+            # Main value
             H3(value, cls="text-2xl font-bold text-gray-900 mb-1"),
-            # Subtitle with context
+            # Subtitle
             P(subtitle, cls="text-sm text-gray-600"),
-            cls="space-y-1",
+            cls="flex flex-col items-start space-y-1",
         ),
-        # Card title
         header=H4(
-            title, cls="text-sm font-medium text-gray-500 uppercase tracking-wide"
+            title, cls="text-xs font-medium text-gray-500 uppercase tracking-wider"
         ),
-        # Styling
-        cls="hover:shadow-md transition-all duration-200 border border-gray-200",
+        cls=(
+            "p-5 rounded-xl shadow-sm border border-gray-200 "
+            "hover:shadow-lg transition-all duration-200 "
+            "bg-white"
+        ),
     )
 
 
+# ----------------------------------------------------------------------
+# Helper: safe numeric aggregation
+# ----------------------------------------------------------------------
+def _safe_agg(df: pl.DataFrame, col: str, agg: str) -> int | float:
+    """
+    Return 0 (or 0.0) if the column does not exist or the aggregation fails.
+    `agg` can be "sum", "mean", "max", "min".
+    """
+    if col not in df.columns:
+        return 0
+    try:
+        expr = getattr(pl.col(col), agg)()
+        return df.select(expr).item()
+    except Exception:
+        return 0
+
+
+# ----------------------------------------------------------------------
+# Robust PlaylistMetricsOverview
+# ----------------------------------------------------------------------
 def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
-    """Create a row of 4 key metric cards that give immediate insights."""
+    """
+    Four (or six) instantly-useful metric cards.
+    Works with the exact schema you posted **and** with the enriched
+    columns that `youtube_transforms._enrich_dataframe` adds.
+    """
 
-    # Calculate key metrics from your data
-    actual_playlist_count = summary.get("actual_playlist_count", 0)
-    processed_count = summary.get(
-        "processed_video_count", len(df) if df is not None else 0
-    )
+    # ------------------------------------------------------------------
+    # a) Basic counts from the summary dict (always present)
+    # ------------------------------------------------------------------
+    total_videos = summary.get("actual_playlist_count", 0) or df.height
+    processed_videos = summary.get("processed_video_count", 0) or df.height
     total_views = summary.get("total_views", 0)
-    total_videos = len(df) if df is not None else summary.get("video_count", 0)
-    avg_engagement = summary.get("avg_engagement", 0)
 
-    if df is not None and len(df) > 0:
-        try:
-            top_video_views = df.select(pl.col("View Count Raw").max()).item() or 0
-        except Exception:
-            top_video_views = 0
-        avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
-    else:
-        top_video_views = summary.get("max_views", 0)
-        avg_views_per_video = total_views / total_videos if total_videos > 0 else 0
+    # ------------------------------------------------------------------
+    # b) Pull enriched stats if they exist – otherwise calculate on-the-fly
+    # ------------------------------------------------------------------
+    avg_engagement = summary.get("avg_engagement", 0.0)
+    avg_controversy = summary.get("avg_controversy", 0.0)
 
-    metrics = [
+    # If the enriched columns are missing, compute them ourselves
+    if "Engagement Rate Raw" not in df.columns and total_videos:
+        # (likes + dislikes + comments) / views
+        likes = _safe_agg(df, "Likes", "sum")
+        comments = _safe_agg(df, "Comments", "sum")
+        views = _safe_agg(df, "Views", "sum") or 1
+        avg_engagement = (likes + comments) / views
+
+    if "Controversy" not in df.columns and total_videos:
+        likes = _safe_agg(df, "Likes", "sum")
+        dislikes = _safe_agg(df, "Dislikes", "sum")
+        total = likes + dislikes or 1
+        avg_controversy = 1 - abs(likes - dislikes) / total
+
+    # ------------------------------------------------------------------
+    # c) Top-performer & average view count
+    # ------------------------------------------------------------------
+    top_views = _safe_agg(df, "Views", "max")
+    avg_views = total_views / total_videos if total_videos else 0
+
+    # ------------------------------------------------------------------
+    # d) Bonus signals (HD, captions) – only if the columns exist
+    # ------------------------------------------------------------------
+    hd_ratio = 0.0
+    caption_ratio = 0.0
+    if "Definition" in df.columns and total_videos:
+        hd = df.filter(pl.col("Definition") == "hd").height
+        hd_ratio = hd / total_videos
+    if "Caption" in df.columns and total_videos:
+        caps = df.filter(pl.col("Caption") is True).height
+        caption_ratio = caps / total_videos
+
+    # ------------------------------------------------------------------
+    # e) Build the four (or six) cards
+    # ------------------------------------------------------------------
+    cards = [
         MetricCard(
             title="Total Reach",
             value=format_number(total_views),
-            subtitle=f"Across {total_videos} videos",
+            subtitle=f"Across {total_videos:,} videos",
             icon="eye",
             color="blue",
         ),
         MetricCard(
             title="Engagement Rate",
-            value=f"{avg_engagement:.1f}%",
-            subtitle="Average likes + comments",
+            value=f"{avg_engagement:.1%}",
+            subtitle="Likes + comments ÷ views",
             icon="heart",
             color="red",
         ),
         MetricCard(
             title="Top Performer",
-            value=format_number(top_video_views),
-            subtitle="Most viewed video",
+            value=format_number(top_views),
+            subtitle="Most-viewed video",
             icon="trending-up",
             color="green",
         ),
         MetricCard(
-            title="Average Performance",
-            value=format_number(int(avg_views_per_video)),
-            subtitle="Views per video",
+            title="Avg. Views per Video",
+            value=format_number(int(avg_views)),
+            subtitle="Playlist-wide average",
             icon="bar-chart",
             color="purple",
         ),
     ]
 
+    # Optional extra cards – they disappear automatically if data is missing
+    if hd_ratio > 0:
+        cards.append(
+            MetricCard(
+                title="HD Content",
+                value=f"{hd_ratio:.0%}",
+                subtitle="Videos in 720p+",
+                icon="film",
+                color="indigo",
+            )
+        )
+    if caption_ratio > 0:
+        cards.append(
+            MetricCard(
+                title="Captioned",
+                value=f"{caption_ratio:.0%}",
+                subtitle="Videos with subtitles",
+                icon="closed-caption",
+                color="orange",
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # f) Layout
+    # ------------------------------------------------------------------
     return Div(
         # Section header
         Div(
-            H2("📊 Key Metrics", cls="text-xl font-semibold text-gray-800 mb-2"),
+            H2("Key Metrics", cls="text-xl font-semibold text-gray-800 mb-2"),
             P(
-                "At a glance overview of your playlist performance",
+                "At-a-glance performance of your playlist",
                 cls="text-gray-600 text-sm mb-6",
             ),
             cls="text-center",
         ),
-        # Metrics grid - responsive
+        # Responsive grid
         Grid(
-            *metrics,
-            cols_sm=2,  # 2 columns on small screens
-            cols_lg=4,  # 4 columns on large screens
-            gap=4,  # Consistent spacing
-            cls="mb-8",  # Space before your existing charts
+            *cards,
+            cols_sm=2,  # 2 columns on phones
+            cols_md=3,  # 3 columns on tablets
+            cols_lg=len(cards),  # full row on desktop (4-6 cards)
+            gap=4,
+            cls="mb-8",
         ),
-        cls="mb-12",  # Extra space to separate from charts section
+        cls="mb-12",
     )
 
 
