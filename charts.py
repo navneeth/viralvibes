@@ -584,7 +584,7 @@ def chart_duration_impact(
     durations = (
         sorted_df["Duration"].cast(pl.Float64) / 60
     ).to_list()  # Convert to minutes
-    eng_rates = (sorted_df["Engagement Rate Raw"] * 100).to_list()
+    eng_rates = (sorted_df["Engagement Rate Raw"]).to_list()
 
     return ApexChart(
         opts={
