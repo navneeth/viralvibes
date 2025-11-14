@@ -360,7 +360,7 @@ def preview_playlist(playlist_url: str):
 
     # Extract values with fallbacks
     title = preview_info.get("title", "YouTube Playlist")
-    thumbnail = preview_info.get("thumbnail", "/static/placeholder.png")
+    thumbnail = preview_info.get("thumbnail", "/static/favicon.jpeg")
     video_count = preview_info.get("video_count", 0)
     total_views = preview_info.get("total_views", 0)
     total_likes = preview_info.get("total_likes", 0)
@@ -405,7 +405,7 @@ def preview_playlist(playlist_url: str):
                 src=thumbnail,
                 alt="Playlist thumbnail",
                 cls="w-24 h-24 rounded-xl shadow-lg object-cover border-2 border-gray-200",
-                onerror="this.src='/static/placeholder.png'",  # Fallback for broken images
+                onerror="this.src='/static/favicon.jpeg'",  # Fallback for broken images
             ),
             Div(
                 H2(

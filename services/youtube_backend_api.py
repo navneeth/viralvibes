@@ -464,7 +464,15 @@ class YouTubeBackendAPI(YouTubeBackendBase):
         """Parse a single video item from API response (defensive)."""
         try:
             # id is usually present at top-level for videos.list results
-            video_id = item.get("id") or ""
+            video_id = item["id"] or item["snippet"]["resourceId"]["videoId"]
+            video_url = f"https://youtu.be/{video_id}"
+            thumbs = item.get("snippet", {}).get("thumbnails", {})
+            thumbnail = (
+                thumbs.get("high")
+                or thumbs.get("medium")
+                or thumbs.get("default")
+                or {}
+            ).get("url", "")
             sn = item.get("snippet", {}) or {}
             stats = item.get("statistics", {}) or {}
             cd = item.get("contentDetails", {}) or {}
@@ -635,3 +643,12 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             df = df.with_columns(pl.col(thumb_src).cast(pl.Utf8).alias("thumbnail"))
 
         return df
+
+    def _parse_iso8601_duration_to_seconds(iso: str) -> int:
+        if not iso:
+            return 0
+        m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso)
+        if not m:
+            return 0
+        h, mm, s = m.groups()
+        return (int(h or 0) * 3600) + (int(mm or 0) * 60) + int(s or 0)
