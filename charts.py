@@ -186,7 +186,7 @@ def chart_engagement_ranking(
 
     df = _safe_sort(df, "Engagement Rate Raw", descending=True)
     rates = (df["Engagement Rate Raw"] * 100).fill_null(0).round(2).to_list()
-    avg = rates[0] if rates else 0.0
+    avg = sum(rates) / len(rates) if rates else 0.0
 
     opts = _base_opts(
         "bar",
