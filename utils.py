@@ -37,6 +37,13 @@ def format_number(num: float) -> str:
     return f"{num:,.0f}"
 
 
+def format_percentage(x):
+    try:
+        return f"{float(x):.2%}"
+    except Exception:
+        return ""
+
+
 def format_duration(seconds: int) -> str:
     """
     Convert seconds into a human-readable duration string (e.g., 1:30, 2:15:45).
@@ -158,7 +165,8 @@ def safe_cell(value):
     return value if value is not None else "N/A"
 
 
-# utils.py
+def safe_get(d, k, default=""):
+    return d.get(k, default) if isinstance(d, dict) else default
 
 
 def safe_channel_name(channel_name: str | None, channel_url: str | None = None):

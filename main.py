@@ -31,8 +31,11 @@ from components import (
     faq_section,
     footer,
     hero_section,
+    number_cell,
     section_header,
     section_wrapper,
+    thumbnail_cell,
+    title_cell,
 )
 from constants import (
     CARD_BASE,
@@ -59,7 +62,7 @@ from db import (
     upsert_playlist_stats,
 )
 from step_components import StepProgress
-from utils import format_number, parse_number
+from utils import format_duration, format_number, format_percentage, parse_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 
 # Get logger instance
@@ -154,6 +157,7 @@ init_app()
 COLUMNS = {
     "Rank": ("Rank", "Rank"),
     "Title": ("Title", "Title"),
+    "Thumbnail": ("Thumbnail", "Thumbnail"),
     "Views": ("Views", "Views Formatted"),
     "Likes": ("Likes", "Likes Formatted"),
     "Comments": ("Comments", "Comments Formatted"),
@@ -873,55 +877,58 @@ def validate_full(
             )
 
             # --- 9) Build tbody with CORRECT display columns ---
-            tbody = Tbody(
-                *[
+            rows = []
+            for row in df.iter_rows(named=True):
+                cells = []
+                for h in svc_headers:
+                    if h == "Thumbnail":
+                        cell = thumbnail_cell(
+                            row.get("Thumbnail") or row.get("thumbnail") or "",
+                            row.get("id"),
+                            row.get("Title"),
+                        )
+                        td_cls = "px-4 py-3 text-center"
+                    elif h == "Title":
+                        # Special handling for Title (make it a link)
+                        cell = title_cell(row)
+                        td_cls = "px-4 py-3"
+                    elif h in ("Views", "Likes", "Comments"):
+                        cell = number_cell(row.get(get_render_col(h), row.get(h)))
+                        td_cls = "px-4 py-3 text-right"
+                    elif h == "Duration":
+                        cell = Div(
+                            format_duration(row.get("Duration")), cls="text-center"
+                        )
+                        td_cls = "px-4 py-3 text-center"
+                    elif h == "Engagement Rate":
+                        raw = row.get(get_render_col(h), row.get("Engagement Rate Raw"))
+                        cell = Div(
+                            format_percentage(raw),
+                            cls="text-center font-semibold text-green-600",
+                        )
+                        td_cls = "px-4 py-3 text-center"
+                    elif h == "Controversy":
+                        raw = row.get(get_render_col(h), row.get("Controversy"))
+                        cell = Div(
+                            format_percentage(raw),
+                            cls="text-center font-semibold text-purple-600",
+                        )
+                        td_cls = "px-4 py-3 text-center"
+                    else:
+                        # default fallback
+                        val = row.get(get_render_col(h), row.get(h, ""))
+                        cell = Div(val)
+                        td_cls = "px-4 py-3"
+                    cells.append(Td(cell, cls=td_cls))
+                # make row card-like
+                rows.append(
                     Tr(
-                        *[
-                            Td(
-                                # Special handling for Title (make it a link)
-                                (
-                                    Div(
-                                        A(
-                                            row.get("Title", "N/A"),
-                                            href=f"https://youtube.com/watch?v={row.get('id')}",
-                                            target="_blank",
-                                            cls="text-blue-600 hover:underline font-medium",
-                                        ),
-                                        cls="max-w-xs truncate",
-                                    )
-                                    if h == "Title"
-                                    else row.get(get_render_col(h), "")
-                                ),
-                                cls=(
-                                    "text-gray-600 font-medium"
-                                    if h == "Rank"
-                                    else (
-                                        "py-3"
-                                        if h == "Title"
-                                        else (
-                                            "text-right"
-                                            if h in ("Views", "Likes", "Comments")
-                                            else (
-                                                "text-center"
-                                                if h
-                                                in (
-                                                    "Duration",
-                                                    "Engagement Rate",
-                                                    "Controversy",
-                                                )
-                                                else ""
-                                            )
-                                        )
-                                    )
-                                ),
-                            )
-                            for h in DISPLAY_HEADERS  # ← Dynamic! Always matches THEAD
-                        ]
+                        *cells,
+                        cls="bg-white hover:bg-gray-50 transition-shadow border-b border-gray-100",
                     )
-                    for row in df.iter_rows(named=True)
-                ],
-                cls="divide-y divide-gray-200",
-            )
+                )
+
+            tbody = Tbody(*rows, cls="divide-y divide-gray-100")
 
             # --- 10) Footer with correct totals ---
             tfoot = Tfoot(

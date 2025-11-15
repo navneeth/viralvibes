@@ -1731,3 +1731,70 @@ def SectionDivider() -> Div:
     return Div(
         cls="w-full h-1 rounded-full bg-gradient-to-r from-[#00A3FF] via-[#FF4500] to-[#00A3FF] my-4 shadow-sm"
     )
+
+
+def thumbnail_cell(url, vid, title=None):
+    # clickable thumbnail that opens youtube in new tab
+    if not url:
+        # small placeholder
+        return Div(
+            A(
+                Div("No thumbnail", cls="text-xs text-gray-400"),
+                href=f"https://youtube.com/watch?v={vid}" if vid else "#",
+                target="_blank",
+                cls="inline-block px-2 py-1 bg-gray-50 rounded",
+            ),
+            cls="text-center",
+        )
+    return A(
+        Img(
+            src=url,
+            cls="h-14 w-28 object-cover rounded-lg shadow-sm hover:opacity-90 transition",
+        ),
+        href=f"https://youtube.com/watch?v={vid}",
+        target="_blank",
+        title=title or "",
+        cls="inline-block",
+    )
+
+
+def title_cell(row):
+    title = row.get("Title", "Untitled")
+    vid = row.get("id", "")
+    uploader = row.get("Uploader", "")
+    tags = row.get("Tags") or []
+    tag_nodes = []
+    for t in tags[:2] if isinstance(tags, (list, tuple)) else []:
+        tag_nodes.append(Badge(t, variant="soft", cls="mr-1 text-xs"))
+    meta = Div(
+        Div(
+            A(
+                title,
+                href=f"https://youtube.com/watch?v={vid}",
+                target="_blank",
+                cls="text-blue-700 hover:underline font-semibold",
+            ),
+            cls="truncate max-w-md",
+        ),
+        Div(*tag_nodes, cls="mt-1"),
+        cls="space-y-1",
+    )
+    # uploader avatar / name small inline
+    uploader_part = Div(
+        # Avatar(src=row.get("Thumbnail") or "", size="xs", cls="mr-2"),
+        DiceBearAvatar(uploader, h=20, w=20),
+        A(uploader or "Unknown", href="#", cls="text-sm text-gray-600"),
+        cls="flex items-center mt-1 space-x-2",
+    )
+    return Div(meta, uploader_part, cls="flex flex-col")
+
+
+def number_cell(val):
+    # Handle None and ensure it's numeric
+    if val is None:
+        return Div("", cls="text-right font-medium")
+    try:
+        numeric_val = float(val) if isinstance(val, str) else val
+        return Div(format_number(numeric_val), cls="text-right font-medium")
+    except (ValueError, TypeError):
+        return Div(str(val), cls="text-right font-medium")
