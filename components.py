@@ -979,18 +979,18 @@ def AnalyticsDashboardSection(
         # =====================================================================
         # BLOCK 6: TOP PERFORMERS COMPARISON
         # =====================================================================
-        Div(
-            H3("🏆 Top Performers", cls="text-2xl font-semibold text-gray-800 mb-4"),
-            P(
-                "Compare your best videos across all key metrics.",
-                cls="text-gray-500 mb-6",
-            ),
-            Grid(
-                chart_top_performers_radar(df, "top-radar", top_n=5),
-                cls="grid-cols-1 gap-10",
-            ),
-            cls="mb-16",
-        ),
+        # Div(
+        #     H3("🏆 Top Performers", cls="text-2xl font-semibold text-gray-800 mb-4"),
+        #     P(
+        #         "Compare your best videos across all key metrics.",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     Grid(
+        #         chart_top_performers_radar(df, "top-radar", top_n=5),
+        #         cls="grid-cols-1 gap-10",
+        #     ),
+        #     cls="mb-16",
+        # ),
         cls="mt-20 pt-12 border-t border-gray-200 space-y-12",
     )
 
