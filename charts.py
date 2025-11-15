@@ -45,6 +45,41 @@ def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFr
         return df
 
 
+# --------------------------------------------------------------
+# 1. DESIGN CONSTANTS
+# --------------------------------------------------------------
+THEME_COLORS = [
+    "#3B82F6",  # blue-500
+    "#EF4444",  # red-500
+    "#10B981",  # emerald-500
+    "#F59E0B",  # amber-500
+    "#8B5CF6",  # violet-500
+    "#EC4899",  # pink-500
+]
+
+
+def _base_opts(chart_type: str, height: int = 380, **extra) -> dict:
+    """Common ApexCharts options that make every chart look polished."""
+    return {
+        "chart": {
+            "type": chart_type,
+            "height": height,
+            "fontFamily": "Inter, system-ui, sans-serif",
+            "toolbar": {"show": False},
+            "zoom": {"enabled": False},
+            "background": "transparent",
+            **extra.get("chart", {}),
+        },
+        "theme": {"mode": "light", "palette": "palette1"},
+        "colors": THEME_COLORS,
+        "stroke": {"width": 2, "curve": "smooth"},
+        "grid": {"show": True, "borderColor": "#e5e7eb", "strokeDashArray": 4},
+        "dataLabels": {"enabled": False},
+        "tooltip": {"theme": "light", "marker": {"show": True}},
+        **extra,
+    }
+
+
 def _apex_opts(chart_type: str, height: int = 350, **kwargs) -> dict:
     """Helper to build ApexChart options."""
     opts = {
@@ -84,29 +119,22 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
     Gives instant insight into top and bottom performers.
     """
     if df is None or df.is_empty():
-        return _empty_chart("line", chart_id)
+        return _empty_chart("bar", chart_id)
 
-    # Sort videos by view count descending
     sorted_df = _safe_sort(df, "Views", descending=True)
+    views_m = (sorted_df["Views"].fill_null(0) / 1_000_000).round(2).to_list()
+    labels = sorted_df["Title"].to_list()
 
-    views_m = (sorted_df["Views"].fill_null(0) / 1_000_000).round(1).to_list()
-    titles = sorted_df["Title"].to_list()
-
-    opts = _apex_opts(
+    opts = _base_opts(
         "bar",
-        300,
-        series=[{"name": "Views (in Millions)", "data": views_m}],
-        xaxis={
-            "categories": titles,
-            "title": {"text": "Video Title"},
-            "labels": {"rotate": -45, "style": {"fontSize": "10px"}},
-        },
+        height=380,
+        series=[{"name": "Views (Millions)", "data": views_m}],
+        xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
         yaxis={"title": {"text": "Views (Millions)"}},
-        chart={"id": chart_id, "zoom": {"enabled": False}, "toolbar": {"show": False}},
-        tooltip={"enabled": True},
         title={"text": "🏆 Top Videos by Views", "align": "left"},
+        plotOptions={"bar": {"borderRadius": 4, "columnWidth": "55%"}},
     )
-    return ApexChart(opts=opts, cls="w-full h-80")
+    return ApexChart(opts=opts, cls="w-full h-[28rem]")
 
 
 def chart_polarizing_videos(
@@ -115,60 +143,38 @@ def chart_polarizing_videos(
     if df is None or df.is_empty():
         return _empty_chart("bubble", chart_id)
 
-    # Vectorized extraction
+    # Vectorized extraction of rows with positive likes, dislikes, views
     mask = (df["Likes"] > 0) & (df["Dislikes"] > 0) & (df["Views"] > 0)
-    filtered = df.filter(mask)
+    rows = df.filter(mask).iter_rows(named=True)
 
-    if len(filtered) == 0:
-        # Handle empty data case
-        data = []
-    else:
-        data = [
-            {
-                "x": int(row["Likes"]),
-                "y": int(row["Dislikes"]),
-                "z": round(row["Views"] / 1_000_000, 2),
-                "name": row["Title"][:40],
-            }
-            for row in filtered.iter_rows(named=True)
-        ]
+    data = [
+        {
+            "x": r["Likes"],
+            "y": r["Dislikes"],
+            "z": round(r["Views"] / 1e6, 2),
+            "title": r["Title"][:45],
+        }
+        for r in rows
+    ]
 
-    opts = _apex_opts(
+    opts = _base_opts(
         "bubble",
-        350,
         series=[{"name": "Videos", "data": data}],
-        chart={
-            "id": chart_id,  # ✅ give chart a stable unique id
-            "toolbar": {"show": True},
-            "zoom": {"enabled": True},
-        },
-        dataLabels={"enabled": False},
-        xaxis={"title": {"text": "👍 Likes"}},
-        yaxis={"title": {"text": "👎 Dislikes"}},
-        # tooltip={
-        #     "shared": False,
-        #     "intersect": True,
-        #     "custom": """
-        #         function({series, seriesIndex, dataPointIndex, w}) {
-        #             var pt = w.config.series[seriesIndex].data[dataPointIndex];
-        #             return  '<div style="padding:6px;"><b>' + pt.name + '</b><br>' +
-        #                     'Likes: ' + pt.x.toLocaleString() + '<br>' +
-        #                     'Dislikes: ' + pt.y.toLocaleString() + '<br>' +
-        #                     'Views: ' + pt.z + 'M</div>';
-        #         }
-        #     """,
-        # },
+        xaxis={"title": {"text": "Likes"}},
+        yaxis={"title": {"text": "Dislikes"}},
+        title={"text": "Polarization Bubble", "align": "center"},
         tooltip={
-            "enabled": True,
-            "shared": False,
-            "intersect": True,
-            "followCursor": True,
-            "marker": {"show": True},
+            "custom": lambda s, si, dpi, w: f"""
+            <div class="p-2"><b>{w.config.series[si].data[dpi].title}</b><br>
+            Likes: {w.config.series[si].data[dpi].x:,}<br>
+            Dislikes: {w.config.series[si].data[dpi].y:,}<br>
+            Views: {w.config.series[si].data[dpi].z}M</div>
+        """
         },
-        plotOptions={"bubble": {"minBubbleRadius": 5, "maxBubbleRadius": 30}},
-        title={"text": "Video Polarization Analysis", "align": "center"},
+        plotOptions={"bubble": {"minBubbleRadius": 6, "maxBubbleRadius": 35}},
+        chart={"toolbar": {"show": True}, "zoom": {"enabled": True}},
     )
-    return ApexChart(opts=opts, cls="w-full h-96")
+    return ApexChart(opts=opts, cls="w-full h-[28rem]")
 
 
 def chart_engagement_ranking(
@@ -178,32 +184,28 @@ def chart_engagement_ranking(
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
-    sorted_df = _safe_sort(df, "Engagement Rate Raw", descending=True)
-    titles = sorted_df["Title"].to_list()
-    eng_rates = (sorted_df["Engagement Rate Raw"] * 100).fill_null(0).to_list()
-    avg_eng = float(sorted_df["Engagement Rate Raw"].mean() or 0) * 100
+    df = _safe_sort(df, "Engagement Rate Raw", descending=True)
+    rates = (df["Engagement Rate Raw"] * 100).fill_null(0).round(2).to_list()
+    avg = rates[0] if rates else 0.0
 
-    return ApexChart(
-        opts={
-            "chart": {"type": "bar", "id": chart_id},
-            "series": [{"name": "Engagement Rate (%)", "data": eng_rates}],
-            "plotOptions": {"bar": {"horizontal": True}},
-            "xaxis": {"title": {"text": "Engagement Rate (%)"}},
-            "yaxis": {"categories": titles},
-            "colors": ["#F59E0B"],
-            "title": {"text": "💬 Videos Ranked by Engagement", "align": "left"},
-            "annotations": {
-                "xaxis": [
-                    {
-                        "x": avg_eng,
-                        "borderColor": "#EF4444",
-                        "label": {"text": f"Avg: {avg_eng:.1f}%"},
-                    }
-                ]
-            },
+    opts = _base_opts(
+        "bar",
+        series=[{"name": "Engagement %", "data": rates}],
+        plotOptions={"bar": {"horizontal": True, "barHeight": "60%"}},
+        xaxis={"title": {"text": "Engagement %"}},
+        yaxis={"categories": df["Title"].to_list()},
+        annotations={
+            "xaxis": [
+                {
+                    "x": avg,
+                    "borderColor": "#EF4444",
+                    "label": {"text": f"Avg {avg:.1f}%"},
+                }
+            ]
         },
-        cls="w-full h-96",
+        title={"text": "Engagement Leaderboard", "align": "left"},
     )
+    return ApexChart(opts=opts, cls="w-full h-[28rem]")
 
 
 def chart_likes_per_1k_views(
