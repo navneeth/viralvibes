@@ -108,6 +108,48 @@ def _empty_chart(chart_type: str, chart_id: str) -> ApexChart:
     return ApexChart(opts=opts, cls="w-full h-[22rem]")
 
 
+TOOLTIP_TRUNC = r"""
+function({ series, seriesIndex, dataPointIndex, w }) {
+    const pt = w.config.series?.[seriesIndex]?.data?.[dataPointIndex];
+    if (!pt) {
+        return '<div style="padding:8px;">No data</div>';
+    }
+
+    // Title truncation
+    const rawTitle = String(pt.title || "");
+    const title = rawTitle.length > 60 ? rawTitle.substring(0, 60) + '…' : rawTitle;
+
+    // Build lines dynamically from pt object
+    let lines = [];
+
+    for (const [key, value] of Object.entries(pt)) {
+        if (key === "title") continue;   // already printed
+        if (value === null || value === undefined) continue;
+
+        // Format large numbers using locale
+        let formatted = value;
+
+        if (typeof value === "number") {
+            if (Math.abs(value) >= 1000) {
+                formatted = value.toLocaleString();
+            }
+        }
+
+        lines.push(`<b>${key}:</b> ${formatted}`);
+    }
+
+    return `
+        <div style="padding:8px; max-width:260px; word-break:break-word;">
+            <div><b>${title}</b></div>
+            <div style="margin-top:6px;">
+                ${lines.join("<br>")}
+            </div>
+        </div>
+    `;
+}
+"""
+
+
 # ----------------------
 # Charts
 # ----------------------
@@ -152,7 +194,7 @@ def chart_polarizing_videos(
             "x": r["Likes"],
             "y": r["Dislikes"],
             "z": round(r["Views"] / 1e6, 2),
-            "title": r["Title"][:45],
+            "title": r["Title"],
         }
         for r in rows
     ]
@@ -163,14 +205,7 @@ def chart_polarizing_videos(
         xaxis={"title": {"text": "Likes"}},
         yaxis={"title": {"text": "Dislikes"}},
         title={"text": "Polarization Bubble", "align": "center"},
-        tooltip={
-            "custom": lambda s, si, dpi, w: f"""
-            <div class="p-2"><b>{w.config.series[si].data[dpi].title}</b><br>
-            Likes: {w.config.series[si].data[dpi].x:,}<br>
-            Dislikes: {w.config.series[si].data[dpi].y:,}<br>
-            Views: {w.config.series[si].data[dpi].z}M</div>
-        """
-        },
+        tooltip={"custom": TOOLTIP_TRUNC},
         plotOptions={"bubble": {"minBubbleRadius": 6, "maxBubbleRadius": 35}},
         chart={"toolbar": {"show": True}, "zoom": {"enabled": True}},
     )
@@ -223,7 +258,7 @@ def chart_likes_per_1k_views(
         {
             "x": round((row["Views"] or 0) / 1_000_000, 1),
             "y": float(row["Likes_per_1K"] or 0),
-            "title": row["Title"][:40],
+            "title": row["Title"],
         }
         for row in df_calc.iter_rows(named=True)
     ]
@@ -238,16 +273,7 @@ def chart_likes_per_1k_views(
                 "text": "📊 Audience Quality: Likes per 1K Views",
                 "align": "left",
             },
-            "tooltip": {
-                "custom": (
-                    "function({series, seriesIndex, dataPointIndex, w}) {"
-                    "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
-                    "return `<div style='padding:6px;'><b>${pt.title}</b><br>"
-                    "👀 Views: ${pt.x}M<br>"
-                    "👍 Likes per 1K: ${pt.y.toFixed(2)}</div>`;"
-                    "}"
-                )
-            },
+            "tooltip": {"custom": TOOLTIP_TRUNC},
         },
         cls="w-full h-80",
     )
@@ -338,7 +364,7 @@ def chart_scatter_likes_dislikes(
         {
             "x": int(row["Likes"] or 0),
             "y": int(row["Dislikes"] or 0),
-            "title": row["Title"][:40],  # truncate to avoid overflow
+            "title": row["Title"],
         }
         for row in df.iter_rows(named=True)
     ]
@@ -349,18 +375,7 @@ def chart_scatter_likes_dislikes(
         "xaxis": {"title": {"text": "👍 Like Count"}},
         "yaxis": {"title": {"text": "👎 Dislike Count"}},
         "title": {"text": "Likes vs Dislikes Correlation", "align": "center"},
-        "tooltip": {
-            "custom": (
-                "function({series, seriesIndex, dataPointIndex, w}) {"
-                "  var pt = w.config.series[seriesIndex].data[dataPointIndex];"
-                "  return `<div style='padding:6px; max-width:250px;'>"
-                "    <strong>${pt.title}</strong><br>"
-                "    👍 Likes: ${pt.x.toLocaleString()}<br>"
-                "    👎 Dislikes: ${pt.y.toLocaleString()}"
-                "  </div>`;"
-                "}"
-            )
-        },
+        "tooltip": {"custom": TOOLTIP_TRUNC},
     }
 
     return ApexChart(opts=opts, cls="w-full h-[22rem]")
@@ -378,7 +393,7 @@ def chart_bubble_engagement_vs_views(
             "x": round((row["Views"] or 0) / 1_000_000, 2),
             "y": float(row["Engagement Rate Raw"] or 0.0),
             "z": round(float(row["Controversy"] or 0.0) * 100, 1),
-            "title": row["Title"][:60],  # truncate long titles
+            "title": row["Title"],
         }
         for row in df.iter_rows(named=True)
     ]
@@ -392,18 +407,7 @@ def chart_bubble_engagement_vs_views(
             "labels": {"formatter": "function(val){ return val + 'M'; }"},
         },
         yaxis={"title": {"text": "Engagement Rate (%)"}},
-        tooltip={
-            "custom": (
-                "function({series, seriesIndex, dataPointIndex, w}) {"
-                "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
-                "return `<div style='padding:6px; max-width:250px;'>"
-                "<strong>${pt.title}</strong><br>"
-                "📺 Views: ${pt.x}M<br>"
-                "✨ Engagement: ${pt.y}%<br>"
-                "⚡ Controversy: ${pt.z}%</div>`;"
-                "}"
-            )
-        },
+        tooltip={"custom": TOOLTIP_TRUNC},
         plotOptions={"bubble": {"minBubbleRadius": 5, "maxBubbleRadius": 30}},
         chart={"id": chart_id, "toolbar": {"show": True}, "zoom": {"enabled": True}},
         title={"text": "Engagement vs Views Analysis", "align": "center"},
@@ -439,15 +443,7 @@ def chart_duration_vs_engagement(
             "labels": {"formatter": "function(val) { return val.toFixed(1); }"},
         },
         yaxis={"title": {"text": "Engagement Rate (%)"}},
-        tooltip={
-            "enabled": True,
-            "custom": """
-                function({series, seriesIndex, dataPointIndex, w}) {
-                    const d = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
-                    return `<b>${d.title}</b><br/>Duration: ${d.x} min<br/>Engagement: ${d.y.toFixed(2)}%`;
-                }
-            """,
-        },
+        tooltip={"enabled": True, "custom": TOOLTIP_TRUNC},
         chart={"id": chart_id},
         title={"text": "Does Video Length Affect Engagement?", "align": "center"},
     )
@@ -543,7 +539,7 @@ def chart_views_vs_likes(
             "x": round((row["Views"] or 0) / 1_000_000, 1),
             "y": round((row["Likes"] or 0) / 1000, 1),
             "z": int((row["Comments"] or 0) / 100),
-            "title": row["Title"][:40],
+            "title": row["Title"],
         }
         for row in df.iter_rows(named=True)
     ]
@@ -558,17 +554,7 @@ def chart_views_vs_likes(
                 "text": "🎯 Views vs Likes (bubble size = comments)",
                 "align": "left",
             },
-            "tooltip": {
-                "custom": (
-                    "function({series, seriesIndex, dataPointIndex, w}) {"
-                    "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
-                    "return `<div style='padding:6px;'><b>${pt.title}</b><br>"
-                    "👀 Views: ${pt.x}M<br>"
-                    "👍 Likes: ${pt.y}K<br>"
-                    "💬 Comments: ~${(pt.z*100).toLocaleString()}</div>`;"
-                    "}"
-                )
-            },
+            "tooltip": {"custom": TOOLTIP_TRUNC},
             "plotOptions": {"bubble": {"minBubbleRadius": 4, "maxBubbleRadius": 25}},
         },
         cls="w-full h-96",
