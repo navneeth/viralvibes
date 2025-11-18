@@ -16,11 +16,10 @@ from charts import (
     chart_controversy_score,
     chart_duration_impact,
     chart_duration_vs_engagement,
+    chart_engagement_breakdown,
     chart_engagement_ranking,
     chart_likes_per_1k_views,
-    chart_likes_vs_dislikes,
-    chart_polarizing_videos,
-    chart_scatter_likes_dislikes,
+    chart_performance_heatmap,
     chart_top_performers_radar,
     chart_treemap_reach,
     chart_treemap_views,
@@ -837,7 +836,7 @@ def AnalyticsDashboardSection(
                 "Dive deep into your playlist's performance, audience engagement, and content patterns.",
                 cls="text-gray-500 mt-2 mb-8 text-lg",
             ),
-            cls="text-center",
+            cls="text-center mb-12",
         ),
         # =====================================================================
         # BLOCK 1: REACH & PERFORMANCE
@@ -849,14 +848,16 @@ def AnalyticsDashboardSection(
             ),
             P(
                 "How your videos are reaching your audience - which ones drive the most views?",
-                cls="text-gray-500 mb-6",
+                cls="text-gray-500 mb-8",
             ),
             Grid(
                 chart_views_ranking(df, "views-ranking"),
                 chart_treemap_reach(df, "treemap-reach"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:8",  # RESPONSIVE GAP
+                cls="w-full",
             ),
-            cls="mb-16 pb-12 border-b border-gray-200",
+            cls="pb-16 mb-16 border-b-2 border-gray-100",
         ),
         # =====================================================================
         # BLOCK 2: AUDIENCE ENGAGEMENT QUALITY
@@ -872,18 +873,20 @@ def AnalyticsDashboardSection(
             Grid(
                 chart_engagement_ranking(df, "engagement-ranking"),
                 chart_likes_per_1k_views(df, "likes-per-1k"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:8",  # RESPONSIVE GAP
+                cls="w-full",
             ),
             Div(
                 H4(
                     "📝 Engagement Rate Formula",
-                    cls="text-sm font-semibold text-gray-700 mt-6 mb-2",
+                    cls="text-sm font-semibold text-gray-700 mt-8 mb-2",
                 ),
                 P(
                     "Engagement = (Likes + Comments) ÷ Views × 100",
-                    cls="text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-200",
+                    cls="text-xs text-gray-600 bg-gray-50 p-4 rounded-lg border border-gray-200 leading-relaxed",
                 ),
-                cls="mt-6",
+                cls="mt-8 bg-gray-50/50 rounded-xl p-6 shadow-inner",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
         ),
@@ -902,7 +905,9 @@ def AnalyticsDashboardSection(
             Grid(
                 chart_views_vs_likes(df, "views-vs-likes"),
                 chart_comments_engagement(df, "comments-engagement"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:10",  # RESPONSIVE GAP
+                cls="w-full",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
         ),
@@ -918,7 +923,9 @@ def AnalyticsDashboardSection(
             Grid(
                 chart_duration_impact(df, "duration-impact"),
                 # chart_category_performance(df, "category-performance"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:10",  # RESPONSIVE GAP
+                cls="w-full",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
         ),
