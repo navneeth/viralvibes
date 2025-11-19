@@ -16,11 +16,10 @@ from charts import (
     chart_controversy_score,
     chart_duration_impact,
     chart_duration_vs_engagement,
+    chart_engagement_breakdown,
     chart_engagement_ranking,
     chart_likes_per_1k_views,
-    chart_likes_vs_dislikes,
-    chart_polarizing_videos,
-    chart_scatter_likes_dislikes,
+    chart_performance_heatmap,
     chart_top_performers_radar,
     chart_treemap_reach,
     chart_treemap_views,
@@ -837,7 +836,7 @@ def AnalyticsDashboardSection(
                 "Dive deep into your playlist's performance, audience engagement, and content patterns.",
                 cls="text-gray-500 mt-2 mb-8 text-lg",
             ),
-            cls="text-center",
+            cls="text-center mb-12",
         ),
         # =====================================================================
         # BLOCK 1: REACH & PERFORMANCE
@@ -849,14 +848,16 @@ def AnalyticsDashboardSection(
             ),
             P(
                 "How your videos are reaching your audience - which ones drive the most views?",
-                cls="text-gray-500 mb-6",
+                cls="text-gray-500 mb-8",
             ),
             Grid(
                 chart_views_ranking(df, "views-ranking"),
                 chart_treemap_reach(df, "treemap-reach"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:8",  # RESPONSIVE GAP
+                cls="w-full",
             ),
-            cls="mb-16 pb-12 border-b border-gray-200",
+            cls="pb-16 mb-16 border-b-2 border-gray-100",
         ),
         # =====================================================================
         # BLOCK 2: AUDIENCE ENGAGEMENT QUALITY
@@ -872,18 +873,20 @@ def AnalyticsDashboardSection(
             Grid(
                 chart_engagement_ranking(df, "engagement-ranking"),
                 chart_likes_per_1k_views(df, "likes-per-1k"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:8",  # RESPONSIVE GAP
+                cls="w-full",
             ),
             Div(
                 H4(
-                    "📝 Engagement Rate Formula",
-                    cls="text-sm font-semibold text-gray-700 mt-6 mb-2",
+                    "📐 How We Measure Engagement",
+                    cls="text-sm font-semibold text-gray-700 mt-8 mb-2",
                 ),
                 P(
                     "Engagement = (Likes + Comments) ÷ Views × 100",
-                    cls="text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-200",
+                    cls="text-xs text-gray-600 bg-gray-50 p-4 rounded-lg border border-gray-200 leading-relaxed",
                 ),
-                cls="mt-6",
+                cls="mt-8 bg-gray-50/50 rounded-xl p-6 shadow-inner",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
         ),
@@ -902,43 +905,115 @@ def AnalyticsDashboardSection(
             Grid(
                 chart_views_vs_likes(df, "views-vs-likes"),
                 chart_comments_engagement(df, "comments-engagement"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                cols="1 md:2",  # 1 col on mobile, 2 on desktop)
+                gap="6 md:10",  # RESPONSIVE GAP
+                cls="w-full",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
         ),
         # =====================================================================
-        # BLOCK 4: CONTENT FACTORS
+        # BLOCK 4: PERFORMANCE QUADRANTS
         # =====================================================================
         Div(
-            H3("⚙️ Content Factors", cls="text-2xl font-semibold text-gray-800 mb-4"),
+            H3(
+                "🎯 Strategic Positioning",
+                cls="text-2xl font-semibold text-gray-800 mb-2",
+            ),
             P(
-                "What makes content perform? Explore duration and category impact.",
+                "Where does your content stand? Identify high-performers and improvement opportunities.",
+                cls="text-gray-500 mb-8 text-sm",
+            ),
+            Grid(
+                chart_performance_heatmap(df, "performance-heatmap"),
+                chart_bubble_engagement_vs_views(df, "bubble-engagement"),
+                cols="1 md:2",
+                gap="6 md:10",
+                cls="w-full",
+            ),
+            cls="pb-16 mb-16 border-b-2 border-gray-100",
+        ),
+        # =====================================================================
+        # BLOCK 5: CONTENT FACTORS
+        # =====================================================================
+        Div(
+            H3(
+                "⏱️ Content Optimization",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Does video length affect engagement? What's the optimal duration for your audience?",
                 cls="text-gray-500 mb-6",
             ),
             Grid(
                 chart_duration_impact(df, "duration-impact"),
-                # chart_category_performance(df, "category-performance"),
-                cls="grid-cols-1 md:grid-cols-2 gap-10",
+                chart_duration_vs_engagement(df, "duration-engagement"),
+                cols="1 md:2",
+                gap="6 md:10",
+                cls="w-full",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
         ),
         # =====================================================================
-        # BLOCK 5: AUDIENCE SENTIMENT
+        # BLOCK 6: CORRELATION & PATTERNS
+        # =====================================================================
+        Div(
+            H3(
+                "📈 Advanced Patterns",
+                cls="text-2xl font-semibold text-gray-800 mb-2",
+            ),
+            P(
+                "Uncover relationships: How do likes, dislikes, and views correlate? Multi-dimensional analysis.",
+                cls="text-gray-500 mb-8 text-sm",
+            ),
+            Grid(
+                # chart_scatter_likes_dislikes(df, "scatter-likes"),
+                chart_video_radar(df, "video-radar"),
+                cols="1 md:2",
+                gap="6 md:8",
+                cls="w-full",
+            ),
+            cls="pb-16 mb-16 border-b-2 border-gray-100",
+        ),
+        # =====================================================================
+        # BLOCK 7: CATEGORY ANALYSIS (if applicable)
         # =====================================================================
         # Div(
         #     H3(
-        #         "🔥 Audience Sentiment", cls="text-2xl font-semibold text-gray-800 mb-4"
+        #         "📁 Category Performance",
+        #         cls="text-2xl font-semibold text-gray-800 mb-2",
         #     ),
         #     P(
-        #         "Which videos create the strongest reactions? Controversy & polarization.",
-        #         cls="text-gray-500 mb-6",
+        #         "How do different content categories perform? Identify your strongest niches.",
+        #         cls="text-gray-500 mb-8 text-sm",
         #     ),
         #     Grid(
-        #         chart_controversy_distribution(df, "controversy-dist"),
-        #         cls="grid-cols-1 gap-10",
+        #         chart_category_performance(df, "category-performance"),
+        #         cols="1",
+        #         gap="8",
+        #         cls="w-full",
         #     ),
-        #     cls="mb-16 pb-12 border-b border-gray-200",
+        #     cls="pb-16 mb-16 border-b-2 border-gray-100",
         # ),
+        # =====================================================================
+        # BLOCK 8: SENTIMENT & CONTROVERSY
+        # =====================================================================
+        Div(
+            H3(
+                "🔥 Audience Sentiment", cls="text-2xl font-semibold text-gray-800 mb-4"
+            ),
+            P(
+                "Which videos create the strongest reactions? Controversy & polarization.",
+                cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                chart_controversy_distribution(df, "controversy-dist"),
+                # chart_controversy_score(df, "controversy-score"),
+                cols="1 md:2",
+                gap="6 md:8",
+                cls="w-full",
+            ),
+            cls="mb-16 pb-12 border-b border-gray-200",
+        ),
         # Group 4: Advanced Insights & Patterns
         # Div(
         #     H3(

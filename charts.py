@@ -56,10 +56,31 @@ THEME_COLORS = [
     "#8B5CF6",  # violet-500
     "#EC4899",  # pink-500
 ]
+CHART_HEIGHT = "h-96"  # ~384px – perfect on phone & desktop
+
+# Constant
+CHART_WRAPPER_CLS = "w-full h-80 sm:h-96 rounded-lg bg-white shadow-sm border border-gray-200 overflow-hidden"
+
+# Height management - single source of truth
+CHART_HEIGHTS = {
+    "vertical_bar": 500,  # Views ranking, engagement
+    "horizontal_bar": 480,  # For Y-axis categories
+    "scatter": 500,  # More space for point visibility
+    "bubble": 520,  # Large bubble radius needs room
+    "radar": 520,  # 5+ axes need vertical space
+    "line": 450,  # Less vertical than bar
+    "treemap": 480,  # Hierarchical data
+}
 
 
-def _base_opts(chart_type: str, height: int = 380, **extra) -> dict:
-    """Common ApexCharts options that make every chart look polished."""
+# Get height with fallback
+def get_chart_height(chart_type: str) -> int:
+    return CHART_HEIGHTS.get(chart_type, 500)
+
+
+def _base_opts(chart_type: str, **extra) -> dict:
+    """Common ApexCharts options - height now automatic."""
+    height = get_chart_height(chart_type)
     return {
         "chart": {
             "type": chart_type,
@@ -80,8 +101,9 @@ def _base_opts(chart_type: str, height: int = 380, **extra) -> dict:
     }
 
 
-def _apex_opts(chart_type: str, height: int = 350, **kwargs) -> dict:
+def _apex_opts(chart_type: str, **kwargs) -> dict:
     """Helper to build ApexChart options."""
+    height = get_chart_height(chart_type)
     opts = {
         "chart": {"type": chart_type, "height": height, **kwargs.pop("chart", {})},
         "series": kwargs.pop("series", []),
@@ -105,7 +127,7 @@ def _empty_chart(chart_type: str, chart_id: str) -> ApexChart:
             "align": "center",
         },
     )
-    return ApexChart(opts=opts, cls="w-full h-[22rem]")
+    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
 
 
 TOOLTIP_TRUNC = r"""
@@ -169,47 +191,16 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
 
     opts = _base_opts(
         "bar",
-        height=380,
         series=[{"name": "Views (Millions)", "data": views_m}],
         xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
         yaxis={"title": {"text": "Views (Millions)"}},
         title={"text": "🏆 Top Videos by Views", "align": "left"},
         plotOptions={"bar": {"borderRadius": 4, "columnWidth": "55%"}},
     )
-    return ApexChart(opts=opts, cls="w-full h-[28rem]")
-
-
-def chart_polarizing_videos(
-    df: pl.DataFrame, chart_id: str = "polarizing-videos"
-) -> ApexChart:
-    if df is None or df.is_empty():
-        return _empty_chart("bubble", chart_id)
-
-    # Vectorized extraction of rows with positive likes, dislikes, views
-    mask = (df["Likes"] > 0) & (df["Dislikes"] > 0) & (df["Views"] > 0)
-    rows = df.filter(mask).iter_rows(named=True)
-
-    data = [
-        {
-            "x": r["Likes"],
-            "y": r["Dislikes"],
-            "z": round(r["Views"] / 1e6, 2),
-            "title": r["Title"],
-        }
-        for r in rows
-    ]
-
-    opts = _base_opts(
-        "bubble",
-        series=[{"name": "Videos", "data": data}],
-        xaxis={"title": {"text": "Likes"}},
-        yaxis={"title": {"text": "Dislikes"}},
-        title={"text": "Polarization Bubble", "align": "center"},
-        tooltip={"custom": TOOLTIP_TRUNC},
-        plotOptions={"bubble": {"minBubbleRadius": 6, "maxBubbleRadius": 35}},
-        chart={"toolbar": {"show": True}, "zoom": {"enabled": True}},
+    return ApexChart(
+        opts=opts,
+        cls=CHART_WRAPPER_CLS,
     )
-    return ApexChart(opts=opts, cls="w-full h-[28rem]")
 
 
 def chart_engagement_ranking(
@@ -240,7 +231,42 @@ def chart_engagement_ranking(
         },
         title={"text": "Engagement Leaderboard", "align": "left"},
     )
-    return ApexChart(opts=opts, cls="w-full h-[28rem]")
+    return ApexChart(
+        opts=opts,
+        cls=CHART_WRAPPER_CLS,
+    )
+
+
+def chart_engagement_breakdown(
+    df: pl.DataFrame, chart_id: str = "engagement-breakdown"
+) -> ApexChart:
+    """Stacked bar: Show composition of engagement (likes, comments) per video."""
+    if df is None or df.is_empty():
+        return _empty_chart("bar", chart_id)
+
+    top_videos = _safe_sort(df, "Views", descending=True).head(10)
+
+    data_likes = (top_videos["Likes"] / 1000).fill_null(0).to_list()
+    data_comments = (top_videos["Comments"] / 100).fill_null(0).to_list()
+
+    return ApexChart(
+        opts=_apex_opts(
+            "bar",
+            series=[
+                {"name": "👍 Likes (K)", "data": data_likes},
+                {"name": "💬 Comments (×100)", "data": data_comments},
+            ],
+            xaxis={
+                "categories": top_videos["Title"].to_list(),
+                "labels": {"rotate": -45, "maxHeight": 60},
+            },
+            yaxis={"title": {"text": "Count"}},
+            plotOptions={"bar": {"horizontal": False, "stacked": True}},
+            title={"text": "📊 Engagement Composition (Top 10)", "align": "left"},
+            colors=["#3B82F6", "#10B981"],
+        ),
+        cls=CHART_WRAPPER_CLS,
+    )
 
 
 def chart_likes_per_1k_views(
@@ -275,39 +301,55 @@ def chart_likes_per_1k_views(
             },
             "tooltip": {"custom": TOOLTIP_TRUNC},
         },
-        cls="w-full h-80",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
-def chart_likes_vs_dislikes(
-    df: pl.DataFrame, chart_id: str = "likes-dislikes"
+def chart_performance_heatmap(
+    df: pl.DataFrame, chart_id: str = "performance-heatmap"
 ) -> ApexChart:
+    """Heatmap: Views (rows) vs Engagement (cols) - see where videos cluster."""
     if df is None or df.is_empty():
-        return _empty_chart("bar", chart_id)
+        return _empty_chart("heatmap", chart_id)
 
-    opts = _apex_opts(
-        "bar",
-        300,
-        series=[
-            {"name": "👍 Likes", "data": df["Likes"].fill_null(0).to_list()},
-            {
-                "name": "👎 Dislikes",
-                "data": df["Dislikes"].fill_null(0).to_list(),
-            },
-        ],
-        xaxis={
-            "categories": df["Title"].to_list(),
-            "labels": {"rotate": -45, "style": {"fontSize": "10px"}},
-        },
-        plotOptions={"bar": {"horizontal": False, "columnWidth": "45%"}},
-        chart={
-            "id": chart_id,  # ✅ give chart a stable unique id
-            "stacked": False,
-        },
-        tooltip={"enabled": True},
-        colors=["#22C55E", "#EF4444"],  # Green for likes, red for dislikes
+    # Bin videos into quadrants
+    view_median = df["Views"].median()
+    eng_median = df["Engagement Rate Raw"].median()
+
+    quadrants = {
+        "🔥 High Views\nHigh Engage": len(
+            df.filter(
+                (df["Views"] > view_median) & (df["Engagement Rate Raw"] > eng_median)
+            )
+        ),
+        "👀 High Views\nLow Engage": len(
+            df.filter(
+                (df["Views"] > view_median) & (df["Engagement Rate Raw"] <= eng_median)
+            )
+        ),
+        "💪 Low Views\nHigh Engage": len(
+            df.filter(
+                (df["Views"] <= view_median) & (df["Engagement Rate Raw"] > eng_median)
+            )
+        ),
+        "📊 Low Views\nLow Engage": len(
+            df.filter(
+                (df["Views"] <= view_median) & (df["Engagement Rate Raw"] <= eng_median)
+            )
+        ),
+    }
+
+    return ApexChart(
+        opts=_apex_opts(
+            "bar",
+            series=[{"name": "Videos", "data": list(quadrants.values())}],
+            xaxis={"categories": list(quadrants.keys())},
+            title={"text": "🎯 Performance Quadrants", "align": "left"},
+            colors=["#8B5CF6"],
+            plotOptions={"bar": {"columnWidth": "70%"}},
+        ),
+        cls=CHART_WRAPPER_CLS,
     )
-    return ApexChart(opts=opts, cls="w-full h-80")
 
 
 def chart_controversy_score(
@@ -319,7 +361,6 @@ def chart_controversy_score(
     data = (df["Controversy Raw"].fill_null(0) * 100).to_list()
     opts = _apex_opts(
         "bar",
-        300,
         series=[{"name": "Controversy", "data": data}],
         xaxis={"title": {"text": "Controversy (%)"}},
         yaxis={"categories": df["Title"].to_list()},
@@ -327,7 +368,7 @@ def chart_controversy_score(
         chart={"id": chart_id},
         tooltip={"enabled": True},
     )
-    return ApexChart(opts=opts, cls="w-full h-80")
+    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
 
 
 def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> ApexChart:
@@ -342,7 +383,6 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
     ]
     opts = _apex_opts(
         "treemap",
-        350,
         series=[{"data": data}],
         legend={"show": False},
         title={"text": "Views Distribution by Video", "align": "center"},
@@ -350,7 +390,7 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
         chart={"id": chart_id},
         tooltip={"enabled": True},
     )
-    return ApexChart(opts=opts, cls="w-full h-[22rem]")
+    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
 
 
 def chart_scatter_likes_dislikes(
@@ -378,7 +418,7 @@ def chart_scatter_likes_dislikes(
         "tooltip": {"custom": TOOLTIP_TRUNC},
     }
 
-    return ApexChart(opts=opts, cls="w-full h-[22rem]")
+    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
 
 
 def chart_bubble_engagement_vs_views(
@@ -400,7 +440,6 @@ def chart_bubble_engagement_vs_views(
 
     opts = _apex_opts(
         "bubble",
-        350,
         series=[{"name": "Videos", "data": data}],
         xaxis={
             "title": {"text": "View Count (Millions)"},
@@ -412,42 +451,53 @@ def chart_bubble_engagement_vs_views(
         chart={"id": chart_id, "toolbar": {"show": True}, "zoom": {"enabled": True}},
         title={"text": "Engagement vs Views Analysis", "align": "center"},
     )
-    return ApexChart(opts=opts, cls="w-full h-[22rem]")
+    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
 
 
 def chart_duration_vs_engagement(
     df: pl.DataFrame, chart_id: str = "duration-engagement"
 ) -> ApexChart:
+    """Bubble: Duration (X) vs Engagement (Y), bubble size = Views."""
     if df is None or df.is_empty():
-        return _empty_chart("scatter", chart_id)
+        return _empty_chart("bubble", chart_id)
 
-    # Convert duration from seconds to minutes
-    df = df.with_columns((pl.col("Duration") / 60).alias("Duration (min)"))
+    df_prep = df.with_columns((pl.col("Duration") / 60).alias("Duration_min"))
 
-    # Build scatter points with custom tooltips
     data = [
         {
-            "x": row["Duration (min)"] or 0,
-            "y": row["Engagement Rate (%)"] or 0,
-            "title": row["Title"] or "Untitled",
+            "x": float(row["Duration_min"] or 0),
+            "y": float(row["Engagement Rate Raw"] or 0) * 100,
+            "z": round((row["Views"] or 0) / 1_000_000, 1),
+            "title": (row["Title"] or "Untitled")[:40],
         }
-        for row in df.iter_rows(named=True)
+        for row in df_prep.iter_rows(named=True)
     ]
 
-    opts = _apex_opts(
-        "scatter",
-        350,
-        series=[{"name": "Videos", "data": data}],
-        xaxis={
-            "title": {"text": "Duration (minutes)"},
-            "labels": {"formatter": "function(val) { return val.toFixed(1); }"},
-        },
-        yaxis={"title": {"text": "Engagement Rate (%)"}},
-        tooltip={"enabled": True, "custom": TOOLTIP_TRUNC},
-        chart={"id": chart_id},
-        title={"text": "Does Video Length Affect Engagement?", "align": "center"},
+    return ApexChart(
+        opts=_apex_opts(
+            "bubble",
+            series=[{"name": "Videos", "data": data}],
+            xaxis={
+                "title": {"text": "Duration (minutes)"},
+                "labels": {"formatter": "function(val){ return val.toFixed(1); }"},
+            },
+            yaxis={"title": {"text": "Engagement Rate (%)"}},
+            tooltip={
+                "custom": (
+                    "function({series, seriesIndex, dataPointIndex, w}) {"
+                    "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
+                    "return `<div style='padding:6px;'><b>${pt.title}</b><br>"
+                    "⏱️ Duration: ${pt.x.toFixed(1)}m<br>"
+                    "✨ Engagement: ${pt.y.toFixed(1)}%<br>"
+                    "👀 Views: ${pt.z}M</div>`;"
+                    "}"
+                )
+            },
+            plotOptions={"bubble": {"minBubbleRadius": 5, "maxBubbleRadius": 35}},
+            title={"text": "⏱️ Length vs Engagement (bubble = views)", "align": "left"},
+        ),
+        cls=CHART_WRAPPER_CLS,
     )
-    return ApexChart(opts=opts, cls="w-full h-80")
 
 
 def chart_video_radar(
@@ -489,14 +539,13 @@ def chart_video_radar(
 
     opts = _apex_opts(
         "radar",
-        350,
         series=series,
         labels=numeric_cols,
         chart={"id": chart_id},
         title={"text": "Top Videos: Multi-Metric Comparison", "align": "center"},
     )
 
-    return ApexChart(opts=opts, cls="w-full h-96")
+    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
 
 
 def chart_comments_engagement(
@@ -523,7 +572,7 @@ def chart_comments_engagement(
             "yaxis": {"title": {"text": "Engagement Rate (%)"}},
             "title": {"text": "💬 Comments vs Engagement", "align": "left"},
         },
-        cls="w-full h-80",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
@@ -557,7 +606,7 @@ def chart_views_vs_likes(
             "tooltip": {"custom": TOOLTIP_TRUNC},
             "plotOptions": {"bubble": {"minBubbleRadius": 4, "maxBubbleRadius": 25}},
         },
-        cls="w-full h-96",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
@@ -586,7 +635,7 @@ def chart_duration_impact(
             "title": {"text": "⏱️ Does Duration Affect Engagement?", "align": "left"},
             "stroke": {"curve": "smooth"},
         },
-        cls="w-full h-80",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
@@ -614,7 +663,7 @@ def chart_category_performance(
             "colors": ["#10B981"],
             "title": {"text": "📁 Average Engagement by Category", "align": "left"},
         },
-        cls="w-full h-80",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
@@ -642,7 +691,7 @@ def chart_controversy_distribution(
                 "align": "left",
             },
         },
-        cls="w-full h-96",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
@@ -666,7 +715,7 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
             },
             "dataLabels": {"enabled": True},
         },
-        cls="w-full h-80",
+        cls=CHART_WRAPPER_CLS,
     )
 
 
@@ -707,5 +756,5 @@ def chart_top_performers_radar(
                 "align": "left",
             },
         },
-        cls="w-full h-80",
+        cls=CHART_WRAPPER_CLS,
     )
