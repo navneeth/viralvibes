@@ -57,8 +57,7 @@ THEME_COLORS = [
     "#EC4899",  # pink-500
 ]
 CHART_HEIGHT = "h-96"  # ~384px – perfect on phone & desktop
-CHART_HEIGHT_PX = 500  # Desktop height in pixels
-CHART_HEIGHT_MOBILE_PX = 400  # Mobile height
+
 # Constant
 CHART_WRAPPER_CLS = "w-full h-80 sm:h-96 rounded-lg bg-white shadow-sm border border-gray-200 overflow-hidden"
 
@@ -469,7 +468,7 @@ def chart_duration_vs_engagement(
             "x": float(row["Duration_min"] or 0),
             "y": float(row["Engagement Rate Raw"] or 0) * 100,
             "z": round((row["Views"] or 0) / 1_000_000, 1),
-            "title": row["Title"][:40],
+            "title": (row["Title"] or "Untitled")[:40],
         }
         for row in df_prep.iter_rows(named=True)
     ]
