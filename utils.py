@@ -44,6 +44,16 @@ def format_percentage(x):
         return ""
 
 
+def format_float(value: float, decimals: int = 2) -> float:
+    """
+    Clean floating-point precision errors.
+    Convert 0.699999999999996 → 0.70
+    """
+    if value is None:
+        return 0.0
+    return round(float(value), decimals)
+
+
 def format_duration(seconds: int) -> str:
     """
     Convert seconds into a human-readable duration string (e.g., 1:30, 2:15:45).

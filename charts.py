@@ -4,6 +4,8 @@ from typing import Dict
 import polars as pl
 from monsterui.all import ApexChart
 
+from utils import format_float
+
 logger = logging.getLogger("charts")
 
 
@@ -195,7 +197,7 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
         return _empty_chart("bar", chart_id)
 
     sorted_df = _safe_sort(df, "Views", descending=True)
-    views_m = (sorted_df["Views"].fill_null(0) / 1_000_000).round(2).to_list()
+    views_m = (sorted_df["Views"].fill_null(0) / 1_000_000).round(0).to_list()
     labels = sorted_df["Title"].to_list()
 
     opts = _base_opts(
@@ -541,7 +543,7 @@ def chart_video_radar(
     for row in norm_df.iter_rows(named=True):
         series.append(
             {
-                "name": row["Title"][:20],  # truncate long titles
+                "name": _truncate_title(row["Title"]),  # Truncate long titles
                 "data": [row[f"{c}_norm"] for c in numeric_cols],
             }
         )
@@ -566,9 +568,9 @@ def chart_comments_engagement(
 
     data = [
         {
-            "x": row["Comments"] or 0,
-            "y": float(row["Engagement Rate Raw"] or 0) * 100,
-            "title": row["Title"][:40],
+            "x": int(row["Comments"] or 0),
+            "y": format_float(float(row["Engagement Rate Raw"] or 0) * 100, 2),
+            "title": _truncate_title(row["Title"]),
         }
         for row in df.iter_rows(named=True)
     ]
