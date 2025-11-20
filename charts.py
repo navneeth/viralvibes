@@ -59,7 +59,10 @@ THEME_COLORS = [
 CHART_HEIGHT = "h-96"  # ~384px – perfect on phone & desktop
 
 # Constant
-CHART_WRAPPER_CLS = "w-full h-80 sm:h-96 rounded-lg bg-white shadow-sm border border-gray-200 overflow-hidden"
+CHART_WRAPPER_CLS = (
+    "w-full min-h-[420px] rounded-xl bg-white shadow-sm border border-gray-200 p-4"
+)
+
 
 # Height management - single source of truth
 CHART_HEIGHTS = {
@@ -76,6 +79,13 @@ CHART_HEIGHTS = {
 # Get height with fallback
 def get_chart_height(chart_type: str) -> int:
     return CHART_HEIGHTS.get(chart_type, 500)
+
+
+def _truncate_title(title: str, max_len: int = 50) -> str:
+    """Safely truncate title with ellipsis."""
+    if not title:
+        return "Untitled"
+    return title[:max_len] + ("..." if len(title) > max_len else "")
 
 
 def _base_opts(chart_type: str, **extra) -> dict:
@@ -118,7 +128,6 @@ def _empty_chart(chart_type: str, chart_id: str) -> ApexChart:
     """Return a placeholder empty chart when df is empty."""
     opts = _apex_opts(
         chart_type,
-        350,
         series=[],
         chart={"id": chart_id},
         title={"text": "No data available", "align": "center"},
@@ -284,7 +293,7 @@ def chart_likes_per_1k_views(
         {
             "x": round((row["Views"] or 0) / 1_000_000, 1),
             "y": float(row["Likes_per_1K"] or 0),
-            "title": row["Title"],
+            "title": _truncate_title(row["Title"]),
         }
         for row in df_calc.iter_rows(named=True)
     ]
@@ -404,7 +413,7 @@ def chart_scatter_likes_dislikes(
         {
             "x": int(row["Likes"] or 0),
             "y": int(row["Dislikes"] or 0),
-            "title": row["Title"],
+            "title": _truncate_title(row["Title"]),
         }
         for row in df.iter_rows(named=True)
     ]
@@ -431,8 +440,8 @@ def chart_bubble_engagement_vs_views(
     data = [
         {
             "x": round((row["Views"] or 0) / 1_000_000, 2),
-            "y": float(row["Engagement Rate Raw"] or 0.0),
-            "z": round(float(row["Controversy"] or 0.0) * 100, 1),
+            "y": float(row["Engagement Rate Raw"] or 0.0) * 100,
+            "z": round(float(row["Controversy"] or 0.0), 1),
             "title": row["Title"],
         }
         for row in df.iter_rows(named=True)
@@ -588,7 +597,7 @@ def chart_views_vs_likes(
             "x": round((row["Views"] or 0) / 1_000_000, 1),
             "y": round((row["Likes"] or 0) / 1000, 1),
             "z": int((row["Comments"] or 0) / 100),
-            "title": row["Title"],
+            "title": _truncate_title(row["Title"]),
         }
         for row in df.iter_rows(named=True)
     ]
