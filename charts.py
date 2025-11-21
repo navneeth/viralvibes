@@ -4,9 +4,10 @@ from typing import Dict
 import polars as pl
 from monsterui.all import ApexChart
 
-from utils import format_float
-
 logger = logging.getLogger("charts")
+
+SCALE_MILLIONS = 1_000_000
+SCALE_THOUSANDS = 1_000
 
 
 def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFrame:
@@ -29,10 +30,10 @@ def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFr
         # Auto-coerce to numeric if needed
         if series.dtype == pl.Utf8:
             logger.debug(f"[charts] Auto-casting column '{col}' from str to Float64")
-            df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+            # Remove duplicate: df = df.with_columns(...)
 
-        # Newer Polars signature
-        return df.sort(by=col, descending=descending)
+        df_casted = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+        return df_casted.sort(by=col, descending=descending)
 
     except TypeError:
         try:
@@ -535,7 +536,16 @@ def chart_video_radar(
 
     # Normalize per metric to 0–100 scale
     norm_df = cast_df.with_columns(
-        [(pl.col(c) / pl.col(c).max() * 100).alias(f"{c}_norm") for c in numeric_cols]
+        [
+            (
+                (
+                    pl.col(c)
+                    / pl.when(pl.col(c).max() > 0).then(pl.col(c).max()).otherwise(1)
+                )
+                * 100
+            ).alias(f"{c}_norm")
+            for c in numeric_cols
+        ]
     )
 
     # Build series for radar chart
@@ -569,7 +579,7 @@ def chart_comments_engagement(
     data = [
         {
             "x": int(row["Comments"] or 0),
-            "y": format_float(float(row["Engagement Rate Raw"] or 0) * 100, 2),
+            "y": round(float(row["Engagement Rate Raw"] or 0) * 100, 2),
             "title": _truncate_title(row["Title"]),
         }
         for row in df.iter_rows(named=True)
