@@ -67,6 +67,19 @@ CHART_WRAPPER_CLS = (
 )
 
 
+def chart_wrapper_class(chart_type: str) -> str:
+    """
+    Return wrapper classes tuned per chart type. Uses min-height so Apex gets enough room,
+    and avoids overflow-hidden which causes clipping.
+    """
+    # fallback heights (same mapping as your CHART_HEIGHTS)
+    h = get_chart_height(chart_type)
+    return (
+        f"w-full min-h-[{h}px] rounded-lg bg-white shadow-sm border border-gray-200 "
+        "transition-shadow hover:shadow-lg"
+    )
+
+
 # Height management - single source of truth
 CHART_HEIGHTS = {
     "vertical_bar": 500,  # Views ranking, engagement
@@ -115,14 +128,28 @@ def _base_opts(chart_type: str, **extra) -> dict:
 
 
 def _apex_opts(chart_type: str, **kwargs) -> dict:
-    """Helper to build ApexChart options."""
+    """
+    Build Apex options with safe defaults that avoid clipping.
+    chart_type: "treemap", "bar", ...
+    """
     height = get_chart_height(chart_type)
     opts = {
-        "chart": {"type": chart_type, "height": height, **kwargs.pop("chart", {})},
-        "series": kwargs.pop("series", []),
-        "xaxis": kwargs.pop("xaxis", {}),
-        "yaxis": kwargs.pop("yaxis", {}),
+        "chart": {
+            "type": chart_type,
+            "height": height,  # numeric px height — matches wrapper min-h
+            "id": kwargs.pop("id", None),
+            "toolbar": {"show": False},
+            # parentHeightOffset ensures Apex respects parent bounding box properly
+            "parentHeightOffset": 0,
+            # allow redrawing when parent resizes (good for responsive grids)
+            "redrawOnParentResize": True,
+        },
+        # base defaults
+        "colors": THEME_COLORS,
+        "dataLabels": {"enabled": False},
+        "tooltip": {"theme": "light"},
     }
+    # merge extra passed kwargs in
     opts.update(kwargs)
     return opts
 
@@ -211,7 +238,7 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
     )
     return ApexChart(
         opts=opts,
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("vertical_bar"),
     )
 
 
@@ -245,7 +272,7 @@ def chart_engagement_ranking(
     )
     return ApexChart(
         opts=opts,
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("horizontal_bar"),
     )
 
 
@@ -277,7 +304,7 @@ def chart_engagement_breakdown(
             title={"text": "📊 Engagement Composition (Top 10)", "align": "left"},
             colors=["#3B82F6", "#10B981"],
         ),
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("vertical_bar"),
     )
 
 
@@ -295,7 +322,7 @@ def chart_likes_per_1k_views(
     data = [
         {
             "x": round((row["Views"] or 0) / 1_000_000, 1),
-            "y": float(row["Likes_per_1K"] or 0),
+            "y": round(float(row["Likes_per_1K"] or 0), 1),
             "title": _truncate_title(row["Title"]),
         }
         for row in df_calc.iter_rows(named=True)
@@ -313,7 +340,7 @@ def chart_likes_per_1k_views(
             },
             "tooltip": {"custom": TOOLTIP_TRUNC},
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("scatter"),
     )
 
 
@@ -360,7 +387,7 @@ def chart_performance_heatmap(
             colors=["#8B5CF6"],
             plotOptions={"bar": {"columnWidth": "70%"}},
         ),
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("heatmap"),
     )
 
 
@@ -380,7 +407,7 @@ def chart_controversy_score(
         chart={"id": chart_id},
         tooltip={"enabled": True},
     )
-    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
+    return ApexChart(opts=opts, cls=chart_wrapper_class("horizontal_bar"))
 
 
 def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> ApexChart:
@@ -402,7 +429,7 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
         chart={"id": chart_id},
         tooltip={"enabled": True},
     )
-    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
+    return ApexChart(opts=opts, cls=chart_wrapper_class("treemap"))
 
 
 def chart_scatter_likes_dislikes(
@@ -430,7 +457,7 @@ def chart_scatter_likes_dislikes(
         "tooltip": {"custom": TOOLTIP_TRUNC},
     }
 
-    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
+    return ApexChart(opts=opts, cls=chart_wrapper_class("scatter"))
 
 
 def chart_bubble_engagement_vs_views(
@@ -463,7 +490,7 @@ def chart_bubble_engagement_vs_views(
         chart={"id": chart_id, "toolbar": {"show": True}, "zoom": {"enabled": True}},
         title={"text": "Engagement vs Views Analysis", "align": "center"},
     )
-    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
+    return ApexChart(opts=opts, cls=chart_wrapper_class("bubble"))
 
 
 def chart_duration_vs_engagement(
@@ -508,7 +535,7 @@ def chart_duration_vs_engagement(
             plotOptions={"bubble": {"minBubbleRadius": 5, "maxBubbleRadius": 35}},
             title={"text": "⏱️ Length vs Engagement (bubble = views)", "align": "left"},
         ),
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("bubble"),
     )
 
 
@@ -566,7 +593,7 @@ def chart_video_radar(
         title={"text": "Top Videos: Multi-Metric Comparison", "align": "center"},
     )
 
-    return ApexChart(opts=opts, cls=CHART_WRAPPER_CLS)
+    return ApexChart(opts=opts, cls=chart_wrapper_class("radar"))
 
 
 def chart_comments_engagement(
@@ -593,7 +620,7 @@ def chart_comments_engagement(
             "yaxis": {"title": {"text": "Engagement Rate (%)"}},
             "title": {"text": "💬 Comments vs Engagement", "align": "left"},
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("scatter"),
     )
 
 
@@ -627,7 +654,7 @@ def chart_views_vs_likes(
             "tooltip": {"custom": TOOLTIP_TRUNC},
             "plotOptions": {"bubble": {"minBubbleRadius": 4, "maxBubbleRadius": 25}},
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("bubble"),
     )
 
 
@@ -642,7 +669,7 @@ def chart_duration_impact(
     durations = (
         sorted_df["Duration"].cast(pl.Float64) / 60
     ).to_list()  # Convert to minutes
-    eng_rates = (sorted_df["Engagement Rate Raw"]).to_list()
+    eng_rates = (sorted_df["Engagement Rate Raw"]).round(2).to_list()
 
     return ApexChart(
         opts={
@@ -656,7 +683,7 @@ def chart_duration_impact(
             "title": {"text": "⏱️ Does Duration Affect Engagement?", "align": "left"},
             "stroke": {"curve": "smooth"},
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("line"),
     )
 
 
@@ -684,7 +711,7 @@ def chart_category_performance(
             "colors": ["#10B981"],
             "title": {"text": "📁 Average Engagement by Category", "align": "left"},
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("vertical_bar"),
     )
 
 
@@ -712,7 +739,7 @@ def chart_controversy_distribution(
                 "align": "left",
             },
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("horizontal_bar"),
     )
 
 
@@ -736,7 +763,10 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
             },
             "dataLabels": {"enabled": True},
         },
-        cls=CHART_WRAPPER_CLS,
+        tooltip={"theme": "light"},
+        legend={"show": False},
+        plotOptions={"treemap": {"distributed": False}},
+        cls=chart_wrapper_class("treemap"),
     )
 
 
@@ -777,5 +807,5 @@ def chart_top_performers_radar(
                 "align": "left",
             },
         },
-        cls=CHART_WRAPPER_CLS,
+        cls=chart_wrapper_class("radar"),
     )
