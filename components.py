@@ -914,66 +914,66 @@ def AnalyticsDashboardSection(
         # =====================================================================
         # BLOCK 4: PERFORMANCE QUADRANTS
         # =====================================================================
-        Div(
-            H3(
-                "🎯 Strategic Positioning",
-                cls="text-2xl font-semibold text-gray-800 mb-2",
-            ),
-            P(
-                "Where does your content stand? Identify high-performers and improvement opportunities.",
-                cls="text-gray-500 mb-8 text-sm",
-            ),
-            Grid(
-                chart_performance_heatmap(df, "performance-heatmap"),
-                chart_bubble_engagement_vs_views(df, "bubble-engagement"),
-                cols="1 md:2",
-                gap="6 md:10",
-                cls="w-full",
-            ),
-            cls="pb-16 mb-16 border-b-2 border-gray-100",
-        ),
+        # Div(
+        #     H3(
+        #         "🎯 Strategic Positioning",
+        #         cls="text-2xl font-semibold text-gray-800 mb-2",
+        #     ),
+        #     P(
+        #         "Where does your content stand? Identify high-performers and improvement opportunities.",
+        #         cls="text-gray-500 mb-8 text-sm",
+        #     ),
+        #     Grid(
+        #         chart_performance_heatmap(df, "performance-heatmap"),
+        #         chart_bubble_engagement_vs_views(df, "bubble-engagement"),
+        #         cols="1 md:2",
+        #         gap="6 md:10",
+        #         cls="w-full",
+        #     ),
+        #     cls="pb-16 mb-16 border-b-2 border-gray-100",
+        # ),
         # =====================================================================
         # BLOCK 5: CONTENT FACTORS
         # =====================================================================
-        Div(
-            H3(
-                "⏱️ Content Optimization",
-                cls="text-2xl font-semibold text-gray-800 mb-4",
-            ),
-            P(
-                "Does video length affect engagement? What's the optimal duration for your audience?",
-                cls="text-gray-500 mb-6",
-            ),
-            Grid(
-                chart_duration_impact(df, "duration-impact"),
-                chart_duration_vs_engagement(df, "duration-engagement"),
-                cols="1 md:2",
-                gap="6 md:10",
-                cls="w-full",
-            ),
-            cls="mb-16 pb-12 border-b border-gray-200",
-        ),
-        # =====================================================================
-        # BLOCK 6: CORRELATION & PATTERNS
-        # =====================================================================
-        Div(
-            H3(
-                "📈 Advanced Patterns",
-                cls="text-2xl font-semibold text-gray-800 mb-2",
-            ),
-            P(
-                "Uncover relationships: How do likes, dislikes, and views correlate? Multi-dimensional analysis.",
-                cls="text-gray-500 mb-8 text-sm",
-            ),
-            Grid(
-                # chart_scatter_likes_dislikes(df, "scatter-likes"),
-                chart_video_radar(df, "video-radar"),
-                cols="1 md:2",
-                gap="6 md:8",
-                cls="w-full",
-            ),
-            cls="pb-16 mb-16 border-b-2 border-gray-100",
-        ),
+        # Div(
+        #     H3(
+        #         "⏱️ Content Optimization",
+        #         cls="text-2xl font-semibold text-gray-800 mb-4",
+        #     ),
+        #     P(
+        #         "Does video length affect engagement? What's the optimal duration for your audience?",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     Grid(
+        #         chart_duration_impact(df, "duration-impact"),
+        #         chart_duration_vs_engagement(df, "duration-engagement"),
+        #         cols="1 md:2",
+        #         gap="6 md:10",
+        #         cls="w-full",
+        #     ),
+        #     cls="mb-16 pb-12 border-b border-gray-200",
+        # ),
+        # # =====================================================================
+        # # BLOCK 6: CORRELATION & PATTERNS
+        # # =====================================================================
+        # Div(
+        #     H3(
+        #         "📈 Advanced Patterns",
+        #         cls="text-2xl font-semibold text-gray-800 mb-2",
+        #     ),
+        #     P(
+        #         "Uncover relationships: How do likes, dislikes, and views correlate? Multi-dimensional analysis.",
+        #         cls="text-gray-500 mb-8 text-sm",
+        #     ),
+        #     Grid(
+        #         # chart_scatter_likes_dislikes(df, "scatter-likes"),
+        #         chart_video_radar(df, "video-radar"),
+        #         cols="1 md:2",
+        #         gap="6 md:8",
+        #         cls="w-full",
+        #     ),
+        #     cls="pb-16 mb-16 border-b-2 border-gray-100",
+        # ),
         # =====================================================================
         # BLOCK 7: CATEGORY ANALYSIS (if applicable)
         # =====================================================================
@@ -997,23 +997,23 @@ def AnalyticsDashboardSection(
         # =====================================================================
         # BLOCK 8: SENTIMENT & CONTROVERSY
         # =====================================================================
-        Div(
-            H3(
-                "🔥 Audience Sentiment", cls="text-2xl font-semibold text-gray-800 mb-4"
-            ),
-            P(
-                "Which videos create the strongest reactions? Controversy & polarization.",
-                cls="text-gray-500 mb-6",
-            ),
-            Grid(
-                chart_controversy_distribution(df, "controversy-dist"),
-                # chart_controversy_score(df, "controversy-score"),
-                cols="1 md:2",
-                gap="6 md:8",
-                cls="w-full",
-            ),
-            cls="mb-16 pb-12 border-b border-gray-200",
-        ),
+        # Div(
+        #     H3(
+        #         "🔥 Audience Sentiment", cls="text-2xl font-semibold text-gray-800 mb-4"
+        #     ),
+        #     P(
+        #         "Which videos create the strongest reactions? Controversy & polarization.",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     Grid(
+        #         chart_controversy_distribution(df, "controversy-dist"),
+        #         # chart_controversy_score(df, "controversy-score"),
+        #         cols="1 md:2",
+        #         gap="6 md:8",
+        #         cls="w-full",
+        #     ),
+        #     cls="mb-16 pb-12 border-b border-gray-200",
+        # ),
         # Group 4: Advanced Insights & Patterns
         # Div(
         #     H3(
