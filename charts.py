@@ -669,7 +669,8 @@ def chart_duration_impact(
     durations = (
         sorted_df["Duration"].cast(pl.Float64) / 60
     ).to_list()  # Convert to minutes
-    eng_rates = (sorted_df["Engagement Rate Raw"]).round(2).to_list()
+
+    eng_rates = (sorted_df["Engagement Rate Raw"] * 100).round(2).to_list()
 
     return ApexChart(
         opts={
@@ -762,10 +763,10 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
                 "align": "left",
             },
             "dataLabels": {"enabled": True},
+            "tooltip": {"theme": "light"},
+            "legend": {"show": False},
+            "plotOptions": {"treemap": {"distributed": False}},
         },
-        tooltip={"theme": "light"},
-        legend={"show": False},
-        plotOptions={"treemap": {"distributed": False}},
         cls=chart_wrapper_class("treemap"),
     )
 
