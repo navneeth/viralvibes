@@ -1103,7 +1103,18 @@ def AnalyticsHeader(
     """Create a professional header for the analytics dashboard with rich DB data."""
     video_info = f"{total_videos} videos"
     if processed_videos < total_videos:
-        video_info = f"{processed_videos} of {total_videos} videos analyzed"
+        missing = total_videos - processed_videos
+        video_info = f"{processed_videos} of {total_videos} analyzed"
+        # Show why some are missing
+        missing_note = f"({missing} unavailable - deleted, private, or restricted)"
+    else:
+        missing_note = None
+
+    eng_display = None
+    if engagement_rate is not None:
+        # Normalize to 0-100 if needed
+        eng_val = engagement_rate * 100 if engagement_rate <= 1 else engagement_rate
+        eng_display = f"{eng_val:.1f}"
 
     return Div(
         # Main header content
@@ -1157,6 +1168,15 @@ def AnalyticsHeader(
                             Span(video_info, cls="text-gray-600"),
                             cls="flex items-center gap-2 text-sm md:text-base",
                         ),
+                        # Missing note (if any)
+                        (
+                            P(
+                                missing_note,
+                                cls="text-xs text-orange-600 mt-1 italic",
+                            )
+                            if missing_note
+                            else None
+                        ),
                         # Quick stats row
                         (
                             Div(
@@ -1169,7 +1189,7 @@ def AnalyticsHeader(
                                 # Engagement badge
                                 (
                                     small_badge(
-                                        f"{engagement_rate:.1f}% engagement",
+                                        f"{eng_display}% engagement",
                                         icon="heart",
                                         kind="info",
                                     )
