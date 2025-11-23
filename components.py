@@ -1114,7 +1114,7 @@ def AnalyticsHeader(
     if engagement_rate is not None:
         # Normalize to 0-100 if needed
         eng_val = engagement_rate * 100 if engagement_rate <= 1 else engagement_rate
-        eng_display = f"{eng_val:.1f}%"
+        eng_display = f"{eng_val:.1f}"
 
     return Div(
         # Main header content
