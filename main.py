@@ -794,29 +794,6 @@ def validate_full(
                 DISPLAY_HEADERS  # e.g., ["Rank","Title","Views","Likes",...]
             )
             # Map display header → actual column in DF (raw for sorting, formatted for display)
-            display_to_raw = {
-                "Rank": "Rank",
-                "Title": "Title",
-                "Views": "Views",  # raw Int64
-                "Likes": "Likes",  # raw
-                # "Dislikes": "Dislikes",  # raw
-                "Comments": "Comments",  # raw
-                "Duration": "Duration",  # seconds
-                "Engagement Rate": "Engagement Rate Raw",  # raw float
-                "Controversy": "Controversy",  # raw float 0-1
-            }
-
-            display_to_formatted = {
-                "Rank": "Rank",
-                "Title": "Title",
-                "Views": "Views Formatted",
-                "Likes": "Likes Formatted",
-                # "Dislikes": "Dislikes Formatted",
-                "Comments": "Comments Formatted",
-                "Duration": "Duration Formatted",
-                "Engagement Rate": "Engagement Rate (%)",
-                "Controversy": "Controversy Formatted",
-            }
 
             # Build sortable_map: header → raw numeric column
             sortable_map = {
