@@ -1208,4 +1208,33 @@ def login(req, sess):
     )
 
 
+def NavComponent(req=None, sess=None):
+    avatar_node = None
+    if sess and sess.get("avatar_url"):
+        avatar_node = Img(src=sess["avatar_url"], cls="w-8 h-8 rounded-full border")
+    return Div(
+        # Logo and title
+        Div(
+            A(
+                Div(
+                    H1("ViralVibes", cls="text-2xl font-extrabold"),
+                    cls="flex items-center gap-2",
+                ),
+                href="/",
+                cls="flex items-center",
+            ),
+            # User avatar and auth links
+            Div(
+                (
+                    avatar_node,
+                    A("Dashboard", href="/dashboard", cls="text-gray-900"),
+                    A("Logout", href="/logout", cls="text-red-600"),
+                ),
+                cls="ml-auto flex items-center gap-4",
+            ),
+        ),
+        cls="flex items-center p-4 bg-white shadow-md",
+    )
+
+
 serve()
