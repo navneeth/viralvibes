@@ -11,6 +11,7 @@ from typing import Optional
 from urllib.parse import quote_plus
 
 import polars as pl
+from auth import Auth, client
 from dotenv import load_dotenv
 from fasthtml.common import *
 from monsterui.all import *
@@ -107,6 +108,9 @@ app, rt = fast_app(
     ),
 )
 
+oauth = Auth(
+    app, client, skip=["/", "/login", "/redirect", "/features", "/about", "/generate"]
+)
 
 # Set the favicon
 app.favicon = "/static/favicon.ico"
@@ -1191,6 +1195,17 @@ def check_job_status(playlist_url: str):
             hx_trigger="every 3s",  # Poll every 3 seconds
             hx_swap="outerHTML",  # Replace the entire div with the new response
         )
+
+
+@rt("/login")
+def login(req, sess):
+    # Clear old intended_url if no redirect happened
+    if "intended_url" not in sess:
+        sess.pop("intended_url", None)
+    return Div(
+        NavComponent(req, sess),
+        Div(P("Not logged in"), cls="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8"),
+    )
 
 
 serve()
