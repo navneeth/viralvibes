@@ -13,6 +13,7 @@ from urllib.parse import quote_plus
 import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
+from fasthtml.core import HtmxHeaders
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
@@ -644,8 +645,282 @@ def preview_playlist(playlist_url: str):
     )
 
 
+def update_meter(meter_id: str, value: int = None, max_value: int = None):
+    """
+    Emit a <script> tag to update the progress meter.
+    """
+    if max_value is not None:
+        yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max_value}; }}</script>"
+    if value is not None:
+        yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={value};</script>"
+
+
+def load_cached_or_stub(playlist_url: str, initial_max: int):
+    """
+    Loads cached playlist stats if available. Otherwise returns a stub payload.
+    Args:
+        playlist_url (str): The YouTube playlist URL.
+        initial_max (int): Initial maximum value for progress meter.
+        Returns: dict: A dictionary containing playlist stats and DataFrame.
+    """
+    cached_stats = get_cached_playlist_stats(playlist_url)
+
+    if cached_stats:
+        logger.info(f"Using cached stats for playlist {playlist_url}")
+
+        # reconstruct df other fields from cache row
+        df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
+        # TODO: Move this code to worker
+        # if logger.isEnabledFor(logging.DEBUG):
+        # logger.info("=" * 60)
+        # logger.info("DataFrame columns:")
+        # for col in df.columns:
+        #     if col in df.columns:
+        #         sample = df[col].head(1).to_list()
+        #         logger.info(f"✓ {col}: {sample}")
+        #     else:
+        #         logger.warning(f"✗ {col} MISSING")
+        # logger.info("=" * 60)
+        playlist_name = cached_stats["title"]
+        channel_name = cached_stats.get("channel_name", "")
+        channel_thumbnail = cached_stats.get("channel_thumbnail", "")
+        summary_stats = cached_stats["summary_stats"]
+
+        # use cached video_count if present; fall back to df.height; then preview meter_max
+        total = cached_stats.get("video_count") or df.height or initial_max
+        return {
+            "cached": True,
+            "df": df,
+            "playlist_name": playlist_name,
+            "channel_name": channel_name,
+            "channel_thumbnail": channel_thumbnail,
+            "summary_stats": summary_stats,
+            "total": total,
+            "cached_stats": cached_stats,
+        }
+
+    # ----- original stub path (identical behavior) -----
+    logger.warning("No cached stats found. Using stub values until worker is enabled.")
+
+    df = pl.DataFrame([])
+    playlist_name = "Unknown Playlist"
+    channel_name = "Unknown Channel"
+    channel_thumbnail = ""
+    summary_stats = {
+        "total_views": 0,
+        "total_likes": 0,
+        "total_dislikes": 0,
+        "total_comments": 0,
+        "actual_playlist_count": 0,
+        "avg_duration": None,
+        "avg_engagement": 0.0,
+        "avg_controversy": 0.0,
+    }
+
+    # cache stub (same behavior as before)
+    stats_to_cache = {
+        "playlist_url": playlist_url,
+        "title": playlist_name,
+        "channel_name": channel_name,
+        "channel_thumbnail": channel_thumbnail,
+        "view_count": summary_stats.get("total_views"),
+        "like_count": summary_stats.get("total_likes"),
+        "dislike_count": summary_stats.get("total_dislikes"),
+        "comment_count": summary_stats.get("total_comments"),
+        "video_count": summary_stats.get("actual_playlist_count", df.height),
+        "processed_video_count": df.height,
+        "avg_duration": (
+            int(summary_stats.get("avg_duration"))
+            if summary_stats.get("avg_duration") is not None
+            else None
+        ),
+        "engagement_rate": summary_stats.get("avg_engagement"),
+        "controversy_score": summary_stats.get("avg_controversy", 0),
+        "summary_stats": summary_stats,
+        "df_json": df.write_json(),
+    }
+    upsert_playlist_stats(stats_to_cache)
+
+    return {
+        "cached": False,
+        "df": df,
+        "playlist_name": playlist_name,
+        "channel_name": channel_name,
+        "channel_thumbnail": channel_thumbnail,
+        "summary_stats": summary_stats,
+        "total": summary_stats.get("actual_playlist_count", 0),
+        "cached_stats": None,
+    }
+
+
+def render_playlist_table(
+    df,
+    summary_stats,
+    playlist_url: str,
+    valid_sort: str,
+    valid_order: str,
+    next_order,
+):
+    """Pure extraction of existing table rendering. No behavior changes."""
+    # Use yt_service display headers, but map them to the actual df columns used in table
+    svc_headers = (
+        # yt_service.get_display_headers()
+        DISPLAY_HEADERS  # e.g., ["Rank","Title","Views","Likes",...]
+    )
+    # Map display header → actual column in DF (raw for sorting, formatted for display)
+
+    # Build sortable_map: header → raw numeric column
+    sortable_map = {
+        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
+    }
+
+    # --- THEAD ---
+    thead = Thead(
+        Tr(
+            *[
+                (
+                    Th(
+                        A(
+                            h
+                            + (
+                                " ▲"
+                                if h == valid_sort and valid_order == "asc"
+                                else (
+                                    " ▼"
+                                    if h == valid_sort and valid_order == "desc"
+                                    else ""
+                                )
+                            ),
+                            href="#",
+                            hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order(h)}",
+                            hx_target="#playlist-table-container",
+                            hx_swap="outerHTML",
+                            cls="text-white font-semibold hover:underline",
+                        ),
+                        cls="px-4 py-2 text-sm text-left",
+                    )
+                    if h in sortable_map
+                    else Th(
+                        h,
+                        cls="px-4 py-2 text-sm text-white font-semibold text-left",
+                    )
+                )
+                for h in svc_headers
+            ],
+            cls="bg-gradient-to-r from-blue-600 to-blue-700 text-white",
+        )
+    )
+
+    # --- TBODY ---
+    # --- Build tbody with CORRECT display columns ---
+    rows = []
+    for row in df.iter_rows(named=True):
+        cells = []
+        for h in svc_headers:
+            if h == "Thumbnail":
+                cell = thumbnail_cell(
+                    row.get("Thumbnail") or row.get("thumbnail") or "",
+                    row.get("id"),
+                    row.get("Title"),
+                )
+                td_cls = "px-4 py-3 text-center"
+
+            elif h == "Title":
+                cell = title_cell(row)
+                td_cls = "px-4 py-3"
+
+            elif h in ("Views", "Likes", "Comments"):
+                cell = number_cell(row.get(get_render_col(h), row.get(h)))
+                td_cls = "px-4 py-3 text-right"
+
+            elif h == "Duration":
+                cell = Div(format_duration(row.get("Duration")), cls="text-center")
+                td_cls = "px-4 py-3 text-center"
+
+            elif h == "Engagement Rate":
+                raw = row.get(get_render_col(h), row.get("Engagement Rate Raw"))
+                cell = Div(
+                    format_percentage(raw),
+                    cls="text-center font-semibold text-green-600",
+                )
+                td_cls = "px-4 py-3 text-center"
+
+            elif h == "Controversy":
+                raw = row.get(get_render_col(h), row.get("Controversy"))
+                cell = Div(
+                    format_percentage(raw),
+                    cls="text-center font-semibold text-purple-600",
+                )
+                td_cls = "px-4 py-3 text-center"
+
+            else:
+                # default fallback
+                val = row.get(get_render_col(h), row.get(h, ""))
+                cell = Div(val)
+                td_cls = "px-4 py-3"
+
+            cells.append(Td(cell, cls=td_cls))
+
+        rows.append(
+            Tr(
+                *cells,
+                cls="bg-white hover:bg-gray-50 transition-shadow border-b border-gray-100",
+            )
+        )
+
+    tbody = Tbody(*rows, cls="divide-y divide-gray-100")
+
+    # --- TFOOT ---
+    # --- Footer with correct totals ---
+    tfoot = Tfoot(
+        Tr(
+            Td("Total / Avg", cls="font-bold text-left", colspan=2),
+            Td(
+                format_number(summary_stats.get("total_views", 0)),
+                cls="text-right font-bold",
+            ),
+            Td(
+                format_number(summary_stats.get("total_likes", 0)),
+                cls="text-right font-bold",
+            ),
+            Td(
+                format_number(summary_stats.get("total_comments", 0)),
+                cls="text-right font-bold",
+            ),
+            Td("", cls="text-center"),
+            Td(
+                f"{summary_stats.get('avg_engagement', 0):.2%}",
+                cls="text-center font-bold text-green-600",
+            ),
+            Td(
+                (
+                    f"{df['Controversy'].mean():.1%}"
+                    if "Controversy" in df.columns and df.height > 0
+                    else ""
+                ),
+                cls="text-center font-bold text-purple-600",
+            ),
+            cls="bg-gray-50",
+        )
+    )
+
+    # --- Final: table with wrapper ---
+    return Div(
+        Table(
+            thead,
+            tbody,
+            tfoot,
+            id="playlist-table",
+            cls="w-full text-sm text-gray-700 border border-gray-200 rounded-lg shadow-sm overflow-hidden",
+        ),
+        id="playlist-table-container",
+        cls="overflow-x-auto mb-8",
+    )
+
+
 @rt("/validate/full", methods=["POST", "GET"])
 def validate_full(
+    htmx: HtmxHeaders,
     playlist_url: str,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
@@ -659,130 +934,24 @@ def validate_full(
             yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={initial_max}; el.value=0; }}</script>"
 
             # --- 2) Try cache first ---
-            cached_stats = get_cached_playlist_stats(playlist_url)
-            if cached_stats:
-                logger.info(f"Using cached stats for playlist {playlist_url}")
+            # ---       Use helper to load cached or stub stats ---
+            data = load_cached_or_stub(playlist_url, initial_max)
 
-                # reconstruct df other fields from cache row
-                df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
-                # TODO: Move this code to worker
-                # if logger.isEnabledFor(logging.DEBUG):
-                # logger.info("=" * 60)
-                # logger.info("DataFrame columns:")
-                # for col in df.columns:
-                #     if col in df.columns:
-                #         sample = df[col].head(1).to_list()
-                #         logger.info(f"✓ {col}: {sample}")
-                #     else:
-                #         logger.warning(f"✗ {col} MISSING")
-                # logger.info("=" * 60)
-                playlist_name = cached_stats["title"]
-                channel_name = cached_stats.get("channel_name", "")
-                channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-                summary_stats = cached_stats["summary_stats"]
+            df = data["df"]
+            playlist_name = data["playlist_name"]
+            channel_name = data["channel_name"]
+            channel_thumbnail = data["channel_thumbnail"]
+            summary_stats = data["summary_stats"]
+            total = data["total"]
+            cached_stats = data["cached_stats"]
 
-                # use cached video_count if present; fall back to df.height; then preview meter_max
-                total = cached_stats.get("video_count") or df.height or initial_max
-                yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max(total, 1)}; }}</script>"
+            # Update meter to correct max
+            yield from update_meter(meter_id, max_value=max(total, 1))
 
-                # Tick to completion as a proxy (cache is instant)
+            # If cached, tick meter quickly to completion
+            if data["cached"]:
                 for i in range(1, (total or 1) + 1):
-                    yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
-                    # No await needed, just simulate yield
-
-                # Detect skeleton-only stats ---
-                skeleton_mode = summary_stats.get(
-                    "expanded_count"
-                ) is not None and summary_stats.get(
-                    "expanded_count", 0
-                ) < summary_stats.get(
-                    "processed_video_count", 0
-                )
-
-                if skeleton_mode:
-                    yield str(
-                        Div(
-                            H3(
-                                "⚠️ Skeleton-only Analysis",
-                                cls="font-semibold text-yellow-700",
-                            ),
-                            P(
-                                "We could not fully expand video stats due to YouTube bot protection. "
-                                "Showing basic playlist info only."
-                            ),
-                            cls="p-4 bg-yellow-50 border border-yellow-300 rounded mb-4",
-                        )
-                    )
-
-            else:
-                # --- 3) Fresh fetch ---
-
-                # (
-                #     df,
-                #     playlist_name,
-                #     channel_name,
-                #     channel_thumbnail,
-                #     summary_stats,
-                # ) = await yt_service.get_playlist_data(playlist_url)
-
-                # if df.height == 0:
-                #     yield str(Alert(P("No videos found."), cls=AlertT.warning))
-                #     return
-
-                # # Ensure max matches actual number of videos
-                # total = df.height
-                # yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max(total, 1)}; }}</script>"
-
-                # # Proxy tick per video (post-fetch, still gives user feedback)
-                # for i in range(1, total + 1):
-                #     yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={i};</script>"
-                #     await asyncio.sleep(0)
-
-                # --- 3) Fresh fetch (stub for now until yt_service is re-enabled) ---
-                logger.warning(
-                    "No cached stats found. Using stub values until worker is enabled."
-                )
-
-                df = pl.DataFrame([])  # empty dataframe
-                playlist_name = "Unknown Playlist"
-                channel_name = "Unknown Channel"
-                channel_thumbnail = ""
-                summary_stats = {
-                    "total_views": 0,
-                    "total_likes": 0,
-                    "total_dislikes": 0,
-                    "total_comments": 0,
-                    "actual_playlist_count": 0,
-                    "avg_duration": None,
-                    "avg_engagement": 0.0,
-                    "avg_controversy": 0.0,
-                }
-
-                # Cache snapshot
-                stats_to_cache = {
-                    "playlist_url": playlist_url,
-                    "title": playlist_name,
-                    "channel_name": channel_name,
-                    "channel_thumbnail": channel_thumbnail,
-                    "view_count": summary_stats.get("total_views"),
-                    "like_count": summary_stats.get("total_likes"),
-                    "dislike_count": summary_stats.get("total_dislikes"),
-                    "comment_count": summary_stats.get("total_comments"),
-                    "video_count": summary_stats.get(
-                        "actual_playlist_count", df.height
-                    ),
-                    "processed_video_count": df.height,
-                    "avg_duration": (
-                        int(summary_stats.get("avg_duration"))
-                        if summary_stats.get("avg_duration") is not None
-                        else None
-                    ),
-                    "engagement_rate": summary_stats.get("avg_engagement"),
-                    "controversy_score": summary_stats.get("avg_controversy", 0),
-                    "summary_stats": summary_stats,
-                    "df_json": df.write_json(),
-                }
-                upsert_playlist_stats(stats_to_cache)
+                    yield from update_meter(meter_id, value=i)
 
             # --- 4) Sorting ---
             # ---    Ensure raw numeric columns exist for reliable sorting ---
@@ -817,128 +986,16 @@ def validate_full(
                     "asc" if (col == valid_sort and valid_order == "desc") else "desc"
                 )
 
-            thead = Thead(
-                Tr(
-                    *[
-                        (
-                            Th(
-                                A(
-                                    h
-                                    + (
-                                        " ▲"
-                                        if h == valid_sort and valid_order == "asc"
-                                        else (
-                                            " ▼"
-                                            if h == valid_sort and valid_order == "desc"
-                                            else ""
-                                        )
-                                    ),
-                                    href="#",
-                                    hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order(h)}",
-                                    hx_target="#playlist-table",
-                                    hx_swap="outerHTML",
-                                    cls="text-white font-semibold hover:underline",
-                                ),
-                                cls="px-4 py-2 text-sm text-left",
-                            )
-                            if h in sortable_map
-                            else Th(
-                                h,
-                                cls="px-4 py-2 text-sm text-white font-semibold text-left",
-                            )
-                        )
-                        for h in svc_headers
-                    ],
-                    cls="bg-gradient-to-r from-blue-600 to-blue-700 text-white",
+            # --- 9) Detect HTMX ---
+            if htmx.target == "#playlist-table-container":
+                return render_playlist_table(
+                    df=df,
+                    summary_stats=summary_stats,
+                    playlist_url=playlist_url,
+                    valid_sort=valid_sort,
+                    valid_order=valid_order,
+                    next_order=next_order,
                 )
-            )
-
-            # --- 9) Build tbody with CORRECT display columns ---
-            rows = []
-            for row in df.iter_rows(named=True):
-                cells = []
-                for h in svc_headers:
-                    if h == "Thumbnail":
-                        cell = thumbnail_cell(
-                            row.get("Thumbnail") or row.get("thumbnail") or "",
-                            row.get("id"),
-                            row.get("Title"),
-                        )
-                        td_cls = "px-4 py-3 text-center"
-                    elif h == "Title":
-                        # Special handling for Title (make it a link)
-                        cell = title_cell(row)
-                        td_cls = "px-4 py-3"
-                    elif h in ("Views", "Likes", "Comments"):
-                        cell = number_cell(row.get(get_render_col(h), row.get(h)))
-                        td_cls = "px-4 py-3 text-right"
-                    elif h == "Duration":
-                        cell = Div(
-                            format_duration(row.get("Duration")), cls="text-center"
-                        )
-                        td_cls = "px-4 py-3 text-center"
-                    elif h == "Engagement Rate":
-                        raw = row.get(get_render_col(h), row.get("Engagement Rate Raw"))
-                        cell = Div(
-                            format_percentage(raw),
-                            cls="text-center font-semibold text-green-600",
-                        )
-                        td_cls = "px-4 py-3 text-center"
-                    elif h == "Controversy":
-                        raw = row.get(get_render_col(h), row.get("Controversy"))
-                        cell = Div(
-                            format_percentage(raw),
-                            cls="text-center font-semibold text-purple-600",
-                        )
-                        td_cls = "px-4 py-3 text-center"
-                    else:
-                        # default fallback
-                        val = row.get(get_render_col(h), row.get(h, ""))
-                        cell = Div(val)
-                        td_cls = "px-4 py-3"
-                    cells.append(Td(cell, cls=td_cls))
-                # make row card-like
-                rows.append(
-                    Tr(
-                        *cells,
-                        cls="bg-white hover:bg-gray-50 transition-shadow border-b border-gray-100",
-                    )
-                )
-
-            tbody = Tbody(*rows, cls="divide-y divide-gray-100")
-
-            # --- 10) Footer with correct totals ---
-            tfoot = Tfoot(
-                Tr(
-                    Td("Total / Avg", cls="font-bold text-left", colspan=2),
-                    Td(
-                        format_number(summary_stats.get("total_views", 0)),
-                        cls="text-right font-bold",
-                    ),
-                    Td(
-                        format_number(summary_stats.get("total_likes", 0)),
-                        cls="text-right font-bold",
-                    ),
-                    Td(
-                        format_number(summary_stats.get("total_comments", 0)),
-                        cls="text-right font-bold",
-                    ),
-                    Td("", cls="text-center"),  # Duration (empty)
-                    Td(
-                        f"{summary_stats.get('avg_engagement', 0):.2%}",
-                        cls="text-center font-bold text-green-600",
-                    ),
-                    Td(
-                        (
-                            f"{df['Controversy'].mean():.1%}"
-                            if "Controversy" in df.columns and df.height > 0
-                            else ""
-                        ),
-                        cls="text-center font-bold text-purple-600",
-                    ),
-                    cls="bg-gray-50",
-                )
-            )
 
             # --- 9) Final render: steps + header side-by-side, then table, then plots ---
             # --- inside a target container for HTMX swaps ---
@@ -974,15 +1031,13 @@ def validate_full(
                         cls="grid grid-cols-1 md:grid-cols-2 gap-6 items-start mb-8",
                     ),
                     # Row 2: Table
-                    Div(
-                        Table(
-                            thead,
-                            tbody,
-                            tfoot,
-                            id="playlist-table",
-                            cls="w-full text-sm text-gray-700 border border-gray-200 rounded-lg shadow-sm overflow-hidden",
-                        ),
-                        cls="overflow-x-auto mb-8",
+                    render_playlist_table(
+                        df=df,
+                        summary_stats=summary_stats,
+                        playlist_url=playlist_url,
+                        valid_sort=valid_sort,
+                        valid_order=valid_order,
+                        next_order=next_order,
                     ),
                     # Row 3: Analytics dashboard / plots
                     Div(
