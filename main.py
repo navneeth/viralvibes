@@ -927,6 +927,41 @@ def validate_full(
     sort_by: str = "Views",
     order: str = "desc",
 ):
+    # --- Check if this is an HTMX sort request BEFORE streaming ---
+    if htmx.target == "playlist-table-container":
+        # For sort requests, just load data and return the table
+        data = load_cached_or_stub(playlist_url, meter_max or 1)
+        df = data["df"]
+        summary_stats = data["summary_stats"]
+
+        # --- Normalize sort_by ---
+        sortable_map = {
+            h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
+        }
+        valid_sort = sort_by if sort_by in sortable_map else "Views"
+        valid_order = order.lower() if order.lower() in ("asc", "desc") else "desc"
+
+        # --- Apply sorting ---
+        if valid_sort in sortable_map:
+            sort_col = sortable_map[valid_sort]
+            df = df.sort(sort_col, descending=(valid_order == "desc"))
+
+        # --- Build next_order function ---
+        def next_order(col):
+            return "asc" if (col == valid_sort and valid_order == "desc") else "desc"
+
+        # Return only the table, no streaming
+        table_html = render_playlist_table(
+            df=df,
+            summary_stats=summary_stats,
+            playlist_url=playlist_url,
+            valid_sort=valid_sort,
+            valid_order=valid_order,
+            next_order=next_order,
+        )
+        return table_html
+
+    # --- For initial full page load, use streaming ---
     def stream():
         try:
             # --- 1) INIT: set the meter max (from preview) and reset value ---
@@ -984,17 +1019,6 @@ def validate_full(
             def next_order(col):
                 return (
                     "asc" if (col == valid_sort and valid_order == "desc") else "desc"
-                )
-
-            # --- 9) Detect HTMX ---
-            if htmx.target == "#playlist-table-container":
-                return render_playlist_table(
-                    df=df,
-                    summary_stats=summary_stats,
-                    playlist_url=playlist_url,
-                    valid_sort=valid_sort,
-                    valid_order=valid_order,
-                    next_order=next_order,
                 )
 
             # --- 9) Final render: steps + header side-by-side, then table, then plots ---
