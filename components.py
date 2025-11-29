@@ -127,6 +127,15 @@ def benefit(title: str, content: str) -> Div:
     )
 
 
+# Reusable Feature Pill – small, elegant, red-themed
+def FeaturePill(icon: str, text: str):
+    return Div(
+        UkIcon(icon, cls="w-4 h-4 text-red-600"),
+        Span(text, cls="text-xs font-semibold text-gray-700"),
+        cls="flex items-center gap-1.5 px-3 py-1.5 bg-red-50/80 rounded-full border border-red-200/50 backdrop-blur-sm",
+    )
+
+
 def accordion(
     id: str,
     question: str,
@@ -380,22 +389,10 @@ def AnalysisFormCard() -> Div:
                 ),
                 # Trust indicators
                 styled_div(
-                    Div(
-                        Span(
-                            "✓ Real-time Analytics",
-                            cls="flex items-center gap-2 text-sm text-gray-700",
-                        ),
-                        Span(
-                            "✓ Creator Insights",
-                            cls="flex items-center gap-2 text-sm text-gray-700",
-                        ),
-                        Span(
-                            "✓ Viral Patterns",
-                            cls="flex items-center gap-2 text-sm text-gray-700",
-                        ),
-                        cls="flex flex-wrap gap-4 justify-center",
-                    ),
-                    cls="mb-8",
+                    FeaturePill("bolt", "Real-time Analytics"),
+                    FeaturePill("users", "Creator Insights"),
+                    FeaturePill("trending-up", "Viral Patterns"),
+                    cls="flex flex-wrap gap-4 justify-center mb-8",
                 ),
                 cls=f"{col} items-center justify-center px-6 pt-8 pb-6 relative z-10",
             ),
@@ -487,7 +484,7 @@ def AnalysisFormCard() -> Div:
                         Summary(
                             Span(
                                 UkIcon("star", cls="w-4 h-4 mr-2 inline"),
-                                "Try sample playlists",
+                                "No playlist? Try a sample!",
                             ),
                             cls="text-sm font-medium text-gray-700 cursor-pointer hover:text-red-600 transition-colors py-2 px-3 rounded-lg hover:bg-gray-100",
                         ),
@@ -531,7 +528,7 @@ def AnalysisFormCard() -> Div:
         # --- Styling (outermost container only) ---
         cls=(
             f"{THEME['card_base']} space-y-0 w-full my-12 rounded-2xl shadow-xl "
-            "border border-gray-200 overflow-hidden"
+            "border border-gray-200/70 overflow-hidden"
         ),
         style=FORM_CARD,
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
