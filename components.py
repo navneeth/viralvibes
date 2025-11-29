@@ -302,7 +302,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
 
 def paste_button(target_id: str) -> Button:
-    """Paste button with icon swap and premium styling."""
+    """Paste button - FIXED for proper sizing and alignment"""
     status_id = f"{target_id}_status"
     onclick = f"""
         const btn = this, input = document.getElementById('{target_id}'), status = document.getElementById('{status_id}');
@@ -311,10 +311,8 @@ def paste_button(target_id: str) -> Button:
             .then(text => {{
                 input.value = text.trim();
                 input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-
                 status.textContent = '✓ Pasted';
                 status.className = 'text-green-600 text-xs font-semibold';
-
                 setTimeout(() => status.textContent = '', 1500);
             }})
             .catch(() => {{
@@ -324,13 +322,25 @@ def paste_button(target_id: str) -> Button:
             }})
             .finally(() => btn.disabled = false);
     """
+
     return Button(
-        UkIcon("clipboard", cls="w-5 h-5"),
+        UkIcon("clipboard", cls="w-4 h-4"),  # Slightly smaller icon
         type="button",
         onclick=onclick,
         cls=(
-            "text-gray-400 hover:text-red-600 focus:outline-none disabled:opacity-50 "
-            "transition-colors duration-200 hover:scale-110"
+            # ✅ SIZING FIX
+            "w-9 h-9 "  # Explicit 36×36px (slightly larger for comfort)
+            "flex items-center justify-center "
+            # ✅ STYLING
+            "text-gray-400 hover:text-red-600 "
+            "focus:outline-none focus:ring-2 focus:ring-red-500/30 "
+            "disabled:opacity-50 disabled:cursor-not-allowed "
+            # ✅ INTERACTIONS
+            "transition-all duration-200 "
+            "hover:bg-red-50 rounded-md "
+            "active:scale-95 "
+            # ✅ RESPONSIVE
+            "flex-shrink-0"  # Never shrinks below 36×36px
         ),
         title="Paste from clipboard",
         aria_label="Paste from clipboard",
@@ -420,7 +430,8 @@ def AnalysisFormCard() -> Div:
                     # Leading play icon
                     Span(
                         UkIcon("play", cls="w-5 h-5 text-red-500 font-bold"),
-                        cls="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none",
+                        cls="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none "
+                        "bg-red-50 p-1 rounded-md",
                     ),
                     # Input field with enhanced styling
                     Input(
@@ -430,7 +441,7 @@ def AnalysisFormCard() -> Div:
                         placeholder="https://youtube.com/playlist?list=...",
                         value=prefill_url,
                         className=(
-                            "w-full pl-10 pr-10 py-3 border-2 border-gray-200 rounded-lg "
+                            "w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-lg "
                             "text-gray-900 placeholder-gray-400 focus:border-red-500 focus:ring-2 "
                             "focus:ring-red-500/20 focus:outline-none transition-all duration-200 "
                             "font-medium bg-white"
@@ -458,14 +469,15 @@ def AnalysisFormCard() -> Div:
             # Primary action button with enhanced styling
             Button(
                 Span(
-                    UkIcon("chart-bar", cls="mr-2"),
+                    UkIcon("chart-bar", cls="w-5 h-5 flex-shrink-0"),
                     "Analyze Playlist",
+                    cls="flex items-center justify-center gap-2",
                 ),
                 type="submit",
                 cls=(
                     f"w-full {ButtonT.primary} {THEME['primary_hover']} transition-all duration-300 "
                     "py-3 text-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] "
-                    "active:scale-95"
+                    "active:scale-95 flex items-center justify-center"
                 ),
             ),
             # Quick action section with better styling
