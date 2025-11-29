@@ -28,6 +28,7 @@ from components import (
     HomepageAccordion,
     NewsletterCard,
     SectionDivider,
+    VideoExtremesSection,
     benefit,
     faq_section,
     footer,
@@ -1063,6 +1064,8 @@ def validate_full(
                         valid_order=valid_order,
                         next_order=next_order,
                     ),
+                    # Row 2.5: Video Extremes Section
+                    VideoExtremesSection(df),
                     # Row 3: Analytics dashboard / plots
                     Div(
                         AnalyticsDashboardSection(

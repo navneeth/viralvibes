@@ -72,20 +72,34 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
             df = df.with_columns(pl.col(src).alias(mirror))
 
     # Convert ISO duration strings → seconds (if needed)
+    # Handle Duration conversion more robustly
     if "Duration" in df.columns:
-        df = df.with_columns(
-            pl.when(pl.col("Duration").is_in([None, ""]))
-            .then(None)
-            .otherwise(
-                pl.col("Duration").map_elements(
-                    lambda d: (
-                        parse_iso_duration(d) if isinstance(d, str) and "PT" in d else d
-                    ),
-                    return_dtype=pl.Int64,
-                )
+        duration_col = pl.col("Duration")
+
+        # Check if Duration is already numeric (Int64)
+        if df["Duration"].dtype in (pl.Int64, pl.Int32, pl.Int16, pl.Int8):
+            # Already numeric, just ensure it's Int64
+            df = df.with_columns(
+                duration_col.cast(pl.Int64, strict=False).alias("Duration")
             )
-            .cast(pl.Int64, strict=False)
-        )
+        else:
+            # Duration is string or other type - convert it
+            df = df.with_columns(
+                pl.when(duration_col.is_null() | (duration_col.cast(pl.Utf8) == ""))
+                .then(None)
+                .otherwise(
+                    pl.col("Duration").map_elements(
+                        lambda d: (
+                            parse_iso_duration(d)
+                            if isinstance(d, str) and "PT" in d
+                            else d
+                        ),
+                        return_dtype=pl.Int64,
+                    )
+                )
+                .cast(pl.Int64, strict=False)
+                .alias("Duration")
+            )
 
     # Ensure numeric columns are Int64
     numeric_cols = [
