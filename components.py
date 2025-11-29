@@ -302,7 +302,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
 
 def paste_button(target_id: str) -> Button:
-    """Paste button - FIXED for proper sizing and alignment"""
+    """Paste button with icon swap and premium styling."""
     status_id = f"{target_id}_status"
     onclick = f"""
         const btn = this, input = document.getElementById('{target_id}'), status = document.getElementById('{status_id}');
@@ -328,7 +328,7 @@ def paste_button(target_id: str) -> Button:
         type="button",
         onclick=onclick,
         cls=(
-            # ✅ SIZING FIX
+            # ✅ SIZING
             "w-9 h-9 "  # Explicit 36×36px (slightly larger for comfort)
             "flex items-center justify-center "
             # ✅ STYLING
