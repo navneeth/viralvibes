@@ -170,7 +170,7 @@ def _enrich_dataframe(
     if "PublishedAt" in df.columns:
         df = df.with_columns(
             pl.col("PublishedAt")
-            .str.to_datetime(strict=False)
+            .str.to_datetime(strict=False, format="%Y-%m-%dT%H:%M:%SZ")
             .dt.strftime("%b %d, %Y")
             .alias("Published Date")
         )
