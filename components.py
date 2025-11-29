@@ -1907,17 +1907,24 @@ def number_cell(val):
 def VideoExtremesSection(df: pl.DataFrame) -> Div:
     """
     Display 4 card extremes: most/least viewed, longest/shortest videos.
-    Real implementation using Polars sorting.
+    Optimized: uses arg_max/arg_min instead of sorting 4 times.
     """
     if df is None or df.is_empty():
         return Div(P("No videos found in playlist.", cls="text-gray-500"))
 
     try:
         # Compute extremes using Polars (safe with error handling)
-        most_viewed = df.sort("Views", descending=True).row(0, named=True)
-        least_viewed = df.sort("Views", descending=False).row(0, named=True)
-        longest = df.sort("Duration", descending=True).row(0, named=True)
-        shortest = df.sort("Duration", descending=False).row(0, named=True)
+        # ✅ EFFICIENT: Get indices directly without sorting
+        most_viewed_idx = df.select(pl.col("Views").arg_max()).item()
+        least_viewed_idx = df.select(pl.col("Views").arg_min()).item()
+        longest_idx = df.select(pl.col("Duration").arg_max()).item()
+        shortest_idx = df.select(pl.col("Duration").arg_min()).item()
+
+        # Fetch rows by index
+        most_viewed = df.row(most_viewed_idx, named=True)
+        least_viewed = df.row(least_viewed_idx, named=True)
+        longest = df.row(longest_idx, named=True)
+        shortest = df.row(shortest_idx, named=True)
 
         extremes = [
             (
@@ -1936,13 +1943,13 @@ def VideoExtremesSection(df: pl.DataFrame) -> Div:
                 "clock",
                 "Longest Video",
                 longest,
-                f"{format_duration(longest.get('Duration', 0))}",  # ✅ Use utils version
+                f"{format_duration(longest.get('Duration', 0))}",
             ),
             (
                 "zap",
                 "Shortest Video",
                 shortest,
-                f"{format_duration(shortest.get('Duration', 0))}",  # ✅ Use utils version
+                f"{format_duration(shortest.get('Duration', 0))}",
             ),
         ]
 
