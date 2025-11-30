@@ -612,6 +612,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             "snippet.publishedAt": "PublishedAt",
             "snippet.categoryId": "CategoryId",
             "snippet.tags": "Tags",
+            "snippet.resourceId.videoId": "Video ID",
             # statistics fields
             "statistics.viewCount": "Views",
             "statistics.likeCount": "Likes",
@@ -626,7 +627,54 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             # other
             "id": "id",
         }
-        df = df.rename(rename_map)
+        # 2. Safe Rename: Only rename columns that actually exist in the DF
+        existing_cols = set(df.columns)
+        valid_renames = {k: v for k, v in rename_map.items() if k in existing_cols}
+
+        if valid_renames:
+            df = df.rename(valid_renames)
+
+        # 3. Backfill Missing Columns: Ensure strict schema even if API dropped data
+        # This prevents downstream errors when accessing 'Title' or 'Views' later.
+        expected_columns = {
+            "Title": pl.Utf8,
+            "Description": pl.Utf8,
+            "PublishedAt": pl.Utf8,
+            "Video ID": pl.Utf8,
+            "Thumbnail": pl.Utf8,
+            "Channel Title": pl.Utf8,
+            "Views": pl.Int64,
+            "Likes": pl.Int64,
+            "Dislikes": pl.Int64,
+            "Comments": pl.Int64,
+            "Duration": pl.Utf8,
+        }
+
+        missing_cols_exprs = []
+        for col_name, dtype in expected_columns.items():
+            if col_name not in df.columns:
+                # Fill missing text cols with "Unknown" or "", numbers with 0
+                if dtype == pl.Utf8:
+                    fill_val = "Unknown" if col_name == "Title" else None
+                    missing_cols_exprs.append(
+                        pl.lit(fill_val).cast(dtype).alias(col_name)
+                    )
+                else:
+                    missing_cols_exprs.append(pl.lit(0).cast(dtype).alias(col_name))
+
+        if missing_cols_exprs:
+            df = df.with_columns(missing_cols_exprs)
+
+        # 4. Type Casting (Ensure numeric columns are actually numbers)
+        # API JSON often returns numbers as strings
+        df = df.with_columns(
+            [
+                pl.col("Views").cast(pl.Int64, strict=False).fill_null(0),
+                pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+                pl.col("Dislikes").cast(pl.Int64, strict=False).fill_null(0),
+                pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            ]
+        )
 
         # after mapping title/rank/counts/duration/etc, add:
         if "id" in df.columns:
