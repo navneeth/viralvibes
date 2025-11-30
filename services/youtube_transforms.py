@@ -112,9 +112,18 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         "Dislike Count",
         "Comment Count",
     ]
-    for col in numeric_cols:
-        if col in df.columns:
-            df = df.with_columns(pl.col(col).cast(pl.Int64, strict=False))
+    # Create one list of expressions for all columns
+    cast_exprs = [
+        pl.col(col)
+        .cast(pl.Int64, strict=False)  # Cast invalid strings/types to NULL
+        .fill_null(0)  # Explicitly fill nulls with zero for safety in math
+        .alias(col)
+        for col in numeric_cols
+        if col in df.columns
+    ]
+
+    if cast_exprs:
+        df = df.with_columns(cast_exprs)
 
     return df
 
@@ -193,8 +202,10 @@ def _enrich_dataframe(
             pl.col("Duration")
             .map_elements(format_duration, return_dtype=pl.Utf8)
             .alias("Duration Formatted"),
-            pl.col("Controversy")
-            .map_elements(lambda x: f"{x:.1%}", return_dtype=pl.Utf8)
+            (pl.col("Controversy") * 100)
+            .round(1)
+            .cast(pl.Utf8)
+            .add("%")
             .alias("Controversy %"),
             pl.col("Engagement Rate Raw")
             .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.Utf8)
