@@ -1,4 +1,5 @@
 # Standard library and typing
+import logging
 import random
 from typing import Dict, List, Optional, Tuple
 
@@ -59,6 +60,9 @@ between = "flex justify-between"
 gap2 = "flex gap-2"
 inset = "shadow-[0_2px_2px_rgba(255,255,255,0.5),0_3px_3px_rgba(0,0,0,0.2)]"
 bnset = "shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.5)]"
+
+# Get logger instance
+logger = logging.getLogger(__name__)
 
 
 # Helper Functions to make the component file self-contained
@@ -1869,7 +1873,13 @@ def title_cell(row):
     tags = row.get("Tags") or []
     tag_nodes = []
     for t in tags[:2] if isinstance(tags, (list, tuple)) else []:
-        tag_nodes.append(Badge(t, variant="soft", cls="mr-1 text-xs"))
+        # ✅ Use Span with Tailwind classes instead of Badge
+        tag_nodes.append(
+            Span(
+                t,
+                cls="inline-block px-2 py-1 mr-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium",
+            )
+        )
     meta = Div(
         Div(
             A(
@@ -1880,7 +1890,7 @@ def title_cell(row):
             ),
             cls="truncate max-w-md",
         ),
-        Div(*tag_nodes, cls="mt-1"),
+        Div(*tag_nodes, cls="mt-1 flex flex-wrap gap-1"),  # Added flex-wrap
         cls="space-y-1",
     )
     # uploader avatar / name small inline
@@ -2000,7 +2010,7 @@ def VideoExtremesSection(df: pl.DataFrame) -> Div:
                                 href=video_url,
                                 target="_blank",
                                 rel="noopener noreferrer",
-                                cls=(ButtonT.outline, "w-full text-center"),
+                                cls=(ButtonT.ghost, "w-full text-center"),
                             ),
                             href=video_url,
                             target="_blank",
@@ -2032,7 +2042,7 @@ def VideoExtremesSection(df: pl.DataFrame) -> Div:
         )
 
     except Exception as e:
-        # logger.exception(f"Error rendering VideoExtremesSection: {e}")
+        logger.exception(f"Error rendering VideoExtremesSection: {e}")
         return Div(
             P("Unable to load video extremes.", cls="text-gray-500"),
             cls="mt-8 p-4 bg-gray-50 rounded-lg",
