@@ -6,14 +6,16 @@ Handles Supabase client initialization, logging setup, and caching functionality
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
+import gzip
 import logging
 import os
 import random
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Protocol, TypedDict
+from typing import Any, Dict, List, Optional, Protocol, Tuple, TypedDict
 
 import polars as pl
 from supabase import Client, create_client
@@ -60,6 +62,28 @@ def setup_logging():
     )
 
 
+AVATAR_BUCKET = "avatars"
+MAX_AVATAR_BYTES = 50_000
+USERS_TABLE = "users"
+
+
+def _gzip_b64(data: str) -> str:
+    if not data:
+        return ""
+    comp = gzip.compress(data.encode("utf-8"))
+    return base64.b64encode(comp).decode("utf-8")
+
+
+def _gunzip_b64(data: str) -> str:
+    if not data:
+        return ""
+    try:
+        raw = gzip.decompress(base64.b64decode(data.encode("utf-8")))
+        return raw.decode("utf-8")
+    except Exception:
+        return ""
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -96,10 +120,19 @@ def init_supabase() -> Optional[Client]:
         # Test the connection
         client.auth.get_session()
 
+        # Optionally create storage bucket for avatars (ignore if already exists)
+        try:
+            client.storage.get_bucket(AVATAR_BUCKET)
+        except Exception:
+            try:
+                client.storage.create_bucket(AVATAR_BUCKET)
+                logger.info(f"Created storage bucket: {AVATAR_BUCKET}")
+            except Exception as e2:
+                logger.warning(f"Could not create avatar bucket: {e2}")
+
         supabase_client = client
         logger.info("Supabase client initialized successfully")
         return client
-
     except Exception as e:
         logger.error(f"Failed to initialize Supabase client: {e}")
         return None
@@ -296,10 +329,420 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     # --- Prepare for fresh insert ---
     try:
         df_json = df.write_json() if df is not None else None
+        df_json = _gzip_b64(df_json)
     except Exception as e:
         logger.exception(f"Error serializing df for {playlist_url}: {e}")
         df_json = None
+    try:
+        summary_stats_json = json.dumps(stats.get("summary_stats", {}))
+    except Exception as e:
+        logger.exception(f"Error serializing summary_stats for {playlist_url}: {e}")
+        summary_stats_json = None
 
+    # If serialization failed, do not insert an incomplete row; return error result
+    if not df_json or not summary_stats_json:
+        err_msg = (
+            f"[DB] Serialization failed for {playlist_url}. "
+            f"df_json present: {bool(df_json)}, summary_stats_json present: {bool(summary_stats_json)}"
+        )
+        logger.error(err_msg)
+        return UpsertResult(source="error", error=err_msg)
+
+    stats_to_insert = {
+        **stats,
+        "processed_date": date.today().isoformat(),
+        "df_json": df_json,
+        "summary_stats": summary_stats_json,
+    }
+
+    # Remove Polars DataFrame before inserting
+    stats_to_insert.pop("df", None)
+
+    logger.debug(
+        f"[DB] Final stats_to_insert for {playlist_url}: {stats_to_insert.keys()}"
+    )
+
+    success = upsert_row(
+        PLAYLIST_STATS_TABLE, stats_to_insert, ["playlist_url", "processed_date"]
+    )
+
+    if success:
+        logger.info(f"[DB] Returning fresh stats for {playlist_url}")
+        return UpsertResult(
+            source="fresh",
+            df_json=df_json,
+            summary_stats_json=summary_stats_json,
+        )
+    else:
+        logger.error(f"[DB] Failed to insert fresh stats for {playlist_url}")
+        return UpsertResult(source="error", error="DB insert failed")
+
+
+def fetch_playlists(
+    max_items: int = 10, randomize: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Fetch distinct playlists from DB.
+    If randomize=True, returns a random subset (non-deterministic).
+    Otherwise, returns the most recent playlists (deterministic).
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch playlists")
+        return []
+
+    try:
+        pool_size = max_items * 5 if randomize else max_items
+        response = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select("playlist_url, title, processed_date")
+            .order("processed_date", desc=True)
+            .limit(pool_size)
+            .execute()
+        )
+
+        seen = set()
+        playlists = []
+        for row in response.data:
+            url = row.get("playlist_url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            playlists.append(
+                {"url": url, "title": row.get("title") or "Untitled Playlist"}
+            )
+            if not randomize and len(playlists) >= max_items:
+                break
+
+        if not playlists:
+            return []
+
+        if randomize:
+            return random.sample(playlists, k=min(max_items, len(playlists)))
+        else:
+            return playlists
+
+    except Exception as e:
+        logger.error(f"Error fetching playlists: {e}")
+        return []
+
+
+def get_latest_playlist_job(playlist_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Returns the most recent job record for a given playlist URL.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch job")
+        return None
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("*")  # Select all columns
+            .eq("playlist_url", playlist_url)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching latest job for {playlist_url}: {e}")
+        return None
+
+
+def get_playlist_job_status(playlist_url: str) -> Optional[str]:
+    """
+    Returns the status of a playlist analysis job.
+    Possible statuses: 'pending', 'processing', 'complete', 'failed', or None if not submitted.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch job status")
+        return None
+
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("status, created_at")
+            .eq("playlist_url", playlist_url)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0].get("status")
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching job status for {playlist_url}: {e}")
+        return None
+
+
+def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
+    """
+    Returns minimal info about a playlist for preview.
+    Flattens `summary_stats` JSON into usable front-end fields.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch preview info")
+        return {}
+
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select("title, channel_thumbnail, summary_stats")
+            .eq("playlist_url", playlist_url)
+            .limit(1)
+            .execute()
+        )
+
+        if not response.data:
+            logger.warning(f"No playlist stats found for {playlist_url}")
+            return {}
+
+        data = response.data[0]
+        preview_info = {
+            "title": data.get("title"),
+            "thumbnail": data.get("channel_thumbnail"),
+            "video_count": None,
+        }
+
+        summary_stats_raw = data.get("summary_stats")
+        if summary_stats_raw:
+            # Parse JSON if it's a string
+            if isinstance(summary_stats_raw, str):
+                try:
+                    summary_stats = json.loads(summary_stats_raw)
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in summary_stats for {playlist_url}")
+                    summary_stats = {}
+            else:
+                summary_stats = summary_stats_raw
+
+            # Fill in video_count if missing
+            preview_info["video_count"] = summary_stats.get("actual_playlist_count")
+            # Optional: include other summary stats for future use
+            preview_info.update(
+                {
+                    "total_views": summary_stats.get("total_views"),
+                    "total_likes": summary_stats.get("total_likes"),
+                    "total_dislikes": summary_stats.get("total_dislikes"),
+                    "total_comments": summary_stats.get("total_comments"),
+                    "avg_engagement": summary_stats.get("avg_engagement"),
+                    "processed_video_count": summary_stats.get("processed_video_count"),
+                }
+            )
+
+        logger.info(
+            f"Retrieved preview info for {playlist_url}: {preview_info.get('title')}, "
+            f"videos: {preview_info.get('video_count')}"
+        )
+        return preview_info
+
+    except Exception as e:
+        logger.error(f"Error fetching preview info for {playlist_url}: {e}")
+        return {}
+
+
+def submit_playlist_job(playlist_url: str) -> bool:
+    """Insert a new playlist analysis job into the playlist_jobs table,
+    but only if one is not already pending or in progress.
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to submit job")
+        return False
+
+    # Check for an existing job that is not finished
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("status, created_at")
+            .eq("playlist_url", playlist_url)
+            .not_.eq("status", "complete")
+            .not_.eq("status", "failed")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        # If an unfinished job exists, don't submit a new one
+        if response.data:
+            job_status = response.data[0].get("status")
+            job_created_at = response.data[0].get("created_at")
+            logger.info(
+                f"Skipping job submission for {playlist_url}. A job with status '{job_status}' created at {job_created_at} is already in progress or pending."
+            )
+            return False
+
+    except Exception as e:
+        logger.error(f"Error checking for existing jobs: {e}")
+        # Continue to submit the job in case of an error
+
+    # No existing job found, so submit a new one
+    payload = {
+        "playlist_url": playlist_url,
+        "status": "pending",
+        "created_at": datetime.utcnow().isoformat(),
+        "retry_count": 0,
+    }
+
+    # Use insert instead of upsert to avoid conflicts on non-unique columns
+    success = upsert_row(PLAYLIST_JOBS_TABLE, payload)
+    if success:
+        logger.info(f"Submitted new playlist analysis job for {playlist_url}.")
+    else:
+        logger.error(f"Failed to submit new job for {playlist_url}.")
+
+    return success
+
+
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    if not supabase_client:
+        return None
+    try:
+        resp = (
+            supabase_client.table(USERS_TABLE)
+            .select("*")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+        return resp.data[0] if resp.data else None
+    except Exception as e:
+        logger.error(f"Error fetching user {email}: {e}")
+        return None
+
+
+def store_avatar_bytes(email: str, avatar_bytes: bytes) -> Tuple[bool, Optional[str]]:
+    """
+    Store avatar image. Prefer storage bucket; fallback to base64 blob if small.
+    Returns (success, public_url_or_none)
+    """
+    if not supabase_client or not avatar_bytes:
+        return False, None
+    if len(avatar_bytes) > MAX_AVATAR_BYTES:
+        logger.warning("Avatar too large; skipping storage.")
+        return False, None
+    filename = f"{email.replace('@','_')}.jpg"
+    try:
+        # Try storage bucket first
+        supabase_client.storage.from_(AVATAR_BUCKET).upload(
+            filename, avatar_bytes, {"content-type": "image/jpeg"}
+        )
+        public_url = supabase_client.storage.from_(AVATAR_BUCKET).get_public_url(
+            filename
+        )
+        return True, public_url
+    except Exception as e:
+        logger.warning(f"Bucket upload failed ({e}); falling back to base64 blob.")
+        return True, None
+
+
+def upsert_user(
+    email: str, name: str, given_name: str | None, avatar_bytes: bytes | None
+) -> Optional[Dict[str, Any]]:
+    if not supabase_client:
+        logger.warning("Supabase not initialized for user upsert")
+        return None
+    existing = get_user_by_email(email)
+    now = datetime.utcnow().isoformat()
+    avatar_url = None
+    if avatar_bytes:
+        ok, public_url = store_avatar_bytes(email, avatar_bytes)
+        if ok:
+            avatar_url = public_url
+    payload = {
+        "email": email,
+        "name": name,
+        "given_name": given_name,
+        "last_login": now,
+        "has_avatar": bool(avatar_bytes),
+    }
+    if avatar_url:
+        payload["avatar_url"] = avatar_url
+    if not existing:
+        payload["created_at"] = now
+        try:
+            resp = supabase_client.table(USERS_TABLE).insert(payload).execute()
+            return resp.data[0] if resp.data else None
+        except Exception as e:
+            logger.error(f"Failed to insert user {email}: {e}")
+            return None
+    else:
+        # Update existing
+        try:
+            resp = (
+                supabase_client.table(USERS_TABLE)
+                .update(payload)
+                .eq("email", email)
+                .execute()
+            )
+            return resp.data[0] if resp.data else existing
+        except Exception as e:
+            logger.error(f"Failed to update user {email}: {e}")
+            return existing
+
+
+# Optional: compress df_json before storing (used inside upsert_playlist_stats)
+def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
+    """
+    Main entrypoint for playlist stats caching:
+    - Return cached stats if they exist for today.
+    - Otherwise insert fresh stats and return an UpsertResult.
+
+    Note: This function intentionally does NOT return a Polars DataFrame.
+    """
+    playlist_url = stats.get("playlist_url")
+    if not playlist_url:
+        logger.error("No playlist_url provided in stats")
+        return UpsertResult(source="error", error="Missing playlist_url")
+
+    # --- Prevent caching empty DataFrames ---
+    df = stats.get("df")
+    if df is None or getattr(df, "is_empty", lambda: True)():
+        logger.warning(
+            f"Attempted to cache empty or missing DataFrame for {playlist_url}. Aborting cache."
+        )
+        return UpsertResult(source="error", error="Empty DataFrame provided")
+
+    # Check cache first
+    cached = get_cached_playlist_stats(playlist_url, check_date=True)
+    if cached:
+        logger.info(f"[Cache] Returning cached stats for {playlist_url}")
+        # Prefer any stored df_json present in the raw row, otherwise reserialize the in-memory df
+        cached_df_json = cached.get("df_json")
+        if not cached_df_json and cached.get("df") is not None:
+            try:
+                cached_df_json = cached["df"].write_json()
+            except Exception as e:
+                logger.exception(
+                    f"[Cache] Failed to re-serialize df for {playlist_url}: {e}"
+                )
+                cached_df_json = None
+
+        # Ensure summary_stats is returned as JSON string when possible
+        summary_stats_json = cached.get("summary_stats")
+        if isinstance(summary_stats_json, dict):
+            try:
+                summary_stats_json = json.dumps(summary_stats_json)
+            except Exception as e:
+                logger.exception(
+                    f"[Cache] Failed to serialize summary_stats for {playlist_url}: {e}"
+                )
+                summary_stats_json = None
+
+        return UpsertResult(
+            source="cache",
+            df_json=cached_df_json,
+            summary_stats_json=summary_stats_json,
+            raw_row=cached,
+        )
+
+    # --- Prepare for fresh insert ---
+    try:
+        df_json = df.write_json() if df is not None else None
+        df_json = _gzip_b64(df_json)
+    except Exception as e:
+        logger.exception(f"Error serializing df for {playlist_url}: {e}")
+        df_json = None
     try:
         summary_stats_json = json.dumps(stats.get("summary_stats", {}))
     except Exception as e:

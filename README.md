@@ -248,3 +248,16 @@ Notes
 - The hook configuration lives in `.pre-commit-config.yaml` at the repo root.
 - Common hooks include formatters and linters (e.g., black/isort/ruff/mypy), plus basic checks (trailing-whitespace, end-of-file-fixer).
 - In CI, run `pre-commit run --all-files` to ensure code meets the repo hooks before merging.
+
+
+create table users (
+  id bigint generated always as identity primary key,
+  email text unique not null,
+  name text,
+  given_name text,
+  created_at timestamptz default now(),
+  last_login timestamptz,
+  avatar_url text,
+  has_avatar boolean default false
+);
+create index on users (email);
