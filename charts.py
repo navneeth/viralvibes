@@ -350,8 +350,8 @@ def _bubble_opts_mobile_safe(
             "type": chart_type,
             "id": chart_id,
             "height": height,
-            "toolbar": {"show": False},  # ✅ Hide toolbar
-            "zoom": {"enabled": disable_zoom},  # ✅ No zoom on mobile
+            "toolbar": {"show": False},
+            "zoom": {"enabled": not disable_zoom},  # ✅ True disables zoom
             "parentHeightOffset": 0,
             "redrawOnParentResize": True,
             "sparkline": {"enabled": False},
@@ -417,8 +417,8 @@ def _scatter_opts_mobile_safe(
             "type": chart_type,
             "id": chart_id,
             "height": height,
-            "toolbar": {"show": False},  # ✅ Hide toolbar
-            "zoom": {"enabled": disable_zoom},  # ✅ No zoom on mobile
+            "toolbar": {"show": False},
+            "zoom": {"enabled": not disable_zoom},  # ✅ True disables zoom
             "parentHeightOffset": 0,
             "redrawOnParentResize": True,
             "sparkline": {"enabled": False},
@@ -548,30 +548,80 @@ def chart_engagement_ranking(
 def chart_engagement_breakdown(
     df: pl.DataFrame, chart_id: str = "engagement-breakdown"
 ) -> ApexChart:
-    """Stacked bar: Show composition of engagement (likes, comments) per video."""
+    """
+    Stacked bar/column chart: Likes and Comments per video in the same bar.
+
+    - Top 10 videos by Views
+    - Likes shown in thousands (K)
+    - Comments shown in hundreds (×100) to keep scales closer
+    - Truncated titles for mobile
+    """
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
+    # Top 10 by views
     top_videos = _safe_sort(df, "Views", descending=True).head(10)
 
-    data_likes = (top_videos["Likes"] / 1000).fill_null(0).to_list()
-    data_comments = (top_videos["Comments"] / 100).fill_null(0).to_list()
+    # Prepare series (scaled for readability)
+    data_likes_k = (
+        (top_videos["Likes"].fill_null(0) / SCALE_THOUSANDS).round(1).to_list()
+    )
+    data_comments_x100 = (top_videos["Comments"].fill_null(0) / 100).round(1).to_list()
+
+    categories = (
+        top_videos["Title"].str.slice(0, 40).to_list()
+        if "Title" in top_videos.columns
+        else []
+    )
 
     return ApexChart(
         opts=_base_opts(
             "bar",
             series=[
-                {"name": "👍 Likes (K)", "data": data_likes},
-                {"name": "💬 Comments (×100)", "data": data_comments},
+                {"name": "👍 Likes (K)", "data": data_likes_k},
+                {"name": "💬 Comments (×100)", "data": data_comments_x100},
             ],
             xaxis={
-                "categories": top_videos["Title"].to_list(),
-                "labels": {"rotate": -45, "maxHeight": 60},
+                "categories": categories,
+                "labels": {"rotate": -45, "maxHeight": 64, "trim": True},
             },
-            yaxis={"title": {"text": "Count"}},
-            plotOptions={"bar": {"horizontal": False, "stacked": True}},
-            title={"text": "📊 Engagement Composition (Top 10)", "align": "left"},
+            yaxis={"title": {"text": "Count (scaled)"}},
+            plotOptions={
+                "bar": {
+                    "horizontal": False,  # column layout for mobile
+                    "stacked": True,  # stack both metrics into the same bar
+                    "borderRadius": 4,
+                    "columnWidth": "55%",
+                    "dataLabels": {"position": "top"},
+                }
+            },
+            dataLabels={"enabled": False},
+            title={"text": "📊 Engagement Breakdown (Top 10)", "align": "left"},
             colors=["#3B82F6", "#10B981"],
+            tooltip={
+                "shared": True,
+                "intersect": False,
+                "y": {
+                    "formatter": (
+                        "function(val, {series, seriesIndex}) {"
+                        "  if (seriesIndex === 0) return val.toFixed(1) + 'K';"
+                        "  if (seriesIndex === 1) return val.toFixed(1) + ' ×100';"
+                        "  return val;"
+                        "}"
+                    )
+                },
+            },
+            responsive=[
+                {
+                    "breakpoint": 640,
+                    "options": {
+                        "chart": {"height": 420},
+                        "xaxis": {"labels": {"rotate": -45, "maxHeight": 52}},
+                        "plotOptions": {"bar": {"columnWidth": "65%"}},
+                        "legend": {"position": "bottom"},
+                    },
+                }
+            ],
         ),
         cls=chart_wrapper_class("vertical_bar"),
     )
@@ -592,7 +642,7 @@ def chart_likes_per_1k_views(
     # Vectorized data extraction
     try:
         data = df_calc.select(
-            (pl.col("Views") / 1_000_000).round(1).alias("x"),
+            (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             pl.col("Likes_per_1K").round(1).alias("y"),
             (pl.col("Title").str.slice(0, 40)).alias("title"),
         ).to_dicts()
