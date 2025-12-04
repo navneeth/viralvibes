@@ -127,7 +127,11 @@ def _base_opts(chart_type: str, **extra) -> dict:
         "stroke": {"width": 2, "curve": "smooth"},
         "grid": {"show": True, "borderColor": "#e5e7eb", "strokeDashArray": 4},
         "dataLabels": {"enabled": False},
-        "tooltip": {"theme": "light", "marker": {"show": True}},
+        "tooltip": {
+            "theme": "light",
+            "marker": {"show": True},
+            "custom": CLICKABLE_TOOLTIP,
+        },
         **extra,
     }
 
@@ -273,6 +277,49 @@ function({ series, seriesIndex, dataPointIndex, w }) {
     `;
 }
 """
+# ─────────────────────────────────────────────────────────────
+# THE ONE TOOLTIP TO RULE THEM ALL – clickable + beautiful
+# ─────────────────────────────────────────────────────────────
+CLICKABLE_TOOLTIP = """
+function({seriesIndex, dataPointIndex, w}) {
+    const point = w.config.series[seriesIndex]?.data?.[dataPointIndex];
+    if (!point) return '<div class="p-3">No data</div>';
+
+    const title = point.title?.length > 55 ? point.title.slice(0,52) + '...' : point.title || 'Untitled Video';
+    const videoId = point.id || point.video_id || 'dQw4w9WgXcQ'; // fallback for testing
+    const url = `https://youtu.be/${videoId}`;
+
+    // Format numbers nicely
+    const fmt = (v, suffix = '') => {
+        if (v === null || v === undefined) return '—';
+        if (typeof v === 'number') {
+            if (Math.abs(v) >= 1_000_000) return (v/1_000_000).toFixed(1) + 'M' + suffix;
+            if (Math.abs(v) >= 1_000) return (v/1_000).toFixed(1) + 'K' + suffix;
+            return v.toLocaleString() + suffix;
+        }
+        return v;
+    };
+
+    return `
+        <div class="p-4 bg-white rounded-lg shadow-2xl border border-gray-200 font-sans text-sm max-w-xs">
+            <div class="font-bold text-gray-900 mb-2 leading-tight">${title}</div>
+            <div class="space-y-1 text-gray-600 text-xs">
+                ${point.x !== undefined ? `<div>Views: <b>${fmt(point.x, 'M')}</b></div>` : ''}
+                ${point.y !== undefined ? `<div>Engagement: <b>${fmt(point.y, '%')}</b></div>` : ''}
+                ${point.z !== undefined ? `<div>Size/Metric: <b>${fmt(point.z)}</b></div>` : ''}
+                ${point.Likes ? `<div>Likes: <b>${fmt(point.Likes)}</b></div>` : ''}
+                ${point.Comments ? `<div>Comments: <b>${fmt(point.Comments)}</b></div>` : ''}
+            </div>
+            <div class="mt-3 pt-3 border-t border-gray-200">
+                <a href="${url}" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 font-medium text-xs">
+                   Watch on YouTube
+                </a>
+            </div>
+        </div>
+    `;
+}
+"""
 
 
 def _safe_bubble_data(df: pl.DataFrame, max_points: int = 150) -> pl.DataFrame:
@@ -361,7 +408,7 @@ def _bubble_opts_mobile_safe(
         "dataLabels": {"enabled": False},
         "tooltip": {
             "theme": "light",
-            "custom": _bubble_tooltip(x_label, y_label, z_label),
+            "custom": CLICKABLE_TOOLTIP,
             "intersect": False,
         },
         "plotOptions": {
@@ -428,6 +475,7 @@ def _scatter_opts_mobile_safe(
         "dataLabels": {"enabled": False},
         "tooltip": {
             "theme": "light",
+            "custom": CLICKABLE_TOOLTIP,
             "intersect": False,
             "shared": True,
         },
@@ -473,6 +521,7 @@ def _scatter_data_vectorized(
             (pl.col(x_col) / x_scale).round(x_round).alias("x"),
             (pl.col(y_col) / y_scale).round(y_round).alias("y"),
             (pl.col("Title").str.slice(0, 40)).alias("title"),
+            (pl.col("id").cast(pl.Utf8)).alias("id"),
         ).to_dicts()
         return data
     except Exception as e:
@@ -776,7 +825,7 @@ def chart_scatter_likes_dislikes(
         "xaxis": {"title": {"text": "👍 Like Count"}},
         "yaxis": {"title": {"text": "👎 Dislike Count"}},
         "title": {"text": "Likes vs Dislikes Correlation", "align": "center"},
-        "tooltip": {"custom": TOOLTIP_TRUNC},
+        "tooltip": {"custom": CLICKABLE_TOOLTIP},
     }
 
     return ApexChart(opts=opts, cls=chart_wrapper_class("scatter"))
@@ -803,6 +852,7 @@ def chart_bubble_engagement_vs_views(
             (pl.col("Engagement Rate Raw") * 100).round(1).alias("y"),
             pl.col("Controversy").round(2).alias("z"),
             (pl.col("Title").str.slice(0, 45)).alias("title"),
+            (pl.col("id").cast(pl.Utf8)).alias("id"),
         ).to_dicts()
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
@@ -974,6 +1024,7 @@ def chart_views_vs_likes(
             (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
             (pl.col("Title").str.slice(0, 40)).alias("title"),
+            (pl.col("id").cast(pl.Utf8)).alias("id"),
         ).to_dicts()
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
