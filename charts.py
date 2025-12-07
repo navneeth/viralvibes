@@ -1,5 +1,4 @@
 import logging
-from typing import Dict
 
 import polars as pl
 from monsterui.all import ApexChart
@@ -14,7 +13,7 @@ SCALE_THOUSANDS = 1_000
 # 1. DESIGN CONSTANTS
 # --------------------------------------------------------------
 THEME_COLORS = [
-    "#3B82F6",  # blue-500
+    "#3B82F6",  # blue-500 (Primary)
     "#EF4444",  # red-500
     "#10B981",  # emerald-500
     "#F59E0B",  # amber-500
@@ -59,49 +58,6 @@ def get_chart_height(chart_type: str) -> int:
     return CHART_HEIGHTS.get(chart_type, 500)
 
 
-# ─────────────────────────────────────────────────────────────
-# Core Utilities
-# ─────────────────────────────────────────────────────────────
-
-
-def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFrame:
-    """
-    Sort DataFrame safely across Polars versions.
-    Handles:
-      - older/newer Polars signatures
-      - missing columns
-      - numeric columns stored as strings
-    """
-    if df is None or df.is_empty():
-        return df
-
-    if col not in df.columns:
-        logger.warning(f"[charts] Column '{col}' not found; skipping sort.")
-        return df
-
-    try:
-        series = df[col]
-        # Auto-coerce to numeric if needed
-        if series.dtype == pl.Utf8:
-            logger.debug(f"[charts] Auto-casting column '{col}' from str to Float64")
-            # Remove duplicate: df = df.with_columns(...)
-
-        df_casted = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
-        return df_casted.sort(by=col, descending=descending)
-
-    except TypeError:
-        try:
-            # Older Polars fallback
-            return df.sort(col, reverse=descending)
-        except Exception as e:
-            logger.warning(f"[charts] Fallback sort failed for '{col}': {e}")
-            return df
-
-    except Exception as e:
-        logger.warning(f"[charts] Failed to sort by '{col}': {e}")
-        return df
-
-
 def _truncate_title(title: str, max_len: int = 50) -> str:
     """Safely truncate title with ellipsis."""
     if not title:
@@ -109,19 +65,34 @@ def _truncate_title(title: str, max_len: int = 50) -> str:
     return title[:max_len] + ("..." if len(title) > max_len else "")
 
 
-def _base_opts(chart_type: str, **extra) -> dict:
-    """Common ApexCharts options - height now automatic."""
+# ─────────────────────────────────────────────────────────────
+# Core Utilities and Abstraction
+# ─────────────────────────────────────────────────────────────
+
+
+def _base_chart_options(chart_type: str, chart_id: str, **extra) -> dict:
+    """
+    Consolidated function for base ApexCharts options.
+    Sets theme, font, colors, grid, and the custom tooltip.
+    """
     height = get_chart_height(chart_type)
-    return {
-        "chart": {
-            "type": chart_type,
-            "height": height,
-            "fontFamily": "Inter, system-ui, sans-serif",
-            "toolbar": {"show": False},
-            "zoom": {"enabled": False},
-            "background": "transparent",
-            **extra.get("chart", {}),
-        },
+
+    # Chart settingss
+    chart_settings = {
+        "type": chart_type,
+        "id": chart_id,
+        "height": height,
+        "fontFamily": "Inter, system-ui, sans-serif",
+        "toolbar": {"show": False},
+        "zoom": {"enabled": False},
+        "background": "transparent",
+        "parentHeightOffset": 0,
+        "redrawOnParentResize": True,
+        **extra.get("chart", {}),
+    }
+
+    opts = {
+        "chart": chart_settings,
         "theme": {"mode": "light", "palette": "palette1"},
         "colors": THEME_COLORS,
         "stroke": {"width": 2, "curve": "smooth"},
@@ -131,9 +102,13 @@ def _base_opts(chart_type: str, **extra) -> dict:
             "theme": "light",
             "marker": {"show": True},
             "custom": CLICKABLE_TOOLTIP,
+            "intersect": False,
+            "shared": True,  # For multi-series charts
         },
         **extra,
     }
+
+    return opts
 
 
 def _apex_opts(chart_type: str, **kwargs) -> dict:
@@ -282,33 +257,56 @@ function({ series, seriesIndex, dataPointIndex, w }) {
 # ─────────────────────────────────────────────────────────────
 CLICKABLE_TOOLTIP = """
 function({seriesIndex, dataPointIndex, w}) {
-    const point = w.config.series[seriesIndex]?.data?.[dataPointIndex];
+    const series = w.config.series[seriesIndex];
+    const point = series?.data?.[dataPointIndex];
+
     if (!point) return '<div class="p-3">No data</div>';
 
     const title = point.title?.length > 55 ? point.title.slice(0,52) + '...' : point.title || 'Untitled Video';
-    const videoId = point.id || point.video_id || 'dQw4w9WgXcQ'; // fallback for testing
+    const videoId = point.id || point.video_id || 'dQw4w9WgXcQ';
     const url = `https://youtu.be/${videoId}`;
 
-    // Format numbers nicely
-    const fmt = (v, suffix = '') => {
+    // Format numbers nicely (M, K suffixes)
+    const fmt = (v, isRate = false) => {
         if (v === null || v === undefined) return '—';
+        if (isRate) return (v * 100).toFixed(2) + '%';
         if (typeof v === 'number') {
-            if (Math.abs(v) >= 1_000_000) return (v/1_000_000).toFixed(1) + 'M' + suffix;
-            if (Math.abs(v) >= 1_000) return (v/1_000).toFixed(1) + 'K' + suffix;
-            return v.toLocaleString() + suffix;
+            if (Math.abs(v) >= 1_000_000) return (v/1_000_000).toFixed(1) + 'M';
+            if (Math.abs(v) >= 1_000) return (v/1_000).toFixed(1) + 'K';
+            return v.toLocaleString();
         }
         return v;
     };
+
+    // --- Dynamic Content Generation ---
+    let statsHtml = '';
+
+    // 1. Primary X/Y/Z for Scatter/Bubble charts (with generic labels)
+    if (point.x !== undefined) {
+        const xLabel = w.config.xaxis?.title?.text || 'X Value';
+        statsHtml += `<div>${xLabel}: <b>${fmt(point.x)}</b></div>`;
+    }
+    if (point.y !== undefined) {
+        const yLabel = w.config.yaxis?.[0]?.title?.text || series.name || 'Y Value';
+        statsHtml += `<div>${yLabel}: <b>${fmt(point.y)}</b></div>`;
+    }
+    if (point.z !== undefined) {
+        statsHtml += `<div>Bubble Size: <b>${fmt(point.z)}</b></div>`;
+    }
+
+    // 2. Secondary/Detail metadata (Likes, Comments, etc.)
+    // These keys are often passed in by the Polars data prep
+    if (point.Likes) statsHtml += `<div>👍 Likes: <b>${fmt(point.Likes)}</b></div>`;
+    if (point.Comments) statsHtml += `<div>💬 Comments: <b>${fmt(point.Comments)}</b></div>`;
+    if (point.Duration) statsHtml += `<div>⏱ Duration: <b>${point.Duration}</b></div>`;
+    if (point.EngagementRateRaw) statsHtml += `<div>📈 Engagement: <b>${fmt(point.EngagementRateRaw, true)}</b></div>`;
+
 
     return `
         <div class="p-4 bg-white rounded-lg shadow-2xl border border-gray-200 font-sans text-sm max-w-xs">
             <div class="font-bold text-gray-900 mb-2 leading-tight">${title}</div>
             <div class="space-y-1 text-gray-600 text-xs">
-                ${point.x !== undefined ? `<div>Views: <b>${fmt(point.x, 'M')}</b></div>` : ''}
-                ${point.y !== undefined ? `<div>Engagement: <b>${fmt(point.y, '%')}</b></div>` : ''}
-                ${point.z !== undefined ? `<div>Size/Metric: <b>${fmt(point.z)}</b></div>` : ''}
-                ${point.Likes ? `<div>Likes: <b>${fmt(point.Likes)}</b></div>` : ''}
-                ${point.Comments ? `<div>Comments: <b>${fmt(point.Comments)}</b></div>` : ''}
+                ${statsHtml}
             </div>
             <div class="mt-3 pt-3 border-t border-gray-200">
                 <a href="${url}" target="_blank" rel="noopener"
@@ -489,10 +487,52 @@ def _scatter_opts_mobile_safe(
     return base_opts
 
 
+# ----------------------------------------------------------------------
+# 3. Data Preparation Helpers (Optimization & Robustness)
+# ----------------------------------------------------------------------
+
+
+def _safe_sort(df: pl.DataFrame, col: str, descending: bool = True) -> pl.DataFrame:
+    """
+    Sort DataFrame safely across Polars versions.
+    Handles:
+      - older/newer Polars signatures
+      - missing columns
+      - numeric columns stored as strings
+    """
+    if df is None or df.is_empty() or col not in df.columns:
+        if col not in df.columns:
+            logger.warning(f"[charts] Column '{col}' not found; skipping sort.")
+        return df
+
+    try:
+        series = df[col]
+        # Auto-coerce to numeric if needed
+        if series.dtype == pl.Utf8:
+            logger.debug(f"[charts] Auto-casting column '{col}' from str to Float64")
+            # Remove duplicate: df = df.with_columns(...)
+
+        df_casted = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+        return df_casted.sort(by=col, descending=descending)
+
+    except TypeError:
+        try:
+            # Older Polars fallback
+            return df.sort(col, reverse=descending)
+        except Exception as e:
+            logger.warning(f"[charts] Fallback sort failed for '{col}': {e}")
+            return df
+
+    except Exception as e:
+        logger.warning(f"[charts] Failed to sort by '{col}': {e}")
+        return df
+
+
 def _scatter_data_vectorized(
     df: pl.DataFrame,
     x_col: str,
     y_col: str,
+    z_col: str = None,
     x_scale: float = 1.0,
     y_scale: float = 1.0,
     x_round: int = 1,
@@ -500,6 +540,7 @@ def _scatter_data_vectorized(
 ) -> list:
     """
     Build scatter data using vectorized Polars operations (faster than iter_rows).
+    Includes video metadata for the rich tooltip.
 
     Args:
         df: Input DataFrame
@@ -517,13 +558,26 @@ def _scatter_data_vectorized(
         return []
 
     try:
-        data = df.select(
+        # Columns required for all scatter/bubble charts
+        select_exprs = [
             (pl.col(x_col) / x_scale).round(x_round).alias("x"),
             (pl.col(y_col) / y_scale).round(y_round).alias("y"),
-            (pl.col("Title").str.slice(0, 40)).alias("title"),
-            (pl.col("id").cast(pl.Utf8)).alias("id"),
-        ).to_dicts()
+            pl.col("Title").alias("title"),
+            pl.col("id").alias("id"),
+            # Include detail metadata for the rich tooltip
+            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Duration Formatted").alias("Duration"),
+            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
+        ]
+
+        # Add Z column only for bubble charts
+        if z_col and z_col in df.columns:
+            select_exprs.append((pl.col(z_col) / z_scale).round(1).alias("z"))
+
+        data = df.select(select_exprs).to_dicts()
         return data
+
     except Exception as e:
         logger.warning(f"[charts] Scatter data extraction failed: {e}")
         return []
@@ -542,17 +596,27 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
+    # 1. Prepare Data
     sorted_df = _safe_sort(df, "Views", descending=True)
-    views_m = (sorted_df["Views"].fill_null(0) / SCALE_MILLIONS).round(0).to_list()
+    # Vectorized data extraction
     labels = sorted_df["Title"].to_list()
+    # Data is views, scaled to millions
+    views_m = (sorted_df["Views"].fill_null(0) / SCALE_MILLIONS).round(0).to_list()
 
-    opts = _base_opts(
+    # 2. Build Options (Horizontal Bar Chart)
+    opts = _base_chart_options(
         "bar",
+        chart_id,
         series=[{"name": "Views (Millions)", "data": views_m}],
+        title={"text": "🏆 Top Videos by Views", "align": "left"},
         xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
         yaxis={"title": {"text": "Views (Millions)"}},
-        title={"text": "🏆 Top Videos by Views", "align": "left"},
-        plotOptions={"bar": {"borderRadius": 4, "columnWidth": "55%"}},
+        plotOptions={
+            "bar": {
+                "borderRadius": 4,
+                "columnWidth": "55%",
+            }
+        },
     )
     return ApexChart(
         opts=opts,
@@ -571,8 +635,9 @@ def chart_engagement_ranking(
     rates = (df["Engagement Rate Raw"] * 100).fill_null(0).round(2).to_list()
     avg = sum(rates) / len(rates) if rates else 0.0
 
-    opts = _base_opts(
+    opts = _base_chart_options(
         "bar",
+        chart_id,
         series=[{"name": "Engagement %", "data": rates}],
         plotOptions={"bar": {"horizontal": True, "barHeight": "60%"}},
         xaxis={"title": {"text": "Engagement %"}},
@@ -624,7 +689,7 @@ def chart_engagement_breakdown(
     )
 
     return ApexChart(
-        opts=_base_opts(
+        opts=_base_chart_options(
             "bar",
             series=[
                 {"name": "👍 Likes (K)", "data": data_likes_k},
