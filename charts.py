@@ -853,10 +853,12 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
     if df is None or df.is_empty():
         return _empty_chart("treemap", chart_id)
 
-    data = [
+    # Build per-point colored data
+    raw = [
         {"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)
     ]
-    palette = _distributed_palette(len(data))
+    palette = _distributed_palette(len(raw))
+    data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
 
     opts = _apex_opts(
         "treemap",
@@ -866,9 +868,8 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
         dataLabels={"enabled": True, "style": {"fontSize": "11px"}},
         chart={"id": chart_id},
         tooltip={"enabled": True},
-        # Distinct colors per cell
-        colors=palette,
-        plotOptions={"treemap": {"distributed": True}},
+        colors=palette,  # optional; per-point fillColor is primary
+        plotOptions={"treemap": {"distributed": True, "enableShades": False}},
     )
     return ApexChart(opts=opts, cls=chart_wrapper_class("treemap"))
 
