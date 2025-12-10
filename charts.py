@@ -590,38 +590,55 @@ def _scatter_data_vectorized(
 
 def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> ApexChart:
     """
-    Line chart of views per video, sorted by view count descending.
-    Gives instant insight into top and bottom performers.
+    Bar chart of views per video, sorted by view count descending.
+    Dynamic scaling (K/M) to keep differences visible.
     """
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
-    # 1. Prepare Data
     sorted_df = _safe_sort(df, "Views", descending=True)
-    # Vectorized data extraction
-    labels = sorted_df["Title"].to_list()
-    # Data is views, scaled to millions
-    views_m = (sorted_df["Views"].fill_null(0) / SCALE_MILLIONS).round(0).to_list()
 
-    # 2. Build Options (Horizontal Bar Chart)
+    labels = (
+        sorted_df["Title"]
+        .cast(pl.Utf8, strict=False)
+        .fill_null("Untitled")
+        .str.slice(0, 50)
+        .to_list()
+        if "Title" in sorted_df.columns
+        else []
+    )
+    views = sorted_df["Views"].cast(pl.Float64, strict=False).fill_null(0)
+
+    max_views = float(views.max() or 0)
+    use_thousands = max_views < 2_000_000
+
+    if use_thousands:
+        data = (views / SCALE_THOUSANDS).round(1).to_list()
+        y_title = "Views (Thousands)"
+        y_fmt = "function(val){ return val.toFixed(1) + 'K'; }"
+    else:
+        data = (views / SCALE_MILLIONS).round(1).to_list()
+        y_title = "Views (Millions)"
+        y_fmt = "function(val){ return val.toFixed(1) + 'M'; }"
+
+    # Ensure categories length matches data
+    if len(labels) != len(data):
+        labels = [f"Video {i+1}" for i in range(len(data))]
+
     opts = _base_chart_options(
         "bar",
         chart_id,
-        series=[{"name": "Views (Millions)", "data": views_m}],
+        series=[{"name": y_title, "data": data}],
         title={"text": "🏆 Top Videos by Views", "align": "left"},
         xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
-        yaxis={"title": {"text": "Views (Millions)"}},
+        yaxis={"title": {"text": y_title}, "labels": {"formatter": y_fmt}},
         plotOptions={
-            "bar": {
-                "borderRadius": 4,
-                "columnWidth": "55%",
-            }
+            "bar": {"borderRadius": 4, "columnWidth": "55%", "distributed": True}
         },
+        colors=THEME_COLORS,
+        legend={"show": False},
     )
-    return ApexChart(
-        opts=opts,
-        cls=chart_wrapper_class("vertical_bar"),
-    )
+    return ApexChart(opts=opts, cls=chart_wrapper_class("vertical_bar"))
 
 
 def chart_engagement_ranking(
