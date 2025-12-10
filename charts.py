@@ -590,77 +590,38 @@ def _scatter_data_vectorized(
 
 def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> ApexChart:
     """
-    Bar chart of views per video, sorted by view count descending.
-    Mobile-safe labels; shows top and bottom performers.
+    Line chart of views per video, sorted by view count descending.
+    Gives instant insight into top and bottom performers.
     """
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
     # 1. Prepare Data
     sorted_df = _safe_sort(df, "Views", descending=True)
-
-    # Defensive, vectorized label extraction
-    labels = (
-        sorted_df["Title"]
-        .cast(pl.Utf8)
-        .str.slice(0, 50)
-        .fill_null("Untitled")
-        .to_list()
-        if "Title" in sorted_df.columns
-        else []
-    )
+    # Vectorized data extraction
+    labels = sorted_df["Title"].to_list()
     # Data is views, scaled to millions
-    views_m = (
-        (
-            sorted_df["Views"].cast(pl.Float64, strict=False).fill_null(0)
-            / SCALE_MILLIONS
-        )
-        .round(0)
-        .to_list()
-    )
+    views_m = (sorted_df["Views"].fill_null(0) / SCALE_MILLIONS).round(0).to_list()
 
-    # 2. Build Options (Vertical Bar Chart)
+    # 2. Build Options (Horizontal Bar Chart)
     opts = _base_chart_options(
         "bar",
         chart_id,
         series=[{"name": "Views (Millions)", "data": views_m}],
         title={"text": "🏆 Top Videos by Views", "align": "left"},
-        xaxis={
-            "categories": labels,
-            "labels": {
-                "rotate": -45,
-                "maxHeight": 80,
-                # Use a single readable color for labels to avoid array-length mismatches
-                "style": {"colors": "#6B7280", "fontSize": "12px"},
-            },
-        },
-        yaxis={
-            "title": {"text": "Views (Millions)"},
-            "labels": {"formatter": "function(val){ return val + 'M'; }"},
-        },
+        xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
+        yaxis={"title": {"text": "Views (Millions)"}},
         plotOptions={
             "bar": {
-                "borderRadius": 6,
+                "borderRadius": 4,
                 "columnWidth": "55%",
-                "distributed": True,  # distinct per-bar colors from THEME_COLORS
             }
         },
-        colors=THEME_COLORS,  # keep per-bar palette
-        legend={"show": False},
-        responsive=[
-            {
-                "breakpoint": 640,
-                "options": {
-                    "plotOptions": {"bar": {"columnWidth": "65%"}},
-                    "xaxis": {"labels": {"rotate": -45, "maxHeight": 60}},
-                    "chart": {"height": get_chart_height("vertical_bar")},
-                },
-            }
-        ],
-        # Tooltips: keep simple for bars; avoid yaxis[0] indexing
-        tooltip={"shared": True, "intersect": False},
     )
-    return ApexChart(opts=opts, cls=chart_wrapper_class("vertical_bar"))
+    return ApexChart(
+        opts=opts,
+        cls=chart_wrapper_class("vertical_bar"),
+    )
 
 
 def chart_engagement_ranking(
