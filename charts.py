@@ -1197,10 +1197,15 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
     if df is None or df.is_empty():
         return _empty_chart("treemap", chart_id)
 
-    data = [
+    # Build raw data
+    raw = [
         {"x": row["Title"][:50], "y": row["Views"] or 0}
         for row in df.iter_rows(named=True)
     ]
+
+    # Generate distinct color per tile
+    palette = _distributed_palette(len(raw))
+    data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
 
     return ApexChart(
         opts={
@@ -1210,10 +1215,13 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
                 "text": "📊 Reach Distribution (larger = more views)",
                 "align": "left",
             },
-            "dataLabels": {"enabled": True},
+            "dataLabels": {"enabled": True, "style": {"fontSize": "11px"}},
             "tooltip": {"theme": "light"},
             "legend": {"show": False},
-            "plotOptions": {"treemap": {"distributed": False}},
+            # Ensure per-point coloring
+            "plotOptions": {"treemap": {"distributed": True, "enableShades": False}},
+            # Pass palette for consistency; will not override fillColor
+            "colors": palette,
         },
         cls=chart_wrapper_class("treemap"),
     )
