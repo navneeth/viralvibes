@@ -849,57 +849,41 @@ def chart_controversy_score(
 def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> ApexChart:
     """
     Treemap of video views, showing contribution to overall reach.
+    ✅ FIXED: Each tile has its own color
     """
     if df is None or df.is_empty():
         return _empty_chart("treemap", chart_id)
 
-    # Build per-point colored data
+    # Build raw data
     raw = [
         {"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)
     ]
+
+    # ✅ NEW: Generate distinct color per tile
     palette = _distributed_palette(len(raw))
+
+    # ✅ NEW: Add fillColor to each data point
     data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
 
     opts = _apex_opts(
         "treemap",
+        id=chart_id,
         series=[{"data": data}],
         legend={"show": False},
         title={"text": "Views Distribution by Video", "align": "center"},
         dataLabels={"enabled": True, "style": {"fontSize": "11px"}},
-        chart={"id": chart_id},
         tooltip={"enabled": True},
-        colors=palette,  # optional; per-point fillColor is primary
-        plotOptions={"treemap": {"distributed": True, "enableShades": False}},
+        # ✅ IMPORTANT: Tell ApexCharts NOT to override with series colors
+        plotOptions={
+            "treemap": {
+                "distributed": True,  # ✅ Enable per-point coloring
+                "enableShades": False,  # ✅ Don't auto-shade
+            }
+        },
+        # ✅ Optional: Still pass palette for consistency
+        colors=palette,
     )
     return ApexChart(opts=opts, cls=chart_wrapper_class("treemap"))
-
-
-def chart_scatter_likes_dislikes(
-    df: pl.DataFrame, chart_id: str = "scatter-likes"
-) -> ApexChart:
-    if df is None or df.is_empty():
-        return _empty_chart("scatter", chart_id)
-
-    # Use dicts with x, y, and custom field "title"
-    data = [
-        {
-            "x": int(row["Likes"] or 0),
-            "y": int(row["Dislikes"] or 0),
-            "title": _truncate_title(row["Title"]),
-        }
-        for row in df.iter_rows(named=True)
-    ]
-
-    opts = {
-        "chart": {"id": chart_id, "type": "scatter", "zoom": {"enabled": True}},
-        "series": [{"name": "Videos", "data": data}],
-        "xaxis": {"title": {"text": "👍 Like Count"}},
-        "yaxis": {"title": {"text": "👎 Dislike Count"}},
-        "title": {"text": "Likes vs Dislikes Correlation", "align": "center"},
-        "tooltip": {"custom": CLICKABLE_TOOLTIP},
-    }
-
-    return ApexChart(opts=opts, cls=chart_wrapper_class("scatter"))
 
 
 def chart_bubble_engagement_vs_views(
