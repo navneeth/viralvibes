@@ -598,6 +598,7 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
 
     sorted_df = _safe_sort(df, "Views", descending=True)
 
+    # Get labels
     labels = (
         sorted_df["Title"]
         .cast(pl.Utf8, strict=False)
@@ -607,38 +608,55 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
         if "Title" in sorted_df.columns
         else []
     )
-    views = sorted_df["Views"].cast(pl.Float64, strict=False).fill_null(0)
 
+    # Get views
+    views = sorted_df["Views"].cast(pl.Float64, strict=False).fill_null(0)
     max_views = float(views.max() or 0)
+
+    # Dynamic scaling based on max value
     use_thousands = max_views < 2_000_000
 
     if use_thousands:
         data = (views / SCALE_THOUSANDS).round(1).to_list()
         y_title = "Views (Thousands)"
-        y_fmt = "function(val){ return val.toFixed(1) + 'K'; }"
     else:
         data = (views / SCALE_MILLIONS).round(1).to_list()
         y_title = "Views (Millions)"
-        y_fmt = "function(val){ return val.toFixed(1) + 'M'; }"
 
     # Ensure categories length matches data
     if len(labels) != len(data):
         labels = [f"Video {i+1}" for i in range(len(data))]
 
-    opts = _base_chart_options(
+    # ✅ Use _apex_opts instead of _base_chart_options (for scalar data)
+    opts = _apex_opts(
         "bar",
-        chart_id,
+        id=chart_id,
         series=[{"name": y_title, "data": data}],
         title={"text": "🏆 Top Videos by Views", "align": "left"},
         xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
-        yaxis={"title": {"text": y_title}, "labels": {"formatter": y_fmt}},
+        yaxis={"title": {"text": y_title}},
+        # ✅ Format numbers in tooltip, not yaxis labels
+        tooltip={
+            "theme": "light",
+            "y": {
+                "formatter": f"function(val) {{ return val.toFixed(1) + '{'K' if use_thousands else 'M'}'; }}"
+            },
+        },
         plotOptions={
-            "bar": {"borderRadius": 4, "columnWidth": "55%", "distributed": True}
+            "bar": {
+                "borderRadius": 4,
+                "columnWidth": "55%",
+                "distributed": True,  # Different color per bar
+            }
         },
         colors=THEME_COLORS,
         legend={"show": False},
     )
-    return ApexChart(opts=opts, cls=chart_wrapper_class("vertical_bar"))
+
+    return ApexChart(
+        opts=opts,
+        cls=chart_wrapper_class("vertical_bar"),
+    )
 
 
 def chart_engagement_ranking(
