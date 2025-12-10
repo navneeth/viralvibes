@@ -590,7 +590,7 @@ def _scatter_data_vectorized(
 
 def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> ApexChart:
     """
-    Line chart of views per video, sorted by view count descending.
+    Bar chart of views per video, sorted by view count descending.
     Gives instant insight into top and bottom performers.
     """
     if df is None or df.is_empty():
@@ -609,19 +609,34 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
         chart_id,
         series=[{"name": "Views (Millions)", "data": views_m}],
         title={"text": "🏆 Top Videos by Views", "align": "left"},
-        xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
-        yaxis={"title": {"text": "Views (Millions)"}},
+        xaxis={
+            "categories": labels,
+            "labels": {
+                "rotate": -45,
+                "maxHeight": 80,
+                "style": {"colors": THEME_COLORS},
+            },
+        },
+        yaxis={
+            "title": {"text": "Views (Millions)"},
+            "labels": {"formatter": "function(val){ return val + 'M'; }"},
+        },
         plotOptions={
             "bar": {
-                "borderRadius": 4,
+                "borderRadius": 6,
                 "columnWidth": "55%",
+                "distributed": True,
             }
         },
+        legend={"show": False},
+        responsive=[
+            {
+                "breakpoint": 640,
+                "options": {"plotOptions": {"bar": {"columnWidth": "65%"}}},
+            }
+        ],
     )
-    return ApexChart(
-        opts=opts,
-        cls=chart_wrapper_class("vertical_bar"),
-    )
+    return ApexChart(opts=opts, cls=chart_wrapper_class("vertical_bar"))
 
 
 def chart_engagement_ranking(
