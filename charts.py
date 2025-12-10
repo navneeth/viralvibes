@@ -856,6 +856,8 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
     data = [
         {"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)
     ]
+    palette = _distributed_palette(len(data))
+
     opts = _apex_opts(
         "treemap",
         series=[{"data": data}],
@@ -864,6 +866,9 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
         dataLabels={"enabled": True, "style": {"fontSize": "11px"}},
         chart={"id": chart_id},
         tooltip={"enabled": True},
+        # Distinct colors per cell
+        colors=palette,
+        plotOptions={"treemap": {"distributed": True}},
     )
     return ApexChart(opts=opts, cls=chart_wrapper_class("treemap"))
 
@@ -955,7 +960,7 @@ def chart_duration_vs_engagement(
     data = [
         {
             "x": float(row["Duration_min"] or 0),
-            "y": float(row["Engagement Rate Raw"] or 0) * 100,
+            "y": round(float(row["Engagement Rate Raw"] or 0) * 100, 2),
             "z": round((row["Views"] or 0) / SCALE_MILLIONS, 1),
             "title": (row["Title"] or "Untitled")[:40],
         }
@@ -1268,3 +1273,11 @@ def chart_top_performers_radar(
         },
         cls=chart_wrapper_class("radar"),
     )
+
+
+# Palette helper: generate n distinct HSL colors
+def _distributed_palette(n: int) -> list[str]:
+    if n <= 0:
+        return THEME_COLORS
+    # Evenly spaced hues; soft saturation/lightness for readability
+    return [f"hsl({int(360*i/n)}, 70%, 55%)" for i in range(n)]
