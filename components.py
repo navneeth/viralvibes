@@ -927,24 +927,24 @@ def AnalyticsDashboardSection(
         # =====================================================================
         # BLOCK 4: PERFORMANCE QUADRANTS
         # =====================================================================
-        # Div(
-        #     H3(
-        #         "🎯 Strategic Positioning",
-        #         cls="text-2xl font-semibold text-gray-800 mb-2",
-        #     ),
-        #     P(
-        #         "Where does your content stand? Identify high-performers and improvement opportunities.",
-        #         cls="text-gray-500 mb-8 text-sm",
-        #     ),
-        #     Grid(
-        #         chart_performance_heatmap(df, "performance-heatmap"),
-        #         chart_bubble_engagement_vs_views(df, "bubble-engagement"),
-        #         cols="1 md:2",
-        #         gap="6 md:10",
-        #         cls="w-full",
-        #     ),
-        #     cls="pb-16 mb-16 border-b-2 border-gray-100",
-        # ),
+        Div(
+            H3(
+                "🎯 Strategic Positioning",
+                cls="text-2xl font-semibold text-gray-800 mb-2",
+            ),
+            P(
+                "Where does your content stand? Identify high-performers and improvement opportunities.",
+                cls="text-gray-500 mb-8 text-sm",
+            ),
+            Grid(
+                # chart_performance_heatmap(df, "performance-heatmap"),
+                chart_bubble_engagement_vs_views(df, "bubble-engagement"),
+                cols="1 md:2",
+                gap="6 md:10",
+                cls="w-full",
+            ),
+            cls="mb-16 pb-12 border-b border-gray-200",
+        ),
         # =====================================================================
         # BLOCK 5: CONTENT FACTORS
         # =====================================================================
