@@ -590,34 +590,69 @@ def _scatter_data_vectorized(
 
 def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> ApexChart:
     """
-    Line chart of views per video, sorted by view count descending.
-    Gives instant insight into top and bottom performers.
+    Bar chart of views per video, sorted by view count descending.
+    Dynamic scaling (K/M) to keep differences visible.
     """
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
-    # 1. Prepare Data
     sorted_df = _safe_sort(df, "Views", descending=True)
-    # Vectorized data extraction
-    labels = sorted_df["Title"].to_list()
-    # Data is views, scaled to millions
-    views_m = (sorted_df["Views"].fill_null(0) / SCALE_MILLIONS).round(0).to_list()
 
-    # 2. Build Options (Horizontal Bar Chart)
-    opts = _base_chart_options(
+    # Get labels
+    labels = (
+        sorted_df["Title"]
+        .cast(pl.Utf8, strict=False)
+        .fill_null("Untitled")
+        .str.slice(0, 50)
+        .to_list()
+        if "Title" in sorted_df.columns
+        else []
+    )
+
+    # Get views
+    views = sorted_df["Views"].cast(pl.Float64, strict=False).fill_null(0)
+    max_views = float(views.max() or 0)
+
+    # Dynamic scaling based on max value
+    use_thousands = max_views < 2_000_000
+
+    if use_thousands:
+        data = (views / SCALE_THOUSANDS).round(1).to_list()
+        y_title = "Views (Thousands)"
+    else:
+        data = (views / SCALE_MILLIONS).round(1).to_list()
+        y_title = "Views (Millions)"
+
+    # Ensure categories length matches data
+    if len(labels) != len(data):
+        labels = [f"Video {i+1}" for i in range(len(data))]
+
+    # ✅ Use _apex_opts instead of _base_chart_options (for scalar data)
+    opts = _apex_opts(
         "bar",
-        chart_id,
-        series=[{"name": "Views (Millions)", "data": views_m}],
+        id=chart_id,
+        series=[{"name": y_title, "data": data}],
         title={"text": "🏆 Top Videos by Views", "align": "left"},
         xaxis={"categories": labels, "labels": {"rotate": -45, "maxHeight": 80}},
-        yaxis={"title": {"text": "Views (Millions)"}},
+        yaxis={"title": {"text": y_title}},
+        # ✅ Format numbers in tooltip, not yaxis labels
+        tooltip={
+            "theme": "light",
+            "y": {
+                "formatter": f"function(val) {{ return val.toFixed(1) + '{'K' if use_thousands else 'M'}'; }}"
+            },
+        },
         plotOptions={
             "bar": {
                 "borderRadius": 4,
                 "columnWidth": "55%",
+                "distributed": True,  # Different color per bar
             }
         },
+        colors=THEME_COLORS,
+        legend={"show": False},
     )
+
     return ApexChart(
         opts=opts,
         cls=chart_wrapper_class("vertical_bar"),
@@ -849,51 +884,41 @@ def chart_controversy_score(
 def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> ApexChart:
     """
     Treemap of video views, showing contribution to overall reach.
+    ✅ FIXED: Each tile has its own color
     """
     if df is None or df.is_empty():
         return _empty_chart("treemap", chart_id)
 
-    data = [
+    # Build raw data
+    raw = [
         {"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)
     ]
+
+    # ✅ NEW: Generate distinct color per tile
+    palette = _distributed_palette(len(raw))
+
+    # ✅ NEW: Add fillColor to each data point
+    data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
+
     opts = _apex_opts(
         "treemap",
+        id=chart_id,
         series=[{"data": data}],
         legend={"show": False},
         title={"text": "Views Distribution by Video", "align": "center"},
         dataLabels={"enabled": True, "style": {"fontSize": "11px"}},
-        chart={"id": chart_id},
         tooltip={"enabled": True},
+        # ✅ IMPORTANT: Tell ApexCharts NOT to override with series colors
+        plotOptions={
+            "treemap": {
+                "distributed": True,  # ✅ Enable per-point coloring
+                "enableShades": False,  # ✅ Don't auto-shade
+            }
+        },
+        # ✅ Optional: Still pass palette for consistency
+        colors=palette,
     )
     return ApexChart(opts=opts, cls=chart_wrapper_class("treemap"))
-
-
-def chart_scatter_likes_dislikes(
-    df: pl.DataFrame, chart_id: str = "scatter-likes"
-) -> ApexChart:
-    if df is None or df.is_empty():
-        return _empty_chart("scatter", chart_id)
-
-    # Use dicts with x, y, and custom field "title"
-    data = [
-        {
-            "x": int(row["Likes"] or 0),
-            "y": int(row["Dislikes"] or 0),
-            "title": _truncate_title(row["Title"]),
-        }
-        for row in df.iter_rows(named=True)
-    ]
-
-    opts = {
-        "chart": {"id": chart_id, "type": "scatter", "zoom": {"enabled": True}},
-        "series": [{"name": "Videos", "data": data}],
-        "xaxis": {"title": {"text": "👍 Like Count"}},
-        "yaxis": {"title": {"text": "👎 Dislike Count"}},
-        "title": {"text": "Likes vs Dislikes Correlation", "align": "center"},
-        "tooltip": {"custom": CLICKABLE_TOOLTIP},
-    }
-
-    return ApexChart(opts=opts, cls=chart_wrapper_class("scatter"))
 
 
 def chart_bubble_engagement_vs_views(
@@ -955,7 +980,7 @@ def chart_duration_vs_engagement(
     data = [
         {
             "x": float(row["Duration_min"] or 0),
-            "y": float(row["Engagement Rate Raw"] or 0) * 100,
+            "y": round(float(row["Engagement Rate Raw"] or 0) * 100, 2),
             "z": round((row["Views"] or 0) / SCALE_MILLIONS, 1),
             "title": (row["Title"] or "Untitled")[:40],
         }
@@ -1207,10 +1232,15 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
     if df is None or df.is_empty():
         return _empty_chart("treemap", chart_id)
 
-    data = [
+    # Build raw data
+    raw = [
         {"x": row["Title"][:50], "y": row["Views"] or 0}
         for row in df.iter_rows(named=True)
     ]
+
+    # Generate distinct color per tile
+    palette = _distributed_palette(len(raw))
+    data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
 
     return ApexChart(
         opts={
@@ -1220,10 +1250,13 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
                 "text": "📊 Reach Distribution (larger = more views)",
                 "align": "left",
             },
-            "dataLabels": {"enabled": True},
+            "dataLabels": {"enabled": True, "style": {"fontSize": "11px"}},
             "tooltip": {"theme": "light"},
             "legend": {"show": False},
-            "plotOptions": {"treemap": {"distributed": False}},
+            # Ensure per-point coloring
+            "plotOptions": {"treemap": {"distributed": True, "enableShades": False}},
+            # Pass palette for consistency; will not override fillColor
+            "colors": palette,
         },
         cls=chart_wrapper_class("treemap"),
     )
@@ -1268,3 +1301,11 @@ def chart_top_performers_radar(
         },
         cls=chart_wrapper_class("radar"),
     )
+
+
+# Palette helper: generate n distinct HSL colors
+def _distributed_palette(n: int) -> list[str]:
+    if n <= 0:
+        return THEME_COLORS
+    # Evenly spaced hues; soft saturation/lightness for readability
+    return [f"hsl({int(360*i/n)}, 70%, 55%)" for i in range(n)]
