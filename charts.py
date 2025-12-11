@@ -96,7 +96,6 @@ def _base_chart_options(chart_type: str, chart_id: str, **extra) -> dict:
         "theme": {"mode": "light", "palette": "palette1"},
         "colors": THEME_COLORS,
         "stroke": {"width": 2, "curve": "smooth"},
-        "grid": {"show": True, "borderColor": "#e5e7eb", "strokeDashArray": 4},
         "dataLabels": {"enabled": False},
         "tooltip": {
             "theme": "light",
@@ -104,6 +103,15 @@ def _base_chart_options(chart_type: str, chart_id: str, **extra) -> dict:
             "custom": CLICKABLE_TOOLTIP,
             "intersect": False,
             "shared": True,  # For multi-series charts
+        },
+        # grid visibility
+        "grid": {
+            "show": True,
+            "borderColor": "#e2e8f0",  # Light gray
+            "strokeDashArray": [4, 4],  # Dashed pattern
+            "xaxis": {"lines": {"show": True}},
+            "yaxis": {"lines": {"show": True}},
+            "padding": {"left": 10, "right": 10},
         },
         **extra,
     }
@@ -127,6 +135,16 @@ def _apex_opts(chart_type: str, **kwargs) -> dict:
             "parentHeightOffset": 0,
             # allow redrawing when parent resizes (good for responsive grids)
             "redrawOnParentResize": True,
+            #  Smooth animations
+            "animations": {
+                "enabled": True,
+                "easing": "easeinout",
+                "speed": 800,
+                "animateGradually": {
+                    "enabled": True,
+                    "delay": 150,
+                },
+            },
         },
         # base defaults
         "colors": THEME_COLORS,
@@ -420,6 +438,34 @@ def _bubble_opts_mobile_safe(
             "hover": {"filter": {"type": "darken", "value": 0.15}},
             "active": {"filter": {"type": "darken", "value": 0.25}},
         },
+        # ✅ Add responsive breakpoints
+        "responsive": [
+            {
+                "breakpoint": 1024,  # Tablets
+                "options": {
+                    "chart": {"height": 450},
+                    "plotOptions": {
+                        "bubble": {
+                            "minBubbleRadius": 5,
+                            "maxBubbleRadius": 25,
+                        }
+                    },
+                },
+            },
+            {
+                "breakpoint": 640,  # Mobile
+                "options": {
+                    "chart": {"height": 380},
+                    "plotOptions": {
+                        "bubble": {
+                            "minBubbleRadius": 4,
+                            "maxBubbleRadius": 20,
+                        }
+                    },
+                    "legend": {"position": "bottom"},
+                },
+            },
+        ],
     }
 
     # Merge with any passed kwargs (allows override)
