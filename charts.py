@@ -432,6 +432,8 @@ def _bubble_opts_mobile_safe(
                 "minBubbleRadius": 6,  # ✅ Touch-friendly
                 "maxBubbleRadius": 30,
                 "dataLabels": {"enabled": False},
+                # Use different color per bubble
+                "colorByPoint": True,
             }
         },
         "states": {
