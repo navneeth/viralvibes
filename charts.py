@@ -880,8 +880,7 @@ def chart_likes_per_1k_views(
             ),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
         ).to_dicts()
-        palette = _distributed_palette(len(raw))
-        data = [{**d, "color": palette[i % len(palette)]} for i, d in enumerate(raw)]
+        data, palette = _apply_point_colors(raw)
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("scatter", chart_id)
@@ -1166,23 +1165,33 @@ def chart_comments_engagement(
     if df is None or df.is_empty():
         return _empty_chart("scatter", chart_id)
 
-    data = [
-        {
-            "x": int(row["Comments"] or 0),
-            "y": round(float(row["Engagement Rate Raw"] or 0) * 100, 2),
-            "title": _truncate_title(row["Title"]),
-        }
-        for row in df.iter_rows(named=True)
-    ]
+    try:
+        raw = df.select(
+            (pl.col("Comments").cast(pl.Float64, strict=False).fill_null(0)).alias("x"),
+            (pl.col("Engagement Rate Raw") * 100).round(2).alias("y"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+        ).to_dicts()
+        data, palette = _apply_point_colors(raw)
+    except Exception as e:
+        logger.warning(f"[charts] Data extraction failed: {e}")
+        return _empty_chart("scatter", chart_id)
 
     return ApexChart(
-        opts={
-            "chart": {"type": "scatter", "id": chart_id, "zoom": {"enabled": True}},
-            "series": [{"name": "Videos", "data": data}],
-            "xaxis": {"title": {"text": "💬 Comments"}},
-            "yaxis": {"title": {"text": "Engagement Rate (%)"}},
-            "title": {"text": "💬 Comments vs Engagement", "align": "left"},
-        },
+        opts=_scatter_opts_mobile_safe(
+            chart_type="scatter",
+            x_label="💬 Comments",
+            y_label="Engagement Rate (%)",
+            chart_id=chart_id,
+            disable_zoom=True,
+            series=[{"name": "Videos", "data": data}],
+            xaxis={"title": {"text": "💬 Comments"}},
+            yaxis={"title": {"text": "Engagement Rate (%)"}},
+            title={"text": "💬 Comments vs Engagement", "align": "left"},
+            colors=palette,
+        ),
         cls=chart_wrapper_class("scatter"),
     )
 
@@ -1206,8 +1215,7 @@ def chart_views_vs_likes(
             ),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
         ).to_dicts()
-        palette = _distributed_palette(len(raw))
-        data = [{**d, "color": palette[i % len(palette)]} for i, d in enumerate(raw)]
+        data, palette = _apply_point_colors(raw)
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("bubble", chart_id)
@@ -1408,3 +1416,17 @@ def _distributed_palette(n: int) -> list[str]:
         return THEME_COLORS
     # Evenly spaced hues; soft saturation/lightness for readability
     return [f"hsl({int(360*i/n)}, 70%, 55%)" for i in range(n)]
+
+
+def _apply_point_colors(data: list[dict]) -> tuple[list[dict], list[str]]:
+    """
+    Assign a distinct color to each point and return (data_with_colors, palette).
+    Safe on empty lists and preserves existing fields.
+    """
+    if not data:
+        return data, THEME_COLORS
+    palette = _distributed_palette(len(data))
+    for i, d in enumerate(data):
+        # ApexCharts reads 'color' per point
+        d["color"] = palette[i % len(palette)]
+    return data, palette
