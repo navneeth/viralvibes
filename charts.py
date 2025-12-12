@@ -896,6 +896,8 @@ def chart_likes_per_1k_views(
             xaxis={"title": {"text": "Views (Millions)"}},
             yaxis={"title": {"text": "Likes per 1K Views"}},
             title={"text": "📊 Audience Quality: Likes per 1K Views", "align": "left"},
+            # add consistent clickable tooltip
+            tooltip={"custom": CLICKABLE_TOOLTIP, "shared": False, "intersect": True},
             colors=palette,
         ),
         cls=chart_wrapper_class("scatter"),
