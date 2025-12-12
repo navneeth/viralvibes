@@ -879,6 +879,10 @@ def chart_likes_per_1k_views(
                 "title"
             ),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Duration Formatted").alias("Duration"),
+            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
         ).to_dicts()
         data, palette = _apply_point_colors(raw)
     except Exception as e:
@@ -896,13 +900,13 @@ def chart_likes_per_1k_views(
             xaxis={"title": {"text": "Views (Millions)"}},
             yaxis={"title": {"text": "Likes per 1K Views"}},
             title={"text": "📊 Audience Quality: Likes per 1K Views", "align": "left"},
-            # add consistent clickable tooltip
-            tooltip={
-                "enabled": True,
-                "custom": CLICKABLE_TOOLTIP,
-                "shared": False,
-                "intersect": True,
-            },
+            # # add consistent clickable tooltip
+            # tooltip={
+            #     "enabled": True,
+            #     "custom": CLICKABLE_TOOLTIP,
+            #     "shared": False,
+            #     "intersect": True,
+            # },
             markers={"size": 4, "hover": {"size": 6}},  # improve hover target
             colors=palette,
         ),
