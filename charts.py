@@ -710,36 +710,69 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
 def chart_engagement_ranking(
     df: pl.DataFrame, chart_id: str = "engagement-ranking"
 ) -> ApexChart:
-    """Horizontal bar: Videos ranked by engagement rate."""
+    """Horizontal bar: Videos ranked by engagement rate with rich tooltip."""
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
 
-    df = _safe_sort(df, "Engagement Rate Raw", descending=True)
-    rates = (df["Engagement Rate Raw"] * 100).fill_null(0).round(2).to_list()
-    avg = sum(rates) / len(rates) if rates else 0.0
+    # Sort by engagement descending
+    df_sorted = _safe_sort(df, "Engagement Rate Raw", descending=True)
 
+    # Build per-point objects so the global CLICKABLE_TOOLTIP can show video info
+    # Apex bar supports data points as { x, y, ... }
+    points = []
+    for row in df_sorted.iter_rows(named=True):
+        points.append(
+            {
+                "x": _truncate_title(row.get("Title") or "Untitled"),
+                "y": round(float(row.get("Engagement Rate Raw") or 0) * 100, 2),
+                "title": _truncate_title(row.get("Title") or "Untitled"),
+                "id": str(row.get("id") or row.get("ID") or ""),
+                # Optional extras for the tooltip
+                "Likes": int(row.get("Likes") or 0),
+                "Comments": int(row.get("Comments") or 0),
+                "Duration": row.get("Duration Formatted") or "",
+                "EngagementRateRaw": float(row.get("Engagement Rate Raw") or 0),
+            }
+        )
+
+    # Distributed colors: one color per bar
     opts = _base_chart_options(
         "bar",
         chart_id,
-        series=[{"name": "Engagement %", "data": rates}],
-        plotOptions={"bar": {"horizontal": True, "barHeight": "60%"}},
-        xaxis={"title": {"text": "Engagement %"}},
-        yaxis={"categories": df["Title"].to_list()},
-        annotations={
-            "xaxis": [
-                {
-                    "x": avg,
-                    "borderColor": "#EF4444",
-                    "label": {"text": f"Avg {avg:.1f}%"},
-                }
-            ]
+        series=[{"name": "Engagement %", "data": points}],
+        plotOptions={
+            "bar": {
+                "horizontal": True,
+                "barHeight": "60%",
+                "borderRadius": 4,
+                "distributed": True,  # distinct color per bar
+            }
         },
+        # x-axis shows Engagement %, y-axis shows video titles via point.x
+        xaxis={"title": {"text": "Engagement %"}},
+        yaxis={"labels": {"maxWidth": 260}},
         title={"text": "Engagement Leaderboard", "align": "left"},
+        colors=THEME_COLORS,
+        tooltip={
+            # Use the global rich, clickable tooltip
+            "custom": CLICKABLE_TOOLTIP,
+            "shared": False,
+            "intersect": True,
+            # Format numeric value (y) to show %
+            "y": {"formatter": "function(val){ return (val||0).toFixed(2) + '%'; }"},
+        },
+        responsive=[
+            {
+                "breakpoint": 640,
+                "options": {
+                    "plotOptions": {"bar": {"barHeight": "70%"}},
+                    "yaxis": {"labels": {"maxWidth": 200}},
+                    "legend": {"position": "bottom"},
+                },
+            }
+        ],
     )
-    return ApexChart(
-        opts=opts,
-        cls=chart_wrapper_class("horizontal_bar"),
-    )
+    return ApexChart(opts=opts, cls=chart_wrapper_class("horizontal_bar"))
 
 
 def chart_engagement_breakdown(
