@@ -97,13 +97,7 @@ def _base_chart_options(chart_type: str, chart_id: str, **extra) -> dict:
         "colors": THEME_COLORS,
         "stroke": {"width": 2, "curve": "smooth"},
         "dataLabels": {"enabled": False},
-        "tooltip": {
-            "theme": "light",
-            "marker": {"show": True},
-            "custom": CLICKABLE_TOOLTIP,
-            "intersect": False,
-            "shared": True,  # For multi-series charts
-        },
+        "tooltip": _tooltip_opts_for_chart(chart_type),
         # grid visibility
         "grid": {
             "show": True,
@@ -174,6 +168,42 @@ def _empty_chart(chart_type: str, chart_id: str) -> ApexChart:
 # ─────────────────────────────────────────────────────────────
 # Reusable Tooltip Templates
 # ─────────────────────────────────────────────────────────────
+def _tooltip_opts_for_chart(chart_type: str) -> dict:
+    """
+    Return tooltip config optimized for chart type.
+
+    - scatter/bubble: per-point tooltips (shared=False, intersect=True)
+    - bar/column: per-bar tooltips (shared=False, intersect=True)
+    - line/area: shared tooltips across series (shared=True, intersect=False)
+    - default: per-point behavior
+
+    Args:
+        chart_type: "scatter", "bubble", "bar", "line", etc.
+
+    Returns:
+        Tooltip config dict
+    """
+    # Charts that need per-point/per-bar tooltips
+    per_point_charts = {"scatter", "bubble", "bar", "column", "horizontal_bar"}
+
+    if chart_type in per_point_charts:
+        return {
+            "enabled": True,
+            "custom": CLICKABLE_TOOLTIP,
+            "shared": False,  # Per-point tooltip
+            "intersect": True,  # Show on hover
+            "theme": "light",
+        }
+    else:  # line, area, radar, etc.
+        return {
+            "enabled": True,
+            "custom": CLICKABLE_TOOLTIP,
+            "shared": True,  # Show all series at once
+            "intersect": False,
+            "theme": "light",
+        }
+
+
 # Reusable tooltip generator for bubble charts
 def _bubble_tooltip(x_label: str, y_label: str, z_label: str) -> str:
     """
@@ -422,11 +452,7 @@ def _bubble_opts_mobile_safe(
         },
         "colors": THEME_COLORS,
         "dataLabels": {"enabled": False},
-        "tooltip": {
-            "theme": "light",
-            "custom": CLICKABLE_TOOLTIP,
-            "intersect": False,
-        },
+        "tooltip": _tooltip_opts_for_chart(chart_type),
         "plotOptions": {
             "bubble": {
                 "minBubbleRadius": 6,  # ✅ Touch-friendly
@@ -519,12 +545,7 @@ def _scatter_opts_mobile_safe(
         },
         "colors": THEME_COLORS,
         "dataLabels": {"enabled": False},
-        "tooltip": {
-            "theme": "light",
-            "custom": CLICKABLE_TOOLTIP,
-            "intersect": False,
-            "shared": True,
-        },
+        "tooltip": _tooltip_opts_for_chart(chart_type),
         "states": {
             "hover": {"filter": {"type": "darken", "value": 0.15}},
             "active": {"filter": {"type": "darken", "value": 0.25}},
@@ -673,7 +694,7 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
 
     # Ensure categories length matches data
     if len(labels) != len(data):
-        labels = [f"Video {i+1}" for i in range(len(data))]
+        labels = [f"Video {i + 1}" for i in range(len(data))]
 
     # ✅ Use _apex_opts instead of _base_chart_options (for scalar data)
     opts = _apex_opts(
@@ -900,13 +921,6 @@ def chart_likes_per_1k_views(
             xaxis={"title": {"text": "Views (Millions)"}},
             yaxis={"title": {"text": "Likes per 1K Views"}},
             title={"text": "📊 Audience Quality: Likes per 1K Views", "align": "left"},
-            # # add consistent clickable tooltip
-            # tooltip={
-            #     "enabled": True,
-            #     "custom": CLICKABLE_TOOLTIP,
-            #     "shared": False,
-            #     "intersect": True,
-            # },
             markers={"size": 4, "hover": {"size": 6}},  # improve hover target
             colors=palette,
         ),
@@ -1042,6 +1056,11 @@ def chart_bubble_engagement_vs_views(
             pl.col("Controversy").round(2).alias("z"),
             (pl.col("Title").str.slice(0, 45)).alias("title"),
             (pl.col("id").cast(pl.Utf8)).alias("id"),
+            # Required fields for CLICKABLE_TOOLTIP
+            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Duration Formatted").alias("Duration"),
+            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
         ).to_dicts()
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
@@ -1185,6 +1204,11 @@ def chart_comments_engagement(
                 "title"
             ),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+            # Required fields for CLICKABLE_TOOLTIP
+            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Duration Formatted").alias("Duration"),
+            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
         ).to_dicts()
         data, palette = _apply_point_colors(raw)
     except Exception as e:
@@ -1226,6 +1250,11 @@ def chart_views_vs_likes(
                 "title"
             ),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+            # Required fields for CLICKABLE_TOOLTIP
+            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Duration Formatted").alias("Duration"),
+            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
         ).to_dicts()
         data, palette = _apply_point_colors(raw)
     except Exception as e:
@@ -1246,7 +1275,6 @@ def chart_views_vs_likes(
                 "text": "🎯 Views vs Likes (bubble size = comments)",
                 "align": "left",
             },
-            tooltip={"custom": TOOLTIP_TRUNC},
             plotOptions={
                 "bubble": {
                     "minBubbleRadius": 4,
@@ -1427,7 +1455,7 @@ def _distributed_palette(n: int) -> list[str]:
     if n <= 0:
         return THEME_COLORS
     # Evenly spaced hues; soft saturation/lightness for readability
-    return [f"hsl({int(360*i/n)}, 70%, 55%)" for i in range(n)]
+    return [f"hsl({int(360 * i / n)}, 70%, 55%)" for i in range(n)]
 
 
 def _apply_point_colors(data: list[dict]) -> tuple[list[dict], list[str]]:
