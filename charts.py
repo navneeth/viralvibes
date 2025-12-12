@@ -871,11 +871,16 @@ def chart_likes_per_1k_views(
 
     # Vectorized data extraction
     try:
-        data = df_calc.select(
+        # Add title/id and per-point color
+        raw = df_calc.select(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             pl.col("Likes_per_1K").round(1).alias("y"),
-            (pl.col("Title").str.slice(0, 40)).alias("title"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
         ).to_dicts()
+        data, palette = _apply_point_colors(raw)
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("scatter", chart_id)
@@ -891,6 +896,7 @@ def chart_likes_per_1k_views(
             xaxis={"title": {"text": "Views (Millions)"}},
             yaxis={"title": {"text": "Likes per 1K Views"}},
             title={"text": "📊 Audience Quality: Likes per 1K Views", "align": "left"},
+            colors=palette,
         ),
         cls=chart_wrapper_class("scatter"),
     )
@@ -1159,23 +1165,33 @@ def chart_comments_engagement(
     if df is None or df.is_empty():
         return _empty_chart("scatter", chart_id)
 
-    data = [
-        {
-            "x": int(row["Comments"] or 0),
-            "y": round(float(row["Engagement Rate Raw"] or 0) * 100, 2),
-            "title": _truncate_title(row["Title"]),
-        }
-        for row in df.iter_rows(named=True)
-    ]
+    try:
+        raw = df.select(
+            (pl.col("Comments").cast(pl.Float64, strict=False).fill_null(0)).alias("x"),
+            (pl.col("Engagement Rate Raw") * 100).round(2).alias("y"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+        ).to_dicts()
+        data, palette = _apply_point_colors(raw)
+    except Exception as e:
+        logger.warning(f"[charts] Data extraction failed: {e}")
+        return _empty_chart("scatter", chart_id)
 
     return ApexChart(
-        opts={
-            "chart": {"type": "scatter", "id": chart_id, "zoom": {"enabled": True}},
-            "series": [{"name": "Videos", "data": data}],
-            "xaxis": {"title": {"text": "💬 Comments"}},
-            "yaxis": {"title": {"text": "Engagement Rate (%)"}},
-            "title": {"text": "💬 Comments vs Engagement", "align": "left"},
-        },
+        opts=_scatter_opts_mobile_safe(
+            chart_type="scatter",
+            x_label="💬 Comments",
+            y_label="Engagement Rate (%)",
+            chart_id=chart_id,
+            disable_zoom=True,
+            series=[{"name": "Videos", "data": data}],
+            xaxis={"title": {"text": "💬 Comments"}},
+            yaxis={"title": {"text": "Engagement Rate (%)"}},
+            title={"text": "💬 Comments vs Engagement", "align": "left"},
+            colors=palette,
+        ),
         cls=chart_wrapper_class("scatter"),
     )
 
@@ -1190,13 +1206,16 @@ def chart_views_vs_likes(
     df_safe = _safe_bubble_data(df, max_points=150)
 
     try:
-        data = df_safe.select(
+        raw = df_safe.select(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
-            (pl.col("Title").str.slice(0, 40)).alias("title"),
-            (pl.col("id").cast(pl.Utf8)).alias("id"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
         ).to_dicts()
+        data, palette = _apply_point_colors(raw)
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("bubble", chart_id)
@@ -1216,7 +1235,14 @@ def chart_views_vs_likes(
                 "align": "left",
             },
             tooltip={"custom": TOOLTIP_TRUNC},
-            plotOptions={"bubble": {"minBubbleRadius": 4, "maxBubbleRadius": 25}},
+            plotOptions={
+                "bubble": {
+                    "minBubbleRadius": 4,
+                    "maxBubbleRadius": 25,
+                    "colorByPoint": True,
+                }
+            },
+            colors=palette,
         ),
         cls=chart_wrapper_class("bubble"),
     )
@@ -1390,3 +1416,17 @@ def _distributed_palette(n: int) -> list[str]:
         return THEME_COLORS
     # Evenly spaced hues; soft saturation/lightness for readability
     return [f"hsl({int(360*i/n)}, 70%, 55%)" for i in range(n)]
+
+
+def _apply_point_colors(data: list[dict]) -> tuple[list[dict], list[str]]:
+    """
+    Assign a distinct color to each point and return (data_with_colors, palette).
+    Safe on empty lists and preserves existing fields.
+    """
+    if not data:
+        return data, THEME_COLORS
+    palette = _distributed_palette(len(data))
+    for i, d in enumerate(data):
+        # ApexCharts reads 'color' per point
+        d["color"] = palette[i % len(palette)]
+    return data, palette
