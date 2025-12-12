@@ -871,11 +871,17 @@ def chart_likes_per_1k_views(
 
     # Vectorized data extraction
     try:
-        data = df_calc.select(
+        # Add title/id and per-point color
+        raw = df_calc.select(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             pl.col("Likes_per_1K").round(1).alias("y"),
-            (pl.col("Title").str.slice(0, 40)).alias("title"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
         ).to_dicts()
+        palette = _distributed_palette(len(raw))
+        data = [{**d, "color": palette[i % len(palette)]} for i, d in enumerate(raw)]
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("scatter", chart_id)
@@ -891,6 +897,7 @@ def chart_likes_per_1k_views(
             xaxis={"title": {"text": "Views (Millions)"}},
             yaxis={"title": {"text": "Likes per 1K Views"}},
             title={"text": "📊 Audience Quality: Likes per 1K Views", "align": "left"},
+            colors=palette,
         ),
         cls=chart_wrapper_class("scatter"),
     )
@@ -1190,13 +1197,17 @@ def chart_views_vs_likes(
     df_safe = _safe_bubble_data(df, max_points=150)
 
     try:
-        data = df_safe.select(
+        raw = df_safe.select(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
-            (pl.col("Title").str.slice(0, 40)).alias("title"),
-            (pl.col("id").cast(pl.Utf8)).alias("id"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
         ).to_dicts()
+        palette = _distributed_palette(len(raw))
+        data = [{**d, "color": palette[i % len(palette)]} for i, d in enumerate(raw)]
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("bubble", chart_id)
@@ -1216,7 +1227,14 @@ def chart_views_vs_likes(
                 "align": "left",
             },
             tooltip={"custom": TOOLTIP_TRUNC},
-            plotOptions={"bubble": {"minBubbleRadius": 4, "maxBubbleRadius": 25}},
+            plotOptions={
+                "bubble": {
+                    "minBubbleRadius": 4,
+                    "maxBubbleRadius": 25,
+                    "colorByPoint": True,
+                }
+            },
+            colors=palette,
         ),
         cls=chart_wrapper_class("bubble"),
     )
