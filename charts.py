@@ -866,14 +866,19 @@ def chart_likes_per_1k_views(
 
     # Calculate likes per 1K views
     df_calc = df.with_columns(
-        (pl.col("Likes") / (pl.col("Views") / 1000)).alias("Likes_per_1K")
+        (pl.col("Likes") / (pl.col("Views") / 1000)).alias("Likes_per_1K"),
+        pl.col("Views").cast(pl.Float64, strict=False).fill_null(0),
     )
 
-    # Vectorized data extraction
+    # Decide X scale: K if max views < 2M, else M
+    max_views = float(df_calc["Views"].max() or 0)
+    use_thousands = max_views < 2_000_000
+
     try:
-        # Add title/id and per-point color
         raw = df_calc.select(
-            (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
+            ((pl.col("Views") / (SCALE_THOUSANDS if use_thousands else SCALE_MILLIONS)))
+            .round(1)
+            .alias("x"),
             pl.col("Likes_per_1K").round(1).alias("y"),
             (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
                 "title"
@@ -886,15 +891,23 @@ def chart_likes_per_1k_views(
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("scatter", chart_id)
 
+    x_title = f"Views ({'Thousands' if use_thousands else 'Millions'})"
+    x_fmt = "function(val){ return (val||0).toFixed(1) + '%s'; }" % (
+        "K" if use_thousands else "M"
+    )
+
     return ApexChart(
         opts=_scatter_opts_mobile_safe(
             chart_type="scatter",
-            x_label="Views (Millions)",
+            x_label=x_title,
             y_label="Likes per 1K Views",
             chart_id=chart_id,
             disable_zoom=True,
             series=[{"name": "Videos", "data": data}],
-            xaxis={"title": {"text": "Views (Millions)"}},
+            xaxis={
+                "title": {"text": x_title},
+                "labels": {"formatter": x_fmt},
+            },
             yaxis={"title": {"text": "Likes per 1K Views"}},
             title={"text": "📊 Audience Quality: Likes per 1K Views", "align": "left"},
             colors=palette,
@@ -1194,12 +1207,26 @@ def chart_views_vs_likes(
     if df is None or df.is_empty():
         return _empty_chart("bubble", chart_id)
 
-    df_safe = _safe_bubble_data(df, max_points=150)
+    df_safe = _safe_bubble_data(df, max_points=150).with_columns(
+        pl.col("Views").cast(pl.Float64, strict=False).fill_null(0),
+        pl.col("Likes").cast(pl.Float64, strict=False).fill_null(0),
+        pl.col("Comments").cast(pl.Float64, strict=False).fill_null(0),
+    )
+
+    # Decide X scale K/M based on views; Y scale to K if large likes
+    max_views = float(df_safe["Views"].max() or 0)
+    max_likes = float(df_safe["Likes"].max() or 0)
+    x_thousands = max_views < 2_000_000
+    y_thousands = max_likes >= 10_000
 
     try:
         raw = df_safe.select(
-            (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
-            (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
+            ((pl.col("Views") / (SCALE_THOUSANDS if x_thousands else SCALE_MILLIONS)))
+            .round(1)
+            .alias("x"),
+            ((pl.col("Likes") / (SCALE_THOUSANDS if y_thousands else 1.0)))
+            .round(1)
+            .alias("y"),
             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
             (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
                 "title"
@@ -1211,6 +1238,15 @@ def chart_views_vs_likes(
     except Exception as e:
         logger.warning(f"[charts] Data extraction failed: {e}")
         return _empty_chart("bubble", chart_id)
+
+    x_title = f"👀 Views ({'Thousands' if x_thousands else 'Millions'})"
+    y_title = f"👍 Likes{' (Thousands)' if y_thousands else ''}"
+    x_fmt = "function(val){ return (val||0).toFixed(1) + '%s'; }" % (
+        "K" if x_thousands else "M"
+    )
+    y_fmt = "function(val){ return %s; }" % (
+        "(val||0).toFixed(1) + 'K'" if y_thousands else "(val||0).toFixed(1)"
+    )
 
     return ApexChart(
         opts=_bubble_opts_mobile_safe(
