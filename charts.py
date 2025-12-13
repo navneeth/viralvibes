@@ -65,6 +65,28 @@ def _truncate_title(title: str, max_len: int = 50) -> str:
     return title[:max_len] + ("..." if len(title) > max_len else "")
 
 
+# Palette helper: generate n distinct HSL colors
+def _distributed_palette(n: int) -> list[str]:
+    if n <= 0:
+        return THEME_COLORS
+    # Evenly spaced hues; soft saturation/lightness for readability
+    return [f"hsl({int(360 * i / n)}, 70%, 55%)" for i in range(n)]
+
+
+def _apply_point_colors(data: list[dict]) -> tuple[list[dict], list[str]]:
+    """
+    Assign a distinct color to each point and return (data_with_colors, palette).
+    Safe on empty lists and preserves existing fields.
+    """
+    if not data:
+        return data, THEME_COLORS
+    palette = _distributed_palette(len(data))
+    for i, d in enumerate(data):
+        # ApexCharts reads 'color' per point
+        d["color"] = palette[i % len(palette)]
+    return data, palette
+
+
 # ─────────────────────────────────────────────────────────────
 # Core Utilities and Abstraction
 # ─────────────────────────────────────────────────────────────
@@ -258,48 +280,6 @@ def _bubble_tooltip(x_label: str, y_label: str, z_label: str) -> str:
     return tooltip_js
 
 
-# ⚠️ DEPRECATED: Old tooltip pattern - being replaced with _scatter_tooltip()
-# Keep until all 3 scatter charts are migrated to new pattern
-TOOLTIP_TRUNC = r"""
-function({ series, seriesIndex, dataPointIndex, w }) {
-    const pt = w.config.series?.[seriesIndex]?.data?.[dataPointIndex];
-    if (!pt) {
-        return '<div style="padding:8px;">No data</div>';
-    }
-
-    // Title truncation
-    const rawTitle = String(pt.title || "");
-    const title = rawTitle.length > 60 ? rawTitle.substring(0, 60) + '…' : rawTitle;
-
-    // Build lines dynamically from pt object
-    let lines = [];
-
-    for (const [key, value] of Object.entries(pt)) {
-        if (key === "title") continue;   // already printed
-        if (value === null || value === undefined) continue;
-
-        // Format large numbers using locale
-        let formatted = value;
-
-        if (typeof value === "number") {
-            if (Math.abs(value) >= 1000) {
-                formatted = value.toLocaleString();
-            }
-        }
-
-        lines.push(`<b>${key}:</b> ${formatted}`);
-    }
-
-    return `
-        <div style="padding:8px; max-width:260px; word-break:break-word;">
-            <div><b>${title}</b></div>
-            <div style="margin-top:6px;">
-                ${lines.join("<br>")}
-            </div>
-        </div>
-    `;
-}
-"""
 # ─────────────────────────────────────────────────────────────
 # THE ONE TOOLTIP TO RULE THEM ALL – clickable + beautiful
 # ─────────────────────────────────────────────────────────────
@@ -604,6 +584,7 @@ def _scatter_data_vectorized(
     z_col: str = None,
     x_scale: float = 1.0,
     y_scale: float = 1.0,
+    z_scale: float = 1.0,
     x_round: int = 1,
     y_round: int = 2,
 ) -> list:
@@ -636,8 +617,8 @@ def _scatter_data_vectorized(
             # Include detail metadata for the rich tooltip
             pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
             pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
-            pl.col("Duration Formatted").alias("Duration"),
-            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
+            pl.col("Duration Formatted").fill_null("—").alias("Duration"),
+            pl.col("Engagement Rate Raw").fill_null(0).alias("EngagementRateRaw"),
         ]
 
         # Add Z column only for bubble charts
@@ -725,6 +706,41 @@ def chart_views_ranking(df: pl.DataFrame, chart_id: str = "views-ranking") -> Ap
     return ApexChart(
         opts=opts,
         cls=chart_wrapper_class("vertical_bar"),
+    )
+
+
+def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> ApexChart:
+    """Treemap: Video contribution to total views."""
+    if df is None or df.is_empty():
+        return _empty_chart("treemap", chart_id)
+
+    # Build raw data
+    raw = [
+        {"x": row["Title"][:50], "y": row["Views"] or 0}
+        for row in df.iter_rows(named=True)
+    ]
+
+    # Generate distinct color per tile
+    palette = _distributed_palette(len(raw))
+    data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
+
+    return ApexChart(
+        opts={
+            "chart": {"type": "treemap", "id": chart_id},
+            "series": [{"data": data}],
+            "title": {
+                "text": "📊 Reach Distribution (larger = more views)",
+                "align": "left",
+            },
+            "dataLabels": {"enabled": True, "style": {"fontSize": "11px"}},
+            "tooltip": {"theme": "light"},
+            "legend": {"show": False},
+            # Ensure per-point coloring
+            "plotOptions": {"treemap": {"distributed": True, "enableShades": False}},
+            # Pass palette for consistency; will not override fillColor
+            "colors": palette,
+        },
+        cls=chart_wrapper_class("treemap"),
     )
 
 
@@ -828,6 +844,7 @@ def chart_engagement_breakdown(
     return ApexChart(
         opts=_base_chart_options(
             "bar",
+            chart_id=chart_id,
             series=[
                 {"name": "👍 Likes (K)", "data": data_likes_k},
                 {"name": "💬 Comments (×100)", "data": data_comments_x100},
@@ -925,6 +942,146 @@ def chart_likes_per_1k_views(
             colors=palette,
         ),
         cls=chart_wrapper_class("scatter"),
+    )
+
+
+def chart_stacked_interactions(
+    df: pl.DataFrame,
+    chart_id: str = "stacked-interactions",
+    top_n: int = 12,
+) -> ApexChart:
+    """
+    Stacked column chart: Top videos by total interactions (Views + Likes + Comments).
+    Each column represents one video.
+    Stack layers (bottom to top): Views → Likes → Comments.
+    Fully compatible with raw YouTube DataFrame – no enrichment required.
+    """
+    if df is None or df.is_empty():
+        return _empty_chart("bar", chart_id)
+
+    # ------------------------------------------------------------------
+    # 1. Calculate total interactions and select top N videos
+    # ------------------------------------------------------------------
+    df_with_total = df.with_columns(
+        (pl.col("Views") + pl.col("Likes") + pl.col("Comments")).alias(
+            "TotalInteraction"
+        )
+    )
+
+    df_top = (
+        df_with_total.sort("TotalInteraction", descending=True).head(top_n)
+        # Final sort by Views descending for consistent visual order
+        .sort("Views", descending=True)
+    )
+
+    # ------------------------------------------------------------------
+    # 2. Prepare categories (truncated titles)
+    # ------------------------------------------------------------------
+    categories = (
+        df_top["Title"]
+        .fill_null("Untitled")
+        .str.slice(0, 40)  # Slightly longer for vertical bars
+        .to_list()
+    )
+
+    # ------------------------------------------------------------------
+    # 3. Prepare series data
+    # ------------------------------------------------------------------
+    series = [
+        {
+            "name": "👀 Views",
+            "data": df_top["Views"].fill_null(0).to_list(),
+        },
+        {
+            "name": "👍 Likes",
+            "data": df_top["Likes"].fill_null(0).to_list(),
+        },
+        {
+            "name": "💬 Comments",
+            "data": df_top["Comments"].fill_null(0).to_list(),
+        },
+    ]
+
+    # ------------------------------------------------------------------
+    # 4. Build ApexCharts options (stacked column – best per docs)
+    # ------------------------------------------------------------------
+    opts = _apex_opts(
+        "bar",
+        id=chart_id,
+        series=series,
+        chart={
+            "type": "bar",
+            "stacked": True,
+            "toolbar": {"show": False},
+        },
+        plotOptions={
+            "bar": {
+                "horizontal": False,
+                "borderRadius": 6,
+                "columnWidth": "55%",
+                "dataLabels": {"enabled": False},
+            }
+        },
+        xaxis={
+            "categories": categories,
+            "title": {"text": "Video"},
+            "labels": {
+                "rotate": -45,
+                "maxHeight": 100,
+                "trim": True,
+            },
+        },
+        yaxis={
+            "title": {"text": "Interactions"},
+            "labels": {
+                "formatter": """
+                function(val) {
+                    if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+                    if (val >= 1000) return (val / 1000).toFixed(0) + 'K';
+                    return val.toLocaleString();
+                }
+                """
+            },
+        },
+        title={
+            "text": f"📊 Interaction Breakdown – Top {top_n} Videos",
+            "align": "left",
+            "style": {"fontSize": "16px", "fontWeight": 600},
+        },
+        colors=["#94a3b8", "#3b82f6", "#10b981"],  # Neutral → Blue → Emerald
+        tooltip={
+            "shared": True,
+            "intersect": False,
+            "y": {
+                "formatter": """
+                function(val, { seriesIndex }) {
+                    const names = ['Views', 'Likes', 'Comments'];
+                    return val.toLocaleString() + ' ' + names[seriesIndex];
+                }
+                """
+            },
+        },
+        legend={"position": "top", "horizontalAlign": "center"},
+        responsive=[
+            {
+                "breakpoint": 768,
+                "options": {
+                    "plotOptions": {"bar": {"columnWidth": "70%"}},
+                    "xaxis": {"labels": {"rotate": -60}},
+                },
+            },
+            {
+                "breakpoint": 640,
+                "options": {
+                    "xaxis": {"labels": {"rotate": -90, "maxHeight": 80}},
+                },
+            },
+        ],
+    )
+
+    return ApexChart(
+        opts=opts,
+        cls=chart_wrapper_class("vertical_bar"),
     )
 
 
@@ -1374,41 +1531,6 @@ def chart_controversy_distribution(
     )
 
 
-def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> ApexChart:
-    """Treemap: Video contribution to total views."""
-    if df is None or df.is_empty():
-        return _empty_chart("treemap", chart_id)
-
-    # Build raw data
-    raw = [
-        {"x": row["Title"][:50], "y": row["Views"] or 0}
-        for row in df.iter_rows(named=True)
-    ]
-
-    # Generate distinct color per tile
-    palette = _distributed_palette(len(raw))
-    data = [{**d, "fillColor": palette[i % len(palette)]} for i, d in enumerate(raw)]
-
-    return ApexChart(
-        opts={
-            "chart": {"type": "treemap", "id": chart_id},
-            "series": [{"data": data}],
-            "title": {
-                "text": "📊 Reach Distribution (larger = more views)",
-                "align": "left",
-            },
-            "dataLabels": {"enabled": True, "style": {"fontSize": "11px"}},
-            "tooltip": {"theme": "light"},
-            "legend": {"show": False},
-            # Ensure per-point coloring
-            "plotOptions": {"treemap": {"distributed": True, "enableShades": False}},
-            # Pass palette for consistency; will not override fillColor
-            "colors": palette,
-        },
-        cls=chart_wrapper_class("treemap"),
-    )
-
-
 def chart_top_performers_radar(
     df: pl.DataFrame, chart_id: str = "top-radar", top_n: int = 5
 ) -> ApexChart:
@@ -1448,25 +1570,3 @@ def chart_top_performers_radar(
         },
         cls=chart_wrapper_class("radar"),
     )
-
-
-# Palette helper: generate n distinct HSL colors
-def _distributed_palette(n: int) -> list[str]:
-    if n <= 0:
-        return THEME_COLORS
-    # Evenly spaced hues; soft saturation/lightness for readability
-    return [f"hsl({int(360 * i / n)}, 70%, 55%)" for i in range(n)]
-
-
-def _apply_point_colors(data: list[dict]) -> tuple[list[dict], list[str]]:
-    """
-    Assign a distinct color to each point and return (data_with_colors, palette).
-    Safe on empty lists and preserves existing fields.
-    """
-    if not data:
-        return data, THEME_COLORS
-    palette = _distributed_palette(len(data))
-    for i, d in enumerate(data):
-        # ApexCharts reads 'color' per point
-        d["color"] = palette[i % len(palette)]
-    return data, palette
