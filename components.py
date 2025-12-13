@@ -21,6 +21,7 @@ from charts import (
     chart_engagement_ranking,
     chart_likes_per_1k_views,
     chart_performance_heatmap,
+    chart_stacked_interactions,
     chart_top_performers_radar,
     chart_treemap_reach,
     chart_treemap_views,
@@ -885,7 +886,7 @@ def AnalyticsDashboardSection(
             ),
             Grid(
                 chart_engagement_ranking(df, "engagement-ranking"),
-                chart_likes_per_1k_views(df, "likes-per-1k"),
+                chart_engagement_breakdown(df, "engagement-breakdown"),
                 cols="1 md:2",  # 1 col on mobile, 2 on desktop)
                 gap="6 md:8",  # RESPONSIVE GAP
                 cls="w-full",
