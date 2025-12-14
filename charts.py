@@ -752,23 +752,43 @@ def chart_engagement_ranking(
         return _empty_chart("bar", chart_id)
 
     # Sort by engagement descending
-    df_sorted = _safe_sort(df, "Engagement Rate Raw", descending=True)
+    MAX_BARS = 12
+    df_sorted = _safe_sort(df, "Engagement Rate Raw", descending=True).head(MAX_BARS)
 
     # Build per-point objects so the global CLICKABLE_TOOLTIP can show video info
     # Apex bar supports data points as { x, y, ... }
     points = []
-    for row in df_sorted.iter_rows(named=True):
+    max_engagement = 0.0
+
+    for i, row in enumerate(df_sorted.iter_rows(named=True)):
+        er = float(row.get("Engagement Rate Raw") or 0)
+        er_pct = round(er * 100, 2)
+        max_engagement = max(max_engagement, er_pct)
+
+        # 🎨 rank-based color (top 3 highlighted)
+        color = (
+            "#F59E0B"
+            if i == 0
+            # 🥇 gold
+            else (
+                "#9CA3AF"
+                if i < 3
+                # 🥈🥉 muted
+                else "#3B82F6"
+            )  # rest: blue
+        )
         points.append(
             {
                 "x": _truncate_title(row.get("Title") or "Untitled"),
-                "y": round(float(row.get("Engagement Rate Raw") or 0) * 100, 2),
+                "y": er_pct,
+                "fillColor": color,
                 "title": _truncate_title(row.get("Title") or "Untitled"),
                 "id": str(row.get("id") or row.get("ID") or ""),
                 # Optional extras for the tooltip
                 "Likes": int(row.get("Likes") or 0),
                 "Comments": int(row.get("Comments") or 0),
                 "Duration": row.get("Duration Formatted") or "",
-                "EngagementRateRaw": float(row.get("Engagement Rate Raw") or 0),
+                "EngagementRateRaw": er,
             }
         )
 
@@ -782,13 +802,14 @@ def chart_engagement_ranking(
                 "horizontal": True,
                 "barHeight": "60%",
                 "borderRadius": 4,
-                "distributed": True,  # distinct color per bar
+                "distributed": False,  # distinct color per bar
             }
         },
         # x-axis shows Engagement %, y-axis shows video titles via point.x
         xaxis={"title": {"text": "Engagement %"}},
         yaxis={"labels": {"maxWidth": 260}},
         title={"text": "Engagement Leaderboard", "align": "left"},
+        legend={"show": False},
         colors=THEME_COLORS,
         tooltip={
             # Use the global rich, clickable tooltip
