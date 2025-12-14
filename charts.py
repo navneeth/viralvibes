@@ -83,7 +83,7 @@ def _apply_point_colors(data: list[dict]) -> tuple[list[dict], list[str]]:
     palette = _distributed_palette(len(data))
     for i, d in enumerate(data):
         # ApexCharts reads 'color' per point
-        d["color"] = palette[i % len(palette)]
+        d["fillColor"] = palette[i % len(palette)]
     return data, palette
 
 
@@ -1453,11 +1453,15 @@ def chart_views_vs_likes(
                 "text": "🎯 Views vs Likes (bubble size = comments)",
                 "align": "left",
             },
+            tooltip={
+                "theme": "light",
+                "y": {"formatter": "function(val){ return val.toFixed(2) + '%'; }"},
+            },
             plotOptions={
                 "bubble": {
                     "minBubbleRadius": 4,
                     "maxBubbleRadius": 25,
-                    "colorByPoint": True,
+                    # "colorByPoint": True,
                 }
             },
             colors=palette,
