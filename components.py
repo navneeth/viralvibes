@@ -399,82 +399,66 @@ def AnalysisFormCard() -> Div:
                     FeaturePill("trending-up", "Viral Patterns"),
                     cls="flex flex-wrap gap-4 justify-center mb-8",
                 ),
-                cls=f"{col} items-center justify-center px-6 pt-8 pb-6 relative z-10",
+                cls="relative z-10 text-center py-12 px-6",
             ),
-            cls="relative mb-6 rounded-t-2xl overflow-hidden",
+            cls="relative overflow-hidden rounded-t-2xl",
         ),
         # --- Steps with better styling ---
         styled_div(
             id="steps-container",
             children=[PlaylistSteps(completed_steps=0)],
-            cls=(
-                "flex justify-center mb-8 transition-opacity duration-300 "
-                "min-h-[120px] opacity-80"
-            ),
+            cls="justify-center my-10 px-6",
         ),
-        # --- Playlist Form with premium styling ---
+        # Main form – clean modern input
         Form(
             # Input section with label and hint
-            styled_div(
-                Label(
-                    Span(
-                        "🔗 Playlist URL",
-                        cls="block text-sm font-semibold text-gray-900 mb-2",
-                    ),
-                    Span(
-                        "Paste your YouTube playlist link below",
-                        cls="block text-xs text-gray-500 mb-3",
-                    ),
-                    cls="block",
-                ),
-                # Premium input group
-                Div(
-                    # Leading play icon
-                    Span(
-                        UkIcon("play", cls="w-5 h-5 text-red-500 font-bold"),
-                        cls="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none "
-                        "bg-red-50 p-1 rounded-md",
-                    ),
-                    # Input field with enhanced styling
-                    Input(
-                        type="text",
-                        name="playlist_url",
-                        id="playlist_url",
-                        placeholder="https://youtube.com/playlist?list=...",
-                        value=prefill_url,
-                        className=(
-                            "w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-lg "
-                            "text-gray-900 placeholder-gray-400 focus:border-red-500 focus:ring-2 "
-                            "focus:ring-red-500/20 focus:outline-none transition-all duration-200 "
-                            "font-medium bg-white"
-                        ),
-                        style="color: #333;",
-                    ),
-                    # Trailing paste button
-                    Div(
-                        paste_button("playlist_url"),
-                        cls="absolute right-2.5 top-1/2 -translate-y-1/2",
-                    ),
-                    cls="relative",
-                ),
-                # Status indicator (hidden by default)
-                Span(
-                    "", id="playlist_url_status", cls="text-xs mt-2", aria_live="polite"
-                ),
-                # Helper text
-                P(
-                    "💡 Works with any public YouTube playlist. Copy the link and click the clipboard icon above.",
-                    cls="text-xs text-gray-500 mt-2 italic leading-relaxed",
-                ),
-                cls="mb-6",
+            Label(
+                "Playlist URL 🔗 ",
+                cls="block text-sm font-medium text-gray-700 mb-2",
             ),
-            # Primary action button with enhanced styling
-            Button(
-                Span(
-                    UkIcon("chart-bar", cls="w-5 h-5 flex-shrink-0"),
-                    "Analyze Playlist",
-                    cls="flex items-center justify-center gap-2",
+            # Input group with leading icon + trailing paste
+            Div(
+                # Leading YouTube icon
+                Div(
+                    UkIcon("youtube", cls="w-5 h-5 text-red-600"),
+                    cls="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2",
                 ),
+                # Input field – clean, minimal border
+                Input(
+                    type="url",
+                    name="playlist_url",
+                    id="playlist_url",
+                    placeholder="https://www.youtube.com/playlist?list=...",
+                    value=prefill_url,
+                    required=True,
+                    cls=(
+                        "w-full pl-12 pr-12 py-4 text-gray-900 bg-white "
+                        "border border-gray-300 rounded-xl "
+                        "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent "
+                        "shadow-sm hover:shadow transition-shadow duration-200"
+                    ),
+                ),
+                # Paste button (trailing)
+                Div(
+                    paste_button("playlist_url"),
+                    cls="absolute right-3 top-1/2 -translate-y-1/2",
+                ),
+                # Status feedback
+                Span(
+                    "",
+                    id="playlist_url_status",
+                    cls="absolute -bottom-5 left-0 text-xs",
+                ),
+                cls="relative mb-6",
+            ),
+            # Helper text
+            P(
+                "💡 Works with any public playlist. Paste the link and click the clipboard icon.",
+                cls="text-sm text-gray-500 text-center mb-8",
+            ),
+            # Primary CTA – modern red gradient
+            Button(
+                Span(UkIcon("chart-bar", cls="w-5 h-5"), "Analyze Playlist"),
                 type="submit",
                 cls=(
                     f"w-full {ButtonT.primary} {THEME['primary_hover']} transition-all duration-300 "
@@ -482,21 +466,21 @@ def AnalysisFormCard() -> Div:
                     "active:scale-95 flex items-center justify-center"
                 ),
             ),
-            # Quick action section with better styling
+            # Sample playlists (if available)
             (
                 styled_div(
                     Details(
                         Summary(
                             Span(
-                                UkIcon("star", cls="w-4 h-4 mr-2 inline"),
+                                UkIcon("star", cls="w-4 h-4 mr-2"),
                                 "No playlist? Try a sample!",
                             ),
-                            cls="text-sm font-medium text-gray-700 cursor-pointer hover:text-red-600 transition-colors py-2 px-3 rounded-lg hover:bg-gray-100",
+                            cls="text-sm font-medium text-gray-700 cursor-pointer hover:text-red-600 py-3",
                         ),
                         SamplePlaylistButtons(),
-                        cls="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50",
+                        cls="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200",
                     ),
-                    cls="mb-6",
+                    cls="mt-6",
                 )
                 if KNOWN_PLAYLISTS
                 else None
@@ -512,24 +496,12 @@ def AnalysisFormCard() -> Div:
             hx_target="#validation-feedback",
             hx_swap="innerHTML",
             hx_indicator="#loading",
-            cls="space-y-4 mt-6 px-6 pb-6",
+            cls="px-8 pb-8",
         ),
-        # --- Feedback + Results sections with better styling ---
-        styled_div(
-            id="validation-feedback",
-            cls="mt-6 text-gray-900 px-6",
-        ),
-        styled_div(
-            id="preview-box",
-            cls="mt-6 text-gray-900 px-6",
-        ),
-        styled_div(
-            id="result",
-            cls=(
-                "mt-8 min-h-[400px] border-t pt-6 text-gray-900 "
-                f"{THEME['neutral_bg']} rounded-b-2xl px-6 py-6"
-            ),
-        ),
+        # --- Feedback + Results sections  ---
+        styled_div(id="validation-feedback", cls="mt-6 px-8"),
+        styled_div(id="preview-box", cls="mt-6 px-8"),
+        styled_div(id="result", cls="mt-8 px-8 pb-8"),
         # --- Styling (outermost container only) ---
         cls=(
             f"{THEME['card_base']} space-y-0 w-full my-12 rounded-2xl shadow-xl "
