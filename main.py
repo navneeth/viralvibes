@@ -254,6 +254,53 @@ def how_it_works_section():
     )
 
 
+def features_section():
+    """Modern features grid using MonsterUI Card patterns."""
+    feature_items = [
+        ("bolt", "Real-Time Analytics", "Live data processing—no waiting for reports."),
+        (
+            "chart-bar",
+            "Viral Pattern Detection",
+            "Spot engagement spikes and controversy signals.",
+        ),
+        ("users", "Creator Insights", "Understand audience behavior beyond raw views."),
+        ("zap", "Instant Results", "Cached analysis for lightning-fast reloads."),
+        ("lock", "Privacy First", "No data stored—your playlists stay private."),
+        ("download", "CSV/JSON Exports", "Download full data for offline analysis."),
+    ]
+
+    cards = [
+        Card(
+            Div(
+                UkIcon(icon, cls="w-10 h-10 text-red-600 mb-4"),
+                H4(title, cls="text-lg font-semibold text-gray-900 mb-2"),
+                P(desc, cls="text-sm text-gray-600"),
+                cls="flex flex-col items-center text-center h-full",
+            ),
+            cls=(CardT.hover, "p-6 transition-all duration-300"),
+        )
+        for icon, title, desc in feature_items
+    ]
+
+    return Section(
+        Container(
+            H2("Key Features", cls="text-3xl font-bold text-center mb-4"),
+            P(
+                "Everything you need to decode YouTube virality",
+                cls="text-center text-gray-600 mb-12",
+            ),
+            Grid(
+                *cards,
+                cols="1 md:2 lg:3",
+                gap=8,
+                cls="max-w-7xl mx-auto",
+            ),
+        ),
+        cls="py-16 bg-gray-50",
+        id="features-section",
+    )
+
+
 @rt
 def index():
     def _Section(*c, **kwargs):
@@ -278,6 +325,7 @@ def index():
                 SectionDivider(),
                 _Section(HeaderCard(), id="home-section"),
                 SectionDivider(),
+                _Section(features_section(), id="features-section"),
                 _Section(how_it_works_section(), id="how-it-works-section"),
                 SectionDivider(),
                 _Section(AnalysisFormCard(), id="analyze-section"),
