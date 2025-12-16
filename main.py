@@ -165,7 +165,7 @@ COLUMNS = {
     "Comments": ("Comments", "Comments Formatted"),
     "Duration": ("Duration", "Duration Formatted"),
     "Engagement Rate": ("Engagement Rate Raw", "Engagement Rate (%)"),
-    "Controversy": ("Controversy", "Controversy Formatted"),
+    "Category": ("Category Emoji", "Category Emoji"),
 }
 DISPLAY_HEADERS = list(COLUMNS.keys())
 
@@ -625,7 +625,7 @@ def preview_playlist(playlist_url: str):
                         cls="text-green-600 flex-shrink-0",
                     ),
                     Span(
-                        "Calculate engagement rates and controversy scores",
+                        "Calculate engagement rates and content category insights",
                         cls="text-sm text-gray-700",
                     ),
                     cls="flex items-center gap-2",
@@ -894,11 +894,14 @@ def render_playlist_table(
                 )
                 td_cls = "px-4 py-3 text-center"
 
-            elif h == "Controversy":
-                raw = row.get(get_render_col(h), row.get("Controversy"))
+            elif h == "Category":  # ✅ Category with Emoji
+                emoji = row.get("Category Emoji", "📹")
+                category_name = row.get("CategoryName", "Unknown")
                 cell = Div(
-                    format_percentage(raw),
-                    cls="text-center font-semibold text-purple-600",
+                    Span(emoji, cls="text-2xl mr-2"),
+                    Span(category_name, cls="text-sm text-gray-700"),
+                    cls="flex items-center gap-1",
+                    title=f"Category: {category_name}",
                 )
                 td_cls = "px-4 py-3 text-center"
 
@@ -923,7 +926,11 @@ def render_playlist_table(
     # --- Footer with correct totals ---
     tfoot = Tfoot(
         Tr(
-            Td("Total / Avg", cls="font-bold text-left", colspan=2),
+            Td("", cls="font-bold text-left"),  # Empty Td for Rank columns
+            Td(
+                "Total / Avg", cls="font-bold text-left", colspan=2
+            ),  # Total/Avg for Title column
+            Td("", cls="text-center"),  # sEmpty for Thumbnail
             Td(
                 format_number(summary_stats.get("total_views", 0)),
                 cls="text-right font-bold",
@@ -943,11 +950,11 @@ def render_playlist_table(
             ),
             Td(
                 (
-                    f"{(df['Controversy'].mean() or 0.0):.1%}"
-                    if "Controversy" in df.columns and df.height > 0
+                    f"{df['CategoryName'].n_unique()} categories"
+                    if "CategoryName" in df.columns and df.height > 0
                     else ""
                 ),
-                cls="text-center font-bold text-purple-600",
+                cls="text-center font-semibold text-blue-600",
             ),
             cls="bg-gray-50",
         )

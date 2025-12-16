@@ -169,23 +169,23 @@ def _enrich_dataframe(
 
     # === Controversy & Engagement (raw numeric) ===
     # Deprecated controversy calculation retained for backward compatibility
-    df = df.with_columns(
-        [
-            (
-                1
-                - (pl.col("Likes") - pl.col("Dislikes")).abs()
-                / (pl.col("Likes") + pl.col("Dislikes") + 1)
-            )
-            .fill_null(value=0.0)  # Explicit value parameter
-            .alias("Controversy"),
-            (
-                (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
-                / (pl.col("Views") + 1)
-            )
-            .fill_null(value=0.0)  # Explicit value parameter
-            .alias("Engagement Rate Raw"),
-        ]
-    )
+    # df = df.with_columns(
+    #     [
+    #         (
+    #             1
+    #             - (pl.col("Likes") - pl.col("Dislikes")).abs()
+    #             / (pl.col("Likes") + pl.col("Dislikes") + 1)
+    #         )
+    #         .fill_null(value=0.0)  # Explicit value parameter
+    #         .alias("Controversy"),
+    #         (
+    #             (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
+    #             / (pl.col("Views") + 1)
+    #         )
+    #         .fill_null(value=0.0)  # Explicit value parameter
+    #         .alias("Engagement Rate Raw"),
+    #     ]
+    # )
 
     # ==================== ENGAGEMENT RATE (NEW) ====================
     # ✅ Calculate Engagement Rate using (Likes + Comments) / Views
@@ -243,6 +243,7 @@ def _enrich_dataframe(
             .add("%")
             .alias("Controversy %"),
             pl.col("Engagement Rate Raw")
+            .fill_null(0.0)  # Handle nulls first
             .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.Utf8)
             .alias("Engagement Rate (%)"),
         ]
