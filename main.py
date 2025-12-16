@@ -30,6 +30,7 @@ from components import (
     SectionDivider,
     VideoExtremesSection,
     benefit,
+    category_emoji_cell,
     faq_section,
     footer,
     hero_section,
@@ -178,6 +179,123 @@ def get_sort_col(header: str) -> str:
 def get_render_col(header: str) -> str:
     """Get formatted column for display."""
     return COLUMNS[header][1]
+
+
+def build_table_footer(summary_stats, svc_headers):
+    """
+    Build table footer dynamically from DISPLAY_HEADERS.
+
+    Maps each header to its corresponding summary stat and formats it appropriately.
+    Ensures footer structure stays in sync with header structure.
+
+    Args:
+        summary_stats: Dict with keys like 'total_views', 'total_likes', 'avg_engagement', etc.
+        svc_headers: List of headers in display order (from DISPLAY_HEADERS)
+
+    Returns:
+        Tfoot component with properly aligned summary cells
+    """
+    footer_cells = []
+    label_added = False
+
+    for header in svc_headers:
+        if header == "Rank":
+            # Empty cell for rank column
+            footer_cells.append(Td("", cls="px-4 py-3 font-bold text-left"))
+
+        elif header == "Title":
+            # Add "Total / Avg" label in first numeric column (Title)
+            if not label_added:
+                footer_cells.append(
+                    Td("Total / Avg", cls="px-4 py-3 font-bold text-left")
+                )
+                label_added = True
+
+        elif header == "Thumbnail":
+            # Empty cell for thumbnail
+            footer_cells.append(Td("", cls="px-4 py-3 text-center"))
+
+        elif header == "Views":
+            footer_cells.append(
+                Td(
+                    format_number(summary_stats.get("total_views", 0)),
+                    cls="px-4 py-3 text-right font-bold",
+                )
+            )
+
+        elif header == "Likes":
+            footer_cells.append(
+                Td(
+                    format_number(summary_stats.get("total_likes", 0)),
+                    cls="px-4 py-3 text-right font-bold",
+                )
+            )
+
+        elif header == "Dislikes":
+            footer_cells.append(
+                Td(
+                    format_number(summary_stats.get("total_dislikes", 0)),
+                    cls="px-4 py-3 text-right font-bold",
+                )
+            )
+
+        elif header == "Comments":
+            footer_cells.append(
+                Td(
+                    format_number(summary_stats.get("total_comments", 0)),
+                    cls="px-4 py-3 text-right font-bold",
+                )
+            )
+
+        elif header == "Duration":
+            # Average duration in seconds
+            avg_duration = summary_stats.get("avg_duration", 0)
+            formatted_duration = (
+                format_duration(int(avg_duration)) if avg_duration is not None else "—"
+            )
+            footer_cells.append(
+                Td(
+                    formatted_duration,
+                    cls="px-4 py-3 text-center font-bold",
+                )
+            )
+
+        elif header == "Engagement Rate":
+            footer_cells.append(
+                Td(
+                    f"{summary_stats.get('avg_engagement', 0):.2%}",
+                    cls="px-4 py-3 text-center font-bold text-green-600",
+                )
+            )
+
+        elif header == "Controversy":
+            footer_cells.append(
+                Td(
+                    f"{summary_stats.get('avg_controversy', 0):.2f}",
+                    cls="px-4 py-3 text-center font-bold text-orange-600",
+                )
+            )
+
+        elif header == "Category":
+            footer_cells.append(
+                Td(
+                    (
+                        f"{summary_stats.get('category_count', 0)} categories"
+                        if summary_stats.get("category_count", 0) > 0
+                        else "—"
+                    ),
+                    cls="px-4 py-3 text-center font-semibold text-blue-600",
+                )
+            )
+
+        else:
+            # Fallback for any unknown headers
+            footer_cells.append(Td("", cls="px-4 py-3"))
+
+    return Tfoot(
+        Tr(*footer_cells, cls="bg-gray-50"),
+        cls="border-t-2 border-gray-300",
+    )
 
 
 @rt("/debug/supabase")
@@ -895,14 +1013,7 @@ def render_playlist_table(
                 td_cls = "px-4 py-3 text-center"
 
             elif h == "Category":  # ✅ Category with Emoji
-                emoji = row.get("Category Emoji", "📹")
-                category_name = row.get("CategoryName", "Unknown")
-                cell = Div(
-                    Span(emoji, cls="text-2xl mr-2"),
-                    Span(category_name, cls="text-sm text-gray-700"),
-                    cls="flex items-center gap-1",
-                    title=f"Category: {category_name}",
-                )
+                cell = category_emoji_cell(row)
                 td_cls = "px-4 py-3 text-center"
 
             else:
@@ -923,42 +1034,14 @@ def render_playlist_table(
     tbody = Tbody(*rows, cls="divide-y divide-gray-100")
 
     # --- TFOOT ---
-    # --- Footer with correct totals ---
-    tfoot = Tfoot(
-        Tr(
-            Td("", cls="font-bold text-left"),  # Empty Td for Rank columns
-            Td(
-                "Total / Avg", cls="font-bold text-left", colspan=2
-            ),  # Total/Avg for Title column
-            Td("", cls="text-center"),  # sEmpty for Thumbnail
-            Td(
-                format_number(summary_stats.get("total_views", 0)),
-                cls="text-right font-bold",
-            ),
-            Td(
-                format_number(summary_stats.get("total_likes", 0)),
-                cls="text-right font-bold",
-            ),
-            Td(
-                format_number(summary_stats.get("total_comments", 0)),
-                cls="text-right font-bold",
-            ),
-            Td("", cls="text-center"),
-            Td(
-                f"{summary_stats.get('avg_engagement', 0):.2%}",
-                cls="text-center font-bold text-green-600",
-            ),
-            Td(
-                (
-                    f"{df['CategoryName'].n_unique()} categories"
-                    if "CategoryName" in df.columns and df.height > 0
-                    else ""
-                ),
-                cls="text-center font-semibold text-blue-600",
-            ),
-            cls="bg-gray-50",
-        )
-    )
+    # Build footer dynamically from DISPLAY_HEADERS to ensure sync with thead
+    # Add category_count to summary_stats for footer rendering
+    if "CategoryName" in df.columns and df.height > 0:
+        summary_stats["category_count"] = df["CategoryName"].n_unique()
+    else:
+        summary_stats["category_count"] = 0
+
+    tfoot = build_table_footer(summary_stats, svc_headers)
 
     # --- Final: table with wrapper ---
     return Div(
