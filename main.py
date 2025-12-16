@@ -943,7 +943,7 @@ def render_playlist_table(
             ),
             Td(
                 (
-                    f"{df['Controversy'].mean():.1%}"
+                    f"{(df['Controversy'].mean() or 0.0):.1%}"
                     if "Controversy" in df.columns and df.height > 0
                     else ""
                 ),

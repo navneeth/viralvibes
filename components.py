@@ -1604,6 +1604,53 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
                 color="orange",
             )
         )
+    # ==================================================================
+    # NEW: Category Emoji Breakdown (replaces Controversy)
+    # ==================================================================
+    category_breakdown = None
+    if "CategoryName" in df.columns and "Category Emoji" in df.columns:
+        try:
+            # Group by category and count videos
+            category_data = (
+                df.group_by("CategoryName")
+                .agg(
+                    pl.count().alias("count"),
+                    pl.first("Category Emoji").alias("emoji"),  # Get emoji
+                )
+                .sort("count", descending=True)
+                .head(5)  # Top 5 categories only
+                .to_dicts()
+            )
+
+            if category_data:  # Only show if we have categories
+                category_items = []
+                for cat in category_data:
+                    category_name = cat.get("CategoryName", "Unknown")
+                    count = cat.get("count", 0)
+                    emoji = cat.get("emoji", "📹")
+
+                    category_items.append(
+                        Div(
+                            Span(emoji, cls="text-2xl mr-3"),
+                            Span(category_name, cls="text-sm font-medium flex-grow"),
+                            Span(
+                                f"{count} video{'s' if count != 1 else ''}",
+                                cls="text-xs text-gray-500 font-semibold",
+                            ),
+                            cls="flex items-center justify-between py-2.5 px-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors",
+                        )
+                    )
+
+                category_breakdown = Div(
+                    H3(
+                        "📁 Content Mix", cls="text-sm font-semibold text-gray-700 mb-3"
+                    ),
+                    Div(*category_items, cls="space-y-2"),
+                    cls="mt-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm",
+                )
+        except Exception as e:
+            logger.debug(f"Failed to build category breakdown: {e}")
+            category_breakdown = None
 
     # ------------------------------------------------------------------
     # f) Layout
@@ -1627,6 +1674,8 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
             gap=4,
             cls="mb-8",
         ),
+        # Category breakdown (replaces old Controversy card)
+        (category_breakdown if category_breakdown else None),
         cls="mb-12",
     )
 
@@ -1874,6 +1923,19 @@ def title_cell(row):
         cls="flex items-center mt-1 space-x-2",
     )
     return Div(meta, uploader_part, cls="flex flex-col")
+
+
+def category_emoji_cell(row):
+    """Render category with emoji in table (reads from row dict)."""
+    category_emoji = row.get("Category Emoji", "📹")
+    category_name = row.get("CategoryName", "Unknown")
+
+    return Div(
+        Span(category_emoji, cls="text-xl mr-2"),
+        Span(category_name, cls="text-sm text-gray-700"),
+        cls="flex items-center gap-1",
+        title=f"Category: {category_name}",
+    )
 
 
 def number_cell(val):
