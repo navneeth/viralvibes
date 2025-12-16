@@ -9,8 +9,6 @@ render.yaml
 README.md
 diagrams/
 reports/
-assets/*.png
-assets/*.jpg
 
 # Local Dev / Testing
 tests/
