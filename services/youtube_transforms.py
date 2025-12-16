@@ -10,6 +10,7 @@ from typing import Any, Dict, Tuple
 
 import polars as pl
 
+from services.youtube_utils import get_category_emoji
 from utils import format_duration, format_number, parse_iso_duration
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,17 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
 def _enrich_dataframe(
     df: pl.DataFrame, actual_playlist_count: int = None
 ) -> Tuple[pl.DataFrame, Dict[str, Any]]:
-    """Add UI-ready columns + rich stats. Never returns None."""
+    """
+    Enrich YouTube data with UI-ready columns + rich stats.
+
+    Adds:
+    - Engagement Rate Raw: (Likes + Comments) / Views
+    - Category Emoji: Visual indicator for content type (🎵🎮⚽🎓)
+    - Duration Formatted: HH:MM:SS human-readable format
+    - Various formatted columns for direct UI display
+
+    Never returns None.
+    """
     if not isinstance(df, pl.DataFrame):
         logger.warning(f"Invalid DataFrame in _enrich_dataframe: {type(df)}")
         empty_stats = {
@@ -157,23 +168,47 @@ def _enrich_dataframe(
         }
 
     # === Controversy & Engagement (raw numeric) ===
+    # Deprecated controversy calculation retained for backward compatibility
+    # df = df.with_columns(
+    #     [
+    #         (
+    #             1
+    #             - (pl.col("Likes") - pl.col("Dislikes")).abs()
+    #             / (pl.col("Likes") + pl.col("Dislikes") + 1)
+    #         )
+    #         .fill_null(value=0.0)  # Explicit value parameter
+    #         .alias("Controversy"),
+    #         (
+    #             (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
+    #             / (pl.col("Views") + 1)
+    #         )
+    #         .fill_null(value=0.0)  # Explicit value parameter
+    #         .alias("Engagement Rate Raw"),
+    #     ]
+    # )
+
+    # ==================== ENGAGEMENT RATE (NEW) ====================
+    # ✅ Calculate Engagement Rate using (Likes + Comments) / Views
     df = df.with_columns(
-        [
-            (
-                1
-                - (pl.col("Likes") - pl.col("Dislikes")).abs()
-                / (pl.col("Likes") + pl.col("Dislikes") + 1)
-            )
-            .fill_null(value=0.0)  # Explicit value parameter
-            .alias("Controversy"),
-            (
-                (pl.col("Likes") + pl.col("Dislikes") + pl.col("Comments"))
-                / (pl.col("Views") + 1)
-            )
-            .fill_null(value=0.0)  # Explicit value parameter
-            .alias("Engagement Rate Raw"),
-        ]
+        ((pl.col("Likes") + pl.col("Comments")) / (pl.col("Views") + 1))
+        .fill_null(value=0.0)
+        .alias("Engagement Rate Raw")
     )
+
+    # ==================== CATEGORY EMOJI (NEW) ====================
+    # ✅ Add visual emoji indicator for content category
+    if "CategoryId" in df.columns and "CategoryName" in df.columns:
+        df = df.with_columns(
+            pl.struct(["CategoryId", "CategoryName"])
+            .map_elements(
+                lambda s: get_category_emoji(s["CategoryId"], s["CategoryName"]),
+                return_dtype=pl.Utf8,
+            )
+            .alias("Category Emoji")
+        )
+    else:
+        logger.debug("CategoryId/CategoryName not found, skipping emoji mapping")
+        df = df.with_columns(pl.lit("📹").alias("Category Emoji"))
 
     # === Human-readable date ===
     if "PublishedAt" in df.columns:
@@ -208,6 +243,7 @@ def _enrich_dataframe(
             .add("%")
             .alias("Controversy %"),
             pl.col("Engagement Rate Raw")
+            .fill_null(0.0)  # Handle nulls first
             .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.Utf8)
             .alias("Engagement Rate (%)"),
         ]

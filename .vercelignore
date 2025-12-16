@@ -1,0 +1,28 @@
+# Configuration & DevOps
+#Dockerfile
+fly.toml
+render.yaml
+fly-entrypoint.sh
+render.yaml
+
+# Documentation & Assets
+README.md
+diagrams/
+reports/
+
+# Local Dev / Testing
+tests/
+.pytest_cache/
+#__pycache__/
+#venv/
+#.venv/
+
+# Specific logic not needed by the web UI
+worker/
+run_worker.py
+cli.py
+generate_sitemap.py
+
+# Sensitive/Large Data
+#*.txt
+#*.b64
