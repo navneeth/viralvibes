@@ -13,9 +13,9 @@ reports/
 # Local Dev / Testing
 tests/
 .pytest_cache/
-__pycache__/
-venv/
-.venv/
+#__pycache__/
+#venv/
+#.venv/
 
 # Specific logic not needed by the web UI
 worker/
