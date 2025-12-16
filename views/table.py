@@ -86,14 +86,6 @@ def build_table_footer(summary_stats, svc_headers):
                 )
             )
 
-        elif header == "Dislikes":
-            footer_cells.append(
-                Td(
-                    format_number(summary_stats.get("total_dislikes", 0)),
-                    cls="px-4 py-3 text-right font-bold",
-                )
-            )
-
         elif header == "Comments":
             footer_cells.append(
                 Td(
@@ -120,14 +112,6 @@ def build_table_footer(summary_stats, svc_headers):
                 Td(
                     f"{summary_stats.get('avg_engagement', 0):.2%}",
                     cls="px-4 py-3 text-center font-bold text-green-600",
-                )
-            )
-
-        elif header == "Controversy":
-            footer_cells.append(
-                Td(
-                    f"{summary_stats.get('avg_controversy', 0):.2f}",
-                    cls="px-4 py-3 text-center font-bold text-orange-600",
                 )
             )
 
@@ -268,13 +252,14 @@ def render_playlist_table(
 
     # --- TFOOT ---
     # Build footer dynamically from DISPLAY_HEADERS to ensure sync with thead
-    # Add category_count to summary_stats for footer rendering
+    # Create a copy of summary_stats to avoid mutating the passed dict
+    footer_stats = {**summary_stats}
     if "CategoryName" in df.columns and df.height > 0:
-        summary_stats["category_count"] = df["CategoryName"].n_unique()
+        footer_stats["category_count"] = df["CategoryName"].n_unique()
     else:
-        summary_stats["category_count"] = 0
+        footer_stats["category_count"] = 0
 
-    tfoot = build_table_footer(summary_stats, svc_headers)
+    tfoot = build_table_footer(footer_stats, svc_headers)
 
     # --- Final: table with wrapper ---
     return Div(
