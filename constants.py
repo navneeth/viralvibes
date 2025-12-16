@@ -43,6 +43,14 @@ FORM_CARD = (
 )
 NEWSLETTER_CARD = FORM_CARD  # Keep backwards compatibility
 
+# Convenience aliases for common CSS patterns
+CARD_BASE_CLS = CARD_BASE
+HEADER_CARD_CLS = HEADER_CARD
+CARD_INLINE_STYLE = FORM_CARD
+FORM_CARD_CLS = FORM_CARD
+NEWSLETTER_CARD_CLS = NEWSLETTER_CARD
+FLEX_COL_CENTER_CLS = FLEX_COL + " " + FLEX_CENTER
+
 # Centralized theme for styles (reduces repetition)
 THEME = {
     "primary_bg": "bg-red-500",

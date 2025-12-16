@@ -41,14 +41,11 @@ from components import (
     title_cell,
 )
 from constants import (
-    CARD_BASE,
-    FLEX_BETWEEN,
-    FLEX_CENTER,
+    CARD_INLINE_STYLE,
     FLEX_COL,
-    FORM_CARD,
-    HEADER_CARD,
-    NEWSLETTER_CARD,
-    PLAYLIST_JOBS_TABLE,
+    FLEX_COL_CENTER_CLS,
+    FORM_CARD_CLS,
+    HEADER_CARD_CLS,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
@@ -73,14 +70,6 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-
-# CSS Classes
-CARD_BASE_CLS = CARD_BASE
-HEADER_CARD_CLS = HEADER_CARD
-CARD_INLINE_STYLE = FORM_CARD
-FORM_CARD_CLS = FORM_CARD
-NEWSLETTER_CARD_CLS = NEWSLETTER_CARD
-FLEX_COL_CENTER_CLS = FLEX_COL + " " + FLEX_CENTER
 
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
