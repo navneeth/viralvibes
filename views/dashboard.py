@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from fasthtml.common import *
 
 from components import (
@@ -41,7 +43,7 @@ def render_full_dashboard(
                     ),
                     channel_url=None,  # optional
                     channel_thumbnail=channel_thumbnail,
-                    processed_date=None,
+                    processed_date=date.today().strftime("%b %d, %Y"),
                     engagement_rate=summary_stats.get("avg_engagement"),
                     total_views=summary_stats.get("total_views"),
                 ),
