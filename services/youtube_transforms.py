@@ -237,11 +237,11 @@ def _enrich_dataframe(
             pl.col("Duration")
             .map_elements(format_duration, return_dtype=pl.Utf8)
             .alias("Duration Formatted"),
-            (pl.col("Controversy") * 100)
-            .round(1)
-            .cast(pl.Utf8)
-            .add("%")
-            .alias("Controversy %"),
+            # (pl.col("Controversy") * 100)
+            # .round(1)
+            # .cast(pl.Utf8)
+            # .add("%")
+            # .alias("Controversy %"),
             pl.col("Engagement Rate Raw")
             .fill_null(0.0)  # Handle nulls first
             .map_elements(lambda x: f"{x:.2%}", return_dtype=pl.Utf8)
