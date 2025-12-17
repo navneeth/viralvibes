@@ -30,15 +30,12 @@ from components import (
     SectionDivider,
     VideoExtremesSection,
     benefit,
-    category_emoji_cell,
     faq_section,
     footer,
     hero_section,
     number_cell,
     section_header,
     section_wrapper,
-    thumbnail_cell,
-    title_cell,
 )
 from constants import (
     CARD_INLINE_STYLE,
