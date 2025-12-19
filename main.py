@@ -11,6 +11,7 @@ from typing import Optional
 from urllib.parse import quote_plus
 
 import polars as pl
+from auth import Auth, client
 from dotenv import load_dotenv
 from fasthtml.common import *
 from fasthtml.core import HtmxHeaders
@@ -98,6 +99,9 @@ app, rt = fast_app(
     ),
 )
 
+oauth = Auth(
+    app, client, skip=["/", "/login", "/redirect", "/features", "/about", "/generate"]
+)
 
 # Set the favicon
 app.favicon = "/static/favicon.ico"
@@ -1051,6 +1055,46 @@ def check_job_status(playlist_url: str):
             hx_trigger="every 3s",  # Poll every 3 seconds
             hx_swap="outerHTML",  # Replace the entire div with the new response
         )
+
+
+@rt("/login")
+def login(req, sess):
+    # Clear old intended_url if no redirect happened
+    if "intended_url" not in sess:
+        sess.pop("intended_url", None)
+    return Div(
+        NavComponent(req, sess),
+        Div(P("Not logged in"), cls="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8"),
+    )
+
+
+def NavComponent(req=None, sess=None):
+    avatar_node = None
+    if sess and sess.get("avatar_url"):
+        avatar_node = Img(src=sess["avatar_url"], cls="w-8 h-8 rounded-full border")
+    return Div(
+        # Logo and title
+        Div(
+            A(
+                Div(
+                    H1("ViralVibes", cls="text-2xl font-extrabold"),
+                    cls="flex items-center gap-2",
+                ),
+                href="/",
+                cls="flex items-center",
+            ),
+            # User avatar and auth links
+            Div(
+                (
+                    avatar_node,
+                    A("Dashboard", href="/dashboard", cls="text-gray-900"),
+                    A("Logout", href="/logout", cls="text-red-600"),
+                ),
+                cls="ml-auto flex items-center gap-4",
+            ),
+        ),
+        cls="flex items-center p-4 bg-white shadow-md",
+    )
 
 
 serve()
