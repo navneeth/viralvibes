@@ -9,10 +9,10 @@ from constants import (
     FLEX_CENTER,
     FLEX_COL,
     GAP_2,
+    ICONS_PATH,
     SECTION_BASE,
     THEME,
     faqs,
-    icons,
     testimonials,
 )
 
@@ -219,7 +219,7 @@ def testimonial_card(idx, comment, name, role, company, image_src):
                 Div(
                     P(role),
                     Img(
-                        src=f"{icons}/dot.svg",
+                        src=f"{ICONS_PATH}/dot.svg",
                         alt="Dot separator",
                         width="4",
                         height="4",
@@ -312,7 +312,7 @@ def footer():
 
 def arrow(d):
     return Button(
-        Img(src=f"assets/icons/arrow-{d}.svg", alt="Arrow left"),
+        Img(src=f"{ICONS_PATH}/arrow-{d}.svg", alt="Arrow left"),
         cls="disabled:opacity-40 transition-opacity",
         id=f"slide{d.capitalize()}",
         aria_label=f"Slide {d}",

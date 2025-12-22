@@ -16,13 +16,13 @@ from constants import (
     FLEX_CENTER,
     FLEX_COL,
     FORM_CARD,
+    ICONS_PATH,
     KNOWN_PLAYLISTS,
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STEPS_CLS,
     STYLES,
     THEME,
-    icons,
 )
 from db import fetch_playlists
 from utils import format_number
@@ -55,12 +55,12 @@ def accordion(
         Label(
             P(question, cls=f"flex-grow {question_cls}"),
             Img(
-                src=f"{icons}/plus-icon.svg",
+                src=f"{ICONS_PATH}/plus-icon.svg",
                 alt="Expand",
                 cls=f"plus-icon w-6 h-6",
             ),
             Img(
-                src=f"{icons}/minus-icon.svg",
+                src=f"{ICONS_PATH}/minus-icon.svg",
                 alt="Collapse",
                 cls=f"minus-icon w-6 h-6",
             ),

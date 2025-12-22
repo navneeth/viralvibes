@@ -23,8 +23,7 @@ GAP_2 = "flex gap-2"
 
 # Sections
 SECTION_BASE = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
-
-section_base = f"{FLEX_COL} {SECTION_BASE}"
+SECTION_WRAPPER = f"{FLEX_COL} {SECTION_BASE}"
 between = "flex justify-between"
 
 # Cards
@@ -255,7 +254,6 @@ MAX_SAMPLE_PLAYLISTS = 5
 PLAYLIST_CACHE_TTL = 3600  # 1 hour
 
 # Backwards compatibility aliases
-icons = ICONS_PATH
 between = FLEX_BETWEEN
 testimonials = TESTIMONIALS
 faqs = FAQS
