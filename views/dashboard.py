@@ -2,13 +2,13 @@ from datetime import date, datetime
 
 from fasthtml.common import *
 
-from components import (
-    AnalyticsDashboardSection,
-    AnalyticsHeader,
-    VideoExtremesSection,
-)
+from components.tables import VideoExtremesSection
 from constants import PLAYLIST_STEPS_CONFIG
 from step_components import StepProgress
+from ui_components import (
+    AnalyticsDashboardSection,
+    AnalyticsHeader,
+)
 from views.table import render_playlist_table
 
 
