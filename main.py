@@ -33,11 +33,7 @@ from components import (
     how_it_works_section,
 )
 from constants import (
-    CARD_INLINE_STYLE,
     FLEX_COL,
-    FLEX_COL_CENTER_CLS,
-    FORM_CARD_CLS,
-    HEADER_CARD_CLS,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,

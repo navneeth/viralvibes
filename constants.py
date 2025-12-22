@@ -4,7 +4,7 @@ Centralized configuration for UI components, styling, and feature data.
 """
 
 from fasthtml.components import Path, Svg
-from monsterui.all import StepsT, StepT
+from monsterui.all import StepT
 
 # =============================================================================
 # ASSET PATHS
@@ -19,7 +19,6 @@ FLEX_COL = "flex flex-col"
 FLEX_CENTER = "flex items-center"
 FLEX_BETWEEN = "flex justify-between"
 GAP_2 = "flex gap-2"
-GAP_4 = "flex gap-4"
 
 
 # Sections
