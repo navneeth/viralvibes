@@ -66,28 +66,6 @@ bnset = "shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),0_4px_8px_rgba(0,0,0,0.5)
 logger = logging.getLogger(__name__)
 
 
-# Helper Functions to make the component file self-contained
-def DivCentered(*args, **kwargs) -> Div:
-    """A Div with flexbox for centering content."""
-    return Div(*args, **kwargs, cls=f"{FLEX_COL} {FLEX_CENTER}")
-
-
-def DivHStacked(*args, **kwargs) -> Div:
-    """A horizontal stack of Divs with a gap."""
-    return Div(*args, **kwargs, cls=f"flex gap-4")
-
-
-def DivFullySpaced(*args, **kwargs) -> Div:
-    """A Div with full space between items."""
-    return Div(*args, **kwargs, cls=f"flex justify-between items-center")
-
-
-def styled_div(*children, cls: str = "", **kwargs) -> Div:
-    """Flexible Div factory with theme integration."""
-    full_cls = f"{THEME['flex_col']} {cls}" if "flex-col" in cls else cls
-    return Div(*children, cls=full_cls, **kwargs)
-
-
 # --- NEW: small UI helpers to centralize repeated Tailwind patterns ---
 def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> Button:
     """Create a CTA using centralized STYLES (kind='full'|'refresh'|'secondary')."""
@@ -178,17 +156,6 @@ def accordion(
     )
 
 
-def faq_item(question: str, answer: str, id: int) -> Div:
-    return accordion(
-        id=str(id),
-        question=question,
-        answer=answer,
-        question_cls="text-black text-sm font-medium",
-        answer_cls="text-black/80 text-sm",
-        container_cls=f"bg-blue-50 rounded-2xl shadow-inner",
-    )
-
-
 def HeaderCard() -> Card:
     """Simplified, flat header card for ViralVibes — no nested components."""
     return CardTitle(
@@ -227,70 +194,6 @@ def HeaderCard() -> Card:
         ),
         cls=THEME["card_base"],
         uk_scrollspy="cls: uk-animation-slide-bottom-small",
-    )
-
-
-def hero_section():
-    """
-    Responsive hero that scales between mobile and desktop:
-    - High-quality background image (Unsplash)
-    - Gradient overlay for text readability
-    - Better typography hierarchy
-    - Glassmorphism effect for CTA
-
-    """
-    return Section(
-        # Premium background image with gradient overlay
-        styled_div(
-            Img(
-                src="https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1920&q=80",
-                alt="YouTube Analytics Background",
-                cls="absolute inset-0 w-full h-full object-cover",
-            ),
-            styled_div(
-                cls="absolute inset-0 bg-gradient-to-b from-black/40 via-black/50 to-black/70"
-            ),
-            cls="absolute inset-0 z-0",
-        ),
-        # Main content container
-        styled_div(
-            # Text content
-            styled_div(
-                H1(
-                    "Decode YouTube Virality.",
-                    cls="text-5xl md:text-6xl font-bold text-white mb-4 leading-tight",
-                ),
-                H1(
-                    "Instantly.",
-                    cls="text-5xl md:text-6xl font-bold bg-gradient-to-r from-red-400 to-pink-400 bg-clip-text text-transparent mb-6",
-                ),
-                P(
-                    "Analyze any YouTube playlist to uncover engagement trends, viral patterns, and creator insights.",
-                    cls="text-lg md:text-xl text-gray-200 max-w-2xl mb-8 leading-relaxed",
-                ),
-                # Glassmorphism CTA buttons
-                styled_div(
-                    A(
-                        "🚀 Start Analyzing",
-                        href="#analysis-form",
-                        cls="px-8 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-full font-semibold hover:shadow-lg hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105 inline-block",
-                    ),
-                    A(
-                        "📚 Learn More",
-                        href="#faq-section",
-                        onclick="document.getElementById('faq-section').scrollIntoView({behavior:'smooth'}); return false;",
-                        cls="px-8 py-4 bg-white/10 backdrop-blur-md text-white rounded-full font-semibold border border-white/20 hover:bg-white/20 transition-all duration-300 inline-block ml-4",
-                    ),
-                    cls="flex gap-4 flex-wrap justify-center lg:justify-start",
-                ),
-                cls="max-w-4xl text-center lg:text-left",
-            ),
-            cls=(
-                f"{THEME['flex_col']} lg:{THEME['flex_row']} items-center justify-center "
-                "px-4 lg:px-16 h-screen relative z-10 w-full"
-            ),
-        ),
-        cls="relative overflow-hidden w-full min-h-screen bg-black",
     )
 
 
@@ -1680,45 +1583,6 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     )
 
 
-def FooterLinkGroup(title, links):
-    return DivVStacked(
-        H4(title),
-        *[
-            A(text, href=f"#{text.lower().replace(' ', '-')}", cls=TextT.muted)
-            for text in links
-        ],
-    )
-
-
-def footer():
-    company = ["About", "Blog", "Careers", "Press Kit"]
-    resources = ["Documentation", "Help Center", "Status", "Contact Sales"]
-    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings", "Accessibility"]
-
-    return Container(cls="uk-background-muted py-12")(
-        styled_div(
-            DivFullySpaced(
-                H3("ViralVibes"),
-                DivHStacked(
-                    UkIcon("twitter", cls=TextT.lead),
-                    UkIcon("facebook", cls=TextT.lead),
-                    UkIcon("github", cls=TextT.lead),
-                    UkIcon("linkedin", cls=TextT.lead),
-                ),
-            ),
-            DividerLine(),
-            DivFullySpaced(
-                FooterLinkGroup("Company", company),
-                FooterLinkGroup("Resources", resources),
-                FooterLinkGroup("Legal", legal),
-            ),
-            DividerLine(),
-            P("© 2025 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
-            cls="space-y-8 p-8",
-        )
-    )
-
-
 def section_wrapper(content, bg_color, xtra="", flex=True):
     """Wraps a section with background color, layout, and rounded corners."""
     return Section(
@@ -1761,80 +1625,6 @@ def carousel(items, id="carousel-container", extra_classes=""):
         carousel_content,
         arrows,
         cls=f"max-h-fit {FLEX_COL} items-start lg:-mr-16 {maxpx(1440)} overflow-hidden",
-    )
-
-
-def testimonial_card(idx, comment, name, role, company, image_src):
-    return Div(
-        P(comment, cls="m-body text-black"),
-        Div(
-            Div(
-                Img(src=image_src, alt=f"Picture of {name}", width="112", height="112"),
-                cls="rounded-full w-11 h-11 lg:w-14 lg:h-14",
-            ),
-            Div(
-                P(name, cls=f"m-body text-black"),
-                Div(
-                    P(role),
-                    Img(
-                        src=f"{icons}/dot.svg",
-                        alt="Dot separator",
-                        width="4",
-                        height="4",
-                    ),
-                    P(company),
-                    cls=f"{gap2} xs-mono-body w-full",
-                ),
-                cls="w-full",
-            ),
-            cls=f"{center} justify-start gap-2",
-        ),
-        id=f"testimonial-card-{idx + 1}",
-        cls=f"testimonial-card {col} flex-none whitespace-normal flex justify-between h-96 rounded-3xl items-start bg-soft-pink p-4 lg:p-8 {maxrem(36)} lg:w-96",
-    )
-
-
-def testimonials_section():
-    testimonial_cards = [
-        testimonial_card(i, *args) for i, args in enumerate(testimonials)
-    ]
-    return section_wrapper(
-        Div(
-            section_header(
-                "LOVE IS IN THE AIR",
-                "What creators say",
-                "Top YouTube creators and strategists share their love for ViralVibes.",
-                max_width=21,
-                center=True,
-            ),
-            carousel(testimonial_cards),
-            cls=f"{section_base} {maxrem(90)} mx-auto lg:flex-row items-start",
-        ),
-        bg_color="red-100",
-    )
-
-
-def faq_section():
-    return section_wrapper(
-        Div(
-            section_header(
-                "FAQ",
-                "Questions? Answers.",
-                "Your top ViralVibes questions clarified.",
-                max_width=21,
-                center=False,
-            ),
-            Div(
-                *[
-                    faq_item(question, answer, i + 3)
-                    for i, (question, answer) in enumerate(faqs)
-                ],
-                cls=f"{col} gap-4 {maxrem(32)} transition ease-out delay-[300ms]",
-            ),
-            cls=f"{section_base} w-full mx-auto lg:flex-row items-start max-w-7xl",
-        ),
-        bg_color="red-700",
-        flex=False,
     )
 
 

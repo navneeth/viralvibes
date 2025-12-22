@@ -21,8 +21,12 @@ FLEX_BETWEEN = "flex justify-between"
 GAP_2 = "flex gap-2"
 GAP_4 = "flex gap-4"
 
+
 # Sections
 SECTION_BASE = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
+
+section_base = f"{FLEX_COL} {SECTION_BASE}"
+between = "flex justify-between"
 
 # Cards
 CARD_BASE = (
@@ -82,19 +86,6 @@ STYLES = {
     "progress_meter": "w-full h-2 rounded-full bg-gray-200 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-red-600 [&::-moz-progress-bar]:bg-red-600",
     "table_base": "w-full text-sm text-gray-700 border border-gray-200 rounded-lg shadow-sm overflow-hidden",
 }
-
-
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
-def maxpx(px: int) -> str:
-    """Generate max-width class in pixels."""
-    return f"w-full max-w-[{px}px]"
-
-
-def maxrem(rem: int) -> str:
-    """Generate max-width class in rem units."""
-    return f"w-full max-w-[{rem}rem]"
 
 
 # =============================================================================

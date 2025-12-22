@@ -2,8 +2,8 @@
 from fasthtml.common import *
 from monsterui.all import *
 
-from components import benefit, section_header, section_wrapper
 from constants import FLEX_COL, SECTION_BASE
+from ui_components import benefit, section_header, section_wrapper
 
 
 def how_it_works_section():

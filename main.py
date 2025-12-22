@@ -18,7 +18,6 @@ from starlette.responses import StreamingResponse
 from components import (
     AnalysisFormCard,
     AnalyticsDashboardSection,
-    AnalyticsHeader,
     BenefitsCard,
     ExploreGridSection,
     FeaturesCard,
@@ -26,14 +25,11 @@ from components import (
     HomepageAccordion,
     NewsletterCard,
     SectionDivider,
-    VideoExtremesSection,
-    benefit,
     faq_section,
+    features_section,
     footer,
     hero_section,
-    number_cell,
-    section_header,
-    section_wrapper,
+    how_it_works_section,
 )
 from constants import (
     CARD_INLINE_STYLE,
@@ -56,7 +52,6 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from routes.homepage import features_section, how_it_works_section
 from step_components import StepProgress
 from utils import format_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
