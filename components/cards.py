@@ -28,6 +28,9 @@ from db import fetch_playlists
 from utils import format_number
 
 
+# =============================================================================
+# Helpers
+# =============================================================================
 def benefit(title: str, content: str) -> Div:
     """Create a benefit card with styled content."""
     return styled_div(
@@ -87,6 +90,9 @@ def faq_item(question: str, answer: str, id: int) -> Div:
     )
 
 
+# =============================================================================
+# Main Cards
+# =============================================================================
 def HeaderCard() -> Card:
     """Simplified, flat header card for ViralVibes — no nested components."""
     return CardTitle(
