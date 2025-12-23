@@ -908,7 +908,7 @@ def submit_job(playlist_url: str):
     # Instead of polling instruction, show the full engagement screen
     return Div(
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="load",
+        hx_trigger="load, every 2s",
         hx_swap="outerHTML",
         id="preview-box",
     )
