@@ -559,3 +559,58 @@ def submit_playlist_job(playlist_url: str) -> bool:
         logger.error(f"Failed to submit new job for {playlist_url}.")
 
     return success
+
+
+def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch job progress for polling updates.
+    Returns: {
+        'job_id': str,
+        'status': str,
+        'progress': float (0.0-1.0),
+        'started_at': str (ISO),
+        'error': str or None,
+    }
+    """
+    if not supabase_client:
+        return None
+
+    try:
+        response = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
+            .select("id, status, progress, started_at, error")
+            .eq("playlist_url", playlist_url)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching job progress for {playlist_url}: {e}")
+        return None
+
+
+def get_estimated_stats(video_count: int) -> Dict[str, Any]:
+    """
+    Generate rough estimates for stats based on video count.
+    Used to show user "what they'll discover" during processing.
+
+    These are intentionally conservative estimates.
+    """
+    # Assumptions:
+    # - Average video: 50K views, 1.5K likes, 150 comments
+    # - Variance by channel type (music, vlog, tutorial, etc.)
+
+    avg_views_per_video = 50_000
+    avg_likes_per_video = 1_500
+    avg_comments_per_video = 150
+
+    return {
+        "estimated_total_views": video_count * avg_views_per_video,
+        "estimated_total_likes": video_count * avg_likes_per_video,
+        "estimated_total_comments": video_count * avg_comments_per_video,
+        "note": "These are rough estimates and will be refined during processing",
+    }
