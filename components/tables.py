@@ -12,7 +12,10 @@ from utils import format_duration, format_number
 logger = logging.getLogger(__name__)
 
 
-def thumbnail_cell(url, vid, title=None):
+# =============================================================================
+# Table Cell Renderers
+# =============================================================================
+def thumbnail_cell(url: str, vid: str, title: str = None) -> A:
     """Render a clickable thumbnail that opens YouTube in a new tab."""
     if not url:
         # small placeholder
@@ -28,7 +31,10 @@ def thumbnail_cell(url, vid, title=None):
     return A(
         Img(
             src=url,
+            alt=title or "Video thumbnail",
             cls="h-14 w-28 object-cover rounded-lg shadow-sm hover:opacity-90 transition",
+            loading="lazy",
+            onerror="this.src='/static/favicon.jpeg'",
         ),
         href=f"https://youtube.com/watch?v={vid}",
         target="_blank",
@@ -37,7 +43,7 @@ def thumbnail_cell(url, vid, title=None):
     )
 
 
-def title_cell(row):
+def title_cell(row: dict) -> Div:
     """Render a title cell with video metadata, tags, and uploader info."""
     title = row.get("Title", "Untitled")
     vid = row.get("id", "")
@@ -74,7 +80,7 @@ def title_cell(row):
     return Div(meta, uploader_part, cls=FLEX_COL)
 
 
-def category_emoji_cell(row):
+def category_emoji_cell(row: dict) -> Div:
     """Render category with emoji in table (reads from row dict)."""
     category_emoji = row.get("Category Emoji", "📹")
     category_name = row.get("CategoryName", "Unknown")
@@ -87,10 +93,10 @@ def category_emoji_cell(row):
     )
 
 
-def number_cell(val):
+def number_cell(val: Any) -> Div:
     """Render a number cell with proper formatting."""
     if val is None:
-        return Div("", cls="text-right font-medium")
+        return Div("—", cls="text-right font-medium text-gray-500")
     try:
         numeric_val = float(val) if isinstance(val, str) else val
         return Div(format_number(numeric_val), cls="text-right font-medium")
@@ -98,6 +104,9 @@ def number_cell(val):
         return Div(str(val), cls="text-right font-medium")
 
 
+# =============================================================================
+# Video Extremes Section (Optimized)
+# =============================================================================
 def VideoExtremesSection(df: pl.DataFrame) -> Div:
     """
     Display 4 card extremes: most/least viewed, longest/shortest videos.
@@ -109,57 +118,40 @@ def VideoExtremesSection(df: pl.DataFrame) -> Div:
     try:
         # Compute extremes using Polars (safe with error handling)
         # ✅ EFFICIENT: Get indices directly without sorting
-        most_viewed_idx = df.select(pl.col("Views").arg_max()).item()
-        least_viewed_idx = df.select(pl.col("Views").arg_min()).item()
-        longest_idx = df.select(pl.col("Duration").arg_max()).item()
-        shortest_idx = df.select(pl.col("Duration").arg_min()).item()
+        extremes = {
+            "most_viewed": df.select(pl.col("Views").arg_max()).item(),
+            "least_viewed": df.select(pl.col("Views").arg_min()).item(),
+            "longest": df.select(pl.col("Duration").arg_max()).item(),
+            "shortest": df.select(pl.col("Duration").arg_min()).item(),
+        }
 
-        # Fetch rows by index
-        most_viewed = df.row(most_viewed_idx, named=True)
-        least_viewed = df.row(least_viewed_idx, named=True)
-        longest = df.row(longest_idx, named=True)
-        shortest = df.row(shortest_idx, named=True)
-
-        extremes = [
-            (
-                "trending-up",
-                "Most Viewed",
-                most_viewed,
-                f"{format_number(most_viewed.get('Views', 0))} views",
-            ),
-            (
-                "trending-down",
-                "Least Viewed",
-                least_viewed,
-                f"{format_number(least_viewed.get('Views', 0))} views",
-            ),
-            (
-                "clock",
-                "Longest Video",
-                longest,
-                f"{format_duration(longest.get('Duration', 0))}",
-            ),
-            (
-                "zap",
-                "Shortest Video",
-                shortest,
-                f"{format_duration(shortest.get('Duration', 0))}",
-            ),
-        ]
+        # Fetch rows
+        rows = {k: df.row(idx, named=True) for k, idx in extremes.items()}
 
         cards = []
-        for icon_name, title, row, metric in extremes:
-            video_id = row.get("id") or row.get("ID") or ""
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
+        for key, (icon, title, metric_key) in [
+            ("most_viewed", ("trending-up", "Most Viewed", "Views")),
+            ("least_viewed", ("trending-down", "Least Viewed", "Views")),
+            ("longest", ("clock", "Longest Video", "Duration")),
+            ("shortest", ("zap", "Shortest Video", "Duration")),
+        ]:
+            row = rows[key]
+            video_id = row.get("id", "")
+            video_url = f"https://youtube.com/watch?v={video_id}"
             thumbnail = (
                 row.get("Thumbnail") or row.get("thumbnail") or "/static/favicon.jpeg"
+            )
+            metric = (
+                format_number(row.get(metric_key, 0))
+                if metric_key == "Views"
+                else format_duration(row.get(metric_key, 0))
             )
 
             cards.append(
                 Card(
                     Div(
                         UkIcon(
-                            icon_name,
+                            icon,
                             height=28,
                             width=28,
                             cls="text-red-600 flex-shrink-0",
