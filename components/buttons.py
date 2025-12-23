@@ -111,7 +111,7 @@ def ViralVibesButton(
     width_class = "w-full" if full_width else ""
     # reuse centralized style
     base_cls = STYLES.get("btn_full", "")
-    final_cls = f"{width_cls} {base_cls}"
+    final_cls = f"{width_class} {base_cls}"
 
     icon_comp = UkIcon(icon, cls="mr-2 w-5 h-5") if icon else None
     content = Span(icon_comp, text) if icon_comp else text
