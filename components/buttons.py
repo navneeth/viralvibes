@@ -16,10 +16,14 @@ def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> 
         "secondary": "cta_secondary",
     }
     cls_key = kind_map.get(kind, "btn_full")
+    base_cls = STYLES.get(cls_key, STYLES.get("btn_full", ""))
+
     icon_comp = UkIcon(icon, cls="mr-2") if icon else None
+    content = Span(icon_comp, text) if icon_comp else text
+
     return Button(
-        Span(icon_comp, text) if icon_comp else text,
-        cls=STYLES.get(cls_key, STYLES["btn_full"]),
+        content,
+        cls=base_cls,
         **kwargs,
     )
 
@@ -27,9 +31,11 @@ def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> 
 def small_badge(text: str, icon: Optional[str] = None, kind: str = "small") -> Span:
     """Small inline badge used for views/engagement/date."""
     cls_key = "badge_small" if kind == "small" else "badge_info"
+    base_cls = STYLES.get(cls_key, "")
+
     if icon:
-        return Span(UkIcon(icon, cls="w-4 h-4 mr-1"), text, cls=STYLES[cls_key])
-    return Span(text, cls=STYLES[cls_key])
+        return Span(UkIcon(icon, cls="w-4 h-4 mr-1"), text, cls=base_cls)
+    return Span(text, cls=base_cls)
 
 
 def progress_meter(el_id: str, max_val: int = 1, cls: Optional[str] = None) -> Progress:
@@ -104,8 +110,10 @@ def ViralVibesButton(
     """Create a consistently styled ViralVibes button."""
     width_class = "w-full" if full_width else ""
     # reuse centralized style
-    base = STYLES.get("btn_full")
-    cls = f"{width_class} {base}"
-    return Button(
-        Span(UkIcon(icon, cls="mr-2"), text), type=button_type, cls=cls, **kwargs
-    )
+    base_cls = STYLES.get("btn_full", "")
+    final_cls = f"{width_class} {base_cls}"
+
+    icon_comp = UkIcon(icon, cls="mr-2 w-5 h-5") if icon else None
+    content = Span(icon_comp, text) if icon_comp else text
+
+    return Button(content, type=button_type, cls=final_cls, **kwargs)

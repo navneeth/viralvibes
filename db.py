@@ -13,7 +13,7 @@ import os
 import random
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Protocol, TypedDict
+from typing import Any, Dict, List, Optional, Protocol
 
 import polars as pl
 from supabase import Client, create_client

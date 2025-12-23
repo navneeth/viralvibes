@@ -9,15 +9,18 @@ from constants import (
     FLEX_CENTER,
     FLEX_COL,
     GAP_2,
+    ICONS_PATH,
     SECTION_BASE,
     THEME,
     faqs,
-    icons,
     testimonials,
 )
 
 
-def section_wrapper(content, bg_color, xtra="", flex=True):
+# =============================================================================
+# Section Helpers
+# =============================================================================
+def section_wrapper(content, bg_color, xtra="", flex=True) -> Section:
     """Wraps a section with background color, layout, and rounded corners."""
     return Section(
         content,
@@ -25,7 +28,8 @@ def section_wrapper(content, bg_color, xtra="", flex=True):
     )
 
 
-def section_header(mono_text, heading, subheading, max_width=32, center=True):
+def section_header(mono_text, heading, subheading, max_width=32, center=True) -> Div:
+    """Reusable section header with mono label."""
     pos = "items-center text-center" if center else "items-start text-start"
     return Div(
         P(mono_text, cls="mono-body text-opacity-60"),
@@ -35,7 +39,10 @@ def section_header(mono_text, heading, subheading, max_width=32, center=True):
     )
 
 
-def hero_section():
+# =============================================================================
+# Main Sections
+# =============================================================================
+def hero_section() -> Section:
     """
     Responsive hero that scales between mobile and desktop:
     - High-quality background image (Unsplash)
@@ -51,6 +58,7 @@ def hero_section():
                 src="https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1920&q=80",
                 alt="YouTube Analytics Background",
                 cls="absolute inset-0 w-full h-full object-cover",
+                loading="lazy",
             ),
             styled_div(
                 cls="absolute inset-0 bg-gradient-to-b from-black/40 via-black/50 to-black/70"
@@ -88,7 +96,7 @@ def hero_section():
                     ),
                     cls="flex gap-4 flex-wrap justify-center lg:justify-start",
                 ),
-                cls="max-w-4xl text-center lg:text-left",
+                cls=f"{FLEX_COL} lg:{FLEX_CENTER} text-center lg:text-left",
             ),
             cls=(
                 f"{THEME['flex_col']} lg:{THEME['flex_row']} items-center justify-center "
@@ -99,7 +107,7 @@ def hero_section():
     )
 
 
-def how_it_works_section():
+def how_it_works_section() -> Section:
     """Step-by-step workflow section"""
     steps_msg = [
         (
@@ -219,7 +227,7 @@ def testimonial_card(idx, comment, name, role, company, image_src):
                 Div(
                     P(role),
                     Img(
-                        src=f"{icons}/dot.svg",
+                        src=f"{ICONS_PATH}/dot.svg",
                         alt="Dot separator",
                         width="4",
                         height="4",
@@ -312,7 +320,7 @@ def footer():
 
 def arrow(d):
     return Button(
-        Img(src=f"assets/icons/arrow-{d}.svg", alt="Arrow left"),
+        Img(src=f"{ICONS_PATH}/arrow-{d}.svg", alt="Arrow left"),
         cls="disabled:opacity-40 transition-opacity",
         id=f"slide{d.capitalize()}",
         aria_label=f"Slide {d}",
