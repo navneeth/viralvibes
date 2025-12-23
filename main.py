@@ -911,6 +911,14 @@ def submit_job(playlist_url: str):
         hx_trigger="load, every 2s",
         hx_swap="outerHTML",
         id="preview-box",
+        children=[
+            P("Analyzing playlist... This might take a moment."),
+            Span(
+                cls="loading loading-bars loading-large",
+                id="loading-bar",
+                style="margin-top:1rem; color:#393e6e;",
+            ),
+        ],
     )
 
 
@@ -1042,8 +1050,8 @@ def get_job_progress_data(playlist_url: str):
     # Determine if we should show completion
     is_complete = status == "done"
 
-    # Build progress display HTML
-    return Div(
+    # Build inner content as a list
+    inner_content = [
         # Header
         Div(
             H2("Processing Your Playlist", cls="text-2xl font-bold text-gray-900 mb-2"),
@@ -1218,16 +1226,9 @@ def get_job_progress_data(playlist_url: str):
             if status == "failed" and error
             else None
         ),
-        # Polling instruction (if not complete)
+        # Completion message (shown when done)
         (
             Div(
-                hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-                hx_trigger="every 2s",
-                hx_swap="outerHTML",
-                id="progress-container",
-            )
-            if not is_complete
-            else Div(
                 P(
                     "✅ Processing complete! Loading results...",
                     cls="text-green-600 font-semibold",
@@ -1235,10 +1236,24 @@ def get_job_progress_data(playlist_url: str):
                 Script(
                     f"setTimeout(() => {{ htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{playlist_url}'}}}}); }}, 1000);"
                 ),
-                id="progress-container",
             )
+            if is_complete
+            else None
         ),
+    ]
+
+    # Return outer container with HTMX attributes
+    # HTMX will replace the entire outer div on each poll
+    return Div(
+        *inner_content,
         id="progress-container",
+        hx_get=(
+            f"/job-progress?playlist_url={quote_plus(playlist_url)}"
+            if not is_complete
+            else None
+        ),
+        hx_trigger="every 2s" if not is_complete else None,
+        hx_swap="outerHTML" if not is_complete else None,
         cls="max-w-2xl mx-auto",
     )
 
