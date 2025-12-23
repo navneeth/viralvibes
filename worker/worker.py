@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 import polars as pl
 from dotenv import load_dotenv
 
+from constants import PLAYLIST_JOBS_TABLE
 from db import (
     get_latest_playlist_job,
     init_supabase,
@@ -104,7 +105,7 @@ async def fetch_pending_jobs():
     """Return list of pending job rows from playlist_jobs table."""
     try:
         resp = (
-            supabase_client.table("playlist_jobs")
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
             .select("*")
             .eq("status", "pending")
             .order("created_at", desc=False)
@@ -134,7 +135,7 @@ async def fetch_retryable_failed_jobs():
         ).isoformat()
 
         resp = (
-            supabase_client.table("playlist_jobs")
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
             .select("*")
             .eq("status", "failed")
             .lt("retry_count", MAX_RETRY_ATTEMPTS)
@@ -168,7 +169,7 @@ async def mark_job_status(
             payload.update(meta)
 
         response = (
-            supabase_client.table("playlist_jobs")
+            supabase_client.table(PLAYLIST_JOBS_TABLE)
             .update(payload)
             .eq("id", job_id)
             .execute()
@@ -188,9 +189,9 @@ async def increment_retry_count(job_id: str, current_count: int = 0):
     """Increment the retry count for a job."""
     try:
         new_count = current_count + 1
-        supabase_client.table("playlist_jobs").update({"retry_count": new_count}).eq(
-            "id", job_id
-        ).execute()
+        supabase_client.table(PLAYLIST_JOBS_TABLE).update(
+            {"retry_count": new_count}
+        ).eq("id", job_id).execute()
         logger.info(f"[Job {job_id}] Retry count incremented to {new_count}")
     except Exception as e:
         logger.warning(f"Failed to update retry count for {job_id}: {e}")
@@ -201,7 +202,7 @@ def update_progress(job_id: str, processed: int, total: int):
     progress = processed / total if total > 0 else 0
     logger.info(f"Job {job_id}: {progress * 100:.1f}% complete")
     try:
-        supabase_client.table("playlist_jobs").update({"progress": progress}).eq(
+        supabase_client.table(PLAYLIST_JOBS_TABLE).update({"progress": progress}).eq(
             "id", job_id
         ).execute()
     except Exception as e:
@@ -684,7 +685,7 @@ async def worker_loop():
                 # Claim job atomically
                 try:
                     claim_response = (
-                        supabase_client.table("playlist_jobs")
+                        supabase_client.table(PLAYLIST_JOBS_TABLE)
                         .update(
                             {
                                 "status": "processing",
@@ -805,7 +806,7 @@ class Worker:
             # Try to fetch the latest job by id first (fallback to playlist lookup)
             if self.supabase:
                 resp = (
-                    self.supabase.table("playlist_jobs")
+                    self.supabase.table(PLAYLIST_JOBS_TABLE)
                     .select("*")
                     .eq("id", job_id)
                     .limit(1)

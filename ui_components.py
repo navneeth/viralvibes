@@ -38,28 +38,6 @@ from components.cards import (
     PlaylistSteps,
     create_info_card,
 )
-from components.tables import (
-    category_emoji_cell,
-    number_cell,
-    thumbnail_cell,
-    title_cell,
-)
-from constants import (
-    BENEFITS,
-    CARD_BASE,
-    FEATURES,
-    FLEX_BETWEEN,
-    FLEX_CENTER,
-    FLEX_COL,
-    FORM_CARD,
-    HEADER_CARD,
-    KNOWN_PLAYLISTS,
-    NEWSLETTER_CARD,
-    PLAYLIST_STEPS_CONFIG,
-    STEPS_CLS,
-    STYLES,
-    THEME,
-)
 from db import fetch_playlists, get_cached_playlist_stats
 from utils import format_number
 

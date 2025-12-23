@@ -3,7 +3,7 @@ from urllib.parse import quote_plus
 
 from fasthtml.common import *
 
-from ui_components import (
+from components import (
     category_emoji_cell,
     number_cell,
     thumbnail_cell,
