@@ -1,6 +1,7 @@
 """Table cell renderers and table-related components for the ViralVibes application."""
 
 import logging
+from typing import Any
 
 import polars as pl
 from fasthtml.common import *
@@ -13,16 +14,57 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Metric Formatters
+# =============================================================================
+METRIC_FORMATTERS = {
+    "Views": format_number,
+    "Likes": format_number,
+    "Comments": format_number,
+    "Dislikes": format_number,
+    "Duration": format_duration,
+}
+
+
+def format_metric(value: Any, metric_key: str) -> str:
+    """
+    Format a metric value based on its type.
+    Falls back to string conversion if metric type is unknown.
+    """
+    formatter = METRIC_FORMATTERS.get(metric_key, str)
+    try:
+        return formatter(value) if value is not None else "—"
+    except (ValueError, TypeError):
+        return str(value)
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+def youtube_watch_url(vid: str | None) -> str:
+    """Generate YouTube watch URL or fallback."""
+    return f"https://youtube.com/watch?v={vid}" if vid else "#"
+
+
+def Badge(label: str, cls: str = "") -> Span:
+    """Reusable badge component."""
+    return Span(
+        label,
+        cls=f"inline-block px-3 py-1 rounded-full text-xs font-bold {cls}",
+    )
+
+
+# =============================================================================
 # Table Cell Renderers
 # =============================================================================
 def thumbnail_cell(url: str, vid: str, title: str = None) -> A:
     """Render a clickable thumbnail that opens YouTube in a new tab."""
+    fallback_url = "/static/favicon.jpeg"  # Consider moving to constants
     if not url:
         # small placeholder
         return Div(
             A(
                 Div("No thumbnail", cls="text-xs text-gray-400"),
-                href=f"https://youtube.com/watch?v={vid}" if vid else "#",
+                href=youtube_watch_url(vid),
                 target="_blank",
                 cls="inline-block px-2 py-1 bg-gray-50 rounded",
             ),
@@ -34,9 +76,9 @@ def thumbnail_cell(url: str, vid: str, title: str = None) -> A:
             alt=title or "Video thumbnail",
             cls="h-14 w-28 object-cover rounded-lg shadow-sm hover:opacity-90 transition",
             loading="lazy",
-            onerror="this.src='/static/favicon.jpeg'",
+            onerror=f"this.src='{fallback_url}'",
         ),
-        href=f"https://youtube.com/watch?v={vid}",
+        href=youtube_watch_url(vid),
         target="_blank",
         title=title or "",
         cls="inline-block",
@@ -47,22 +89,22 @@ def title_cell(row: dict) -> Div:
     """Render a title cell with video metadata, tags, and uploader info."""
     title = row.get("Title", "Untitled")
     vid = row.get("id", "")
-    uploader = row.get("Uploader", "")
-    tags = row.get("Tags") or []
-    tag_nodes = []
-    for t in tags[:2] if isinstance(tags, (list, tuple)) else []:
-        # ✅ Use Span with Tailwind classes instead of Badge
-        tag_nodes.append(
-            Span(
-                t,
-                cls="inline-block px-2 py-1 mr-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium",
-            )
+    uploader = row.get("Uploader", "Unknown")
+    tags = row.get("Tags", []) if isinstance(row.get("Tags"), (list, tuple)) else []
+
+    tag_nodes = [
+        # First two tags only
+        Span(
+            tag,
+            cls="inline-block px-2 py-1 mr-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium",
         )
+        for tag in tags[:2]
+    ]
     meta = Div(
         Div(
             A(
                 title,
-                href=f"https://youtube.com/watch?v={vid}",
+                href=youtube_watch_url(vid),
                 target="_blank",
                 cls="text-blue-700 hover:underline font-semibold",
             ),
@@ -109,23 +151,29 @@ def number_cell(val: Any) -> Div:
 # ---------------------------------------------------------------------
 def VideoComparisonCard(
     row: dict,
-    label: str,
-    badge_cls: str,
-    accent_cls: str,
+    label: str = "",
+    badge_cls: str = "",
+    metric_key: str = "",
+    accent_cls: str = "",
 ) -> Div:
+    """Reusable card for video extremes with optional metric."""
     video_id = row.get("id") or row.get("Id") or ""
-    video_url = f"https://youtube.com/watch?v={video_id}"
+    video_url = youtube_watch_url(video_id)
     thumbnail = row.get("Thumbnail") or row.get("thumbnail") or "/static/favicon.jpeg"
     title = row.get("Title", "Untitled")
     uploader = row.get("Uploader", "Unknown")
-    views = row.get("Views", 0)
+    metric_val = row.get(metric_key, 0)
+
+    # Format metric
+    if metric_key == "Views":
+        metric_value = format_number(metric_val)
+    elif metric_key == "Duration":
+        metric_value = format_duration(metric_val)
+    else:
+        metric_value = None
 
     return Div(
-        # Badge
-        Span(
-            label,
-            cls=f"inline-block px-3 py-1 rounded-full text-xs font-bold mb-4 {badge_cls}",
-        ),
+        Badge(label, badge_cls) if label else None,
         # Thumbnail
         A(
             Img(
@@ -150,13 +198,21 @@ def VideoComparisonCard(
             cls="block font-semibold text-sm text-blue-700 hover:underline line-clamp-2 mb-3",
         ),
         # Views (primary metric)
-        Div(
-            Span(
-                format_number(views),
-                cls=f"text-3xl font-bold {accent_cls}",
-            ),
-            Span("Views", cls="text-xs text-gray-500 ml-1"),
-            cls="flex items-baseline gap-1 mb-2",
+        (
+            Div(
+                Span(
+                    metric_value,
+                    cls=f"text-3xl font-bold {accent_cls}" if metric_value else "",
+                ),
+                (
+                    Span(metric_key, cls="text-xs text-gray-500 ml-1")
+                    if metric_key
+                    else None
+                ),
+                cls="flex items-baseline gap-1 mb-2",
+            )
+            if metric_value
+            else None
         ),
         # Uploader
         P(uploader, cls="text-xs text-gray-600"),
@@ -167,6 +223,20 @@ def VideoComparisonCard(
 # -----------------------------------------------------------------------------
 # Configuration: Paired extremes (product intent lives here)
 # -----------------------------------------------------------------------------
+"""
+Paired extreme comparisons to display.
+
+Each pair is a dict with:
+  - pair_id: unique identifier
+  - title: section title with emoji
+  - subtitle: description
+  - metric_key: DataFrame column name to display
+  - left/right: config with:
+    - key: extremes dict key
+    - label: badge text
+    - badge_cls: Tailwind classes for badge
+    - accent_cls: Tailwind classes for metric value
+"""
 EXTREME_PAIRS = [
     {
         "pair_id": "views",
@@ -204,6 +274,42 @@ EXTREME_PAIRS = [
             "accent_cls": "text-yellow-600",
         },
     },
+    {
+        "pair_id": "engagement",
+        "title": "💬 Hot vs Cold",
+        "subtitle": "Most and least engaged videos",
+        "metric_key": "Comments",  # or "Engagement Rate (%)"
+        "left": {
+            "key": "most_engaged",
+            "label": "🔥 HOT",
+            "badge_cls": "bg-orange-100 text-orange-700",
+            "accent_cls": "text-orange-600",
+        },
+        "right": {
+            "key": "least_engaged",
+            "label": "❄️ COLD",
+            "badge_cls": "bg-slate-100 text-slate-700",
+            "accent_cls": "text-slate-600",
+        },
+    },
+    {
+        "pair_id": "likes",
+        "title": "👍 Popular vs Ignored",
+        "subtitle": "Most and least liked videos",
+        "metric_key": "Likes",
+        "left": {
+            "key": "most_liked",
+            "label": "👍 LIKED",
+            "badge_cls": "bg-green-100 text-green-700",
+            "accent_cls": "text-green-600",
+        },
+        "right": {
+            "key": "least_liked",
+            "label": "😐 IGNORED",
+            "badge_cls": "bg-gray-100 text-gray-700",
+            "accent_cls": "text-gray-600",
+        },
+    },
 ]
 
 
@@ -234,15 +340,13 @@ def ExtremeCard(
 ) -> Div:
     """Single extreme card. UI only; no data logic."""
     video_id = row.get("id") or row.get("Id") or ""
-    video_url = f"https://youtube.com/watch?v={video_id}"
+    video_url = youtube_watch_url(video_id)
     thumbnail = row.get("Thumbnail") or row.get("thumbnail") or "/static/favicon.jpeg"
     title = row.get("Title", "Untitled")
     uploader = row.get("Uploader", "Unknown")
     value = row.get(metric_key, 0)
 
-    metric_value = (
-        format_number(value) if metric_key == "Views" else format_duration(value)
-    )
+    metric_value = format_metric(value, metric_key)
 
     return Div(
         # Badge
@@ -294,7 +398,21 @@ def ExtremeComparisonRow(
     left_cfg: dict,
     right_cfg: dict,
 ) -> Div:
-    """One paired comparison row."""
+    """
+    Render a paired comparison row with two extreme cards and connector.
+
+    Args:
+        title: Section title (e.g., "🎯 Viral vs Quiet")
+        subtitle: Description text
+        metric_key: DataFrame column to display (e.g., "Views")
+        left_row: Left video row data
+        right_row: Right video row data
+        left_cfg: Left card config (label, colors, etc.)
+        right_cfg: Right card config
+
+    Returns:
+        Div: Rendered comparison section
+    """
     return Div(
         # Header
         Div(
@@ -344,6 +462,20 @@ def VideoExtremesSection(df: pl.DataFrame) -> Div:
                 {
                     "longest": df.select(pl.col("Duration").arg_max()).item(),
                     "shortest": df.select(pl.col("Duration").arg_min()).item(),
+                }
+            )
+        if "Comments" in df.columns:
+            extremes.update(
+                {
+                    "most_engaged": df.select(pl.col("Comments").arg_max()).item(),
+                    "least_engaged": df.select(pl.col("Comments").arg_min()).item(),
+                }
+            )
+        if "Likes" in df.columns:
+            extremes.update(
+                {
+                    "most_liked": df.select(pl.col("Likes").arg_max()).item(),
+                    "least_liked": df.select(pl.col("Likes").arg_min()).item(),
                 }
             )
 
