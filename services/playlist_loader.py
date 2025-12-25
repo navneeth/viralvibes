@@ -1,0 +1,112 @@
+# services/playlist_loader.py
+
+import io
+import logging
+from typing import Any, Dict
+
+import polars as pl
+
+from db import (
+    get_cached_playlist_stats,
+    upsert_playlist_stats,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def load_cached_or_stub(playlist_url: str, initial_max: int) -> Dict[str, Any]:
+    """
+    Loads cached playlist stats if available. Otherwise returns a stub payload.
+    Args:
+        playlist_url (str): The YouTube playlist URL.
+        initial_max (int): Initial maximum value for progress meter.
+        Returns: dict: A dictionary containing playlist stats and DataFrame.
+    """
+    cached_stats = get_cached_playlist_stats(playlist_url)
+
+    if cached_stats:
+        logger.info(f"Using cached stats for playlist {playlist_url}")
+
+        # reconstruct df other fields from cache row
+        df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
+        # TODO: Move this code to worker
+        # if logger.isEnabledFor(logging.DEBUG):
+        # logger.info("=" * 60)
+        # logger.info("DataFrame columns:")
+        # for col in df.columns:
+        #     if col in df.columns:
+        #         sample = df[col].head(1).to_list()
+        #         logger.info(f"✓ {col}: {sample}")
+        #     else:
+        #         logger.warning(f"✗ {col} MISSING")
+        # logger.info("=" * 60)
+        playlist_name = cached_stats["title"]
+        channel_name = cached_stats.get("channel_name", "")
+        channel_thumbnail = cached_stats.get("channel_thumbnail", "")
+        summary_stats = cached_stats["summary_stats"]
+
+        # use cached video_count if present; fall back to df.height; then preview meter_max
+        total = cached_stats.get("video_count") or df.height or initial_max
+        return {
+            "cached": True,
+            "df": df,
+            "playlist_name": playlist_name,
+            "channel_name": channel_name,
+            "channel_thumbnail": channel_thumbnail,
+            "summary_stats": summary_stats,
+            "total": total,
+            "cached_stats": cached_stats,
+        }
+
+    # ----- original stub path (identical behavior) -----
+    logger.warning("No cached stats found. Using stub values until worker is enabled.")
+
+    df = pl.DataFrame([])
+    playlist_name = "Unknown Playlist"
+    channel_name = "Unknown Channel"
+    channel_thumbnail = ""
+    summary_stats = {
+        "total_views": 0,
+        "total_likes": 0,
+        "total_dislikes": 0,
+        "total_comments": 0,
+        "actual_playlist_count": 0,
+        "avg_duration": None,
+        "avg_engagement": 0.0,
+        "avg_controversy": 0.0,
+    }
+
+    # cache stub (same behavior as before)
+    stats_to_cache = {
+        "playlist_url": playlist_url,
+        "title": playlist_name,
+        "channel_name": channel_name,
+        "channel_thumbnail": channel_thumbnail,
+        "view_count": summary_stats.get("total_views"),
+        "like_count": summary_stats.get("total_likes"),
+        "dislike_count": summary_stats.get("total_dislikes"),
+        "comment_count": summary_stats.get("total_comments"),
+        "video_count": summary_stats.get("actual_playlist_count", df.height),
+        "processed_video_count": df.height,
+        "avg_duration": (
+            int(summary_stats.get("avg_duration"))
+            if summary_stats.get("avg_duration") is not None
+            else None
+        ),
+        "engagement_rate": summary_stats.get("avg_engagement"),
+        "controversy_score": summary_stats.get("avg_controversy", 0),
+        "summary_stats": summary_stats,
+        "df_json": df.write_json(),
+    }
+    upsert_playlist_stats(stats_to_cache)
+
+    return {
+        "cached": False,
+        "df": df,
+        "playlist_name": playlist_name,
+        "channel_name": channel_name,
+        "channel_thumbnail": channel_thumbnail,
+        "summary_stats": summary_stats,
+        "total": summary_stats.get("actual_playlist_count", 0),
+        "cached_stats": None,
+    }

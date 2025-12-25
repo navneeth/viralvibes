@@ -20,6 +20,7 @@ from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from constants import PLAYLIST_JOBS_TABLE, PLAYLIST_STATS_TABLE, SIGNUPS_TABLE
+from utils import compute_dashboard_id
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -614,3 +615,65 @@ def get_estimated_stats(video_count: int) -> Dict[str, Any]:
         "estimated_total_comments": video_count * avg_comments_per_video,
         "note": "These are rough estimates and will be refined during processing",
     }
+
+
+# =============================================================================
+# Dashboard events (views / shares)
+# =============================================================================
+
+
+def record_dashboard_event(dashboard_id: str, event_type: str) -> None:
+    if not supabase_client:
+        return
+
+    supabase_client.table("dashboard_events").insert(
+        {
+            "dashboard_id": dashboard_id,
+            "event_type": event_type,
+        }
+    ).execute()
+
+
+def get_dashboard_event_counts(dashboard_id: str) -> dict:
+    if not supabase_client:
+        return {"view": 0, "share": 0}
+
+    resp = (
+        supabase_client.table("dashboard_events")
+        .select("event_type", count="exact")
+        .eq("dashboard_id", dashboard_id)
+        .group("event_type")
+        .execute()
+    )
+
+    counts = {"view": 0, "share": 0}
+    for row in resp.data or []:
+        counts[row["event_type"]] = row["count"]
+
+    return counts
+
+
+def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> str | None:
+    if not supabase_client:
+        logger.warning("Supabase client not available to resolve dashboard id")
+        return None
+
+    try:
+        rows = (
+            supabase_client.table(PLAYLIST_JOBS_TABLE).select("playlist_url").execute()
+        )
+
+        for row in rows.data or []:
+            if compute_dashboard_id(row["playlist_url"]) == dashboard_id:
+                return row["playlist_url"]
+
+        return None
+
+    except Exception as e:
+        logger.exception(
+            f"Failed to resolve playlist_url for dashboard_id={dashboard_id}: {e}"
+        )
+        return None
+
+
+# =============================================================================

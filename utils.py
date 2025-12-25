@@ -1,7 +1,8 @@
 import asyncio
 import functools
+import hashlib
 import logging
-from typing import Optional
+import re
 
 import polars as pl
 from fasthtml.common import *
@@ -245,3 +246,20 @@ def with_retries(
         return wrapper
 
     return decorator
+
+
+# =============================================================================
+# Dashboard identity helpers
+# =============================================================================
+
+
+def normalize_playlist_url(url: str) -> str:
+    url = url.strip().lower()
+    url = re.sub(r"&index=\d+", "", url)
+    url = re.sub(r"&t=\d+", "", url)
+    return url
+
+
+def compute_dashboard_id(playlist_url: str) -> str:
+    normalized = normalize_playlist_url(playlist_url)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
