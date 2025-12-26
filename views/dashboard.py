@@ -3,6 +3,7 @@ from datetime import date, datetime
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 from fasthtml.core import HtmxHeaders
+from monsterui.all import *
 from starlette.responses import StreamingResponse
 
 from components.tables import VideoExtremesSection
@@ -43,6 +44,22 @@ def PersistentDashboardMetaBar(*, dashboard_id: str, interest: dict | None):
     )
 
 
+def EmbeddedDashboardBadge(*, dashboard_id: str):
+    """Badge shown on embedded dashboards linking to the dedicated page."""
+    return A(
+        Span("Open full dashboard", cls="mr-1"),
+        UkIcon("external-link", width=14, height=14),
+        href=f"/d/{dashboard_id}",
+        target="_blank",
+        cls=(
+            "inline-flex items-center gap-1 "
+            "px-3 py-1 rounded-full text-xs font-semibold "
+            "bg-indigo-100 text-indigo-700 "
+            "hover:bg-indigo-200 transition"
+        ),
+    )
+
+
 def render_full_dashboard(
     *,
     df,
@@ -55,7 +72,7 @@ def render_full_dashboard(
     valid_order,
     next_order,
     cached_stats=None,
-    mode: str = "session",  # "session" | "persistent"
+    mode: str = "embedded",
     dashboard_id: str | None = None,
     interest: dict | None = None,  # {"view": int, "share": int}
 ):
@@ -91,6 +108,15 @@ def render_full_dashboard(
                     processed_date=date.today().strftime("%b %d, %Y"),
                     engagement_rate=summary_stats.get("avg_engagement"),
                     total_views=summary_stats.get("total_views"),
+                ),
+                # 🔗 Dedicated dashboard link (ONLY in embedded mode)
+                (
+                    Div(
+                        EmbeddedDashboardBadge(dashboard_id=dashboard_id),
+                        cls="mt-3",
+                    )
+                    if mode == "embedded" and dashboard_id
+                    else None
                 ),
                 cls="flex-1",
             ),

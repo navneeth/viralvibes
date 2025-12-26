@@ -744,38 +744,40 @@ def validate_full(
 
             # --- 9) Final render: steps + header side-by-side, then table, then plots ---
             # --- inside a target container for HTMX swaps ---
-            # final_html = str(
-            #     render_full_dashboard(
-            #         df=df,
-            #         summary_stats=summary_stats,
-            #         playlist_name=playlist_name,
-            #         channel_name=channel_name,
-            #         channel_thumbnail=channel_thumbnail,
-            #         playlist_url=playlist_url,
-            #         valid_sort=valid_sort,
-            #         valid_order=valid_order,
-            #         next_order=next_order,
-            #         cached_stats=cached_stats,
-            #     )
-            # )
-
-            # yield final_html
 
             # --- 9.5) Redirect to persistent dashboard (canonical URL) ---
             dashboard_id = compute_dashboard_id(playlist_url)
+            final_html = str(
+                render_full_dashboard(
+                    df=df,
+                    summary_stats=summary_stats,
+                    playlist_name=playlist_name,
+                    channel_name=channel_name,
+                    channel_thumbnail=channel_thumbnail,
+                    playlist_url=playlist_url,
+                    valid_sort=valid_sort,
+                    valid_order=valid_order,
+                    next_order=next_order,
+                    cached_stats=cached_stats,
+                    mode="embedded",
+                    dashboard_id=dashboard_id,
+                )
+            )
 
-            # Optional escape hatch for debugging
-            skip_redirect = htmx and htmx.boosted is False and False
-            # (you can later wire ?session=1 if you want)
+            yield final_html
 
-            # 🔁 Instead of rendering, redirect
+            # # Optional escape hatch for debugging
+            # skip_redirect = htmx and htmx.boosted is False and False
+            # # (you can later wire ?session=1 if you want)
 
-            yield f"""
-            <script>
-                window.location.href = "/d/{dashboard_id}";
-            </script>
-            """
-            return
+            # # 🔁 Instead of rendering, redirect
+
+            # yield f"""
+            # <script>
+            #     window.location.href = "/d/{dashboard_id}";
+            # </script>
+            # """
+            # return
 
         except Exception as e:
             logger.exception("Deep analysis failed")
