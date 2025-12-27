@@ -92,33 +92,84 @@ def test_preview_shows_preview_on_cache_miss_job_done(client, monkeypatch):
 
 
 def test_validate_full_stream_cached(client, monkeypatch):
-    # Track if cache is CALLED
-    cache_called = False
+    """Test that /validate/full uses cached data when available."""
 
-    def cached_row(url):
-        nonlocal cache_called
-        cache_called = True
-        print("🟢 CACHE CALLED with:", url)
-        row = make_cached_row()
-        row.update({"valid": True, "total_videos": 5, "stats": {"duration_avg": 240}})
-        print("🟢 CACHE RETURNS:", row)
-        return row
+    # Track if load_cached_or_stub is CALLED
+    load_called = False
+    original_load = None
 
-    monkeypatch.setattr(main, "get_cached_playlist_stats", cached_row)
+    def mock_load_cached_or_stub(playlist_url, meter_max):
+        """Mock that returns cached data."""
+        nonlocal load_called
+        load_called = True
+        print("🟢 load_cached_or_stub CALLED with:", playlist_url)
 
+        # Build a proper cached data response matching what load_cached_or_stub returns
+        data = {
+            "cached": True,  # Important: signals that data came from cache
+            "df": make_test_dataframe(),  # Polars DataFrame with test videos
+            "summary_stats": {
+                "total_views": 50000,
+                "total_likes": 1500,
+                "avg_engagement": 3.0,
+                "actual_playlist_count": 5,
+            },
+            "playlist_name": "Sample Playlist",
+            "channel_name": "Test Channel",
+            "channel_thumbnail": "/static/favicon.jpeg",
+            "total": 5,
+        }
+        print(
+            "🟢 load_cached_or_stub RETURNS:",
+            {k: v for k, v in data.items() if k != "df"},
+        )
+        return data
+
+    # Patch load_cached_or_stub from services.playlist_loader
+    monkeypatch.setattr(
+        "services.playlist_loader.load_cached_or_stub",
+        mock_load_cached_or_stub,
+    )
+
+    # Make request
     r = client.post("/validate/full", data={"playlist_url": TEST_PLAYLIST_URL})
-    assert r.status_code == 200
 
+    # Verify response
+    assert r.status_code == 200, f"Expected 200, got {r.status_code}"
     text = r.text
+
     print("📄 FULL RESPONSE LENGTH:", len(text))
     print("🔍 FIRST 300 CHARS:", repr(text[:300]))
-    print("✅ 'Total/Average' FOUND?", "Total/Average" in text)
     print("✅ 'Sample Playlist' FOUND?", "Sample Playlist" in text)
     print("✅ 'playlist-table' FOUND?", "playlist-table" in text)
-    print("🟢 WAS CACHE CALLED?", cache_called)
+    print("🟢 WAS load_cached_or_stub CALLED?", load_called)
 
-    assert cache_called, "CACHE NEVER CALLED!"
-    # assert "Total/Average" in text
+    # Assertions
+    assert load_called, "load_cached_or_stub was never called!"
+    assert "Sample Playlist" in text, "Playlist name not in response"
+    assert "playlist-table" in text, "Table not rendered in response"
+
+
+def make_test_dataframe():
+    """Create a test Polars DataFrame matching expected structure."""
+    import polars as pl
+
+    return pl.DataFrame(
+        {
+            "Rank": [1, 2, 3, 4, 5],
+            "Title": [
+                "Video 1",
+                "Video 2",
+                "Video 3",
+                "Video 4",
+                "Video 5",
+            ],
+            "Views": [10000, 8000, 6000, 4000, 2000],
+            "Likes": [300, 240, 180, 120, 60],
+            "Comments": [50, 40, 30, 20, 10],
+            "Duration": [240, 300, 180, 360, 120],
+        }
+    )
 
 
 def test_submit_job_and_poll(client, monkeypatch):
