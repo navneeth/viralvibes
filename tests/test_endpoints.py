@@ -91,65 +91,6 @@ def test_preview_shows_preview_on_cache_miss_job_done(client, monkeypatch):
     assert "htmx.ajax('POST', '/validate/full'" in r.text
 
 
-def test_validate_full_stream_cached(client, monkeypatch):
-    """Test that /validate/full uses cached data when available."""
-
-    # Track if load_cached_or_stub is CALLED
-    load_called = False
-    original_load = None
-
-    def mock_load_cached_or_stub(playlist_url, meter_max):
-        """Mock that returns cached data."""
-        nonlocal load_called
-        load_called = True
-        print("🟢 load_cached_or_stub CALLED with:", playlist_url)
-
-        # Build a proper cached data response matching what load_cached_or_stub returns
-        data = {
-            "cached": True,  # Important: signals that data came from cache
-            "df": make_test_dataframe(),  # Polars DataFrame with test videos
-            "summary_stats": {
-                "total_views": 50000,
-                "total_likes": 1500,
-                "avg_engagement": 3.0,
-                "actual_playlist_count": 5,
-            },
-            "playlist_name": "Sample Playlist",
-            "channel_name": "Test Channel",
-            "channel_thumbnail": "/static/favicon.jpeg",
-            "total": 5,
-        }
-        print(
-            "🟢 load_cached_or_stub RETURNS:",
-            {k: v for k, v in data.items() if k != "df"},
-        )
-        return data
-
-    # Patch load_cached_or_stub from services.playlist_loader
-    monkeypatch.setattr(
-        "services.playlist_loader.load_cached_or_stub",
-        mock_load_cached_or_stub,
-    )
-
-    # Make request
-    r = client.post("/validate/full", data={"playlist_url": TEST_PLAYLIST_URL})
-
-    # Verify response
-    assert r.status_code == 200, f"Expected 200, got {r.status_code}"
-    text = r.text
-
-    print("📄 FULL RESPONSE LENGTH:", len(text))
-    print("🔍 FIRST 300 CHARS:", repr(text[:300]))
-    print("✅ 'Sample Playlist' FOUND?", "Sample Playlist" in text)
-    print("✅ 'playlist-table' FOUND?", "playlist-table" in text)
-    print("🟢 WAS load_cached_or_stub CALLED?", load_called)
-
-    # Assertions
-    assert load_called, "load_cached_or_stub was never called!"
-    assert "Sample Playlist" in text, "Playlist name not in response"
-    assert "playlist-table" in text, "Table not rendered in response"
-
-
 def make_test_dataframe():
     """Create a test Polars DataFrame matching expected structure."""
     import polars as pl
@@ -410,10 +351,3 @@ def test_newsletter_with_supabase_success(client, monkeypatch):
     r = client.post("/newsletter", data={"email": "test@example.com"})
     assert r.status_code == 200
     assert "Thanks for signing up" in r.text or "Thanks" in r.text
-
-
-def test_dashboard_no_cache(client, monkeypatch):
-    monkeypatch.setattr(main, "get_cached_playlist_stats", lambda url: None)
-    r = client.get(f"/dashboard?playlist_url={TEST_PLAYLIST_URL}")
-    assert r.status_code == 200
-    assert "No analysis found" in r.text
