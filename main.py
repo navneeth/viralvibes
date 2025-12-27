@@ -5,6 +5,7 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 
 import io
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote_plus
@@ -12,6 +13,7 @@ from urllib.parse import quote_plus
 import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
+from fasthtml.common import RedirectResponse
 from fasthtml.core import HtmxHeaders
 from monsterui.all import *
 from starlette.responses import StreamingResponse
@@ -47,13 +49,15 @@ from db import (
     get_playlist_job_status,
     get_playlist_preview_info,
     init_supabase,
+    resolve_playlist_url_from_dashboard_id,
     setup_logging,
     submit_playlist_job,
     supabase_client,
     upsert_playlist_stats,
 )
+from services.playlist_loader import load_cached_or_stub
 from step_components import StepProgress
-from utils import format_number
+from utils import compute_dashboard_id, format_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
@@ -576,102 +580,69 @@ def update_meter(meter_id: str, value: int = None, max_value: int = None):
         yield f"<script>var el=document.getElementById('{meter_id}'); if(el) el.value={value};</script>"
 
 
-def load_cached_or_stub(playlist_url: str, initial_max: int):
-    """
-    Loads cached playlist stats if available. Otherwise returns a stub payload.
-    Args:
-        playlist_url (str): The YouTube playlist URL.
-        initial_max (int): Initial maximum value for progress meter.
-        Returns: dict: A dictionary containing playlist stats and DataFrame.
-    """
-    cached_stats = get_cached_playlist_stats(playlist_url)
+@rt("/d/{dashboard_id}", methods=["GET"])
+def dashboard_page(
+    dashboard_id: str,
+    sort_by: str = "Views",
+    order: str = "desc",
+):
+    # 1. Resolve dashboard_id → playlist_url
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
 
-    if cached_stats:
-        logger.info(f"Using cached stats for playlist {playlist_url}")
+    if not playlist_url:
+        return Alert(
+            P("Dashboard not found."),
+            cls=AlertT.error,
+        )
 
-        # reconstruct df other fields from cache row
-        df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
-        # TODO: Move this code to worker
-        # if logger.isEnabledFor(logging.DEBUG):
-        # logger.info("=" * 60)
-        # logger.info("DataFrame columns:")
-        # for col in df.columns:
-        #     if col in df.columns:
-        #         sample = df[col].head(1).to_list()
-        #         logger.info(f"✓ {col}: {sample}")
-        #     else:
-        #         logger.warning(f"✗ {col} MISSING")
-        # logger.info("=" * 60)
-        playlist_name = cached_stats["title"]
-        channel_name = cached_stats.get("channel_name", "")
-        channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-        summary_stats = cached_stats["summary_stats"]
+    # 2. Load data from Supabase (same as validate/full)
+    data = load_cached_or_stub(playlist_url, 1)
 
-        # use cached video_count if present; fall back to df.height; then preview meter_max
-        total = cached_stats.get("video_count") or df.height or initial_max
-        return {
-            "cached": True,
-            "df": df,
-            "playlist_name": playlist_name,
-            "channel_name": channel_name,
-            "channel_thumbnail": channel_thumbnail,
-            "summary_stats": summary_stats,
-            "total": total,
-            "cached_stats": cached_stats,
-        }
+    df = data["df"]
+    summary_stats = data["summary_stats"]
 
-    # ----- original stub path (identical behavior) -----
-    logger.warning("No cached stats found. Using stub values until worker is enabled.")
+    playlist_name = data["playlist_name"]
+    channel_name = data["channel_name"]
+    channel_thumbnail = data["channel_thumbnail"]
+    cached_stats = data.get("cached_stats")
 
-    df = pl.DataFrame([])
-    playlist_name = "Unknown Playlist"
-    channel_name = "Unknown Channel"
-    channel_thumbnail = ""
-    summary_stats = {
-        "total_views": 0,
-        "total_likes": 0,
-        "total_dislikes": 0,
-        "total_comments": 0,
-        "actual_playlist_count": 0,
-        "avg_duration": None,
-        "avg_engagement": 0.0,
-        "avg_controversy": 0.0,
+    # 3. Sorting (identical to validate/full)
+    sortable_map = {
+        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
     }
 
-    # cache stub (same behavior as before)
-    stats_to_cache = {
-        "playlist_url": playlist_url,
-        "title": playlist_name,
-        "channel_name": channel_name,
-        "channel_thumbnail": channel_thumbnail,
-        "view_count": summary_stats.get("total_views"),
-        "like_count": summary_stats.get("total_likes"),
-        "dislike_count": summary_stats.get("total_dislikes"),
-        "comment_count": summary_stats.get("total_comments"),
-        "video_count": summary_stats.get("actual_playlist_count", df.height),
-        "processed_video_count": df.height,
-        "avg_duration": (
-            int(summary_stats.get("avg_duration"))
-            if summary_stats.get("avg_duration") is not None
-            else None
-        ),
-        "engagement_rate": summary_stats.get("avg_engagement"),
-        "controversy_score": summary_stats.get("avg_controversy", 0),
-        "summary_stats": summary_stats,
-        "df_json": df.write_json(),
-    }
-    upsert_playlist_stats(stats_to_cache)
+    # Validate sort parameter
+    if sort_by not in sortable_map:
+        logger.warning(f"Invalid sort column '{sort_by}', defaulting to 'Views'")
+        sort_by = "Views"
 
-    return {
-        "cached": False,
-        "df": df,
-        "playlist_name": playlist_name,
-        "channel_name": channel_name,
-        "channel_thumbnail": channel_thumbnail,
-        "summary_stats": summary_stats,
-        "total": summary_stats.get("actual_playlist_count", 0),
-        "cached_stats": None,
-    }
+    valid_sort = sort_by
+    valid_order = order if order in ("asc", "desc") else "desc"
+
+    if valid_sort in sortable_map:
+        df = df.sort(
+            sortable_map[valid_sort],
+            descending=(valid_order == "desc"),
+        )
+
+    def next_order(col):
+        return "asc" if (col == valid_sort and valid_order == "desc") else "desc"
+
+    # 4. Render dashboard (persistent mode)
+    return render_full_dashboard(
+        df=df,
+        summary_stats=summary_stats,
+        playlist_name=playlist_name,
+        channel_name=channel_name,
+        channel_thumbnail=channel_thumbnail,
+        playlist_url=playlist_url,
+        valid_sort=valid_sort,
+        valid_order=valid_order,
+        next_order=next_order,
+        cached_stats=cached_stats,
+        mode="persistent",
+        dashboard_id=dashboard_id,
+    )
 
 
 @rt("/validate/full", methods=["POST", "GET"])
@@ -779,6 +750,9 @@ def validate_full(
 
             # --- 9) Final render: steps + header side-by-side, then table, then plots ---
             # --- inside a target container for HTMX swaps ---
+
+            # --- 9.5) Redirect to persistent dashboard (canonical URL) ---
+            dashboard_id = compute_dashboard_id(playlist_url)
             final_html = str(
                 render_full_dashboard(
                     df=df,
@@ -791,10 +765,25 @@ def validate_full(
                     valid_order=valid_order,
                     next_order=next_order,
                     cached_stats=cached_stats,
+                    mode="embedded",
+                    dashboard_id=dashboard_id,
                 )
             )
 
             yield final_html
+
+            # # Optional escape hatch for debugging
+            # skip_redirect = htmx and htmx.boosted is False and False
+            # # (you can later wire ?session=1 if you want)
+
+            # # 🔁 Instead of rendering, redirect
+
+            # yield f"""
+            # <script>
+            #     window.location.href = "/d/{dashboard_id}";
+            # </script>
+            # """
+            # return
 
         except Exception as e:
             logger.exception("Deep analysis failed")
@@ -833,7 +822,10 @@ def newsletter(email: str):
     # Comprehensive email validation using regex
     email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
     if not re.match(email_regex, email):
-        return Div("Please enter a valid email address.", style="color: red")
+        return Div(
+            P("Please enter a valid email address."),
+            cls="text-red-600 bg-red-50 p-4 border border-red-300 rounded",
+        )
 
     # Check if Supabase client is available
     if supabase_client is None:
@@ -868,21 +860,6 @@ def newsletter(email: str):
             "We're having trouble processing your signup. Please try again later.",
             style="color: orange",
         )
-
-
-@rt("/dashboard", methods=["GET"])
-def dashboard(playlist_url: str):
-    cached_stats = get_cached_playlist_stats(playlist_url)
-    if not cached_stats:
-        return Div("No analysis found for this playlist.", cls="text-red-600")
-    df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
-    summary_stats = cached_stats["summary_stats"]
-    playlist_name = cached_stats["title"]
-    channel_name = cached_stats.get("channel_name", "")
-    channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-    return AnalyticsDashboardSection(
-        df, summary_stats, playlist_name, channel_name, channel_thumbnail
-    )
 
 
 @rt("/submit-job", methods=["POST"])
@@ -1005,11 +982,7 @@ def get_job_progress_data(playlist_url: str):
             if started_at_str
             else None
         )
-        now = (
-            datetime.now(timezone.utc)
-            if started_at and started_at.tzinfo
-            else datetime.utcnow()
-        )
+        now = datetime.now(timezone.utc)
         elapsed_seconds = (now - started_at).total_seconds() if started_at else 0
     except Exception as e:
         logger.warning(f"Failed to parse timestamp: {e}")
