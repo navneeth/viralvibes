@@ -186,7 +186,7 @@ def get_cached_playlist_stats(
         if response.data and len(response.data) > 0:
             row = response.data[0]
 
-            # --- FIX: Validate the integrity of the cached data ---
+            # --- Validate the integrity of the cached data ---
             df_json = row.get("df_json")
             # Check if df_json is missing, empty, or represents an empty list/object.
             if _is_empty_json(df_json):
@@ -321,6 +321,7 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
         "processed_date": date.today().isoformat(),
         "df_json": df_json,
         "summary_stats": summary_stats_json,
+        "dashboard_id": compute_dashboard_id(playlist_url),
     }
 
     # Remove Polars DataFrame before inserting
@@ -622,51 +623,111 @@ def get_estimated_stats(video_count: int) -> Dict[str, Any]:
 # =============================================================================
 
 
-def record_dashboard_event(dashboard_id: str, event_type: str) -> None:
-    if not supabase_client:
+def record_dashboard_event(
+    supabase: Optional[SupabaseLike] = None,
+    dashboard_id: str = "",
+    event_type: str = "view",
+) -> None:
+    """
+    Record a dashboard event (view, share, etc).
+
+    Args:
+        supabase: Supabase client (uses global if not provided)
+        dashboard_id: Dashboard ID to record event for
+        event_type: Type of event ('view', 'share', etc)
+    """
+    client = supabase or supabase_client
+    if not client:
+        logger.warning("Supabase client not available to record event")
         return
 
-    supabase_client.table("dashboard_events").insert(
-        {
-            "dashboard_id": dashboard_id,
-            "event_type": event_type,
-        }
-    ).execute()
+    try:
+        column = "view_count" if event_type == "view" else "share_count"
+
+        # Increment the counter atomically on Supabase
+        client.table(PLAYLIST_STATS_TABLE).update(
+            {column: f"{column} + 1"}  # SQL: column = column + 1
+        ).eq("dashboard_id", dashboard_id).execute()
+
+        logger.debug(f"Recorded {event_type} event for dashboard {dashboard_id}")
+    except Exception as e:
+        logger.warning(f"Failed to record dashboard event: {e}")
+        # Don't raise - event tracking is non-critical
 
 
-def get_dashboard_event_counts(dashboard_id: str) -> dict:
-    if not supabase_client:
+def get_dashboard_event_counts(
+    supabase: Optional[SupabaseLike] = None, dashboard_id: str = ""
+) -> dict:
+    """
+    Get event counts for a dashboard.
+
+    Args:
+        supabase: Supabase client (uses global if not provided)
+        dashboard_id: Dashboard ID to fetch events for
+
+    Returns:
+        dict with event_type -> count mapping
+    """
+    client = supabase or supabase_client
+    if not client:
+        logger.warning("Supabase client not available to fetch event counts")
         return {"view": 0, "share": 0}
 
-    resp = (
-        supabase_client.table("dashboard_events")
-        .select("event_type", count="exact")
-        .eq("dashboard_id", dashboard_id)
-        .group("event_type")
-        .execute()
-    )
+    try:
+        response = (
+            client.table(PLAYLIST_STATS_TABLE)
+            .select("view_count, share_count")
+            .eq("dashboard_id", dashboard_id)
+            .limit(1)
+            .execute()
+        )
 
-    counts = {"view": 0, "share": 0}
-    for row in resp.data or []:
-        counts[row["event_type"]] = row["count"]
+        if response.data and len(response.data) > 0:
+            row = response.data[0]
+            return {
+                "view": row.get("view_count", 0),
+                "share": row.get("share_count", 0),
+            }
 
-    return counts
+        logger.debug(f"Event counts for {dashboard_id}: {counts}")
+        return {"view": 0, "share": 0}
+
+    except Exception as e:
+        logger.warning(f"Failed to get event counts for {dashboard_id}: {e}")
+        return {"view": 0, "share": 0}
 
 
-def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> str | None:
+def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> Optional[str]:
+    """
+    Look up playlist_url by dashboard_id.
+
+    Uses the indexed dashboard_id column in playlist_stats for fast O(1) lookup.
+    (This function can be deleted if main.py queries playlist_stats directly)
+
+    Args:
+        dashboard_id: Dashboard ID to resolve
+
+    Returns:
+        playlist_url if found, None otherwise
+    """
     if not supabase_client:
         logger.warning("Supabase client not available to resolve dashboard id")
         return None
 
     try:
-        rows = (
-            supabase_client.table(PLAYLIST_JOBS_TABLE).select("playlist_url").execute()
+        # Direct indexed lookup instead of scanning all rows
+        response = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select("playlist_url")
+            .eq("dashboard_id", dashboard_id)
+            .limit(1)
+            .execute()
         )
 
-        for row in rows.data or []:
-            if compute_dashboard_id(row["playlist_url"]) == dashboard_id:
-                return row["playlist_url"]
+        if response.data and len(response.data) > 0:
+            return response.data[0]["playlist_url"]
 
+        logger.warning(f"No playlist found for dashboard_id: {dashboard_id}")
         return None
 
     except Exception as e:

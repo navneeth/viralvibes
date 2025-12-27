@@ -5,6 +5,7 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 
 import io
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote_plus
@@ -610,7 +611,12 @@ def dashboard_page(
         h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
     }
 
-    valid_sort = sort_by if sort_by in sortable_map else "Views"
+    # Validate sort parameter
+    if sort_by not in sortable_map:
+        logger.warning(f"Invalid sort column '{sort_by}', defaulting to 'Views'")
+        sort_by = "Views"
+
+    valid_sort = sort_by
     valid_order = order if order in ("asc", "desc") else "desc"
 
     if valid_sort in sortable_map:
@@ -816,7 +822,10 @@ def newsletter(email: str):
     # Comprehensive email validation using regex
     email_regex = r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
     if not re.match(email_regex, email):
-        return Div("Please enter a valid email address.", style="color: red")
+        return Div(
+            P("Please enter a valid email address."),
+            cls="text-red-600 bg-red-50 p-4 border border-red-300 rounded",
+        )
 
     # Check if Supabase client is available
     if supabase_client is None:
@@ -851,21 +860,6 @@ def newsletter(email: str):
             "We're having trouble processing your signup. Please try again later.",
             style="color: orange",
         )
-
-
-@rt("/dashboard", methods=["GET"])
-def dashboard(playlist_url: str):
-    cached_stats = get_cached_playlist_stats(playlist_url)
-    if not cached_stats:
-        return Div("No analysis found for this playlist.", cls="text-red-600")
-    df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
-    summary_stats = cached_stats["summary_stats"]
-    playlist_name = cached_stats["title"]
-    channel_name = cached_stats.get("channel_name", "")
-    channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-    return AnalyticsDashboardSection(
-        df, summary_stats, playlist_name, channel_name, channel_thumbnail
-    )
 
 
 @rt("/submit-job", methods=["POST"])
@@ -988,11 +982,7 @@ def get_job_progress_data(playlist_url: str):
             if started_at_str
             else None
         )
-        now = (
-            datetime.now(timezone.utc)
-            if started_at and started_at.tzinfo
-            else datetime.utcnow()
-        )
+        now = datetime.now(timezone.utc)
         elapsed_seconds = (now - started_at).total_seconds() if started_at else 0
     except Exception as e:
         logger.warning(f"Failed to parse timestamp: {e}")
