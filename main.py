@@ -56,7 +56,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from services.playlist_loader import get_playlist_preview, load_cached_or_stub
+from services.playlist_loader import load_cached_or_stub  # get_playlist_preview
 from step_components import StepProgress
 from utils import compute_dashboard_id, format_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
@@ -292,7 +292,7 @@ def preview_playlist(playlist_url: str):
 
     # ===== PRIORITY 3: Get live YouTube API preview =====
     try:
-        preview_data = asyncio.run(get_playlist_preview(playlist_url))
+        preview_data = None  # asyncio.run(get_playlist_preview(playlist_url))
         if preview_data:
             logger.info(f"Using live YouTube preview for {playlist_url}")
             title = preview_data["title"]
