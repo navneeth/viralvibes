@@ -56,7 +56,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from services.playlist_loader import get_playlist_preview, load_cached_or_stub
+from services.playlist_loader import load_cached_or_stub  # get_playlist_preview
 from step_components import StepProgress
 from utils import compute_dashboard_id, format_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
