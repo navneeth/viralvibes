@@ -32,6 +32,7 @@ from services.youtube_service import (
     YouTubeBotChallengeError,
     YoutubePlaylistService,
 )
+from utils import compute_dashboard_id
 
 try:
     from httplib2 import ServerNotFoundError
@@ -441,6 +442,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             "engagement_rate": summary_stats.get("avg_engagement"),
             "controversy_score": summary_stats.get("avg_controversy", 0),
             "summary_stats": summary_stats,
+            "dashboard_id": compute_dashboard_id(playlist_url),
             "df": df,
         }
 
