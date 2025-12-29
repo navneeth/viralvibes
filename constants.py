@@ -24,7 +24,7 @@ GAP_2 = "flex gap-2"
 # Sections
 SECTION_BASE = "pt-8 px-4 pb-24 gap-8 lg:gap-16 lg:pt-16 lg:px-16"
 SECTION_WRAPPER = f"{FLEX_COL} {SECTION_BASE}"
-between = "flex justify-between"
+between = FLEX_BETWEEN
 
 # Cards
 CARD_BASE = (
@@ -172,35 +172,43 @@ TESTIMONIALS = [
 # =============================================================================
 FAQS = [
     (
-        "What kinds of things can I do with ViralVibes?",
-        "ViralVibes is designed for analyzing YouTube playlists and surfacing insights. "
-        "You can use it to track engagement, spot viral trends, compare creators, or run "
-        "deep dives on specific niches. It works equally well for quick experiments, "
-        "dashboards, research projects, or as part of a bigger content strategy.",
+        "What is ViralVibes best used for?",
+        "ViralVibes helps creators, marketers, and researchers understand why certain videos "
+        "perform better than others inside a playlist. Instead of raw stats, it highlights "
+        "engagement patterns, breakout videos, consistency gaps, and signals of viral traction — "
+        "so you can decide what to double down on next as part of a bigger content strategy.",
     ),
     (
-        "Where can I deploy ViralVibes?",
-        "ViralVibes is a Python-based web app. You can run it locally, or deploy it to "
-        "services like Railway, Vercel, Hugging Face Spaces, Replit, or any VPS/server "
-        "with Python installed. It's lightweight and runs on all major operating systems.",
+        "How is ViralVibes different from other tools like SocialBlade?",
+        "Most analytics tools focus on channels and surface raw metrics. ViralVibes focuses on "
+        "playlists and content performance. It analyzes engagement quality, consistency, and "
+        "outliers — helping you understand which videos actually drive growth, not just views.",
     ),
     (
-        "How is ViralVibes different from other analytics tools?",
-        "Most analytics tools focus on generic stats. ViralVibes is built specifically for "
-        "YouTube playlists — it digs into engagement rate, controversy score, likes vs "
-        "dislikes, and audience sentiment in a way that off-the-shelf dashboards don't.",
-    ),
-    (
-        "Does this only work for static reports, or can it be interactive?",
-        "It's fully interactive. ViralVibes surfaces real-time insights, lets you explore "
-        "data visually, and updates dynamically as you validate playlists. You're not just "
-        "looking at static charts — you're exploring living data.",
+        "Is ViralVibes interactive?",
+        "Yes. ViralVibes is fully interactive — you can sort videos, explore charts, compare "
+        "performance extremes, and drill into engagement patterns instead of reading static reports.",
     ),
     (
         "How accurate is the data?",
         "ViralVibes pulls data directly from YouTube's official API, ensuring accuracy. "
         "Results are cached for performance, so you might see a slight delay if a playlist "
         "was recently analyzed. You can always trigger a fresh analysis.",
+    ),
+    (
+        "Is ViralVibes free to use?",
+        "You can analyze playlists for free to explore key insights. Advanced features like "
+        "historical trends, saved dashboards, and exports are part of our Pro plans.",
+    ),
+    (
+        "How often is playlist data updated?",
+        "Playlist data is refreshed when you trigger a new analysis. Saved dashboards can be "
+        "updated periodically depending on your plan.",
+    ),
+    (
+        "Who is ViralVibes for?",
+        "ViralVibes is built for creators, growth marketers, agencies, and researchers who want "
+        "to understand content performance — not just collect stats.",
     ),
 ]
 
@@ -254,7 +262,6 @@ MAX_SAMPLE_PLAYLISTS = 5
 PLAYLIST_CACHE_TTL = 3600  # 1 hour
 
 # Backwards compatibility aliases
-between = FLEX_BETWEEN
 testimonials = TESTIMONIALS
 faqs = FAQS
 

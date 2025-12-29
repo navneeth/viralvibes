@@ -92,6 +92,14 @@ python cli.py run --poll-interval 10 --batch-size 3 --max-runtime 300
 
 The application follows a modern serverless architecture with three main layers:
 
+### Mental Model (Directory Structure)
+- **`components/`** → UI primitives (buttons, cards, tables, sections)
+- **`views/`** → Composed pages (dashboard views, layouts)
+- **`services/`** → YouTube + data logic (playlist processing, transforms)
+- **`worker/`** → Async jobs (background processing, job queue)
+- **`routes/`** → Entry points (partially used, mostly in main.py)
+- **`tests/`** → Solid coverage (unit and integration tests)
+
 ### Frontend Layer
 - FastHTML for server-side rendering
 - MonsterUI components for modern UI
