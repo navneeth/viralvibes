@@ -328,8 +328,14 @@ def preview_playlist(playlist_url: str):
     estimated_minutes = int(estimated_seconds / 60)
     estimated_display = f"~{estimated_minutes}m" if estimated_minutes > 0 else "~1m"
 
+    # ===== Compute has_previous_analysis WITHOUT extra query =====
+    if preview_info is None:
+        # We used YouTube API, so check DB for previous analysis
+        preview_info = get_playlist_preview_info(
+            playlist_url
+        )  # ← Only 1 DB call needed
     # Check if previously analyzed
-    has_previous_analysis = bool(get_playlist_preview_info(playlist_url))
+    has_previous_analysis = bool(preview_info)
 
     return Div(
         # Header with thumbnail and title
