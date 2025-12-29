@@ -534,7 +534,7 @@ def preview_playlist(playlist_url: str):
                 )
             ),
             type="button",
-            disabled=is_submitted,
+            disabled=button_disabled,
         ),
         Div(
             Loading(
