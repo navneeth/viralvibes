@@ -2,7 +2,7 @@
 
 import io
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import polars as pl
 
@@ -10,6 +10,9 @@ from db import (
     get_cached_playlist_stats,
     upsert_playlist_stats,
 )
+
+# Lazy import to avoid bloating main.py
+from services.youtube_service import YoutubePlaylistService
 
 logger = logging.getLogger(__name__)
 
@@ -110,3 +113,68 @@ def load_cached_or_stub(playlist_url: str, initial_max: int) -> Dict[str, Any]:
         "total": summary_stats.get("actual_playlist_count", 0),
         "cached_stats": None,
     }
+
+
+# ============================================================================
+# 🆕 QUICK PREVIEW: Lightweight playlist metadata (no analysis needed)
+# ============================================================================
+
+
+async def get_playlist_preview(playlist_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Get lightweight playlist preview directly from YouTube API.
+
+    This is FAST (1 API call) and shows users info before analysis starts.
+    Falls back gracefully if YouTube API is unavailable.
+
+    Args:
+        playlist_url (str): YouTube playlist URL
+
+    Returns:
+        {
+            "title": str,
+            "channel_name": str,
+            "thumbnail": str,
+            "video_count": int,
+            "description": str,
+            "privacy_status": str,
+            "published_at": str,
+            "source": "youtube_api"  # Indicates live data
+        }
+        OR None on failure
+    """
+    try:
+        service = YoutubePlaylistService(backends=["youtubeapi"])
+
+        # Call the lightweight get_playlist_preview method
+        (
+            title,
+            channel,
+            thumb,
+            length,
+            description,
+            privacy_status,
+            published,
+        ) = await service.backend.get_playlist_preview(playlist_url)
+
+        # Return None if preview unavailable
+        if title == "Preview unavailable":
+            logger.warning(f"YouTube preview unavailable for {playlist_url}")
+            return None
+
+        logger.info(f"Got YouTube preview: {title} ({length} videos) from {channel}")
+
+        return {
+            "title": title,
+            "channel_name": channel,
+            "thumbnail": thumb,
+            "video_count": length,
+            "description": description,
+            "privacy_status": privacy_status,
+            "published_at": published,
+            "source": "youtube_api",  # Important: indicates this is live data
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get YouTube preview for {playlist_url}: {e}")
+        return None
