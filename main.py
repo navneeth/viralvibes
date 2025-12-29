@@ -3,6 +3,7 @@ Main entry point for the ViralVibes web app.
 Modernized with Tailwind-inspired design and MonsterUI components.
 """
 
+import asyncio
 import io
 import logging
 import re
