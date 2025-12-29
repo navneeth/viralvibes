@@ -3,6 +3,7 @@ Main entry point for the ViralVibes web app.
 Modernized with Tailwind-inspired design and MonsterUI components.
 """
 
+import asyncio
 import io
 import logging
 import re
@@ -55,7 +56,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from services.playlist_loader import load_cached_or_stub
+from services.playlist_loader import get_playlist_preview, load_cached_or_stub
 from step_components import StepProgress
 from utils import compute_dashboard_id, format_number
 from validators import YoutubePlaylist, YoutubePlaylistValidator
@@ -236,12 +237,16 @@ def validate_url(playlist: YoutubePlaylist):
 @rt("/validate/preview", methods=["POST"])
 def preview_playlist(playlist_url: str):
     """
-    Enhanced playlist preview with rich metadata before analysis.
-    Uses database preview info - no YouTube API calls needed.
+    Enhanced playlist preview with live YouTube data + cached data fallback.
+
+    Priority:
+    1. Try cache first (fast, may be stale)
+    2. Try live YouTube API preview (fast, always current)
+    3. Show loading screen with estimates
     """
     logger.info(f"Received request to preview playlist: {playlist_url}")
 
-    # Case 1: Check for cached, complete analysis
+    # ===== PRIORITY 1: Check for CACHED analysis (complete data) =====
     cached_stats = get_cached_playlist_stats(playlist_url, check_date=True)
     if cached_stats:
         logger.info(
@@ -251,7 +256,7 @@ def preview_playlist(playlist_url: str):
             f"htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{playlist_url}'}}}});"
         )
 
-    # Case 2: Check job status
+    # ===== PRIORITY 2: Check job status =====
     job_status = get_playlist_job_status(playlist_url)
     logger.info(f"Job status for {playlist_url}: {job_status}")
 
@@ -285,49 +290,53 @@ def preview_playlist(playlist_url: str):
             cls="p-8 bg-red-50 border-2 border-red-200 rounded-xl shadow-sm max-w-md mx-auto",
         )
 
-    # Case 3: Check if we have any preview info in database
-    preview_info = get_playlist_preview_info(playlist_url)
+    # ===== PRIORITY 3: Get live YouTube API preview =====
+    try:
+        preview_data = asyncio.run(get_playlist_preview(playlist_url))
+        if preview_data:
+            logger.info(f"Using live YouTube preview for {playlist_url}")
+            title = preview_data["title"]
+            channel = preview_data["channel_name"]
+            thumbnail = preview_data["thumbnail"]
+            video_count = preview_data["video_count"]
+            description = preview_data.get("description", "")
+        else:
+            # YouTube API unavailable, try database stub
+            logger.info(f"YouTube preview unavailable, checking database stub")
+            preview_info = get_playlist_preview_info(playlist_url)
+            title = preview_info.get("title", "YouTube Playlist")
+            channel = preview_info.get("channel_name", "Unknown Channel")
+            thumbnail = preview_info.get("thumbnail", "/static/favicon.jpeg")
+            video_count = preview_info.get("video_count", 0)
+            description = ""
+    except Exception as e:
+        logger.warning(f"Failed to get preview: {e}, using database stub")
+        preview_info = get_playlist_preview_info(playlist_url)
+        title = preview_info.get("title", "YouTube Playlist")
+        channel = preview_info.get("channel_name", "Unknown Channel")
+        thumbnail = preview_info.get("thumbnail", "/static/favicon.jpeg")
+        video_count = preview_info.get("video_count", 0)
+        description = ""
 
-    # Extract values with fallbacks
-    title = preview_info.get("title", "YouTube Playlist")
-    thumbnail = preview_info.get("thumbnail", "/static/favicon.jpeg")
-    video_count = preview_info.get("video_count", 0)
-    total_views = preview_info.get("total_views", 0)
-    total_likes = preview_info.get("total_likes", 0)
-    avg_engagement = preview_info.get("avg_engagement", 0)
-
-    # Check if this is a previously analyzed playlist (has stats but old date)
-    has_previous_analysis = bool(preview_info and video_count)
-
-    logger.info(
-        f"Preview info for {playlist_url}: title={title}, "
-        f"videos={video_count}, has_previous_analysis={has_previous_analysis}"
-    )
-
-    # Estimate processing time (rough calculation based on video count)
-    # Assume ~2-3 seconds per video on average
-    estimated_seconds = video_count * 2.5 if video_count else 60
-    estimated_minutes = estimated_seconds / 60
-    estimated_display = (
-        f"~{int(estimated_minutes)}m"
-        if estimated_minutes < 60
-        else f"~{estimated_minutes / 60:.1f}h"
-    )
-
-    # Calculate batch count (assuming batch size of 10)
-    batch_size = 10
-    batch_count = (video_count + batch_size - 1) // batch_size if video_count else 0
-
-    # Determine button state and text
+    # ===== Render preview screen =====
     is_submitted = job_status in ["pending", "processing"]
     button_text = "Analysis in Progress..." if is_submitted else "Start Deep Analysis"
-    button_cls = (
-        "bg-gray-400 cursor-not-allowed"
-        if is_submitted
-        else "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
-    )
+    button_disabled = is_submitted
 
-    # Build rich preview UI
+    # Estimate processing time
+    estimated_seconds = (video_count * 2.5) if video_count else 60
+    estimated_minutes = int(estimated_seconds / 60)
+    estimated_display = f"~{estimated_minutes}m" if estimated_minutes > 0 else "~1m"
+
+    # ===== Compute has_previous_analysis WITHOUT extra query =====
+    if preview_info is None:
+        # We used YouTube API, so check DB for previous analysis
+        preview_info = get_playlist_preview_info(
+            playlist_url
+        )  # ← Only 1 DB call needed
+    # Check if previously analyzed
+    has_previous_analysis = bool(preview_info)
+
     return Div(
         # Header with thumbnail and title
         Div(
@@ -338,10 +347,7 @@ def preview_playlist(playlist_url: str):
                 onerror="this.src='/static/favicon.jpeg'",  # Fallback for broken images
             ),
             Div(
-                H2(
-                    title,
-                    cls="text-2xl font-bold text-gray-900 mb-1",
-                ),
+                H2(title, cls="text-2xl font-bold text-gray-900 mb-1"),
                 Div(
                     UkIcon("link", width=16, height=16, cls="text-gray-500"),
                     Span(
@@ -373,7 +379,7 @@ def preview_playlist(playlist_url: str):
             ),
             cls="flex items-start gap-6 mb-6",
         ),
-        # Stats grid (show if we have data, otherwise show placeholders)
+        # Stats grid
         Div(
             # Video count card
             Div(
@@ -383,7 +389,7 @@ def preview_playlist(playlist_url: str):
                 ),
                 Div(
                     Div(
-                        format_number(video_count) if video_count else "Unknown",
+                        f"{video_count:,}" if video_count else "Unknown",
                         cls="text-3xl font-bold text-gray-900",
                     ),
                     Div("Videos", cls="text-sm text-gray-500"),
@@ -398,7 +404,7 @@ def preview_playlist(playlist_url: str):
                 ),
                 Div(
                     Div(
-                        estimated_display if video_count else "~1-2m",
+                        estimated_display,
                         cls="text-lg font-bold text-gray-900",
                     ),
                     Div("Est. Time", cls="text-sm text-gray-500"),
@@ -408,62 +414,37 @@ def preview_playlist(playlist_url: str):
             # Stats card (views or engagement)
             Div(
                 Div(
-                    UkIcon("trending-up", width=32, height=32, cls="text-green-600"),
+                    UkIcon("users", width=24, height=24, cls="text-purple-600"),
                     cls="mb-2",
                 ),
                 Div(
                     Div(
-                        (
-                            format_number(total_views)
-                            if total_views and has_previous_analysis
-                            else (
-                                f"{avg_engagement:.1f}%"
-                                if avg_engagement and has_previous_analysis
-                                else "TBD"
-                            )
-                        ),
-                        cls="text-lg font-bold text-gray-900",
+                        channel[:20] + "..." if len(channel) > 20 else channel,
+                        cls="text-sm font-bold text-gray-900",
                     ),
-                    Div(
-                        (
-                            "Total Views"
-                            if total_views and has_previous_analysis
-                            else (
-                                "Engagement"
-                                if avg_engagement and has_previous_analysis
-                                else "Will Calculate"
-                            )
-                        ),
-                        cls="text-sm text-gray-500",
-                    ),
+                    Div("Channel", cls="text-sm text-gray-500"),
                 ),
-                cls="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200",
+                cls="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border border-purple-200",
             ),
             cls="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6",
         ),
-        # Previous analysis note (if applicable)
+        # Description (if available)
         (
             Div(
-                Div(
-                    UkIcon(
-                        "info-circle",
-                        width=18,
-                        height=18,
-                        cls="text-blue-600 flex-shrink-0",
+                P(
+                    (
+                        description[:200] + "..."
+                        if len(description) > 200
+                        else description
                     ),
-                    Span(
-                        f"This playlist was previously analyzed with {format_number(video_count)} videos. "
-                        "Re-analyzing will fetch the latest data.",
-                        cls="text-sm text-gray-700",
-                    ),
-                    cls="flex items-start gap-2",
+                    cls="text-sm text-gray-700 italic",
                 ),
-                cls="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-6",
+                cls="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6",
             )
-            if has_previous_analysis
+            if description
             else None
         ),
-        # Processing details
+        # What we'll analyze
         Div(
             H3("What We'll Analyze", cls="text-sm font-semibold text-gray-700 mb-3"),
             Div(
@@ -475,10 +456,14 @@ def preview_playlist(playlist_url: str):
                         cls="text-green-600 flex-shrink-0",
                     ),
                     Span(
-                        f"Process {format_number(video_count) if video_count else 'all'} videos in ~{batch_count} batches",
-                        cls="text-sm text-gray-700",
+                        (
+                            f"Process {video_count:,} videos in batches"
+                            if video_count
+                            else "Process all videos"
+                        ),
+                        cls="text-sm text-gray-700 ml-2",
                     ),
-                    cls="flex items-center gap-2",
+                    cls="flex items-center",
                 ),
                 Div(
                     UkIcon(
@@ -488,10 +473,10 @@ def preview_playlist(playlist_url: str):
                         cls="text-green-600 flex-shrink-0",
                     ),
                     Span(
-                        "Analyze views, likes, dislikes, and comment metrics",
-                        cls="text-sm text-gray-700",
+                        "Analyze views, likes, and engagement metrics",
+                        cls="text-sm text-gray-700 ml-2",
                     ),
-                    cls="flex items-center gap-2",
+                    cls="flex items-center mt-2",
                 ),
                 Div(
                     UkIcon(
@@ -501,10 +486,10 @@ def preview_playlist(playlist_url: str):
                         cls="text-green-600 flex-shrink-0",
                     ),
                     Span(
-                        "Calculate engagement rates and content category insights",
-                        cls="text-sm text-gray-700",
+                        "Calculate engagement rates and category insights",
+                        cls="text-sm text-gray-700 ml-2",
                     ),
-                    cls="flex items-center gap-2",
+                    cls="flex items-center mt-2",
                 ),
                 Div(
                     UkIcon(
@@ -514,16 +499,16 @@ def preview_playlist(playlist_url: str):
                         cls="text-green-600 flex-shrink-0",
                     ),
                     Span(
-                        "Generate interactive charts and trend insights",
-                        cls="text-sm text-gray-700",
+                        "Generate interactive charts and trends",
+                        cls="text-sm text-gray-700 ml-2",
                     ),
-                    cls="flex items-center gap-2",
+                    cls="flex items-center mt-2",
                 ),
-                cls="space-y-2",
+                cls="space-y-0",
             ),
             cls="bg-gradient-to-br from-purple-50 to-blue-50 p-4 rounded-lg border border-purple-200 mb-6",
         ),
-        # Current status (if job exists)
+        # Status (if processing)
         (
             Div(
                 Div(
@@ -548,15 +533,15 @@ def preview_playlist(playlist_url: str):
             hx_target="#preview-box",
             hx_indicator="#loading-bar",
             cls=(
-                "mt-10 block mx-auto w-fit px-6 py-3 rounded-xl shadow-md transition duration-300",
-                (
+                "mt-10 block mx-auto w-fit px-6 py-3 rounded-xl shadow-md transition duration-300 "
+                + (
                     "bg-gray-400 cursor-not-allowed"
-                    if is_submitted
+                    if button_disabled
                     else "bg-blue-600 hover:bg-blue-700"
-                ),
+                )
             ),
             type="button",
-            disabled=is_submitted,
+            disabled=button_disabled,
         ),
         Div(
             Loading(
