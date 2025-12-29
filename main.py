@@ -292,7 +292,7 @@ def preview_playlist(playlist_url: str):
 
     # ===== PRIORITY 3: Get live YouTube API preview =====
     try:
-        preview_data = asyncio.run(get_playlist_preview(playlist_url))
+        preview_data = None  # asyncio.run(get_playlist_preview(playlist_url))
         if preview_data:
             logger.info(f"Using live YouTube preview for {playlist_url}")
             title = preview_data["title"]
