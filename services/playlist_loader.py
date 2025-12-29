@@ -11,9 +11,6 @@ from db import (
     upsert_playlist_stats,
 )
 
-# Lazy import to avoid bloating main.py
-from services.youtube_service import YoutubePlaylistService
-
 logger = logging.getLogger(__name__)
 
 
@@ -144,6 +141,9 @@ async def get_playlist_preview(playlist_url: str) -> Optional[Dict[str, Any]]:
         OR None on failure
     """
     try:
+        # Lazy import to avoid bloating main.py
+        from services.youtube_service import YoutubePlaylistService
+
         service = YoutubePlaylistService(backends=["youtubeapi"])
 
         # Call the lightweight get_playlist_preview method
