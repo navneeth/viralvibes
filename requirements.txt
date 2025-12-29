@@ -8,4 +8,5 @@ tenacity
 requests
 click
 isodate
-google-api-python-client
+# introducing google-api-python-client causes vercel deployment issues due to size > 250 MB
+#google-api-python-client
