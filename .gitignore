@@ -8,6 +8,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.so
+*.pyc
 
 # Virtual environments
 .env
@@ -51,3 +52,4 @@ ehthumbs.db
 
 # Static/media/user uploads (if any)
 static/uploads/
+cookies.b64
