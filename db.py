@@ -450,9 +450,17 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     Returns minimal info about a playlist for preview.
     Flattens `summary_stats` JSON into usable front-end fields.
     """
+    default = {
+        "title": "YouTube Playlist",
+        "channel": "Unknown Channel",
+        "thumbnail": "/static/favicon.jpeg",
+        "video_count": 0,
+        "description": "",
+    }
+
     if not supabase_client:
         logger.warning("Supabase client not available to fetch preview info")
-        return {}
+        return default
 
     try:
         response = (
@@ -465,16 +473,17 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
 
         if not response.data:
             logger.warning(f"No playlist stats found for {playlist_url}")
-            return {}
+            return default
 
         data = response.data[0]
         preview_info = {
-            "title": data.get("title"),
-            "thumbnail": data.get("channel_thumbnail"),
-            "video_count": None,
+            "title": data.get("title") or default["title"],
+            "thumbnail": data.get("channel_thumbnail") or default["thumbnail"],
+            "video_count": 0,
+            "description": "",
         }
 
-        summary_stats_raw = data.get("summary_stats")
+        summary_stats_raw = data.get("summary_stats") or {}
         if summary_stats_raw:
             # Parse JSON if it's a string
             if isinstance(summary_stats_raw, str):
@@ -487,7 +496,9 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
                 summary_stats = summary_stats_raw
 
             # Fill in video_count if missing
-            preview_info["video_count"] = summary_stats.get("actual_playlist_count")
+            preview_info["video_count"] = summary_stats.get(
+                "actual_playlist_count", default["video_count"]
+            )
             # Optional: include other summary stats for future use
             preview_info.update(
                 {
