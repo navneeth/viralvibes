@@ -186,6 +186,28 @@ async def mark_job_status(
         return False
 
 
+async def attach_dashboard_to_job(job_id: str, playlist_url: str) -> str:
+    """
+    Compute and persist dashboard_id for a job.
+    Returns the dashboard_id.
+    """
+    dashboard_id = compute_dashboard_id(playlist_url)
+
+    try:
+        supabase_client.table(PLAYLIST_JOBS_TABLE).update(
+            {"dashboard_id": dashboard_id}
+        ).eq("id", job_id).execute()
+
+        logger.info(f"[Job {job_id}] Attached dashboard_id={dashboard_id}")
+        return dashboard_id
+
+    except Exception as e:
+        logger.exception(
+            f"[Job {job_id}] Failed to attach dashboard_id={dashboard_id}: {e}"
+        )
+        raise
+
+
 async def increment_retry_count(job_id: str, current_count: int = 0):
     """Increment the retry count for a job."""
     try:
@@ -489,6 +511,8 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             if is_retry:
                 success_message += f" after {retry_count} retries"
 
+            # 🔐 Ensure dashboard is materialized before completion
+            dashboard_id = await attach_dashboard_to_job(job_id, playlist_url)
             await mark_job_status(
                 job_id,
                 "done",
@@ -496,16 +520,19 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     "status_message": success_message,
                     "finished_at": datetime.utcnow().isoformat(),
                     "result_source": result_map.get("source"),
+                    "dashboard_id": dashboard_id,
                 },
             )
             _set_stage("marked-done")
             logger.info(f"[Job {job_id}] {success_message}")
+
         elif source == "error":
             error_msg = result_map.get("error", "Unknown upsert error")
             logger.error(f"[Job {job_id}] Upsert failed: {error_msg}")
             await handle_job_failure(
                 job_id, retry_count, f"DB upsert error: {error_msg}"
             )
+
         else:
             logger.error(f"[Job {job_id}] Unknown upsert source: {source}")
             await handle_job_failure(
