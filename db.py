@@ -465,7 +465,7 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
     try:
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("title, channel_thumbnail, summary_stats")
+            .select("title, channel_name, channel_thumbnail, summary_stats")
             .eq("playlist_url", playlist_url)
             .limit(1)
             .execute()
@@ -478,6 +478,7 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
         data = response.data[0]
         preview_info = {
             "title": data.get("title") or default["title"],
+            "channel_name": data.get("channel_name") or default["channel"],
             "thumbnail": data.get("channel_thumbnail") or default["thumbnail"],
             "video_count": 0,
             "description": "",
