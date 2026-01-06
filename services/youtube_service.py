@@ -100,6 +100,14 @@ class YoutubePlaylistService:
         self.ydl = None  # Backward compat: set when yt-dlp backend is loaded
         self.youtube = None  # Backward compat: set when API backend is loaded
 
+        # Iniitialize handler on first use
+        self._initialize_backend()
+
+        # Persistent HTTP client for dislike API
+        self._dislike_client = None
+        self._failed_videos = []  # Track failed videos for retry
+
+    def _initialize_backend(self):
         # Lazy-load the backend handler on first use.
         if self.handler is not None:
             return  # Already initialized
@@ -116,7 +124,7 @@ class YoutubePlaylistService:
             self.handler = YouTubeBackendYTDLP(self.cfg, ydl_opts)
             self.ydl = self.handler.ydl  # Backward compatible access
 
-        elif backend == "youtubeapi":
+        elif self.backend == "youtubeapi":
             try:
                 from googleapiclient.discovery import build
             except ImportError:
@@ -132,10 +140,6 @@ class YoutubePlaylistService:
             raise ValueError(
                 f"backend must be 'yt-dlp' or 'youtubeapi', got '{self.backend}'"
             )
-
-        # Persistent HTTP client for dislike API
-        self._dislike_client = None
-        self._failed_videos = []  # Track failed videos for retry
 
     # --------------------------
     # Public entrypoints
