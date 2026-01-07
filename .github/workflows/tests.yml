@@ -7,12 +7,18 @@ on:
         required: false
         type: string
         default: '3.11'
+      coverage-threshold:
+        required: false
+        type: number
+        default: 80
     secrets:
       NEXT_PUBLIC_SUPABASE_URL:
         required: false
       NEXT_PUBLIC_SUPABASE_ANON_KEY:
         required: false
       YOUTUBE_API_KEY:
+        required: false
+      CODECOV_TOKEN:
         required: false
 
 jobs:
@@ -22,46 +28,106 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better coverage diff
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python-version }}
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          cache: 'pip'  # Built-in pip caching (simpler than manual cache)
+          cache-dependency-path: '**/requirements*.txt'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements-backend.txt ]; then pip install -r requirements-backend.txt; else pip install pytest pytest-asyncio httpx starlette; fi
+          if [ -f requirements-backend.txt ]; then
+            pip install -r requirements-backend.txt
+          else
+            pip install pytest pytest-asyncio httpx starlette
+          fi
+          pip install pytest-cov coverage[toml]
 
       - name: Prepare reports dir
-        run: mkdir -p reports
+        run: mkdir -p reports htmlcov
 
-      - name: Run tests (pytest)
-        run: pytest tests/ -vv -s --log-cli-level=INFO --junitxml=reports/junit.xml
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ -vv -s \
+            --log-cli-level=INFO \
+            --cov=. \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=html:htmlcov \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=json:reports/coverage.json \
+            --junitxml=reports/junit.xml \
+            --cov-branch
+        continue-on-error: false
 
-      - name: Upload JUnit XML artifact
+      - name: Coverage comment (PR only)
+        if: github.event_name == 'pull_request'
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 90
+          MINIMUM_ORANGE: 70
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./reports/coverage.xml
+          flags: unittests
+          name: codecov-${{ runner.os }}-py${{ inputs.python-version }}
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Check coverage threshold
+        run: |
+          coverage report --fail-under=${{ inputs.coverage-threshold }}
+
+      - name: Generate coverage badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          pip install coverage-badge
+          coverage-badge -o reports/coverage.svg -f
+
+      - name: Upload coverage artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-junit
-          path: reports/junit.xml
-          if-no-files-found: warn
+          name: coverage-report-py${{ inputs.python-version }}
+          path: |
+            htmlcov/
+            reports/coverage.xml
+            reports/coverage.json
+            reports/coverage.svg
+          retention-days: 30
 
-      # - name: Publish test report to Checks (JUnit)
-      #   uses: dorny/test-reporter@a7b6e7e3e5e5e3e7b7c1e6c2e2a1b2c3d4e5f6a7
-      #   with:
-      #     name: pytest
-      #     path: reports/junit.xml
-      #     reporter: junit
-      #     fail_on_error: false
-      #     fail_fast: true  # Stop on test failures
+      - name: Upload JUnit XML artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-junit-py${{ inputs.python-version }}
+          path: reports/junit.xml
+          retention-days: 30
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: reports/junit.xml
+          check_name: Test Results (Python ${{ inputs.python-version }})
+          comment_mode: off
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "### Coverage Report 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
