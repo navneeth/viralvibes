@@ -188,24 +188,13 @@ async def mark_job_status(
 
 async def attach_dashboard_to_job(job_id: str, playlist_url: str) -> str:
     """
-    Compute and persist dashboard_id for a job.
+    Compute and return dashboard_id for a job.
+    The dashboard_id is persisted in playlist_stats, not in playlist_jobs.
     Returns the dashboard_id.
     """
     dashboard_id = compute_dashboard_id(playlist_url)
-
-    try:
-        supabase_client.table(PLAYLIST_JOBS_TABLE).update(
-            {"dashboard_id": dashboard_id}
-        ).eq("id", job_id).execute()
-
-        logger.info(f"[Job {job_id}] Attached dashboard_id={dashboard_id}")
-        return dashboard_id
-
-    except Exception as e:
-        logger.exception(
-            f"[Job {job_id}] Failed to attach dashboard_id={dashboard_id}: {e}"
-        )
-        raise
+    logger.info(f"[Job {job_id}] Computed dashboard_id={dashboard_id}")
+    return dashboard_id
 
 
 async def increment_retry_count(job_id: str, current_count: int = 0):
