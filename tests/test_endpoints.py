@@ -216,16 +216,20 @@ def test_job_progress_completion(client, monkeypatch):
         "started_at": (datetime.utcnow() - timedelta(seconds=300)).isoformat(),
         "error": None,
     }
-    monkeypatch.setattr("main.get_job_progress", lambda url: mock_job)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
 
     mock_preview = {
         "title": "Test Playlist",
         "video_count": 100,
     }
-    monkeypatch.setattr("main.get_playlist_preview_info", lambda url: mock_preview)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
 
     monkeypatch.setattr(
-        "main.get_estimated_stats",
+        "controllers.job_progress.get_estimated_stats",
         lambda count: {
             "estimated_total_views": 5000000,
             "estimated_total_likes": 150000,
@@ -264,16 +268,20 @@ def test_job_progress_with_error(client, monkeypatch):
         "started_at": (datetime.utcnow() - timedelta(seconds=60)).isoformat(),
         "error": "Network timeout while fetching videos",
     }
-    monkeypatch.setattr("main.get_job_progress", lambda url: mock_job)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
 
     mock_preview = {
         "title": "Test Playlist",
         "video_count": 100,
     }
-    monkeypatch.setattr("main.get_playlist_preview_info", lambda url: mock_preview)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
 
     monkeypatch.setattr(
-        "main.get_estimated_stats",
+        "controllers.job_progress.get_estimated_stats",
         lambda count: {
             "estimated_total_views": 5000000,
             "estimated_total_likes": 150000,
@@ -305,16 +313,20 @@ def test_job_progress_progress_calculation(client, monkeypatch):
         "started_at": start_time.isoformat(),
         "error": None,
     }
-    monkeypatch.setattr("main.get_job_progress", lambda url: mock_job)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
 
     mock_preview = {
         "title": "Test Playlist",
         "video_count": 100,
     }
-    monkeypatch.setattr("main.get_playlist_preview_info", lambda url: mock_preview)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
 
     monkeypatch.setattr(
-        "main.get_estimated_stats",
+        "controllers.job_progress.get_estimated_stats",
         lambda count: {
             "estimated_total_views": 5000000,
             "estimated_total_likes": 150000,
