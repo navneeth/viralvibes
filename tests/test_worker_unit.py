@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -7,67 +8,69 @@ import pytest
 import worker.worker as wk
 from worker.worker import JobResult, Worker
 
+# Reuse existing conftest helpers
+from tests.conftest import create_test_dataframe
+
 
 @pytest.mark.asyncio
-async def test_worker_process_one_success(monkeypatch):
-    # Fake job row
-    job = {"id": "job-1", "playlist_url": "https://youtube.com/playlist?list=PL123"}
+async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
+    """
+    Test worker processes a job successfully.
 
-    # Mock yt_service.get_playlist_data -> return (df, title, channel, thumb, summary)
-    class FakeDF:
-        def __init__(self):
-            self.height = 2
-            self.columns = ["Title", "Views"]
+    Uses mock_supabase_with_jobs fixture from conftest
+    """
+    job = {"id": 1, "playlist_url": "https://youtube.com/playlist?list=PL123"}
 
-        def is_empty(self):
-            return False
-
-        def write_json(self):
-            return "[]"
-
+    # Mock YouTube service response
     async def fake_get_playlist_data(url, progress_callback=None):
-        df = FakeDF()
-        title = "My Playlist"
-        channel = "Chan"
-        thumb = "/img.png"
-        summary = {
-            "total_views": 100,
-            "actual_playlist_count": 2,
-            "avg_engagement": 1.2,
-        }
-        return df, title, channel, thumb, summary
+        """Return test playlist data."""
+        df = create_test_dataframe(num_videos=5)
 
-    # Monkeypatch the module-level youtube service used by handler
+        return (
+            df,
+            "My Playlist",
+            "Test Channel",
+            "https://example.com/thumb.jpg",
+            {
+                "total_views": 50000,
+                "total_likes": 1500,
+                "total_comments": 250,
+                "actual_playlist_count": 5,
+                "avg_engagement": 3.2,
+            },
+        )
+
+    # Mock YouTube service
     monkeypatch.setattr(
         wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data)
     )
 
+    # Mock database upsert
     async def fake_upsert(stats):
-        from db import UpsertResult  # Import inside to avoid import issues
+        from db import UpsertResult
 
         return UpsertResult(
             source="fresh",
-            df="[]",
-            # summary_stats=json.dumps(stats.get("summary_stats", {})),
+            df_json=stats["df_json"],
+            summary_stats_json=json.dumps(stats.get("summary_stats", {})),
+            dashboard_id="test-dash-abc123",
+            error=None,
+            raw_row={
+                "id": 1,
+                "dashboard_id": "test-dash-abc123",
+                "playlist_url": job["playlist_url"],
+            },
         )
 
-    # override upsert_playlist_stats used in worker
     monkeypatch.setattr(wk, "upsert_playlist_stats", fake_upsert)
 
-    # fake supabase client that accepts updates (used when worker reads final job row) -> keep simple
-    fake_supabase = SimpleNamespace(
-        table=lambda *a, **k: SimpleNamespace(
-            select=lambda *x, **y: SimpleNamespace(
-                eq=lambda *a, **k: SimpleNamespace(
-                    limit=lambda n: SimpleNamespace(
-                        execute=lambda: SimpleNamespace(data=[{}])
-                    )
-                )
-            )
-        )
-    )
-    w = Worker(supabase=fake_supabase, yt=wk.yt_service)
-    res = await w.process_one(job, is_retry=False)
-    assert isinstance(res, JobResult)
-    # status may be None if DB fetch above returns empty row; at least job_id is preserved
-    assert res.job_id == "job-1"
+    # Use the fixture that includes job data
+    worker = Worker(supabase=mock_supabase_with_jobs, yt=wk.yt_service)
+
+    # Process job
+    result = await worker.process_one(job, is_retry=False)
+
+    # Assertions
+    assert isinstance(result, JobResult)
+    assert result.job_id == 1
+    assert result.status == "complete"

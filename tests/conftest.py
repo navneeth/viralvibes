@@ -102,6 +102,9 @@ class MockSupabaseTable:
         self._limit_count = None
         self._order_col = None
         self._order_desc = False
+        self._single = False  # Track .single() calls
+        self._update_payload = None  #  Track updates
+        self._insert_payload = None  # Track inserts
 
     def select(self, cols: str):
         """Mock select() - store column names."""
@@ -124,6 +127,11 @@ class MockSupabaseTable:
         self._order_desc = desc
         return self
 
+    def single(self) -> "MockSupabaseTable":
+        """Mock single() - returns one row instead of array."""
+        self._single = True
+        return self
+
     def insert(self, payload: dict) -> "MockSupabaseTable":
         """Mock insert() - store payload."""
         self._insert_payload = payload
@@ -141,15 +149,17 @@ class MockSupabaseTable:
             def __init__(self, data):
                 self.data = data
 
+        # Handle UPDATE operations (for job status updates)
+        if hasattr(self, "_update_payload") and self._update_payload is not None:
+            # Return empty success response for updates
+            return Response([])
+
+        # Handle INSERT operations
+        if hasattr(self, "_insert_payload") and self._insert_payload is not None:
+            return Response([self._insert_payload])
+
         # For playlist_stats table with specific filters
         if self.table_name == "playlist_stats":
-            # Handle INSERT/UPDATE
-            if hasattr(self, "_insert_payload"):
-                return Response([self._insert_payload])
-            if hasattr(self, "_update_payload"):
-                return Response([])
-
-            # Handle SELECT with filters
             matching_rows = []
 
             # Filter by playlist_url
@@ -168,6 +178,39 @@ class MockSupabaseTable:
             # Apply limit
             if self._limit_count:
                 matching_rows = matching_rows[: self._limit_count]
+
+            # Return single row if .single() was called
+            if self._single:
+                return Response(matching_rows[0] if matching_rows else {})
+
+            return Response(matching_rows)
+
+        # For playlist_jobs table
+        if self.table_name == "playlist_jobs":
+            matching_rows = []
+
+            # Filter by id
+            if "id" in self._filters:
+                job_id = self._filters["id"]
+                jobs = self.data.get("playlist_jobs", {})
+                if job_id in jobs:
+                    matching_rows.append(jobs[job_id])
+
+            # Filter by playlist_url
+            if "playlist_url" in self._filters:
+                url = self._filters["playlist_url"]
+                jobs = self.data.get("playlist_jobs", {})
+                for job in jobs.values():
+                    if job.get("playlist_url") == url:
+                        matching_rows.append(job)
+
+            # Apply limit
+            if self._limit_count:
+                matching_rows = matching_rows[: self._limit_count]
+
+            # ✅ Return single row if .single() was called
+            if self._single:
+                return Response(matching_rows[0] if matching_rows else {})
 
             return Response(matching_rows)
 
@@ -240,6 +283,31 @@ def create_test_playlist_row(
         "dashboard_id": dashboard_id,  # ✅ NEW: Must be present
         "view_count": 5,  # ✅ NEW: Event counter
         "share_count": 2,  # ✅ NEW: Event counter
+    }
+
+
+def create_test_job_row(
+    job_id: int = 1,
+    playlist_url: str = "https://youtube.com/playlist?list=PL123",
+    status: str = "complete",
+    dashboard_id: str = "test-dash-123",
+) -> dict:
+    """
+    Create a complete test playlist_jobs row.
+
+    For testing worker job processing
+    """
+    return {
+        "id": job_id,
+        "playlist_url": playlist_url,
+        "status": status,
+        "progress": 100 if status == "complete" else 0,
+        "dashboard_id": dashboard_id,
+        "created_at": "2024-01-01T12:00:00Z",
+        "started_at": "2024-01-01T12:01:00Z",
+        "completed_at": "2024-01-01T12:05:00Z" if status == "complete" else None,
+        "error": None,
+        "retry_count": 0,
     }
 
 
@@ -378,3 +446,34 @@ def mock_youtube_api():
     mock.execute.side_effect = execute
 
     return mock
+
+
+@pytest.fixture
+def mock_supabase_with_jobs():
+    """
+    Provide a mock Supabase client with both playlist_stats AND playlist_jobs.
+
+    For testing worker that needs to update job status.
+    """
+    test_url = "https://youtube.com/playlist?list=PL123"
+    test_dashboard_id = "test-dash-abc123"
+
+    data = {
+        "playlist_stats": {
+            test_url: create_test_playlist_row(
+                playlist_url=test_url,
+                dashboard_id=test_dashboard_id,
+                num_videos=5,
+            )
+        },
+        "playlist_jobs": {
+            1: create_test_job_row(
+                job_id=1,
+                playlist_url=test_url,
+                status="complete",
+                dashboard_id=test_dashboard_id,
+            )
+        },
+    }
+
+    return MockSupabase(data)
