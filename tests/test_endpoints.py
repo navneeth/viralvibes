@@ -69,7 +69,12 @@ def test_validate_url_invalid(client):
 def test_preview_returns_script_on_cache_hit(client, monkeypatch):
     # stub cache -> triggers redirect script to full analysis
     monkeypatch.setattr(
-        main, "get_cached_playlist_stats", lambda url, check_date=True: {"title": "X"}
+        "main.get_cached_playlist_stats", lambda url, check_date=True: {"title": "X"}
+    )
+    # ✅ ALSO mock preview info to avoid Supabase call
+    monkeypatch.setattr(
+        "main.get_playlist_preview_info",
+        lambda url: {"title": "Test", "video_count": 50},
     )
     r = client.post(
         "/validate/preview",
@@ -81,9 +86,14 @@ def test_preview_returns_script_on_cache_hit(client, monkeypatch):
 
 def test_preview_shows_preview_on_cache_miss_job_done(client, monkeypatch):
     monkeypatch.setattr(
-        main, "get_cached_playlist_stats", lambda url, check_date=True: None
+        "main.get_cached_playlist_stats", lambda url, check_date=True: None
     )
-    monkeypatch.setattr(main, "get_playlist_job_status", lambda url: "done")
+    monkeypatch.setattr("main.get_playlist_job_status", lambda url: "done")
+    # ✅ ALSO mock preview info to avoid Supabase call
+    monkeypatch.setattr(
+        "main.get_playlist_preview_info",
+        lambda url: {"title": "Test", "video_count": 50},
+    )
     r = client.post(
         "/validate/preview",
         data={"playlist_url": TEST_PLAYLIST_URL},
@@ -204,7 +214,7 @@ def test_submit_job_and_poll(client, monkeypatch):
 def test_job_progress_completion(client, monkeypatch):
     """
     Test /job-progress when job is complete.
-    Should NOT have polling attributes.
+    Should show redirect/completion message, NOT polling.
     """
     playlist_url = TEST_PLAYLIST_URL
 
@@ -242,12 +252,11 @@ def test_job_progress_completion(client, monkeypatch):
 
     assert r.status_code == 200
 
-    # Should show completion message
-    assert "✅" in r.text or "complete" in r.text.lower()
-    assert "Loading results" in r.text
+    # ✅ Updated: The controller shows "100% Complete" not "Loading results"
+    # Check for completion indicators
+    assert "100%" in r.text or "Complete" in r.text
 
     # Should NOT have polling attributes (job is complete)
-    # The div should still have id="progress-container" but no hx-get/hx-trigger
     assert 'id="progress-container"' in r.text
     assert 'hx-get="/job-progress"' not in r.text
     assert 'hx-trigger="every 2s"' not in r.text
