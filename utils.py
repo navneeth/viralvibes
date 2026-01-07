@@ -3,6 +3,7 @@ import functools
 import hashlib
 import logging
 import re
+from datetime import datetime, timezone
 
 import polars as pl
 from fasthtml.common import *
@@ -94,6 +95,14 @@ def format_duration(seconds: int) -> str:
         # Log the error and return a safe default
         print(f"Error formatting duration: {str(e)}")
         return "00:00"
+
+
+def format_seconds(seconds: int) -> str:
+    '''# Format time displays like "5m 30s"'''
+    if seconds < 0:
+        return "0s"
+    m, s = divmod(seconds, 60)
+    return f"{m}m {s}s" if m else f"{s}s"
 
 
 def process_numeric_column(series: "pl.Series") -> "pl.Series":
@@ -263,3 +272,35 @@ def normalize_playlist_url(url: str) -> str:
 def compute_dashboard_id(playlist_url: str) -> str:
     normalized = normalize_playlist_url(playlist_url)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+# =============================================================================
+# Job progress helpers
+# =============================================================================
+
+
+def compute_time_metrics(started_at_str: str | None, progress: float):
+    """Compute elapsed and remaining time in seconds"""
+    try:
+        started_at = (
+            datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+            if started_at_str
+            else None
+        )
+        now = datetime.now(timezone.utc)
+        elapsed = (now - started_at).total_seconds() if started_at else 0
+    except Exception:
+        elapsed = 0
+
+    if 0 < progress < 1.0:
+        rate = elapsed / progress
+        remaining = rate * (1.0 - progress)
+    else:
+        remaining = 0
+
+    return int(elapsed), int(remaining)
+
+
+def compute_batches(progress: float, batch_count: int = 5):
+    current = max(1, int(progress * batch_count))
+    return current, batch_count
