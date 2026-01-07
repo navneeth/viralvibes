@@ -116,7 +116,7 @@ def make_test_dataframe():
 
 def test_submit_job_and_poll(client, monkeypatch):
     """
-    Test the new engagement screen flow:
+    Test job submission and progress polling screen flow:
     1. /submit-job creates job and returns HTMX trigger div
     2. /job-progress returns progress screen with updates
     """
@@ -138,18 +138,22 @@ def test_submit_job_and_poll(client, monkeypatch):
         "started_at": (datetime.utcnow() - timedelta(seconds=30)).isoformat(),
         "error": None,
     }
-    monkeypatch.setattr("main.get_job_progress", lambda url: mock_job)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
 
     # Mock get_playlist_preview_info to return test data
     mock_preview = {
         "title": "Test Playlist",
         "video_count": 100,
     }
-    monkeypatch.setattr("main.get_playlist_preview_info", lambda url: mock_preview)
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
 
     # Mock get_estimated_stats
     monkeypatch.setattr(
-        "main.get_estimated_stats",
+        "controllers.job_progress.get_estimated_stats",
         lambda count: {
             "estimated_total_views": 5000000,
             "estimated_total_likes": 150000,
