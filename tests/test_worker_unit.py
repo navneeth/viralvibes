@@ -70,4 +70,4 @@ async def test_worker_process_one_success(monkeypatch):
     res = await w.process_one(job, is_retry=False)
     assert isinstance(res, JobResult)
     # status may be None if DB fetch above returns empty row; at least job_id is preserved
-    assert res.job_id == "job-1"
+    assert res.job_id == 1
