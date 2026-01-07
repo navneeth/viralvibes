@@ -11,7 +11,7 @@ from worker.worker import JobResult, Worker
 @pytest.mark.asyncio
 async def test_worker_process_one_success(monkeypatch):
     # Fake job row
-    job = {"id": "job-1", "playlist_url": "https://youtube.com/playlist?list=PL123"}
+    job = {"id": 1, "playlist_url": "https://youtube.com/playlist?list=PL123"}
 
     # Mock yt_service.get_playlist_data -> return (df, title, channel, thumb, summary)
     class FakeDF:
