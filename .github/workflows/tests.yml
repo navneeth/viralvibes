@@ -57,16 +57,19 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest tests/ -vv -s \
+          coverage run -m pytest tests/ -vv -s \
             --log-cli-level=INFO \
-            --cov=. \
-            --cov-report=term-missing:skip-covered \
-            --cov-report=html:htmlcov \
-            --cov-report=xml:reports/coverage.xml \
-            --cov-report=json:reports/coverage.json \
-            --junitxml=reports/junit.xml \
-            --cov-branch
+            --junitxml=reports/junit.xml
         continue-on-error: false
+
+      # Generate all coverage reports after test run
+      - name: Generate coverage reports
+        if: always()
+        run: |
+          coverage xml
+          coverage json
+          coverage html
+          coverage report --format=markdown > reports/coverage.md
 
       - name: Coverage comment (PR only)
         if: github.event_name == 'pull_request'
@@ -107,6 +110,7 @@ jobs:
             reports/coverage.xml
             reports/coverage.json
             reports/coverage.svg
+            reports/coverage.md
           retention-days: 30
 
       - name: Upload JUnit XML artifact
@@ -130,4 +134,4 @@ jobs:
         run: |
           echo "### Coverage Report 📊" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
+          cat reports/coverage.md >> $GITHUB_STEP_SUMMARY || coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
