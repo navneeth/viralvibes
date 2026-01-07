@@ -9,6 +9,7 @@ from views.job_progress_state import JobProgressViewState
 
 
 def render_job_progress_view(state: JobProgressViewState) -> Div:
+    """Render the job progress view with real-time updates."""
     progress = state.progress
 
     # Build inner content as a list
@@ -205,10 +206,10 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                     cls="text-green-600 font-semibold",
                 ),
                 Script(
-                    f"setTimeout(() => {{ htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{playlist_url}'}}}}); }}, 1000);"
+                    f"setTimeout(() => {{ htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{state.playlist_url}'}}}}); }}, 1000);"
                 ),
             )
-            if state.is_complete
+            if state.status == "complete"
             else None
         ),
     ]
