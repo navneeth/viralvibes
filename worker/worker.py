@@ -186,6 +186,17 @@ async def mark_job_status(
         return False
 
 
+async def attach_dashboard_to_job(job_id: str, playlist_url: str) -> str:
+    """
+    Compute and return dashboard_id for a job.
+    The dashboard_id is persisted in playlist_stats, not in playlist_jobs.
+    Returns the dashboard_id.
+    """
+    dashboard_id = compute_dashboard_id(playlist_url)
+    logger.info(f"[Job {job_id}] Computed dashboard_id={dashboard_id}")
+    return dashboard_id
+
+
 async def increment_retry_count(job_id: str, current_count: int = 0):
     """Increment the retry count for a job."""
     try:
