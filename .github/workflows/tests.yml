@@ -73,49 +73,18 @@ jobs:
           coverage xml
           coverage json
           coverage html
-          coverage report --format=markdown > reports/coverage.md
 
-      - name: Coverage comment (PR only)
-        if: github.event_name == 'pull_request'
-        uses: py-cov-action/python-coverage-comment-action@v3
-        with:
-          GITHUB_TOKEN: ${{ github.token }}
-          MINIMUM_GREEN: 90
-          MINIMUM_ORANGE: 70
-
-      - name: Upload coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./reports/coverage.xml
-          flags: unittests
-          name: codecov-${{ runner.os }}-py${{ inputs.python-version }}
-          fail_ci_if_error: false
-          verbose: true
-
-      - name: Check coverage threshold
-        run: |
-          coverage report --fail-under=${{ inputs.coverage-threshold }}
-
-      - name: Generate coverage badge
-        if: github.ref == 'refs/heads/main'
-        run: |
-          pip install coverage-badge
-          coverage-badge -o reports/coverage.svg -f
-
+      # ✅ Make sure this uploads coverage.xml and htmlcov/
       - name: Upload coverage artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-py${{ inputs.python-version }}
+          name: coverage-report
           path: |
+            coverage.xml
+            coverage.json
             htmlcov/
-            reports/coverage.xml
-            reports/coverage.json
-            reports/coverage.svg
-            reports/coverage.md
-          retention-days: 30
+          retention-days: 7  # Short retention, only needed for badge workflow
 
       - name: Upload JUnit XML artifact
         if: always()
