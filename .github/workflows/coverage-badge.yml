@@ -1,0 +1,85 @@
+name: Coverage Badge & Report
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ✅ Download coverage artifacts from CI workflow instead of rerunning tests
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ./coverage-data
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install coverage tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install coverage[toml] genbadge[coverage]
+
+      # ✅ Use existing coverage.xml instead of regenerating
+      - name: Copy coverage files
+        run: |
+          cp coverage-data/coverage.xml ./coverage.xml
+          cp -r coverage-data/htmlcov ./htmlcov || echo "HTML coverage not in artifact"
+
+      # ✅ Generate HTML if not in artifact (fallback)
+      - name: Generate HTML coverage report
+        run: |
+          if [ ! -d "htmlcov" ]; then
+            echo "Generating HTML from coverage data..."
+            coverage html
+          fi
+
+      - name: Generate coverage badge
+        run: |
+          genbadge coverage -i coverage.xml -o htmlcov/coverage-badge.svg
+
+      - name: Create landing page
+        run: |
+          cat > htmlcov/README.md << 'EOF'
+          # 📊 ViralVibes - Test Coverage Report
+
+          ![Coverage](./coverage-badge.svg)
+
+          **Last Updated**: $(date -u +"%Y-%m-%d %H:%M UTC")
+
+          ## Quick Stats
+
+          $(coverage report --format=markdown coverage.xml)
+
+          ---
+
+          [📈 View Full HTML Report →](./index.html)
+
+          [🏠 Back to Repository](https://github.com/${{ github.repository }})
+          EOF
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./htmlcov
+          publish_branch: gh-pages
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: '📊 Update coverage report'
