@@ -186,28 +186,6 @@ async def mark_job_status(
         return False
 
 
-async def attach_dashboard_to_job(job_id: str, playlist_url: str) -> str:
-    """
-    Compute and persist dashboard_id for a job.
-    Returns the dashboard_id.
-    """
-    dashboard_id = compute_dashboard_id(playlist_url)
-
-    try:
-        supabase_client.table(PLAYLIST_JOBS_TABLE).update(
-            {"dashboard_id": dashboard_id}
-        ).eq("id", job_id).execute()
-
-        logger.info(f"[Job {job_id}] Attached dashboard_id={dashboard_id}")
-        return dashboard_id
-
-    except Exception as e:
-        logger.exception(
-            f"[Job {job_id}] Failed to attach dashboard_id={dashboard_id}: {e}"
-        )
-        raise
-
-
 async def increment_retry_count(job_id: str, current_count: int = 0):
     """Increment the retry count for a job."""
     try:
@@ -511,8 +489,9 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             if is_retry:
                 success_message += f" after {retry_count} retries"
 
-            # 🔐 Ensure dashboard is materialized before completion
-            dashboard_id = await attach_dashboard_to_job(job_id, playlist_url)
+            # Compute dashboard_id for logging (don't store in jobs table)
+            dashboard_id = compute_dashboard_id(playlist_url)
+
             await mark_job_status(
                 job_id,
                 "done",
@@ -520,7 +499,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     "status_message": success_message,
                     "finished_at": datetime.utcnow().isoformat(),
                     "result_source": result_map.get("source"),
-                    "dashboard_id": dashboard_id,
+                    # ❌ REMOVED: Don't store dashboard_id in jobs
                 },
             )
             _set_stage("marked-done")
