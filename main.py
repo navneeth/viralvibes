@@ -34,7 +34,9 @@ from components import (
     footer,
     hero_section,
     how_it_works_section,
+    StepsProgress,
 )
+
 from components.processing_tips import get_tip_for_progress
 from constants import (
     FLEX_COL,
@@ -59,7 +61,7 @@ from db import (
     upsert_playlist_stats,
 )
 from services.playlist_loader import load_cached_or_stub  # get_playlist_preview
-from step_components import StepProgress
+
 from utils import compute_dashboard_id, format_number, format_seconds
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard

@@ -9,7 +9,7 @@ from starlette.responses import StreamingResponse
 from components.tables import VideoExtremesSection
 from constants import PLAYLIST_STEPS_CONFIG
 from services.playlist_loader import load_cached_or_stub
-from step_components import StepProgress
+from components.steps import StepProgress
 from ui_components import (
     AnalyticsDashboardSection,
     AnalyticsHeader,
