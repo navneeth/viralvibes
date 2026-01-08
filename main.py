@@ -34,9 +34,9 @@ from components import (
     footer,
     hero_section,
     how_it_works_section,
-    StepsProgress,
+    StepProgress,
 )
-
+from components.steps import StepProgress
 from components.processing_tips import get_tip_for_progress
 from constants import (
     FLEX_COL,

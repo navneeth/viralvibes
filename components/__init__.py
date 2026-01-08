@@ -18,6 +18,8 @@ from components.buttons import (
     progress_meter,
     small_badge,
 )
+from components.cards import HomepageAccordion
+from components.steps import StepProgress
 from components.cards import (
     # Card components
     AnalysisFormCard,
