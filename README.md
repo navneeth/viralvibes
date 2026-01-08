@@ -1,6 +1,16 @@
 # 🎬 ViralVibes - YouTube Trends, Decoded
 
-A web application that analyzes YouTube playlists to uncover viral trends and engagement patterns. Built with FastHTML and MonsterUI for a modern, responsive interface.
+Web application that analyzes YouTube playlists to uncover viral trends and engagement patterns.
+Built with FastHTML and MonsterUI for a modern, responsive interface.
+
+
+[![CI](https://github.com/navneeth/viralvibes/workflows/CI/badge.svg)](https://github.com/navneeth/viralvibes/actions/workflows/ci.yml)
+[![Coverage](https://navneeth.github.io/viralvibes/coverage-badge.svg)](https://navneeth.github.io/viralvibes/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+
+> Discover what makes YouTube playlists go viral with AI-powered analytics
+
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/vercel/examples/tree/main/framework-boilerplates/fasthtml&template=fasthtml)
 
@@ -256,3 +266,18 @@ Notes
 - The hook configuration lives in `.pre-commit-config.yaml` at the repo root.
 - Common hooks include formatters and linters (e.g., black/isort/ruff/mypy), plus basic checks (trailing-whitespace, end-of-file-fixer).
 - In CI, run `pre-commit run --all-files` to ensure code meets the repo hooks before merging.
+
+## 🧪 Testing & Coverage
+
+```bash
+# Run tests with coverage
+coverage run -m pytest tests/ -v
+coverage report
+
+# View HTML report
+coverage html && open htmlcov/index.html
+```
+
+**Current Coverage**: ![Coverage](https://navneeth.github.io/viralvibes/coverage-badge.svg)
+
+📊 **[View Full Coverage Report →](https://navneeth.github.io/viralvibes/)**
