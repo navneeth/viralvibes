@@ -3,11 +3,9 @@ Main entry point for the ViralVibes web app.
 Modernized with Tailwind-inspired design and MonsterUI components.
 """
 
-import asyncio
-import io
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -16,9 +14,11 @@ from dotenv import load_dotenv
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 from fasthtml.core import HtmxHeaders
+from fasthtml.oauth import GoogleAppClient, OAuth
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
+from auth.auth_service import ViralVibesAuth, init_google_oauth
 from components import (
     AnalysisFormCard,
     AnalyticsDashboardSection,
@@ -29,17 +29,14 @@ from components import (
     HomepageAccordion,
     NewsletterCard,
     SectionDivider,
+    StepProgress,
     faq_section,
     features_section,
     footer,
     hero_section,
     how_it_works_section,
-    StepProgress,
 )
-from components.steps import StepProgress
-from components.processing_tips import get_tip_for_progress
 from constants import (
-    FLEX_COL,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
@@ -61,8 +58,7 @@ from db import (
     upsert_playlist_stats,
 )
 from services.playlist_loader import load_cached_or_stub  # get_playlist_preview
-
-from utils import compute_dashboard_id, format_number, format_seconds
+from utils import compute_dashboard_id
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
@@ -70,9 +66,57 @@ from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-# Load environment variables
+# ============================================================================
+# STEP 1: Load environment variables FIRST
+# ============================================================================
 load_dotenv()
 
+
+# Initialize application components
+def init_app_services(app):
+    """Initialize application services.
+
+    This function should be called at application startup.
+    It sets up logging and initializes the Supabase client.
+
+    Returns:
+        {
+            'supabase_client': client,
+            'oauth': oauth,
+            'google_client': google_client
+        }
+    """
+    # 1. Configure logging
+    setup_logging()
+
+    # 2. Initialize Supabase client ONCE
+    try:
+        client = init_supabase()
+        if client is not None:
+            # Update the global supabase_client variable
+            global supabase_client
+            supabase_client = client
+            logger.info("✅ Supabase integration enabled successfully")
+        else:
+            logger.warning("⚠️  Running without Supabase integration")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during Supabase initialization: {str(e)}")
+        # Continue running without Supabase
+        supabase_client = None
+
+    # 3. Initialize OAuth
+    google_client, oauth = init_google_oauth(app, supabase_client)
+
+    return {
+        "supabase_client": supabase_client,
+        "oauth": oauth,
+        "google_client": google_client,
+    }
+
+
+# ============================================================================
+# STEP 3: Create FastHTML app instance with headers
+# ============================================================================
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
@@ -105,46 +149,45 @@ app, rt = fast_app(
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
+# ============================================================================
+# STEP 4: Initialize OAuth with the app instance (only if credentials exist)
+# ============================================================================
+# Initialize the application before any DB usage
+
+services = init_app_services(app)
+supabase_client = services["supabase_client"]
+oauth = services["oauth"]
+
+# =============================================================================
+# Routes
+# =============================================================================
+
+
 # Navigation links
-scrollspy_links = (
-    A("Why ViralVibes", href="#home-section"),
-    A("Product", href="#analyze-section"),
-    A("About", href="#explore-section"),
-    Button(
-        "Try ViralVibes",
-        cls=ButtonT.primary,
-        onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})",
-    ),
-)
-
-
-# Initialize application components
-def init_app():
-    """Initialize application components.
-
-    This function should be called at application startup.
-    It sets up logging and initializes the Supabase client.
-    """
-    # Configure logging
-    setup_logging()
-
-    # Initialize Supabase client ONCE
-    try:
-        client = init_supabase()
-        if client is not None:
-            # Update the global supabase_client variable
-            global supabase_client
-            supabase_client = client
-            logger.info("Supabase integration enabled successfully")
-        else:
-            logger.warning("Running without Supabase integration")
-    except Exception as e:
-        logger.error(f"Unexpected error during Supabase initialization: {str(e)}")
-        # Continue running without Supabase
-
-
-# Initialize the application at the very top of main.py (before any DB usage)
-init_app()
+def get_nav_links(auth):
+    """Build navigation links based on auth status"""
+    if auth:
+        return (
+            A("Why ViralVibes", href="#home-section"),
+            A("Product", href="#analyze-section"),
+            A("About", href="#explore-section"),
+            A("Log out", href="/logout", cls=f"{ButtonT.primary}"),
+        )
+    else:
+        return (
+            A("Why ViralVibes", href="#home-section"),
+            A("Product", href="#analyze-section"),
+            A("About", href="#explore-section"),
+            (
+                Button(
+                    "Try ViralVibes",
+                    cls=ButtonT.primary,
+                    onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})",
+                )
+                if oauth
+                else None
+            ),
+        )
 
 
 @rt("/debug/supabase")
@@ -183,16 +226,19 @@ def debug_supabase():
 
 
 @rt
-def index():
+def index(auth):
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
+
+    # Build appropriate nav links
+    nav_items = list(filter(None, get_nav_links(auth)))
 
     return Titled(
         "ViralVibes",
         Container(
             # MonsterUI NavBar with sticky behavior and primary CTA
             NavBar(
-                *scrollspy_links,
+                *nav_items,
                 brand=DivLAligned(
                     H3("ViralVibes"), UkIcon("chart-line", height=30, width=30)
                 ),
@@ -224,8 +270,47 @@ def index():
     )
 
 
+@rt("/login")
+def login(req):
+    """Login page - shows login link"""
+    if oauth:
+        login_link = oauth.login_link(req)
+    else:
+        login_link = Div(P("Google OAuth not configured", cls="text-red-600"))
+
+    return Titled(
+        "ViralVibes - Login",
+        Container(
+            Div(
+                H1("Login to ViralVibes", cls="text-3xl font-bold mb-6"),
+                A(
+                    "Sign in with Google",
+                    href=login_link if isinstance(login_link, str) else "#",
+                    cls=f"{ButtonT.primary} inline-block",
+                ),
+                cls="max-w-md mx-auto mt-20",
+            ),
+        ),
+    )
+
+
+@rt("/logout")
+def logout():
+    """Logout endpoint - clears session and redirects"""
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie("auth")  # FastHTML's default auth cookie
+    return response
+
+
 @rt("/validate/url", methods=["POST"])
-def validate_url(playlist: YoutubePlaylist):
+def validate_url(playlist: YoutubePlaylist, auth):
+    """Validate playlist URL - requires authentication"""
+    if not auth:
+        return Alert(
+            P("Please log in to analyze playlists."),
+            cls=AlertT.warning,
+        )
+
     errors = YoutubePlaylistValidator.validate(playlist)
     if errors:
         return Div(
@@ -239,7 +324,13 @@ def validate_url(playlist: YoutubePlaylist):
 
 
 @rt("/validate/preview", methods=["POST"])
-def preview_playlist(playlist_url: str):
+def preview_playlist(playlist_url: str, auth):
+    """Preview playlist - requires authentication"""
+    if not auth:
+        return Alert(
+            P("Please log in to preview playlists."),
+            cls=AlertT.warning,
+        )
     return preview_playlist_controller(playlist_url)
 
 
@@ -256,9 +347,14 @@ def update_meter(meter_id: str, value: int = None, max_value: int = None):
 @rt("/d/{dashboard_id}", methods=["GET"])
 def dashboard_page(
     dashboard_id: str,
+    auth,
     sort_by: str = "Views",
     order: str = "desc",
 ):
+    """View saved dashboard - requires authentication"""
+    if not auth:
+        return RedirectResponse("/login", status_code=303)
+
     # 1. Resolve dashboard_id → playlist_url
     playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
 
@@ -322,11 +418,19 @@ def dashboard_page(
 def validate_full(
     htmx: HtmxHeaders,
     playlist_url: str,
+    auth,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
     sort_by: str = "Views",
     order: str = "desc",
 ):
+    """Full playlist analysis - requires authentication"""
+    if not auth:
+        return Alert(
+            P("Please log in to analyze playlists."),
+            cls=AlertT.warning,
+        )
+
     # --- Check if this is an HTMX sort request BEFORE streaming ---
     if htmx.target == "playlist-table-container":
         # For sort requests, just load data and return the table
@@ -536,10 +640,16 @@ def newsletter(email: str):
 
 
 @rt("/submit-job", methods=["POST"])
-def submit_job(playlist_url: str):
+def submit_job(playlist_url: str, auth):
     """
     Submit a playlist for analysis and show the engaging processing screen.
     """
+    if not auth:
+        return Alert(
+            P("Please log in to analyze playlists."),
+            cls=AlertT.warning,
+        )
+
     submit_playlist_job(playlist_url)
     # Return HTMX polling instruction
     # return Div(
@@ -573,11 +683,17 @@ def submit_job(playlist_url: str):
 
 
 @rt("/check-job-status", methods=["GET"])
-def check_job_status(playlist_url: str):
+def check_job_status(playlist_url: str, auth):
     """
     Checks the status of a playlist analysis job and updates the UI accordingly.
     This endpoint is designed to be polled by HTMX.
     """
+    if not auth:
+        return Alert(
+            P("Please log in."),
+            cls=AlertT.warning,
+        )
+
     job_status = get_playlist_job_status(playlist_url)
 
     # Check for both "complete" and "done" status
@@ -630,7 +746,12 @@ def check_job_status(playlist_url: str):
 
 
 @rt("/job-progress", methods=["GET"])
-def get_job_progress_data(playlist_url: str):
+def get_job_progress_data(playlist_url: str, auth):
+    if not auth:
+        return Alert(
+            P("Please log in."),
+            cls=AlertT.warning,
+        )
     return job_progress_controller(playlist_url)
 
 
