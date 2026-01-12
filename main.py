@@ -44,6 +44,7 @@ from constants import (
 )
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
+from controllers.auth_routes import build_login_page, build_logout_response
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
@@ -164,30 +165,38 @@ oauth = services["oauth"]
 
 
 # Navigation links
-def get_nav_links(auth):
-    """Build navigation links based on auth status"""
+def build_nav_links(auth, oauth):
+    """
+    Build navigation links based on auth status
+
+    Args:
+        auth: User auth object (None if not authenticated)
+        oauth: OAuth instance (None if not configured)
+
+    Returns:
+        Tuple of navigation components
+    """
+    base_links = (
+        A("Why ViralVibes", href="#home-section"),
+        A("Product", href="#analyze-section"),
+        A("About", href="#explore-section"),
+    )
+
     if auth:
-        return (
-            A("Why ViralVibes", href="#home-section"),
-            A("Product", href="#analyze-section"),
-            A("About", href="#explore-section"),
-            A("Log out", href="/logout", cls=f"{ButtonT.primary}"),
-        )
+        # Logged in
+        return base_links + (A("Log out", href="/logout", cls=f"{ButtonT.primary}"),)
     else:
-        return (
-            A("Why ViralVibes", href="#home-section"),
-            A("Product", href="#analyze-section"),
-            A("About", href="#explore-section"),
-            (
+        # Not logged in
+        if oauth:
+            return base_links + (
                 Button(
                     "Try ViralVibes",
                     cls=ButtonT.primary,
                     onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})",
-                )
-                if oauth
-                else None
-            ),
-        )
+                ),
+            )
+        else:
+            return base_links
 
 
 @rt("/debug/supabase")
@@ -231,7 +240,7 @@ def index(auth):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
     # Build appropriate nav links
-    nav_items = list(filter(None, get_nav_links(auth)))
+    nav_items = list(filter(None, build_nav_links(auth, oauth)))
 
     return Titled(
         "ViralVibes",
@@ -273,33 +282,13 @@ def index(auth):
 @rt("/login")
 def login(req):
     """Login page - shows login link"""
-    if oauth:
-        login_link = oauth.login_link(req)
-    else:
-        login_link = Div(P("Google OAuth not configured", cls="text-red-600"))
-
-    return Titled(
-        "ViralVibes - Login",
-        Container(
-            Div(
-                H1("Login to ViralVibes", cls="text-3xl font-bold mb-6"),
-                A(
-                    "Sign in with Google",
-                    href=login_link if isinstance(login_link, str) else "#",
-                    cls=f"{ButtonT.primary} inline-block",
-                ),
-                cls="max-w-md mx-auto mt-20",
-            ),
-        ),
-    )
+    return build_login_page(oauth, req)
 
 
 @rt("/logout")
 def logout():
     """Logout endpoint - clears session and redirects"""
-    response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie("auth")  # FastHTML's default auth cookie
-    return response
+    return build_logout_response()
 
 
 @rt("/validate/url", methods=["POST"])
