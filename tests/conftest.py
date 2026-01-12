@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import polars as pl
 import pytest
 from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
@@ -483,3 +484,90 @@ def mock_supabase_with_jobs():
     }
 
     return MockSupabase(data)
+
+
+def create_auth_session_cookie(
+    email: str = "test@viralvibes.com",
+    name: str = "Test User",
+    secret_key: str = "test-secret-key",
+) -> str:
+    """
+    Create a signed session cookie containing auth data.
+
+    This mimics what FastHTML's OAuth does after successful Google login.
+    The session cookie must match the format expected by Starlette's SessionMiddleware.
+    """
+    serializer = URLSafeTimedSerializer(secret_key, salt="cookie-session")
+
+    session_data = {
+        "auth": {
+            "email": email,
+            "name": name,
+            "picture": f"https://example.com/{email.split('@')[0]}.jpg",
+            "ident": f"test_google_{hash(email)}",
+        }
+    }
+
+    return serializer.dumps(session_data)
+
+
+@pytest.fixture
+def authenticated_client(client, monkeypatch):
+    """
+    Test client with authenticated session (simulates logged-in user).
+
+    This fixture wraps the regular client and injects authentication
+    into every request by adding a session cookie.
+
+    Use this fixture for testing protected endpoints like:
+    - /submit-job
+    - /validate/full
+    - /d/{dashboard_id}
+    - /check-job-status
+    - /job-progress
+
+    Example:
+        def test_submit_job(authenticated_client, monkeypatch):
+            r = authenticated_client.post("/submit-job", data={...})
+            assert r.status_code == 200
+    """
+    # Store original request method
+    original_request = client.request
+
+    def request_with_auth(method, url, **kwargs):
+        """Wrap every request to inject authenticated session cookie."""
+        # Create session cookie with auth data
+        # Note: The secret key should match what's used in main.py
+        # For tests, we use a consistent test key
+        session_cookie = create_auth_session_cookie()
+
+        # Inject session cookie into request
+        if "cookies" not in kwargs:
+            kwargs["cookies"] = {}
+        kwargs["cookies"]["session"] = session_cookie
+
+        return original_request(method, url, **kwargs)
+
+    # Monkey patch the client's request method
+    monkeypatch.setattr(client, "request", request_with_auth)
+
+    return client
+
+
+@pytest.fixture
+def authenticated_session():
+    """
+    Return mock authenticated session dict.
+
+    Use when testing controllers directly (not via HTTP):
+        def test_controller(authenticated_session):
+            result = some_controller(sess=authenticated_session)
+    """
+    return {
+        "auth": {
+            "email": "test@viralvibes.com",
+            "name": "Test User",
+            "picture": "https://example.com/test-avatar.jpg",
+            "ident": "test_google_123456",
+        }
+    }
