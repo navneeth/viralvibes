@@ -19,6 +19,9 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 
+# ✅ Set TESTING=1 BEFORE any imports that might load main.py
+os.environ["TESTING"] = "1"
+
 # Ensure project root is importable
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -68,7 +71,10 @@ def _check_module_exports(module_name: str, keys: List[str]):
 @pytest.fixture(autouse=True, scope="session")
 def setup_test_environment():
     """✅ SINGLE SOURCE OF TRUTH: Loads env + validates + contracts"""
-    print("🚀 conftest.py: LOADING ENVIRONMENT...")  # DEBUG
+    print("🚀 conftest.py: LOADING ENVIRONMENT...")
+
+    # ✅ Ensure TESTING is set (redundant but safe)
+    os.environ["TESTING"] = "1"
 
     # Validate env (with defaults)
     assert os.getenv("YOUTUBE_API_KEY"), "YOUTUBE_API_KEY missing"

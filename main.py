@@ -5,6 +5,7 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 
 import logging
 import re
+import os
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
@@ -684,5 +685,19 @@ def get_job_progress_data(playlist_url: str, req, sess):
         )
     return job_progress_controller(playlist_url)
 
+
+# Check if TESTING env var is set (GitHub Actions will set this)
+IS_TESTING = os.getenv("TESTING") == "1"
+
+if IS_TESTING:
+    logger.info("🧪 Test mode detected - OAuth disabled")
+    google_client = None
+    oauth = None
+else:
+    logger.info("🚀 Initializing OAuth for production/dev")
+    # Initialize Supabase
+    supabase_client = get_supabase_client()
+    # Initialize Google OAuth
+    google_client, oauth = init_google_oauth(app, supabase_client)
 
 serve()
