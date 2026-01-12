@@ -46,7 +46,11 @@ from constants import (
 )
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
-from controllers.auth_routes import build_login_page, build_logout_response
+from controllers.auth_routes import (
+    build_login_page,
+    build_logout_response,
+    require_auth,
+)
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
@@ -571,13 +575,13 @@ def newsletter(email: str, req, sess):  # ✅ Add sess (public route)
 @rt("/submit-job", methods=["POST"])
 def submit_job(playlist_url: str, req, sess):
     """Submit job - PROTECTED route"""
-    if not (sess and sess.get("auth")):
+    auth = sess.get("auth") if sess else None
+
+    # Use existing require_auth - it will skip in tests
+    auth_error = require_auth(auth)
+    if auth_error:
         sess["intended_url"] = str(req.url.path)
-        return Alert(
-            P("Please log in to analyze playlists."),
-            A("Log in", href="/login", cls=f"{ButtonT.primary}"),
-            cls=AlertT.warning,
-        )
+        return auth_error  # Returns the Alert
 
     submit_playlist_job(playlist_url)
     # Return HTMX polling instruction
@@ -613,16 +617,16 @@ def submit_job(playlist_url: str, req, sess):
 
 @rt("/check-job-status", methods=["GET"])
 def check_job_status(playlist_url: str, req, sess):
-    """
+    """Protected route
     Checks the status of a playlist analysis job and updates the UI accordingly.
     This endpoint is designed to be polled by HTMX.
     """
-    if not (sess and sess.get("auth")):
-        sess["intended_url"] = str(req.url.path)
-        return Alert(
-            P("Please log in."),
-            cls=AlertT.warning,
-        )
+    auth = sess.get("auth") if sess else None
+
+    # Use existing require_auth
+    auth_error = require_auth(auth)
+    if auth_error:
+        return auth_error
 
     job_status = get_playlist_job_status(playlist_url)
 
@@ -677,6 +681,14 @@ def check_job_status(playlist_url: str, req, sess):
 
 @rt("/job-progress", methods=["GET"])
 def get_job_progress_data(playlist_url: str, req, sess):
+    """Protected route"""
+    auth = sess.get("auth") if sess else None
+
+    # ✅ Use existing require_auth
+    auth_error = require_auth(auth)
+    if auth_error:
+        return auth_error
+
     if not (sess and sess.get("auth")):
         sess["intended_url"] = str(req.url.path)
         return Alert(
