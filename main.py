@@ -4,13 +4,12 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 """
 
 import logging
-import re
 import os
+import re
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
-import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
@@ -28,6 +27,7 @@ from components import (
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
+    NavComponent,
     NewsletterCard,
     SectionDivider,
     StepProgress,
@@ -36,7 +36,6 @@ from components import (
     footer,
     hero_section,
     how_it_works_section,
-    NavComponent,
 )
 from constants import (
     PLAYLIST_STATS_TABLE,
@@ -44,13 +43,13 @@ from constants import (
     SECTION_BASE,
     SIGNUPS_TABLE,
 )
-from controllers.job_progress import job_progress_controller
-from controllers.preview import preview_playlist_controller
 from controllers.auth_routes import (
     build_login_page,
     build_logout_response,
     require_auth,
 )
+from controllers.job_progress import job_progress_controller
+from controllers.preview import preview_playlist_controller
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
@@ -95,6 +94,16 @@ def init_app_services(app):
     """
     # 1. Configure logging
     setup_logging()
+
+    # Check if TESTING env var is set (GitHub Actions will set this)
+    is_testing = os.getenv("TESTING") == "1"
+    if is_testing:
+        logger.info("🧪 Test mode detected - Supabase & OAuth disabled")
+        return {
+            "supabase_client": None,
+            "oauth": None,
+            "google_client": None,
+        }
 
     # 2. Initialize Supabase client ONCE
     try:
@@ -695,18 +704,8 @@ def get_job_progress_data(playlist_url: str, req, sess):
     return job_progress_controller(playlist_url)
 
 
-# Check if TESTING env var is set (GitHub Actions will set this)
-IS_TESTING = os.getenv("TESTING") == "1"
-
-if IS_TESTING:
-    logger.info("🧪 Test mode detected - OAuth disabled")
-    google_client = None
-    oauth = None
-else:
-    logger.info("🚀 Initializing OAuth for production/dev")
-    # Initialize Supabase
-    supabase_client = get_supabase_client()
-    # Initialize Google OAuth
-    google_client, oauth = init_google_oauth(app, supabase_client)
+# ============================================================================
+# Run the app (for local development)
+# ============================================================================
 
 serve()
