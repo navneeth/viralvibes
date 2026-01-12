@@ -25,7 +25,7 @@ def NavComponent(oauth, req=None, sess=None):
         A("About", href="/#explore-section"),
     ]
 
-    # ✅ Check auth from session (works on both public and protected routes)
+    # Check auth from session (works on both public and protected routes)
     is_authenticated = sess and sess.get("auth")
 
     # Auth-dependent link
@@ -35,11 +35,14 @@ def NavComponent(oauth, req=None, sess=None):
     else:
         # User not logged in
         if oauth and req:
-            # OAuth configured - show login link
-            login_url = oauth.login_link(req)
+            # oauth configured - show login link
+            # Include current URL in state parameter for post-login redirect
+            current_url = str(req.url.path) if hasattr(req, "url") and req.url else "/"
+            login_url = oauth.login_link(req, state=current_url)
             auth_link = A("Log in", href=login_url, cls=f"{ButtonT.primary}")
         else:
             # No OAuth - show CTA to scroll to analysis form
+            # Fallback for No OAuth
             auth_link = Button(
                 "Try ViralVibes",
                 cls=ButtonT.primary,

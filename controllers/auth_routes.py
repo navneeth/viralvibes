@@ -36,8 +36,8 @@ def build_login_page(oauth, req):
 
 
 def build_logout_response():
-    """Build logout response"""
-    response = RedirectResponse("/login", status_code=303)
+    """Build logout response - always redirect to homepage"""
+    response = RedirectResponse("/", status_code=303)  # Changed from "/login" to "/"
     response.delete_cookie("auth")
     return response
 

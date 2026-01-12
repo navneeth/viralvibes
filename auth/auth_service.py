@@ -44,6 +44,31 @@ class ViralVibesAuth(OAuth):
             except Exception as e:
                 logger.error(f"Failed to store user {email}: {e}")
 
+        # ✅ SMART REDIRECT LOGIC
+        # 1. Check if there's a stored intended destination
+        intended_url = session.get("intended_url")
+        if intended_url and intended_url != "/login":
+            session.pop("intended_url", None)  # Remove after using
+            logger.info(f"Redirecting to intended URL: {intended_url}")
+            return RedirectResponse(intended_url, status_code=303)
+
+        # 2. If user logged in from /login route, redirect to homepage
+        if state and state.endswith("/login"):
+            logger.info("Login from /login route, redirecting to homepage")
+            return RedirectResponse("/", status_code=303)
+
+        # 3. Otherwise use state parameter (current page) or default to homepage
+        redirect_url = state if state else "/"
+        logger.info(f"Redirecting to: {redirect_url}")
+        return RedirectResponse(redirect_url, status_code=303)
+
+    def logout(self, session):
+        """Handle logout - always redirect to homepage"""
+        logger.info("User logged out, redirecting to homepage")
+        # Clear session data
+        session.pop("auth", None)
+        session.pop("intended_url", None)
+        # ✅ Always redirect to homepage after logout
         return RedirectResponse("/", status_code=303)
 
 

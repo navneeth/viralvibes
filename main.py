@@ -199,12 +199,17 @@ def index(req, sess):  # ✅ Use sess instead of auth
 
 
 @rt("/login")
-def login(req, sess):  # ✅ Use sess
+def login(req, sess):
     """Login page - public route"""
+    # ✅ If user manually visited /login (no intended_url), clear any stored URL
+    # so they get redirected to homepage after login
+    if not sess.get("intended_url"):
+        sess.pop("intended_url", None)
+
     return Titled(
         "ViralVibes - Login",
         Container(
-            NavComponent(oauth, req, sess),  # ✅ Pass sess
+            NavComponent(oauth, req, sess),
             build_login_page(oauth, req),
         ),
     )
@@ -217,10 +222,11 @@ def logout():
 
 
 @rt("/validate/url", methods=["POST"])
-def validate_url(playlist: YoutubePlaylist, req, sess):  # ✅ Add sess
+def validate_url(playlist: YoutubePlaylist, req, sess):
     """Validate playlist URL - now public for preview"""
-    # ✅ Check auth from session
+    # Check auth from session
     if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
         return Alert(
             P("Please log in to analyze playlists."),
             cls=AlertT.warning,
@@ -260,8 +266,9 @@ def dashboard_page(
     dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
 ):
     """View saved dashboard - PROTECTED route"""
-    # ✅ Check auth from session
+    # ✅ Store intended URL before redirecting to login
     if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)  # Store where user wanted to go
         return RedirectResponse("/login", status_code=303)
 
     # 1. Resolve dashboard_id → playlist_url
@@ -334,17 +341,19 @@ def validate_full(
     htmx: HtmxHeaders,
     playlist_url: str,
     req,
-    sess,  # ✅ Add sess
+    sess,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
     sort_by: str = "Views",
     order: str = "desc",
 ):
     """Full playlist analysis - PROTECTED route"""
-    # ✅ Check auth from session
+    # Store intended URL before returning error
     if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
         return Alert(
             P("Please log in to analyze playlists."),
+            A("Log in", href="/login", cls=f"{ButtonT.primary}"),
             cls=AlertT.warning,
         )
 
@@ -559,11 +568,13 @@ def newsletter(email: str, req, sess):  # ✅ Add sess (public route)
 
 
 @rt("/submit-job", methods=["POST"])
-def submit_job(playlist_url: str, req, sess):  # ✅ Add sess
+def submit_job(playlist_url: str, req, sess):
     """Submit job - PROTECTED route"""
     if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
         return Alert(
             P("Please log in to analyze playlists."),
+            A("Log in", href="/login", cls=f"{ButtonT.primary}"),
             cls=AlertT.warning,
         )
 
@@ -600,12 +611,13 @@ def submit_job(playlist_url: str, req, sess):  # ✅ Add sess
 
 
 @rt("/check-job-status", methods=["GET"])
-def check_job_status(playlist_url: str, auth):
+def check_job_status(playlist_url: str, req, sess):
     """
     Checks the status of a playlist analysis job and updates the UI accordingly.
     This endpoint is designed to be polled by HTMX.
     """
-    if not auth:
+    if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
         return Alert(
             P("Please log in."),
             cls=AlertT.warning,
@@ -663,8 +675,9 @@ def check_job_status(playlist_url: str, auth):
 
 
 @rt("/job-progress", methods=["GET"])
-def get_job_progress_data(playlist_url: str, auth):
-    if not auth:
+def get_job_progress_data(playlist_url: str, req, sess):
+    if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
         return Alert(
             P("Please log in."),
             cls=AlertT.warning,
