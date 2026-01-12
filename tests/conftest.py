@@ -541,9 +541,13 @@ def authenticated_client(client, monkeypatch):
         # For tests, we use a consistent test key
         session_cookie = create_auth_session_cookie()
 
-        # Inject session cookie into request
-        if "cookies" not in kwargs:
+        # ✅ FIX: Handle both None and missing cookies
+        if kwargs.get("cookies") is None:
             kwargs["cookies"] = {}
+        elif "cookies" not in kwargs:
+            kwargs["cookies"] = {}
+
+        # Inject session cookie into request
         kwargs["cookies"]["session"] = session_cookie
 
         return original_request(method, url, **kwargs)
