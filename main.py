@@ -166,15 +166,15 @@ oauth = services["oauth"]
 
 
 @rt
-def index(auth, req):  # ← Add req parameter
+def index(req, sess):  # ✅ Use sess instead of auth
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
     return Titled(
         "ViralVibes",
         Container(
-            # ✅ Use NavComponent instead of build_nav_links + NavBar
-            NavComponent(auth, oauth, req),
+            # ✅ Pass sess to NavComponent
+            NavComponent(oauth, req, sess),
             Container(
                 hero_section(),
                 SectionDivider(),
@@ -199,12 +199,12 @@ def index(auth, req):  # ← Add req parameter
 
 
 @rt("/login")
-def login(auth, req):
-    """Login page - shows login link"""
+def login(req, sess):  # ✅ Use sess
+    """Login page - public route"""
     return Titled(
         "ViralVibes - Login",
         Container(
-            NavComponent(auth, oauth, req),  # ← Add nav to login page
+            NavComponent(oauth, req, sess),  # ✅ Pass sess
             build_login_page(oauth, req),
         ),
     )
@@ -217,9 +217,10 @@ def logout():
 
 
 @rt("/validate/url", methods=["POST"])
-def validate_url(playlist: YoutubePlaylist, auth):
-    """Validate playlist URL - requires authentication"""
-    if not auth:
+def validate_url(playlist: YoutubePlaylist, req, sess):  # ✅ Add sess
+    """Validate playlist URL - now public for preview"""
+    # ✅ Check auth from session
+    if not (sess and sess.get("auth")):
         return Alert(
             P("Please log in to analyze playlists."),
             cls=AlertT.warning,
@@ -238,13 +239,9 @@ def validate_url(playlist: YoutubePlaylist, auth):
 
 
 @rt("/validate/preview", methods=["POST"])
-def preview_playlist(playlist_url: str, auth):
-    """Preview playlist - requires authentication"""
-    if not auth:
-        return Alert(
-            P("Please log in to preview playlists."),
-            cls=AlertT.warning,
-        )
+def preview_playlist(playlist_url: str, req, sess):  # ✅ Add sess
+    """Preview playlist - now public"""
+    # No auth check - allow public previews
     return preview_playlist_controller(playlist_url)
 
 
@@ -260,14 +257,11 @@ def update_meter(meter_id: str, value: int = None, max_value: int = None):
 
 @rt("/d/{dashboard_id}", methods=["GET"])
 def dashboard_page(
-    dashboard_id: str,
-    auth,
-    req,
-    sort_by: str = "Views",
-    order: str = "desc",
+    dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
 ):
-    """View saved dashboard - requires authentication"""
-    if not auth:
+    """View saved dashboard - PROTECTED route"""
+    # ✅ Check auth from session
+    if not (sess and sess.get("auth")):
         return RedirectResponse("/login", status_code=303)
 
     # 1. Resolve dashboard_id → playlist_url
@@ -316,7 +310,7 @@ def dashboard_page(
     return Titled(
         f"{playlist_name} - ViralVibes",
         Container(
-            NavComponent(auth, oauth, req),  # ← Add nav
+            NavComponent(oauth, req, sess),  # ✅ Pass sess
             render_full_dashboard(
                 df=df,
                 summary_stats=summary_stats,
@@ -339,14 +333,16 @@ def dashboard_page(
 def validate_full(
     htmx: HtmxHeaders,
     playlist_url: str,
-    auth,
+    req,
+    sess,  # ✅ Add sess
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
     sort_by: str = "Views",
     order: str = "desc",
 ):
-    """Full playlist analysis - requires authentication"""
-    if not auth:
+    """Full playlist analysis - PROTECTED route"""
+    # ✅ Check auth from session
+    if not (sess and sess.get("auth")):
         return Alert(
             P("Please log in to analyze playlists."),
             cls=AlertT.warning,
@@ -513,7 +509,9 @@ def update_steps_progressive(step: int):
 
 
 @rt("/newsletter", methods=["POST"])
-def newsletter(email: str):
+def newsletter(email: str, req, sess):  # ✅ Add sess (public route)
+    """Newsletter signup - PUBLIC route"""
+    # No auth check - allow public signups
     # Normalize email input by trimming whitespace and lowercasing
     email = email.strip().lower()
 
@@ -561,11 +559,9 @@ def newsletter(email: str):
 
 
 @rt("/submit-job", methods=["POST"])
-def submit_job(playlist_url: str, auth):
-    """
-    Submit a playlist for analysis and show the engaging processing screen.
-    """
-    if not auth:
+def submit_job(playlist_url: str, req, sess):  # ✅ Add sess
+    """Submit job - PROTECTED route"""
+    if not (sess and sess.get("auth")):
         return Alert(
             P("Please log in to analyze playlists."),
             cls=AlertT.warning,

@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 class ViralVibesAuth(OAuth):
     """Custom OAuth handler for ViralVibes"""
 
-    def __init__(self, app, client, supabase_client=None):
-        super().__init__(app, client)
+    def __init__(self, app, client, supabase_client=None, skip=None):
+        # ✅ Pass skip to parent OAuth class
+        super().__init__(app, client, skip=skip or [])
         self.supabase_client = supabase_client
 
     def get_auth(self, info, ident, session, state):
@@ -62,8 +63,24 @@ def init_google_oauth(app, supabase_client=None):
 
     try:
         google_client = GoogleAppClient(client_id, client_secret)
-        oauth = ViralVibesAuth(app, google_client, supabase_client)
-        logger.info("✅ Google OAuth initialized successfully")
+
+        # ✅ Define public routes that skip authentication
+        skip_routes = [
+            "/",  # Homepage - public
+            "/login",  # Login page - must be public
+            "/redirect",  # OAuth callback - required by FastHTML
+            "/validate/url",  # Allow previews without login
+            "/validate/preview",  # Allow previews without login
+            "/newsletter",  # Public newsletter signup
+        ]
+
+        oauth = ViralVibesAuth(
+            app, google_client, supabase_client, skip=skip_routes  # ✅ Pass skip routes
+        )
+
+        logger.info(
+            f"✅ Google OAuth initialized with {len(skip_routes)} public routes"
+        )
         return google_client, oauth
     except Exception as e:
         logger.error(f"❌ Failed to initialize OAuth: {e}")

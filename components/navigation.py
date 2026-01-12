@@ -6,14 +6,14 @@ from fasthtml.common import *
 from monsterui.all import *
 
 
-def NavComponent(auth, oauth, req=None):
+def NavComponent(oauth, req=None, sess=None):
     """
     Reusable navigation component with auth-aware rendering.
 
     Args:
-        auth: Current user auth object (None if not logged in)
         oauth: OAuth instance for login link generation
         req: Request object (needed for login link generation)
+        sess: Session dict (contains auth on ALL routes, not just protected ones)
 
     Returns:
         NavBar component with appropriate links based on auth status
@@ -25,8 +25,11 @@ def NavComponent(auth, oauth, req=None):
         A("About", href="/#explore-section"),
     ]
 
+    # ✅ Check auth from session (works on both public and protected routes)
+    is_authenticated = sess and sess.get("auth")
+
     # Auth-dependent link
-    if auth:
+    if is_authenticated:
         # User is logged in - show logout
         auth_link = A("Log out", href="/logout", cls=f"{ButtonT.primary}")
     else:
