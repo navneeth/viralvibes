@@ -175,6 +175,10 @@ def test_submit_job_and_poll(authenticated_client, monkeypatch):
     # This should return a div with hx-get and hx-trigger attributes
     r = authenticated_client.post("/submit-job", data={"playlist_url": playlist_url})
 
+    print(f"\n🔍 Response status: {r.status_code}")
+    print(f"🔍 Response text (first 500 chars): {r.text[:500]}")
+    print(f"🔍 Called dict: {called}")
+
     assert r.status_code == 200
     assert called.get("url") == playlist_url
 
