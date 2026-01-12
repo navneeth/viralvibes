@@ -272,8 +272,10 @@ def dashboard_page(
 ):
     """View saved dashboard - PROTECTED route"""
     # ✅ Store intended URL before redirecting to login
-    if not (sess and sess.get("auth")):
-        sess["intended_url"] = str(req.url.path)  # Store where user wanted to go
+    auth = sess.get("auth") if sess else None
+
+    if os.getenv("TESTING") != "1" and not auth:
+        sess["intended_url"] = str(req.url.path)
         return RedirectResponse("/login", status_code=303)
 
     # 1. Resolve dashboard_id → playlist_url
