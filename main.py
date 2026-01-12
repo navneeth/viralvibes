@@ -687,14 +687,9 @@ def get_job_progress_data(playlist_url: str, req, sess):
     # ✅ Use existing require_auth
     auth_error = require_auth(auth)
     if auth_error:
+        sess["intended_url"] = str(req.url.path)
         return auth_error
 
-    if not (sess and sess.get("auth")):
-        sess["intended_url"] = str(req.url.path)
-        return Alert(
-            P("Please log in."),
-            cls=AlertT.warning,
-        )
     return job_progress_controller(playlist_url)
 
 
