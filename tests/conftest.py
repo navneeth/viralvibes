@@ -514,34 +514,32 @@ def create_auth_session_cookie(
 @pytest.fixture
 def authenticated_client(client, monkeypatch):
     """
-    Test client that patches session to always include auth.
+    Test client that bypasses authentication checks.
 
-    This bypasses OAuth and session middleware for testing.
+    Instead of trying to inject session data, we patch the routes
+    to skip the auth check entirely during tests.
     """
-    # Fake authenticated session data
-    fake_session = {
-        "auth": {
-            "email": "test@viralvibes.com",
-            "name": "Test User",
-            "picture": "https://example.com/test-avatar.jpg",
-            "ident": "test_google_123456",
+    import main
+
+    # Store original route handler
+    original_submit_job = main.submit_job
+
+    # Create wrapper that skips auth check
+    def patched_submit_job(playlist_url: str, req, sess):
+        # Create fake authenticated session
+        fake_sess = {
+            "auth": {
+                "email": "test@viralvibes.com",
+                "name": "Test User",
+                "picture": "https://example.com/test-avatar.jpg",
+                "ident": "test_google_123456",
+            }
         }
-    }
+        # Call original with fake authenticated session
+        return original_submit_job(playlist_url, req, fake_sess)
 
-    # Patch Starlette's Request.session property
-    from starlette.requests import Request
-
-    # Store original
-    _original_session = Request.session
-
-    # Create mock property
-    @property
-    def mock_session(self):
-        # Return fake session instead of actual session
-        return fake_session
-
-    # Apply patch
-    monkeypatch.setattr(Request, "session", mock_session)
+    # Apply the patch
+    monkeypatch.setattr(main, "submit_job", patched_submit_job)
 
     return client
 
