@@ -514,46 +514,34 @@ def create_auth_session_cookie(
 @pytest.fixture
 def authenticated_client(client, monkeypatch):
     """
-    Test client with authenticated session (simulates logged-in user).
+    Test client that patches session to always include auth.
 
-    This fixture wraps the regular client and injects authentication
-    into every request by adding a session cookie.
-
-    Use this fixture for testing protected endpoints like:
-    - /submit-job
-    - /validate/full
-    - /d/{dashboard_id}
-    - /check-job-status
-    - /job-progress
-
-    Example:
-        def test_submit_job(authenticated_client, monkeypatch):
-            r = authenticated_client.post("/submit-job", data={...})
-            assert r.status_code == 200
+    This bypasses OAuth and session middleware for testing.
     """
-    # Store original request method
-    original_request = client.request
+    # Fake authenticated session data
+    fake_session = {
+        "auth": {
+            "email": "test@viralvibes.com",
+            "name": "Test User",
+            "picture": "https://example.com/test-avatar.jpg",
+            "ident": "test_google_123456",
+        }
+    }
 
-    def request_with_auth(method, url, **kwargs):
-        """Wrap every request to inject authenticated session cookie."""
-        # Create session cookie with auth data
-        # Note: The secret key should match what's used in main.py
-        # For tests, we use a consistent test key
-        session_cookie = create_auth_session_cookie()
+    # Patch Starlette's Request.session property
+    from starlette.requests import Request
 
-        # ✅ FIX: Handle both None and missing cookies
-        if kwargs.get("cookies") is None:
-            kwargs["cookies"] = {}
-        elif "cookies" not in kwargs:
-            kwargs["cookies"] = {}
+    # Store original
+    _original_session = Request.session
 
-        # Inject session cookie into request
-        kwargs["cookies"]["session"] = session_cookie
+    # Create mock property
+    @property
+    def mock_session(self):
+        # Return fake session instead of actual session
+        return fake_session
 
-        return original_request(method, url, **kwargs)
-
-    # Monkey patch the client's request method
-    monkeypatch.setattr(client, "request", request_with_auth)
+    # Apply patch
+    monkeypatch.setattr(Request, "session", mock_session)
 
     return client
 
