@@ -4,7 +4,8 @@ Note: @rt decorators stay in main.py, but business logic goes here.
 """
 
 import logging
-from fasthtml.common import RedirectResponse, Div, P, A, H1, Alert, AlertT
+
+from fasthtml.common import *
 from monsterui.all import ButtonT
 from fasthtml.common import Titled, Container
 

@@ -35,6 +35,7 @@ from components import (
     footer,
     hero_section,
     how_it_works_section,
+    NavComponent,
 )
 from constants import (
     PLAYLIST_STATS_TABLE,
@@ -164,98 +165,16 @@ oauth = services["oauth"]
 # =============================================================================
 
 
-# Navigation links
-def build_nav_links(auth, oauth):
-    """
-    Build navigation links based on auth status
-
-    Args:
-        auth: User auth object (None if not authenticated)
-        oauth: OAuth instance (None if not configured)
-
-    Returns:
-        Tuple of navigation components
-    """
-    base_links = (
-        A("Why ViralVibes", href="#home-section"),
-        A("Product", href="#analyze-section"),
-        A("About", href="#explore-section"),
-    )
-
-    if auth:
-        # Logged in
-        return base_links + (A("Log out", href="/logout", cls=f"{ButtonT.primary}"),)
-    else:
-        # Not logged in
-        if oauth:
-            return base_links + (
-                Button(
-                    "Try ViralVibes",
-                    cls=ButtonT.primary,
-                    onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})",
-                ),
-            )
-        else:
-            return base_links
-
-
-@rt("/debug/supabase")
-def debug_supabase():
-    """Debug endpoint to test Supabase connection and caching."""
-    if supabase_client:
-        try:
-            # Test basic connection
-            response = (
-                supabase_client.table(PLAYLIST_STATS_TABLE)
-                .select("count", count="exact")
-                .execute()
-            )
-            return Div(
-                H3("✅ Supabase Connection Test"),
-                P(f"Status: Connected"),
-                P(f"Client: {type(supabase_client).__name__}"),
-                P(f"Playlist stats table accessible: Yes"),
-                P(f"Count query result: {response}"),
-                cls="p-6 bg-green-50 border border-green-300 rounded-lg",
-            )
-        except Exception as e:
-            return Div(
-                H3("❌ Supabase Connection Test"),
-                P(f"Status: Error"),
-                P(f"Error: {str(e)}"),
-                cls="p-6 bg-red-50 border border-red-300 rounded-lg",
-            )
-    else:
-        return Div(
-            H3("❌ Supabase Connection Test"),
-            P(f"Status: Not Available"),
-            P(f"Client: None"),
-            cls="p-6 bg-yellow-50 border border-yellow-300 rounded-lg",
-        )
-
-
 @rt
-def index(auth):
+def index(auth, req):  # ← Add req parameter
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
-
-    # Build appropriate nav links
-    nav_items = list(filter(None, build_nav_links(auth, oauth)))
 
     return Titled(
         "ViralVibes",
         Container(
-            # MonsterUI NavBar with sticky behavior and primary CTA
-            NavBar(
-                *nav_items,
-                brand=DivLAligned(
-                    H3("ViralVibes"), UkIcon("chart-line", height=30, width=30)
-                ),
-                sticky=True,
-                uk_scrollspy_nav=True,
-                scrollspy_cls=ScrollspyT.bold,
-                cls="backdrop-blur bg-white/60 shadow-sm px-4 py-3",
-            ),
+            # ✅ Use NavComponent instead of build_nav_links + NavBar
+            NavComponent(auth, oauth, req),
             Container(
                 hero_section(),
                 SectionDivider(),
@@ -280,9 +199,15 @@ def index(auth):
 
 
 @rt("/login")
-def login(req):
+def login(auth, req):
     """Login page - shows login link"""
-    return build_login_page(oauth, req)
+    return Titled(
+        "ViralVibes - Login",
+        Container(
+            NavComponent(auth, oauth, req),  # ← Add nav to login page
+            build_login_page(oauth, req),
+        ),
+    )
 
 
 @rt("/logout")
@@ -337,6 +262,7 @@ def update_meter(meter_id: str, value: int = None, max_value: int = None):
 def dashboard_page(
     dashboard_id: str,
     auth,
+    req,
     sort_by: str = "Views",
     order: str = "desc",
 ):
@@ -387,19 +313,25 @@ def dashboard_page(
         return "asc" if (col == valid_sort and valid_order == "desc") else "desc"
 
     # 4. Render dashboard (persistent mode)
-    return render_full_dashboard(
-        df=df,
-        summary_stats=summary_stats,
-        playlist_name=playlist_name,
-        channel_name=channel_name,
-        channel_thumbnail=channel_thumbnail,
-        playlist_url=playlist_url,
-        valid_sort=valid_sort,
-        valid_order=valid_order,
-        next_order=next_order,
-        cached_stats=cached_stats,
-        mode="persistent",
-        dashboard_id=dashboard_id,
+    return Titled(
+        f"{playlist_name} - ViralVibes",
+        Container(
+            NavComponent(auth, oauth, req),  # ← Add nav
+            render_full_dashboard(
+                df=df,
+                summary_stats=summary_stats,
+                playlist_name=playlist_name,
+                channel_name=channel_name,
+                channel_thumbnail=channel_thumbnail,
+                playlist_url=playlist_url,
+                valid_sort=valid_sort,
+                valid_order=valid_order,
+                next_order=next_order,
+                cached_stats=cached_stats,
+                mode="persistent",
+                dashboard_id=dashboard_id,
+            ),
+        ),
     )
 
 
