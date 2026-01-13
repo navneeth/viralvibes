@@ -1,6 +1,7 @@
 """
 Main entry point for the ViralVibes web app.
 Modernized with Tailwind-inspired design and MonsterUI components.
+Includes Google OAuth with token revocation support.
 """
 
 import logging
@@ -19,6 +20,7 @@ from monsterui.all import *
 from starlette.responses import StreamingResponse
 
 from auth.auth_service import ViralVibesAuth, init_google_oauth
+from auth.token_revocation import clear_auth_session, revoke_google_token
 from components import (
     AnalysisFormCard,
     AnalyticsDashboardSection,
@@ -63,7 +65,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from services.playlist_loader import load_cached_or_stub  # get_playlist_preview
+from services.playlist_loader import load_cached_or_stub
 from utils import compute_dashboard_id
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
@@ -149,7 +151,7 @@ app, rt = fast_app(
         {"name": "viewport", "content": "width=device-width, initial-scale=1.0"},
         {
             "name": "description",
-            "content": "Analyze YouTube playlists instantly — discover engagement, reach, and controversy.",
+            "content": "Analyze YouTube playlists instantly – discover engagement, reach, and controversy.",
         },
     ],
     head=Head(
@@ -166,7 +168,7 @@ app, rt = fast_app(
 app.favicon = "/static/favicon.ico"
 
 # ============================================================================
-# STEP 4: Initialize OAuth with the app instance (only if credentials exist)
+# STEP 4: Initialize OAuth with the app instance
 # ============================================================================
 # Initialize the application before any DB usage
 
@@ -180,14 +182,15 @@ oauth = services["oauth"]
 
 
 @rt
-def index(req, sess):  # ✅ Use sess instead of auth
+def index(req, sess):
+    """Homepage - public route"""
+
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
     return Titled(
         "ViralVibes",
         Container(
-            # ✅ Pass sess to NavComponent
             NavComponent(oauth, req, sess),
             Container(
                 hero_section(),
@@ -215,7 +218,7 @@ def index(req, sess):  # ✅ Use sess instead of auth
 @rt("/login")
 def login(req, sess):
     """Login page - public route"""
-    # ✅ If user manually visited /login (no intended_url), clear any stored URL
+    # If user manually visited /login (no intended_url), clear any stored URL
     # so they get redirected to homepage after login
     if not sess.get("intended_url"):
         sess.pop("intended_url", None)
@@ -231,14 +234,46 @@ def login(req, sess):
 
 @rt("/logout")
 def logout():
-    """Logout endpoint - clears session and redirects"""
+    """Standard logout - clears session and redirects"""
     return build_logout_response()
+
+
+@rt("/revoke")
+def revoke(req, sess):
+    """
+    Revoke Google OAuth token and logout.
+
+    This endpoint:
+    1. Revokes the access token at Google (full disconnect)
+    2. Clears all session data
+    3. Redirects to homepage
+
+    Useful for testing OAuth flow and full user disconnection.
+    """
+    access_token = sess.get("access_token")
+    user_email = sess.get("user_email", "unknown")
+
+    # Attempt token revocation
+    if access_token:
+        revoke_success = revoke_google_token(access_token)
+        logger.info(
+            f"Token revocation for {user_email}: {'successful' if revoke_success else 'failed'}"
+        )
+    else:
+        logger.warning(f"No access token found for revocation (user: {user_email})")
+
+    # Clear all session data
+    clear_auth_session(sess)
+
+    logger.info(f"User {user_email} revoked access and logged out")
+
+    # Redirect to homepage
+    return RedirectResponse("/", status_code=303)
 
 
 @rt("/validate/url", methods=["POST"])
 def validate_url(playlist: YoutubePlaylist, req, sess):
-    """Validate playlist URL - now public for preview"""
-    # Check auth from session
+    """Validate playlist URL - requires authentication"""
     if not (sess and sess.get("auth")):
         sess["intended_url"] = str(req.url.path)
         return Alert(
@@ -259,16 +294,14 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
 
 
 @rt("/validate/preview", methods=["POST"])
-def preview_playlist(playlist_url: str, req, sess):  # ✅ Add sess
-    """Preview playlist - now public"""
-    # No auth check - allow public previews
+def preview_playlist(playlist_url: str, req, sess):
+    """Preview playlist - No auth check allow public previews"""
+
     return preview_playlist_controller(playlist_url)
 
 
 def update_meter(meter_id: str, value: int = None, max_value: int = None):
-    """
-    Emit a <script> tag to update the progress meter.
-    """
+    """Emit a <script> tag to update the progress meter."""
     if max_value is not None:
         yield f"<script>var el=document.getElementById('{meter_id}'); if(el){{ el.max={max_value}; }}</script>"
     if value is not None:
@@ -280,7 +313,7 @@ def dashboard_page(
     dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
 ):
     """View saved dashboard - PROTECTED route"""
-    # ✅ Store intended URL before redirecting to login
+    # Store intended URL before redirecting to login
     auth = sess.get("auth") if sess else None
 
     if os.getenv("TESTING") != "1" and not auth:
@@ -333,7 +366,7 @@ def dashboard_page(
     return Titled(
         f"{playlist_name} - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess),  # ✅ Pass sess
+            NavComponent(oauth, req, sess),
             render_full_dashboard(
                 df=df,
                 summary_stats=summary_stats,
@@ -692,10 +725,10 @@ def check_job_status(playlist_url: str, req, sess):
 
 @rt("/job-progress", methods=["GET"])
 def get_job_progress_data(playlist_url: str, req, sess):
-    """Protected route"""
+    """Protected route - gets job progress"""
     auth = sess.get("auth") if sess else None
 
-    # ✅ Use existing require_auth
+    # Use existing require_auth
     auth_error = require_auth(auth)
     if auth_error:
         sess["intended_url"] = str(req.url.path)
@@ -705,7 +738,7 @@ def get_job_progress_data(playlist_url: str, req, sess):
 
 
 # ============================================================================
-# Run the app (for local development)
+# Run the app
 # ============================================================================
 
 serve()
