@@ -67,38 +67,44 @@ def test_validate_url_invalid(client):
 
 
 def test_preview_returns_script_on_cache_hit(client, monkeypatch):
-    # stub cache -> triggers redirect script to full analysis
+    """Test /validate/preview returns redirect script when cache exists."""
+    # Mock at the controller level where it's imported
     monkeypatch.setattr(
-        "main.get_cached_playlist_stats", lambda url, check_date=True: {"title": "X"}
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: {"title": "Cached Playlist"},
     )
-    # ✅ ALSO mock preview info to avoid Supabase call
-    monkeypatch.setattr(
-        "main.get_playlist_preview_info",
-        lambda url: {"title": "Test", "video_count": 50},
-    )
+
     r = client.post(
         "/validate/preview",
         data={"playlist_url": TEST_PLAYLIST_URL},
     )
+
     assert r.status_code == 200
     assert "htmx.ajax('POST', '/validate/full'" in r.text
 
 
 def test_preview_shows_preview_on_cache_miss_job_done(client, monkeypatch):
+    """Test /validate/preview shows preview card when no cache but job is done."""
+    # Mock at controller level
     monkeypatch.setattr(
-        "main.get_cached_playlist_stats", lambda url, check_date=True: None
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,
     )
-    monkeypatch.setattr("main.get_playlist_job_status", lambda url: "done")
-    # ✅ ALSO mock preview info to avoid Supabase call
     monkeypatch.setattr(
-        "main.get_playlist_preview_info",
+        "controllers.preview.get_playlist_job_status", lambda url: "done"
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
         lambda url: {"title": "Test", "video_count": 50},
     )
+
     r = client.post(
         "/validate/preview",
         data={"playlist_url": TEST_PLAYLIST_URL},
     )
+
     assert r.status_code == 200
+    # Job done with no cache → should show redirect script
     assert "htmx.ajax('POST', '/validate/full'" in r.text
 
 
@@ -124,7 +130,7 @@ def make_test_dataframe():
     )
 
 
-def test_submit_job_and_poll(client, monkeypatch):
+def test_submit_job_and_poll(authenticated_client, monkeypatch):
     """
     Test job submission and progress polling screen flow:
     1. /submit-job creates job and returns HTMX trigger div
@@ -173,7 +179,11 @@ def test_submit_job_and_poll(client, monkeypatch):
 
     # ---- TEST /submit-job ----
     # This should return a div with hx-get and hx-trigger attributes
-    r = client.post("/submit-job", data={"playlist_url": playlist_url})
+    r = authenticated_client.post("/submit-job", data={"playlist_url": playlist_url})
+
+    print(f"\n🔍 Response status: {r.status_code}")
+    print(f"🔍 Response text (first 500 chars): {r.text[:500]}")
+    print(f"🔍 Called dict: {called}")
 
     assert r.status_code == 200
     assert called.get("url") == playlist_url
@@ -185,7 +195,7 @@ def test_submit_job_and_poll(client, monkeypatch):
 
     # ---- TEST /job-progress ----
     # Now test the progress endpoint that /submit-job triggers
-    r_progress = client.get(f"/job-progress?playlist_url={playlist_url}")
+    r_progress = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
 
     assert r_progress.status_code == 200
 
@@ -211,7 +221,7 @@ def test_submit_job_and_poll(client, monkeypatch):
     assert 'hx-swap="outerHTML"' in r_progress.text
 
 
-def test_job_progress_completion(client, monkeypatch):
+def test_job_progress_completion(authenticated_client, monkeypatch):
     """
     Test /job-progress when job is complete.
     Should show redirect/completion message, NOT polling.
@@ -248,7 +258,7 @@ def test_job_progress_completion(client, monkeypatch):
     )
 
     # Test progress endpoint with completed job
-    r = client.get(f"/job-progress?playlist_url={playlist_url}")
+    r = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
 
     assert r.status_code == 200
 
@@ -262,7 +272,7 @@ def test_job_progress_completion(client, monkeypatch):
     assert 'hx-trigger="every 2s"' not in r.text
 
 
-def test_job_progress_with_error(client, monkeypatch):
+def test_job_progress_with_error(authenticated_client, monkeypatch):
     """
     Test /job-progress when job has failed.
     Should show error message.
@@ -298,7 +308,7 @@ def test_job_progress_with_error(client, monkeypatch):
         },
     )
 
-    r = client.get(f"/job-progress?playlist_url={playlist_url}")
+    r = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
 
     assert r.status_code == 200
 
@@ -307,10 +317,8 @@ def test_job_progress_with_error(client, monkeypatch):
     assert "Network timeout" in r.text
 
 
-def test_job_progress_progress_calculation(client, monkeypatch):
-    """
-    Test that /job-progress correctly calculates elapsed and remaining time.
-    """
+def test_job_progress_progress_calculation(authenticated_client, monkeypatch):
+    """Test that /job-progress correctly calculates elapsed and remaining time."""
     playlist_url = TEST_PLAYLIST_URL
 
     # Create a job that started 60 seconds ago and is 50% complete
@@ -343,7 +351,7 @@ def test_job_progress_progress_calculation(client, monkeypatch):
         },
     )
 
-    r = client.get(f"/job-progress?playlist_url={playlist_url}")
+    r = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
 
     assert r.status_code == 200
 
@@ -357,10 +365,10 @@ def test_job_progress_progress_calculation(client, monkeypatch):
     assert "Remaining" in r.text
 
 
-def test_check_job_status_transitions(client, monkeypatch):
-    # job not finished -> returns polling div
+def test_check_job_status_transitions(authenticated_client, monkeypatch):
+    """Test job status polling transitions -> returns polling div"""
     monkeypatch.setattr(main, "get_playlist_job_status", lambda url: "processing")
-    r = client.get(f"/check-job-status?playlist_url={TEST_PLAYLIST_URL}")
+    r = authenticated_client.get(f"/check-job-status?playlist_url={TEST_PLAYLIST_URL}")
     assert r.status_code == 200
     assert "Analysis in progress" in r.text or "loading" in r.text.lower()
 
@@ -379,14 +387,14 @@ def test_newsletter_with_supabase_success(client, monkeypatch):
     assert "Thanks for signing up" in r.text or "Thanks" in r.text
 
 
-def test_dashboard_by_id(client, mock_supabase, monkeypatch):
+def test_dashboard_by_id(authenticated_client, mock_supabase, monkeypatch):
     """Test GET /d/{dashboard_id} returns persistent dashboard."""
 
     # Inject mock Supabase
     set_supabase_client(mock_supabase)
 
     dashboard_id = "test-dash-abc123"
-    r = client.get(f"/d/{dashboard_id}")
+    r = authenticated_client.get(f"/d/{dashboard_id}")
 
     # Should return 200 (or redirect if using persistent mode)
     assert r.status_code in (200, 303)

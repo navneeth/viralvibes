@@ -74,6 +74,7 @@ from ui_components import (
     MetricCard,
     PlaylistMetricsOverview,
 )
+from .navigation import NavComponent
 
 __all__ = [
     # UI Helpers
@@ -138,4 +139,5 @@ __all__ = [
     "faq_section",
     "footer",
     "FooterLinkGroup",
+    "NavComponent",
 ]

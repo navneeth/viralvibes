@@ -18,6 +18,10 @@ from unittest.mock import AsyncMock, MagicMock
 import polars as pl
 import pytest
 from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer
+
+# ✅ Set TESTING=1 BEFORE any imports that might load main.py
+os.environ["TESTING"] = "1"
 
 # Ensure project root is importable
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -68,7 +72,10 @@ def _check_module_exports(module_name: str, keys: List[str]):
 @pytest.fixture(autouse=True, scope="session")
 def setup_test_environment():
     """✅ SINGLE SOURCE OF TRUTH: Loads env + validates + contracts"""
-    print("🚀 conftest.py: LOADING ENVIRONMENT...")  # DEBUG
+    print("🚀 conftest.py: LOADING ENVIRONMENT...")
+
+    # ✅ Ensure TESTING is set (redundant but safe)
+    os.environ["TESTING"] = "1"
 
     # Validate env (with defaults)
     assert os.getenv("YOUTUBE_API_KEY"), "YOUTUBE_API_KEY missing"
@@ -477,3 +484,80 @@ def mock_supabase_with_jobs():
     }
 
     return MockSupabase(data)
+
+
+def create_auth_session_cookie(
+    email: str = "test@viralvibes.com",
+    name: str = "Test User",
+    secret_key: str = "test-secret-key",
+) -> str:
+    """
+    Create a signed session cookie containing auth data.
+
+    This mimics what FastHTML's OAuth does after successful Google login.
+    The session cookie must match the format expected by Starlette's SessionMiddleware.
+    """
+    serializer = URLSafeTimedSerializer(secret_key, salt="cookie-session")
+
+    session_data = {
+        "auth": {
+            "email": email,
+            "name": name,
+            "picture": f"https://example.com/{email.split('@')[0]}.jpg",
+            "ident": f"test_google_{hash(email)}",
+        }
+    }
+
+    return serializer.dumps(session_data)
+
+
+@pytest.fixture
+def authenticated_client(client, monkeypatch):
+    """
+    Test client that bypasses authentication checks.
+
+    Instead of trying to inject session data, we patch the routes
+    to skip the auth check entirely during tests.
+    """
+    import main
+
+    # Store original route handler
+    original_submit_job = main.submit_job
+
+    # Create wrapper that skips auth check
+    def patched_submit_job(playlist_url: str, req, sess):
+        # Create fake authenticated session
+        fake_sess = {
+            "auth": {
+                "email": "test@viralvibes.com",
+                "name": "Test User",
+                "picture": "https://example.com/test-avatar.jpg",
+                "ident": "test_google_123456",
+            }
+        }
+        # Call original with fake authenticated session
+        return original_submit_job(playlist_url, req, fake_sess)
+
+    # Apply the patch
+    monkeypatch.setattr(main, "submit_job", patched_submit_job)
+
+    return client
+
+
+@pytest.fixture
+def authenticated_session():
+    """
+    Return mock authenticated session dict.
+
+    Use when testing controllers directly (not via HTTP):
+        def test_controller(authenticated_session):
+            result = some_controller(sess=authenticated_session)
+    """
+    return {
+        "auth": {
+            "email": "test@viralvibes.com",
+            "name": "Test User",
+            "picture": "https://example.com/test-avatar.jpg",
+            "ident": "test_google_123456",
+        }
+    }

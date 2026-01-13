@@ -3,22 +3,22 @@ Main entry point for the ViralVibes web app.
 Modernized with Tailwind-inspired design and MonsterUI components.
 """
 
-import asyncio
-import io
 import logging
+import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 
-import polars as pl
 from dotenv import load_dotenv
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 from fasthtml.core import HtmxHeaders
+from fasthtml.oauth import GoogleAppClient, OAuth
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
+from auth.auth_service import ViralVibesAuth, init_google_oauth
 from components import (
     AnalysisFormCard,
     AnalyticsDashboardSection,
@@ -27,23 +27,26 @@ from components import (
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
+    NavComponent,
     NewsletterCard,
     SectionDivider,
+    StepProgress,
     faq_section,
     features_section,
     footer,
     hero_section,
     how_it_works_section,
-    StepProgress,
 )
-from components.steps import StepProgress
-from components.processing_tips import get_tip_for_progress
 from constants import (
-    FLEX_COL,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
     SIGNUPS_TABLE,
+)
+from controllers.auth_routes import (
+    build_login_page,
+    build_logout_response,
+    require_auth,
 )
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
@@ -61,8 +64,7 @@ from db import (
     upsert_playlist_stats,
 )
 from services.playlist_loader import load_cached_or_stub  # get_playlist_preview
-
-from utils import compute_dashboard_id, format_number, format_seconds
+from utils import compute_dashboard_id
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
@@ -70,9 +72,67 @@ from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 # Get logger instance
 logger = logging.getLogger(__name__)
 
-# Load environment variables
+# ============================================================================
+# STEP 1: Load environment variables FIRST
+# ============================================================================
 load_dotenv()
 
+
+# Initialize application components
+def init_app_services(app):
+    """Initialize application services.
+
+    This function should be called at application startup.
+    It sets up logging and initializes the Supabase client.
+
+    Returns:
+        {
+            'supabase_client': client,
+            'oauth': oauth,
+            'google_client': google_client
+        }
+    """
+    # 1. Configure logging
+    setup_logging()
+
+    # Check if TESTING env var is set (GitHub Actions will set this)
+    is_testing = os.getenv("TESTING") == "1"
+    if is_testing:
+        logger.info("🧪 Test mode detected - Supabase & OAuth disabled")
+        return {
+            "supabase_client": None,
+            "oauth": None,
+            "google_client": None,
+        }
+
+    # 2. Initialize Supabase client ONCE
+    try:
+        client = init_supabase()
+        if client is not None:
+            # Update the global supabase_client variable
+            global supabase_client
+            supabase_client = client
+            logger.info("✅ Supabase integration enabled successfully")
+        else:
+            logger.warning("⚠️  Running without Supabase integration")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during Supabase initialization: {str(e)}")
+        # Continue running without Supabase
+        supabase_client = None
+
+    # 3. Initialize OAuth
+    google_client, oauth = init_google_oauth(app, supabase_client)
+
+    return {
+        "supabase_client": supabase_client,
+        "oauth": oauth,
+        "google_client": google_client,
+    }
+
+
+# ============================================================================
+# STEP 3: Create FastHTML app instance with headers
+# ============================================================================
 # --- App Initialization ---
 # Get frankenui and tailwind headers via CDN using Theme.blue.headers()
 # Choose a theme color (blue, green, red, etc)
@@ -105,102 +165,30 @@ app, rt = fast_app(
 # Set the favicon
 app.favicon = "/static/favicon.ico"
 
-# Navigation links
-scrollspy_links = (
-    A("Why ViralVibes", href="#home-section"),
-    A("Product", href="#analyze-section"),
-    A("About", href="#explore-section"),
-    Button(
-        "Try ViralVibes",
-        cls=ButtonT.primary,
-        onclick="document.querySelector('#analysis-form').scrollIntoView({behavior:'smooth'})",
-    ),
-)
+# ============================================================================
+# STEP 4: Initialize OAuth with the app instance (only if credentials exist)
+# ============================================================================
+# Initialize the application before any DB usage
 
+services = init_app_services(app)
+supabase_client = services["supabase_client"]
+oauth = services["oauth"]
 
-# Initialize application components
-def init_app():
-    """Initialize application components.
-
-    This function should be called at application startup.
-    It sets up logging and initializes the Supabase client.
-    """
-    # Configure logging
-    setup_logging()
-
-    # Initialize Supabase client ONCE
-    try:
-        client = init_supabase()
-        if client is not None:
-            # Update the global supabase_client variable
-            global supabase_client
-            supabase_client = client
-            logger.info("Supabase integration enabled successfully")
-        else:
-            logger.warning("Running without Supabase integration")
-    except Exception as e:
-        logger.error(f"Unexpected error during Supabase initialization: {str(e)}")
-        # Continue running without Supabase
-
-
-# Initialize the application at the very top of main.py (before any DB usage)
-init_app()
-
-
-@rt("/debug/supabase")
-def debug_supabase():
-    """Debug endpoint to test Supabase connection and caching."""
-    if supabase_client:
-        try:
-            # Test basic connection
-            response = (
-                supabase_client.table(PLAYLIST_STATS_TABLE)
-                .select("count", count="exact")
-                .execute()
-            )
-            return Div(
-                H3("✅ Supabase Connection Test"),
-                P(f"Status: Connected"),
-                P(f"Client: {type(supabase_client).__name__}"),
-                P(f"Playlist stats table accessible: Yes"),
-                P(f"Count query result: {response}"),
-                cls="p-6 bg-green-50 border border-green-300 rounded-lg",
-            )
-        except Exception as e:
-            return Div(
-                H3("❌ Supabase Connection Test"),
-                P(f"Status: Error"),
-                P(f"Error: {str(e)}"),
-                cls="p-6 bg-red-50 border border-red-300 rounded-lg",
-            )
-    else:
-        return Div(
-            H3("❌ Supabase Connection Test"),
-            P(f"Status: Not Available"),
-            P(f"Client: None"),
-            cls="p-6 bg-yellow-50 border border-yellow-300 rounded-lg",
-        )
+# =============================================================================
+# Routes
+# =============================================================================
 
 
 @rt
-def index():
+def index(req, sess):  # ✅ Use sess instead of auth
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
     return Titled(
         "ViralVibes",
         Container(
-            # MonsterUI NavBar with sticky behavior and primary CTA
-            NavBar(
-                *scrollspy_links,
-                brand=DivLAligned(
-                    H3("ViralVibes"), UkIcon("chart-line", height=30, width=30)
-                ),
-                sticky=True,
-                uk_scrollspy_nav=True,
-                scrollspy_cls=ScrollspyT.bold,
-                cls="backdrop-blur bg-white/60 shadow-sm px-4 py-3",
-            ),
+            # ✅ Pass sess to NavComponent
+            NavComponent(oauth, req, sess),
             Container(
                 hero_section(),
                 SectionDivider(),
@@ -224,8 +212,40 @@ def index():
     )
 
 
+@rt("/login")
+def login(req, sess):
+    """Login page - public route"""
+    # ✅ If user manually visited /login (no intended_url), clear any stored URL
+    # so they get redirected to homepage after login
+    if not sess.get("intended_url"):
+        sess.pop("intended_url", None)
+
+    return Titled(
+        "ViralVibes - Login",
+        Container(
+            NavComponent(oauth, req, sess),
+            build_login_page(oauth, req),
+        ),
+    )
+
+
+@rt("/logout")
+def logout():
+    """Logout endpoint - clears session and redirects"""
+    return build_logout_response()
+
+
 @rt("/validate/url", methods=["POST"])
-def validate_url(playlist: YoutubePlaylist):
+def validate_url(playlist: YoutubePlaylist, req, sess):
+    """Validate playlist URL - now public for preview"""
+    # Check auth from session
+    if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
+        return Alert(
+            P("Please log in to analyze playlists."),
+            cls=AlertT.warning,
+        )
+
     errors = YoutubePlaylistValidator.validate(playlist)
     if errors:
         return Div(
@@ -239,7 +259,9 @@ def validate_url(playlist: YoutubePlaylist):
 
 
 @rt("/validate/preview", methods=["POST"])
-def preview_playlist(playlist_url: str):
+def preview_playlist(playlist_url: str, req, sess):  # ✅ Add sess
+    """Preview playlist - now public"""
+    # No auth check - allow public previews
     return preview_playlist_controller(playlist_url)
 
 
@@ -255,10 +277,16 @@ def update_meter(meter_id: str, value: int = None, max_value: int = None):
 
 @rt("/d/{dashboard_id}", methods=["GET"])
 def dashboard_page(
-    dashboard_id: str,
-    sort_by: str = "Views",
-    order: str = "desc",
+    dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
 ):
+    """View saved dashboard - PROTECTED route"""
+    # ✅ Store intended URL before redirecting to login
+    auth = sess.get("auth") if sess else None
+
+    if os.getenv("TESTING") != "1" and not auth:
+        sess["intended_url"] = str(req.url.path)
+        return RedirectResponse("/login", status_code=303)
+
     # 1. Resolve dashboard_id → playlist_url
     playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
 
@@ -302,19 +330,25 @@ def dashboard_page(
         return "asc" if (col == valid_sort and valid_order == "desc") else "desc"
 
     # 4. Render dashboard (persistent mode)
-    return render_full_dashboard(
-        df=df,
-        summary_stats=summary_stats,
-        playlist_name=playlist_name,
-        channel_name=channel_name,
-        channel_thumbnail=channel_thumbnail,
-        playlist_url=playlist_url,
-        valid_sort=valid_sort,
-        valid_order=valid_order,
-        next_order=next_order,
-        cached_stats=cached_stats,
-        mode="persistent",
-        dashboard_id=dashboard_id,
+    return Titled(
+        f"{playlist_name} - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),  # ✅ Pass sess
+            render_full_dashboard(
+                df=df,
+                summary_stats=summary_stats,
+                playlist_name=playlist_name,
+                channel_name=channel_name,
+                channel_thumbnail=channel_thumbnail,
+                playlist_url=playlist_url,
+                valid_sort=valid_sort,
+                valid_order=valid_order,
+                next_order=next_order,
+                cached_stats=cached_stats,
+                mode="persistent",
+                dashboard_id=dashboard_id,
+            ),
+        ),
     )
 
 
@@ -322,11 +356,23 @@ def dashboard_page(
 def validate_full(
     htmx: HtmxHeaders,
     playlist_url: str,
+    req,
+    sess,
     meter_id: str = "fetch-progress-meter",
     meter_max: Optional[int] = None,
     sort_by: str = "Views",
     order: str = "desc",
 ):
+    """Full playlist analysis - PROTECTED route"""
+    # Store intended URL before returning error
+    if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
+        return Alert(
+            P("Please log in to analyze playlists."),
+            A("Log in", href="/login", cls=f"{ButtonT.primary}"),
+            cls=AlertT.warning,
+        )
+
     # --- Check if this is an HTMX sort request BEFORE streaming ---
     if htmx.target == "playlist-table-container":
         # For sort requests, just load data and return the table
@@ -488,7 +534,9 @@ def update_steps_progressive(step: int):
 
 
 @rt("/newsletter", methods=["POST"])
-def newsletter(email: str):
+def newsletter(email: str, req, sess):  # ✅ Add sess (public route)
+    """Newsletter signup - PUBLIC route"""
+    # No auth check - allow public signups
     # Normalize email input by trimming whitespace and lowercasing
     email = email.strip().lower()
 
@@ -536,10 +584,16 @@ def newsletter(email: str):
 
 
 @rt("/submit-job", methods=["POST"])
-def submit_job(playlist_url: str):
-    """
-    Submit a playlist for analysis and show the engaging processing screen.
-    """
+def submit_job(playlist_url: str, req, sess):
+    """Submit job - PROTECTED route"""
+    auth = sess.get("auth") if sess else None
+
+    # Use existing require_auth - it will skip in tests
+    auth_error = require_auth(auth)
+    if auth_error:
+        sess["intended_url"] = str(req.url.path)
+        return auth_error  # Returns the Alert
+
     submit_playlist_job(playlist_url)
     # Return HTMX polling instruction
     # return Div(
@@ -573,11 +627,18 @@ def submit_job(playlist_url: str):
 
 
 @rt("/check-job-status", methods=["GET"])
-def check_job_status(playlist_url: str):
-    """
+def check_job_status(playlist_url: str, req, sess):
+    """Protected route
     Checks the status of a playlist analysis job and updates the UI accordingly.
     This endpoint is designed to be polled by HTMX.
     """
+    auth = sess.get("auth") if sess else None
+
+    # Use existing require_auth
+    auth_error = require_auth(auth)
+    if auth_error:
+        return auth_error
+
     job_status = get_playlist_job_status(playlist_url)
 
     # Check for both "complete" and "done" status
@@ -630,8 +691,21 @@ def check_job_status(playlist_url: str):
 
 
 @rt("/job-progress", methods=["GET"])
-def get_job_progress_data(playlist_url: str):
+def get_job_progress_data(playlist_url: str, req, sess):
+    """Protected route"""
+    auth = sess.get("auth") if sess else None
+
+    # ✅ Use existing require_auth
+    auth_error = require_auth(auth)
+    if auth_error:
+        sess["intended_url"] = str(req.url.path)
+        return auth_error
+
     return job_progress_controller(playlist_url)
 
+
+# ============================================================================
+# Run the app (for local development)
+# ============================================================================
 
 serve()
