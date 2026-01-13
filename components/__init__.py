@@ -18,8 +18,6 @@ from components.buttons import (
     progress_meter,
     small_badge,
 )
-from components.cards import HomepageAccordion
-from components.steps import StepProgress
 from components.cards import (
     # Card components
     AnalysisFormCard,
@@ -27,6 +25,7 @@ from components.cards import (
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
+    MetricCard,
     NewsletterCard,
     PlaylistPreviewCard,
     PlaylistSteps,
@@ -37,7 +36,6 @@ from components.cards import (
     create_info_card,
     create_tabs,
     faq_item,
-    MetricCard,
 )
 
 # Section Components
@@ -56,6 +54,7 @@ from components.sections import (
     testimonial_card,
     testimonials_section,
 )
+from components.steps import StepProgress
 
 # Table Cell Renderers
 from components.tables import (
@@ -72,9 +71,9 @@ from ui_components import (
     AnalyticsHeader,
     CachedResultsBanner,
     # Layout Components
-    MetricCard,
     PlaylistMetricsOverview,
 )
+
 from .navigation import NavComponent
 
 __all__ = [
@@ -141,5 +140,4 @@ __all__ = [
     "footer",
     "FooterLinkGroup",
     "NavComponent",
-    "MetricCard",
 ]
