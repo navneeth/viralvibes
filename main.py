@@ -13,7 +13,7 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from fasthtml.common import *
-from fasthtml.common import RedirectResponse
+from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
 from fasthtml.oauth import GoogleAppClient, OAuth
 from monsterui.all import *
@@ -269,6 +269,43 @@ def revoke(req, sess):
 
     # Redirect to homepage
     return RedirectResponse("/", status_code=303)
+
+
+@rt("/avatar/{user_id}")
+def get_avatar(user_id: str):
+    """
+    Serve user avatar from Supabase storage.
+
+    Avatars are stored as blobs in Supabase storage at:
+    avatars/{user_id}/avatar.jpg
+
+    Args:
+        user_id: User ID from users table
+
+    Returns:
+        Image response or 404
+    """
+    if not supabase_client:
+        return Response(status_code=404)
+
+    try:
+        # Download avatar from Supabase storage
+        avatar_path = f"avatars/{user_id}/avatar.jpg"
+        response = supabase_client.storage.from_("users").download(avatar_path)
+
+        if response:
+            return Response(
+                content=response,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=3600"},  # Cache for 1 hour
+            )
+        else:
+            logger.warning(f"No avatar found for user {user_id}")
+            return Response(status_code=404)
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch avatar for user {user_id}: {e}")
+        return Response(status_code=404)
 
 
 @rt("/validate/url", methods=["POST"])
