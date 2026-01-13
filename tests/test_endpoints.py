@@ -67,38 +67,44 @@ def test_validate_url_invalid(client):
 
 
 def test_preview_returns_script_on_cache_hit(client, monkeypatch):
-    # stub cache -> triggers redirect script to full analysis
+    """Test /validate/preview returns redirect script when cache exists."""
+    # Mock at the controller level where it's imported
     monkeypatch.setattr(
-        "main.get_cached_playlist_stats", lambda url, check_date=True: {"title": "X"}
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: {"title": "Cached Playlist"},
     )
-    # ALSO mock preview info to avoid Supabase call
-    monkeypatch.setattr(
-        "main.get_playlist_preview_info",
-        lambda url: {"title": "Test", "video_count": 50},
-    )
+
     r = client.post(
         "/validate/preview",
         data={"playlist_url": TEST_PLAYLIST_URL},
     )
+
     assert r.status_code == 200
     assert "htmx.ajax('POST', '/validate/full'" in r.text
 
 
 def test_preview_shows_preview_on_cache_miss_job_done(client, monkeypatch):
+    """Test /validate/preview shows preview card when no cache but job is done."""
+    # Mock at controller level
     monkeypatch.setattr(
-        "main.get_cached_playlist_stats", lambda url, check_date=True: None
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,
     )
-    monkeypatch.setattr("main.get_playlist_job_status", lambda url: "done")
-    # ALSO mock preview info to avoid Supabase call
     monkeypatch.setattr(
-        "main.get_playlist_preview_info",
+        "controllers.preview.get_playlist_job_status", lambda url: "done"
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
         lambda url: {"title": "Test", "video_count": 50},
     )
+
     r = client.post(
         "/validate/preview",
         data={"playlist_url": TEST_PLAYLIST_URL},
     )
+
     assert r.status_code == 200
+    # Job done with no cache → should show redirect script
     assert "htmx.ajax('POST', '/validate/full'" in r.text
 
 
