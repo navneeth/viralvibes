@@ -36,7 +36,7 @@ def NavComponent(oauth, req=None, sess=None):
     ]
 
     # Check auth from session
-    is_authenticated = sess and sess.get("auth")
+    is_authenticated = bool(sess and sess.get("auth"))
 
     # ============================================================================
     # Build auth section (right side of navbar)
