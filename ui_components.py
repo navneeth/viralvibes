@@ -33,10 +33,7 @@ from components.buttons import (
     small_badge,
 )
 from components.cards import (
-    AnalysisFormCard,
-    PlaylistPreviewCard,
-    PlaylistSteps,
-    create_info_card,
+    MetricCard,
 )
 from db import fetch_playlists, get_cached_playlist_stats
 from utils import format_number
