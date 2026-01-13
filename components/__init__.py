@@ -37,6 +37,7 @@ from components.cards import (
     create_info_card,
     create_tabs,
     faq_item,
+    MetricCard,
 )
 
 # Section Components
@@ -140,4 +141,5 @@ __all__ = [
     "footer",
     "FooterLinkGroup",
     "NavComponent",
+    "MetricCard",
 ]
