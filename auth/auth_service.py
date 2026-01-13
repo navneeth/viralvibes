@@ -99,28 +99,24 @@ class ViralVibesAuth(OAuth):
 
                 if existing_user:
                     user_id = existing_user["id"]
-                    # Update existing user
+                    # Update existing user - only update fields that exist in schema
                     user_data = {
                         "name": name,
                         "email_verified": email_verified,
                         "avatar_url": picture_url,
                         "last_login_at": datetime.utcnow().isoformat(),
-                        "updated_at": datetime.utcnow().isoformat(),
                     }
                     self.supabase_client.table("users").update(user_data).eq(
                         "id", user_id
                     ).execute()
                     logger.info(f"✅ Updated existing user {email}")
                 else:
-                    # Create new user
+                    # Create new user - only insert fields that exist in schema
                     user_data = {
                         "email": email,
                         "name": name,
                         "email_verified": email_verified,
                         "avatar_url": picture_url,
-                        "created_at": datetime.utcnow().isoformat(),
-                        "last_login_at": datetime.utcnow().isoformat(),
-                        "updated_at": datetime.utcnow().isoformat(),
                     }
                     user_response = (
                         self.supabase_client.table("users").insert(user_data).execute()
@@ -150,7 +146,6 @@ class ViralVibesAuth(OAuth):
                         "access_token": session.get("access_token"),
                         "refresh_token": session.get("refresh_token"),
                         "token_expires_at": session.get("token_expires_at"),
-                        "created_at": datetime.utcnow().isoformat(),
                     }
 
                     self.supabase_client.table("auth_providers").upsert(
@@ -170,7 +165,6 @@ class ViralVibesAuth(OAuth):
             session["user_name"] = name
             session["user_given_name"] = given_name
             session["user_has_avatar"] = has_avatar
-            session["last_login_at"] = datetime.utcnow().isoformat()
             logger.info(f"✅ Stored session data for user {email}")
 
         # ✅ SMART REDIRECT LOGIC
@@ -363,6 +357,7 @@ def init_google_oauth(app, supabase_client=None):
             "/validate/preview",  # Allow previews without login
             "/newsletter",  # Public newsletter signup
             "/debug/supabase",  # Debug endpoint - public
+            "/avatar",  # Avatar serving - public
         ]
 
         oauth = ViralVibesAuth(app, google_client, supabase_client, skip=skip_routes)
