@@ -770,3 +770,29 @@ def PlaylistPreviewCard(
         cls="max-w-md mx-auto rounded-2xl shadow-lg bg-white overflow-hidden",
         style="border: 2px solid #f3f4f6;",
     )
+
+
+def MetricCard(
+    title: str,
+    value: str,
+    subtitle: str,
+    icon: str,
+    color: str = "red",
+) -> Card:
+    """Create a clean metric card with icon, value, and context."""
+    return Card(
+        Div(
+            UkIcon(icon, cls=f"text-{color}-500", height=28, width=28),
+            H3(value, cls="text-2xl font-bold text-gray-900 mb-1"),
+            P(subtitle, cls="text-sm text-gray-600"),
+            cls="flex flex-col items-start space-y-1",
+        ),
+        header=H4(
+            title, cls="text-xs font-medium text-gray-500 uppercase tracking-wider"
+        ),
+        cls=(
+            "p-5 rounded-xl shadow-sm border border-gray-200 "
+            "hover:shadow-lg transition-all duration-200 "
+            "bg-white"
+        ),
+    )

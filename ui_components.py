@@ -33,10 +33,7 @@ from components.buttons import (
     small_badge,
 )
 from components.cards import (
-    AnalysisFormCard,
-    PlaylistPreviewCard,
-    PlaylistSteps,
-    create_info_card,
+    MetricCard,
 )
 from db import fetch_playlists, get_cached_playlist_stats
 from utils import format_number
@@ -499,35 +496,6 @@ def AnalyticsHeader(
         # Solid bar background with padding
         cls="p-6 mb-8 rounded-lg shadow-md",
         style="background: linear-gradient(to right, #f0f4f8, #e2e8f0);",
-    )
-
-
-def MetricCard(
-    title: str,
-    value: str,
-    subtitle: str,
-    icon: str,
-    color: str = "red",
-) -> Card:
-    """Create a clean metric card with icon, value, and context."""
-    return Card(
-        Div(
-            # Icon with explicit color
-            UkIcon(icon, cls=f"text-{color}-500", height=28, width=28),
-            # Main value
-            H3(value, cls="text-2xl font-bold text-gray-900 mb-1"),
-            # Subtitle
-            P(subtitle, cls="text-sm text-gray-600"),
-            cls="flex flex-col items-start space-y-1",
-        ),
-        header=H4(
-            title, cls="text-xs font-medium text-gray-500 uppercase tracking-wider"
-        ),
-        cls=(
-            "p-5 rounded-xl shadow-sm border border-gray-200 "
-            "hover:shadow-lg transition-all duration-200 "
-            "bg-white"
-        ),
     )
 
 
