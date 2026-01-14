@@ -780,7 +780,17 @@ def get_job_progress_data(playlist_url: str, req, sess):
 
 @rt("/analyze", methods=["POST"])
 def analyze_playlist(playlist_url: str, req, sess):
-    """Single-step analysis with cache-first strategy."""
+    # Auth check
+    if not (sess and sess.get("auth")):
+        sess["intended_url"] = str(req.url.path)
+
+        # ✅ BETTER: Use HTMX redirect header
+        return Response(
+            content=str(
+                Alert(P("Please log in to analyze playlists."), cls=AlertT.warning)
+            ),
+            headers={"HX-Redirect": "/login"},  # HTMX will redirect
+        )
 
     # 1. Validate URL format
     playlist = YoutubePlaylist(playlist_url=playlist_url)
@@ -870,55 +880,74 @@ def analyze_playlist(playlist_url: str, req, sess):
     )
 
 
-@rt("/analyze/status")
-def analyze_status(playlist_url: str):
-    """Poll job status - uses existing DB functions only."""
+@rt("/analyze/status", methods=["GET"])
+def analyze_status(playlist_url: str, req, sess):
+    """Poll job status."""
 
-    status = get_playlist_job_status(playlist_url)  # ✅ DB function, not worker!
-
-    if status == "complete":
-        # Job done - trigger results render
-        return Script(
-            f"""
-            // Stop polling
-            const poller = document.getElementById('status-poller');
-            if (poller) poller.remove();
-
-            // Load results from cache
-            htmx.ajax('GET', '/analyze/results?playlist_url={quote_plus(playlist_url)}', {{
-                target: '#results',
-                swap: 'innerHTML'
-            }});
-            """
+    if not (sess and sess.get("auth")):
+        return Alert(
+            P("Session expired. Please refresh the page."),
+            cls=AlertT.warning,
+            id="status-poller",
         )
 
-    elif status == "failed":
+    job_status = get_playlist_job_status(playlist_url)
+    progress_data = get_job_progress(playlist_url)
+    current = progress_data.get("current", 0) if progress_data else 0
+    total = progress_data.get("total", 100) if progress_data else 100
+
+    if job_status in ["complete", "done"]:
+        # ✅ Return HTML response with proper content-type
+        return Response(
+            content=str(
+                Script(
+                    f"""
+                const poller = document.getElementById('status-poller');
+                if (poller) poller.remove();
+
+                const progress = document.getElementById('analysis-progress');
+                if (progress) progress.value = progress.max;
+
+                htmx.ajax('GET', '/analyze/results?playlist_url={quote_plus(playlist_url)}', {{
+                    target: '#results',
+                    swap: 'innerHTML'
+                }});
+            """
+                )
+            ),
+            media_type="text/html",
+        )
+
+    elif job_status == "failed":
         return Alert(
             P("❌ Analysis failed. Please try again."),
             Button(
                 "Try Again",
                 onclick="location.reload()",
-                cls="mt-4 px-4 py-2 bg-blue-600 text-white rounded",
+                cls="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700",
             ),
             cls=AlertT.error,
             id="status-poller",
         )
 
-    elif status == "blocked":
-        return Alert(
-            P("⚠️ YouTube blocked this request. Please try again in a few minutes."),
-            cls=AlertT.warning,
-            id="status-poller",
-        )
-
     else:
-        # Still processing - keep polling
+        # Still processing
+        percentage = int((current / total * 100)) if total > 0 else 0
+
         return Div(
             P(
-                f"⏳ Status: {status}...",
-                cls="text-center text-gray-600",
+                f"⏳ Analyzing... {current}/{total} videos ({percentage}%)",
+                cls="text-center text-gray-600 font-medium",
             ),
-            # Keep polling
+            Script(
+                f"""
+                const progress = document.getElementById('analysis-progress');
+                if (progress) {{
+                    progress.value = {current};
+                    progress.max = {total};
+                }}
+            """
+            ),
             hx_get=f"/analyze/status?playlist_url={quote_plus(playlist_url)}",
             hx_trigger="every 2s",
             hx_swap="outerHTML",
