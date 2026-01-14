@@ -51,13 +51,12 @@ from controllers.auth_routes import (
     require_auth,
 )
 from controllers.job_progress import job_progress_controller
-from controllers.preview import preview_playlist_controller
+from controllers.preview import preview_playlist_controller, get_playlist_preview_info
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
     get_job_progress,
     get_playlist_job_status,
-    get_playlist_preview_info,
     init_supabase,
     resolve_playlist_url_from_dashboard_id,
     setup_logging,
@@ -772,6 +771,191 @@ def get_job_progress_data(playlist_url: str, req, sess):
         return auth_error
 
     return job_progress_controller(playlist_url)
+
+
+# ============================================================================
+# Simplified analysis routes - no worker imports!
+# ============================================================================
+
+
+@rt("/analyze", methods=["POST"])
+def analyze_playlist(playlist_url: str, req, sess):
+    """Single-step analysis with cache-first strategy."""
+
+    # 1. Validate URL format
+    playlist = YoutubePlaylist(playlist_url=playlist_url)
+    errors = YoutubePlaylistValidator.validate(playlist)
+
+    if errors:
+        return Alert(
+            Ul(*[Li(e, cls="text-red-600") for e in errors]),
+            cls=AlertT.error,
+            id="results",
+        )
+
+    # 2. Check cache FIRST (fast path)
+    cached = get_cached_playlist_stats(playlist_url)
+
+    if cached and cached.get("df") is not None:
+        # ✅ Cache hit - instant return!
+        return Div(
+            # Success message
+            Alert(
+                P("✓ Loaded from cache (instant results!)"),
+                cls=AlertT.success + " mb-4",
+            ),
+            # Render dashboard
+            render_full_dashboard(
+                df=cached["df"],
+                summary_stats=cached.get("summary_stats", {}),
+                playlist_name=cached.get("playlist_name", "Playlist"),
+                channel_name=cached.get("channel_name", "Channel"),
+                channel_thumbnail=cached.get("channel_thumbnail", ""),
+                playlist_url=playlist_url,
+                mode="embedded",
+                dashboard_id=compute_dashboard_id(playlist_url),
+            ),
+            id="results",
+        )
+
+    # 3. Cache miss - get preview info
+    preview = get_playlist_preview_info(playlist_url)
+
+    if not preview:
+        return Alert(
+            P("Could not load playlist. Please check the URL."),
+            cls=AlertT.error,
+            id="results",
+        )
+
+    # 4. Submit job (backend handles it - we just track status)
+    submit_playlist_job(playlist_url)  # ✅ No import from worker!
+
+    # 5. Return preview + auto-polling UI
+    from components.cards import PlaylistPreviewCard
+
+    return Div(
+        # Show preview card while processing
+        PlaylistPreviewCard(
+            playlist_name=preview.get("playlist_name", "Unknown"),
+            channel_name=preview.get("channel_name", "Unknown"),
+            channel_thumbnail=preview.get("channel_thumbnail", ""),
+            playlist_url=playlist_url,
+            playlist_length=preview.get("video_count"),
+            show_refresh=False,
+            meter_id="analysis-progress",
+        ),
+        # Status message
+        Div(
+            P(
+                "🔄 Analyzing playlist in background...",
+                cls="text-center text-blue-600 font-medium mt-6",
+            ),
+            Progress(
+                value=0,
+                max=100,
+                id="analysis-progress",
+                cls="w-full mt-2",
+            ),
+            cls="mb-6",
+        ),
+        # Auto-polling component (checks job status)
+        Div(
+            hx_get=f"/analyze/status?playlist_url={quote_plus(playlist_url)}",
+            hx_trigger="load, every 2s",
+            hx_swap="outerHTML",
+            id="status-poller",
+        ),
+        id="results",
+    )
+
+
+@rt("/analyze/status")
+def analyze_status(playlist_url: str):
+    """Poll job status - uses existing DB functions only."""
+
+    status = get_playlist_job_status(playlist_url)  # ✅ DB function, not worker!
+
+    if status == "complete":
+        # Job done - trigger results render
+        return Script(
+            f"""
+            // Stop polling
+            const poller = document.getElementById('status-poller');
+            if (poller) poller.remove();
+
+            // Load results from cache
+            htmx.ajax('GET', '/analyze/results?playlist_url={quote_plus(playlist_url)}', {{
+                target: '#results',
+                swap: 'innerHTML'
+            }});
+            """
+        )
+
+    elif status == "failed":
+        return Alert(
+            P("❌ Analysis failed. Please try again."),
+            Button(
+                "Try Again",
+                onclick="location.reload()",
+                cls="mt-4 px-4 py-2 bg-blue-600 text-white rounded",
+            ),
+            cls=AlertT.error,
+            id="status-poller",
+        )
+
+    elif status == "blocked":
+        return Alert(
+            P("⚠️ YouTube blocked this request. Please try again in a few minutes."),
+            cls=AlertT.warning,
+            id="status-poller",
+        )
+
+    else:
+        # Still processing - keep polling
+        return Div(
+            P(
+                f"⏳ Status: {status}...",
+                cls="text-center text-gray-600",
+            ),
+            # Keep polling
+            hx_get=f"/analyze/status?playlist_url={quote_plus(playlist_url)}",
+            hx_trigger="every 2s",
+            hx_swap="outerHTML",
+            id="status-poller",
+        )
+
+
+@rt("/analyze/results")
+def analyze_results(playlist_url: str):
+    """Render cached results (called after job completes)."""
+
+    cached = get_cached_playlist_stats(playlist_url)
+
+    if not cached or not cached.get("df"):
+        return Alert(
+            P("Results not ready yet. Please wait..."),
+            cls=AlertT.warning,
+        )
+
+    return Div(
+        # Success banner
+        Alert(
+            P("✅ Analysis complete!"),
+            cls=AlertT.success + " mb-4",
+        ),
+        # Dashboard
+        render_full_dashboard(
+            df=cached["df"],
+            summary_stats=cached.get("summary_stats", {}),
+            playlist_name=cached.get("playlist_name", "Playlist"),
+            channel_name=cached.get("channel_name", "Channel"),
+            channel_thumbnail=cached.get("channel_thumbnail", ""),
+            playlist_url=playlist_url,
+            mode="embedded",
+            dashboard_id=compute_dashboard_id(playlist_url),
+        ),
+    )
 
 
 # ============================================================================

@@ -24,20 +24,30 @@ def maxrem(rem: int) -> str:
 # Helper Functions to make the component file self-contained
 def DivCentered(*args, **kwargs) -> Div:
     """A Div with flexbox for centering content."""
-    return Div(*args, **kwargs, cls=f"{FLEX_COL} {FLEX_CENTER}")
+    # Extract existing cls if present
+    existing_cls = kwargs.pop("cls", "")
+
+    # Merge with centering classes
+    merged_cls = f"{FLEX_COL} {FLEX_CENTER} {existing_cls}".strip()
+
+    return Div(*args, **kwargs, cls=merged_cls)
 
 
-def DivHStacked(*args, **kwargs) -> Div:
-    """A horizontal stack of Divs with a gap."""
-    return Div(*args, **kwargs, cls=f"flex gap-4")
+def DivHStacked(*args, **kwargs):
+    """A Div with horizontal flex layout (gap-4 spacing)."""
+    existing_cls = kwargs.pop("cls", "")
+    merged_cls = f"flex items-center gap-4 {existing_cls}".strip()
+    return Div(*args, **kwargs, cls=merged_cls)
 
 
-def DivFullySpaced(*args, **kwargs) -> Div:
-    """A Div with full space between items."""
-    return Div(*args, **kwargs, cls=f"flex justify-between items-center")
+def DivFullySpaced(*args, **kwargs):
+    """A Div with flex items spaced evenly (justify-between)."""
+    existing_cls = kwargs.pop("cls", "")
+    merged_cls = f"flex items-center justify-between {existing_cls}".strip()
+    return Div(*args, **kwargs, cls=merged_cls)
 
 
-def styled_div(*children, cls: str = "", **kwargs) -> Div:
-    """Flexible Div factory with theme integration."""
-    full_cls = f"{THEME['flex_col']} {cls}" if "flex-col" in cls else cls
-    return Div(*children, cls=full_cls, **kwargs)
+def styled_div(*args, **kwargs):
+    """Helper for consistent div styling."""
+    # Just pass through - no default classes
+    return Div(*args, **kwargs)

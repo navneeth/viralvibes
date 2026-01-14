@@ -156,7 +156,8 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
 
 
 def AnalysisFormCard() -> Div:
-    """Single-layer Analysis Form card with integrated paste button."""
+    """Single-step analysis form with cache-first strategy and optimistic UI."""
+
     # Get a random prefill URL from the known playlists
     prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
@@ -246,12 +247,12 @@ def AnalysisFormCard() -> Div:
             ),
             # Helper text
             P(
-                "💡 Works with any public playlist. Paste the link and click the clipboard icon.",
+                "💡 Works with any public playlist. Paste the link and we'll analyze it instantly.",
                 cls="text-sm text-gray-500 text-center mb-8",
             ),
             # Primary CTA – modern red gradient
             Button(
-                Span(UkIcon("chart-bar", cls="w-5 h-5"), "Analyze Playlist"),
+                Span(UkIcon("chart-bar", cls="w-5 h-5 mr-2"), "Analyze Playlist"),
                 type="submit",
                 cls=(
                     f"w-full {ButtonT.primary} {THEME['primary_hover']} transition-all duration-300 "
@@ -278,23 +279,49 @@ def AnalysisFormCard() -> Div:
                 if KNOWN_PLAYLISTS
                 else None
             ),
-            # Loading indicator with better positioning
+            # Loading indicator
             Loading(
                 id="loading",
                 cls=(LoadingT.bars, LoadingT.lg),
                 htmx_indicator=True,
             ),
-            # HTMX configuration
-            hx_post="/validate/url",
-            hx_target="#validation-feedback",
+            # ✅ CHANGED: Single unified endpoint
+            hx_post="/analyze",
+            hx_target="#results",
             hx_swap="innerHTML",
             hx_indicator="#loading",
+            # ✅ NEW: Optimistic loading (instant skeleton)
+            hx_on__before_request="""
+                const results = document.getElementById('results');
+                const steps = document.getElementById('steps-container');
+
+                // Update steps to "analyzing"
+                if (steps) {
+                    htmx.ajax('GET', '/update-steps?step=1', {
+                        target: '#steps-container',
+                        swap: 'innerHTML'
+                    });
+                }
+
+                // Show loading skeleton
+                results.innerHTML = `
+                    <div class="text-center py-16 px-8">
+                        <div class="animate-pulse space-y-4 max-w-md mx-auto">
+                            <div class="h-24 bg-gray-200 rounded-2xl"></div>
+                            <div class="h-8 bg-gray-200 rounded w-3/4 mx-auto"></div>
+                            <div class="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+                            <div class="h-4 bg-gray-200 rounded w-2/3 mx-auto"></div>
+                        </div>
+                        <p class="text-gray-500 mt-8 font-medium text-lg">
+                            🔍 Checking cache...
+                        </p>
+                    </div>
+                `;
+            """,
             cls="px-8 pb-8",
         ),
-        # --- Feedback + Results sections  ---
-        styled_div(id="validation-feedback", cls="mt-6 px-8"),
-        styled_div(id="preview-box", cls="mt-6 px-8"),
-        styled_div(id="result", cls="mt-8 px-8 pb-8"),
+        # ✅ CHANGED: Single results container (no more split feedback/preview/result)
+        Div(id="results", cls="mt-8 px-8 pb-8"),
         # --- Styling (outermost container only) ---
         cls=(
             f"{THEME['card_base']} space-y-0 w-full my-12 rounded-2xl shadow-xl "

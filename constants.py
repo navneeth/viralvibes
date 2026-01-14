@@ -282,3 +282,6 @@ youtube_icon = Svg(
     stroke_linejoin="round",
     cls="lucide lucide-youtube text-red-600",  # Added text-red-600 for YouTube branding color
 )
+
+# ✅ Pure Tailwind (no inline CSS)
+CARD_FORM = "max-w-md mx-auto my-12 p-8 shadow-xl rounded-2xl bg-white text-gray-900"
