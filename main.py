@@ -5,6 +5,7 @@ Includes Google OAuth with token revocation support.
 """
 
 import logging
+import mimetypes
 import os
 import re
 from datetime import datetime
@@ -15,7 +16,6 @@ from dotenv import load_dotenv
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
-from fasthtml.oauth import GoogleAppClient, OAuth
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
@@ -73,6 +73,18 @@ from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Safety Constants
+# ============================================================================
+# Allow only simple, safe identifiers for user_id used in storage paths
+# Prevents path traversal and other injection attacks
+SAFE_USER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+# Supported image formats for avatars
+# Only these extensions are tried to prevent arbitrary file access
+AVATAR_FORMATS = [".jpg", ".jpeg", ".png", ".webp"]
+
 
 # ============================================================================
 # STEP 1: Load environment variables FIRST
@@ -288,24 +300,46 @@ def get_avatar(user_id: str):
     if not supabase_client:
         return Response(status_code=404)
 
+    # Validate user_id to prevent path traversal and injection attacks
+    if not SAFE_USER_ID_RE.match(user_id):
+        logger.warning(f"Invalid user_id format: {user_id}")
+        return Response("Invalid user id", status_code=400)
+
     try:
-        # Download avatar from Supabase storage
-        avatar_path = f"avatars/{user_id}/avatar.jpg"
-        response = supabase_client.storage.from_("users").download(avatar_path)
+        # Try multiple image formats; first successful download wins
+        response = None
+        media_type = None
+        avatar_path = None
+
+        for ext in AVATAR_FORMATS:
+            avatar_path = f"avatars/{user_id}/avatar{ext}"
+            try:
+                response = supabase_client.storage.from_("users").download(avatar_path)
+                if response:
+                    # Derive MIME type from file extension
+                    guessed_type, _ = mimetypes.guess_type(avatar_path)
+                    media_type = guessed_type or "application/octet-stream"
+                    logger.debug(f"Avatar found: {avatar_path} (type: {media_type})")
+                    break
+            except Exception:
+                # This format doesn't exist, try the next one
+                continue
 
         if response:
             return Response(
                 content=response,
-                media_type="image/jpeg",
+                media_type=media_type,
                 headers={"Cache-Control": "public, max-age=3600"},  # Cache for 1 hour
             )
         else:
-            logger.warning(f"No avatar found for user {user_id}")
+            logger.warning(
+                f"No avatar found for user {user_id} (tried: {', '.join(AVATAR_FORMATS)})"
+            )
             return Response(status_code=404)
 
     except Exception as e:
-        logger.warning(f"Failed to fetch avatar for user {user_id}: {e}")
-        return Response(status_code=404)
+        logger.error(f"Failed to fetch avatar for user {user_id}: {e}")
+        return Response(status_code=500)
 
 
 @rt("/validate/url", methods=["POST"])

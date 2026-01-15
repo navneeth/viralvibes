@@ -85,13 +85,13 @@ class ViralVibesAuth(OAuth):
 
         # Download avatar as blob
         avatar_data = None
-        has_avatar = False
         if picture_url:
             avatar_data = self._download_avatar(picture_url)
-            has_avatar = bool(avatar_data)
 
         # Store user in Supabase
         user_id = None
+        avatar_uploaded = False  # Track successful upload, not just download
+
         if self.supabase_client:
             try:
                 # 1. Check if user already exists
@@ -133,8 +133,10 @@ class ViralVibesAuth(OAuth):
                             avatar_path, avatar_data
                         )
                         logger.info(f"✅ Uploaded avatar for user {email}")
+                        avatar_uploaded = True  # ✅ ONLY set true if upload succeeds
                     except Exception as e:
                         logger.warning(f"⚠️  Failed to upload avatar: {e}")
+                        avatar_uploaded = False  # ✅ Track failure explicitly
 
                 # 3. Store or update auth provider info
                 if user_id:
@@ -164,7 +166,7 @@ class ViralVibesAuth(OAuth):
             session["user_email"] = email
             session["user_name"] = name
             session["user_given_name"] = given_name
-            session["user_has_avatar"] = has_avatar
+            session["avatar_url"] = picture_url  # ✅ Store Google avatar URL for navbar
             logger.info(f"✅ Stored session data for user {email}")
 
         # ✅ SMART REDIRECT LOGIC
