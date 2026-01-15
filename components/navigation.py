@@ -12,7 +12,7 @@ def NavComponent(oauth, req=None, sess=None):
     Reusable navigation component with auth-aware rendering.
 
     When logged in:
-    - Shows user's avatar (or initials fallback)
+    - Shows user's avatar from Google (stored in avatar_url)
     - Shows user's first name
     - Shows Log out and Revoke links
 
@@ -35,7 +35,7 @@ def NavComponent(oauth, req=None, sess=None):
         A("About", href="/#explore-section", cls="text-sm hover:text-blue-600"),
     ]
 
-    # Check auth from session
+    # Check auth from session - normalize to strict boolean
     is_authenticated = bool(sess and sess.get("auth"))
 
     # ============================================================================
@@ -45,13 +45,13 @@ def NavComponent(oauth, req=None, sess=None):
         # ✅ User is logged in - show personalized section
         user_id = sess.get("user_id")
         user_given_name = sess.get("user_given_name", "User")
-        user_has_avatar = sess.get("user_has_avatar", False)
+        avatar_url = sess.get("avatar_url")  # ✅ Get avatar URL from session
 
         # Create avatar element - either image or initials
-        if user_has_avatar and user_id:
-            # ✅ Show actual avatar image
+        if avatar_url:
+            # ✅ Use Google avatar URL directly (stored in avatar_url field)
             avatar = Img(
-                src=f"/avatar/{user_id}",
+                src=avatar_url,
                 alt=f"{user_given_name}'s avatar",
                 cls="w-8 h-8 rounded-full object-cover border border-gray-300",
                 style="width: 32px; height: 32px; min-width: 32px;",
@@ -90,9 +90,7 @@ def NavComponent(oauth, req=None, sess=None):
         # ❌ User is not logged in - show login/CTA
         if oauth and req:
             # ✅ OAuth configured - show login link
-            # Include current URL in state parameter for post-login redirect
-            current_url = str(req.url.path) if hasattr(req, "url") and req.url else "/"
-            login_url = oauth.login_link(req, state=current_url)
+            login_url = oauth.login_link(req)
             auth_section = A(
                 "Log in",
                 href=login_url if isinstance(login_url, str) else "/login",
