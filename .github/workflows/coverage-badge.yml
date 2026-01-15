@@ -28,7 +28,7 @@ jobs:
       - name: Debug coverage artifacts
         run: |
           echo "Contents of coverage-data:"
-          ls -R coverage-data
+          ls -R coverage-data || echo "coverage-data directory not found"
 
       - name: Set up Python
         uses: actions/setup-python@v5
