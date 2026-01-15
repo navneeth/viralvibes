@@ -25,6 +25,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
           path: ./coverage-data
+      - name: Debug coverage artifacts
+        run: |
+          echo "Contents of coverage-data:"
+          ls -R coverage-data
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,16 +46,10 @@ jobs:
           cp coverage-data/coverage.xml ./coverage.xml
           cp -r coverage-data/htmlcov ./htmlcov || echo "HTML coverage not in artifact"
 
-      # ✅ Generate HTML if not in artifact (fallback)
-      - name: Generate HTML coverage report
-        run: |
-          if [ ! -d "htmlcov" ]; then
-            echo "Generating HTML from coverage data..."
-            coverage html
-          fi
 
       - name: Generate coverage badge
         run: |
+          test -f coverage.xml || (echo "coverage.xml missing" && exit 1)
           genbadge coverage -i coverage.xml -o htmlcov/coverage-badge.svg
 
       - name: Create landing page
