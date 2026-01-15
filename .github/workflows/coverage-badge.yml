@@ -43,8 +43,8 @@ jobs:
       # ✅ Use existing coverage.xml instead of regenerating
       - name: Copy coverage files
         run: |
-          cp coverage-data/coverage.xml ./coverage.xml
-          cp -r coverage-data/htmlcov ./htmlcov || echo "HTML coverage not in artifact"
+          cp coverage-data//coverage-report/coverage.xml ./coverage.xml
+          cp -r coverage-data//coverage-report/htmlcov ./htmlcov || echo "HTML coverage not in artifact"
 
 
       - name: Generate coverage badge
