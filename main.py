@@ -39,6 +39,7 @@ from components import (
     hero_section,
     how_it_works_section,
 )
+from components.modals import ExportModal, ShareModal
 from constants import (
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
@@ -806,11 +807,6 @@ def get_job_progress_data(playlist_url: str, req, sess):
         return auth_error
 
     return job_progress_controller(playlist_url)
-
-
-# Add these routes before serve()
-
-from components.modals import ShareModal, ExportModal
 
 
 @rt("/modal/share/{dashboard_id}")
