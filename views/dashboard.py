@@ -7,6 +7,7 @@ from monsterui.all import *
 from starlette.responses import StreamingResponse
 
 from components.tables import VideoExtremesSection
+from components.modals import ShareModal, ExportModal
 from constants import PLAYLIST_STEPS_CONFIG
 from services.playlist_loader import load_cached_or_stub
 from components.steps import StepProgress
@@ -79,6 +80,8 @@ def render_full_dashboard(
     """Render the full dashboard view."""
 
     return Div(
+        # ✅ ADD: Modal container (at the top, before existing content)
+        Div(id="modal-container", cls=""),
         # 🔽 Persistent dashboard meta
         (
             PersistentDashboardMetaBar(

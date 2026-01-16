@@ -5,7 +5,6 @@ Handles Supabase client initialization, logging setup, and caching functionality
 
 from __future__ import annotations
 
-import asyncio
 import io
 import json
 import logging

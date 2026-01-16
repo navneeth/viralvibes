@@ -76,6 +76,9 @@ from ui_components import (
 
 from .navigation import NavComponent
 
+# ✅ ADD: Import modal components
+from .modals import Modal, ShareModal, ExportModal
+
 __all__ = [
     # UI Helpers
     "cta",
@@ -140,4 +143,8 @@ __all__ = [
     "footer",
     "FooterLinkGroup",
     "NavComponent",
+    # ✅ ADD: Modal exports
+    "Modal",
+    "ShareModal",
+    "ExportModal",
 ]

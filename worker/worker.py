@@ -154,7 +154,7 @@ async def fetch_retryable_failed_jobs():
         return []
 
 
-async def mark_job_status(
+def mark_job_status(
     job_id: str, status: str, meta: Optional[Dict[str, Any]] = None
 ) -> bool:
     """Update a job's status with optional metadata."""
@@ -414,7 +414,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             summary_stats,
         ) = await yt_service.get_playlist_data(
             playlist_url, progress_callback=_progress_cb
-        )
+        )  # ← Async (100+ concurrent HTTP calls)
         _set_stage("fetched-playlist-data")
 
         logger.info(
@@ -467,7 +467,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
         _set_stage("upsert-to-db")
 
-        result = upsert_playlist_stats(stats_to_cache)
+        result = upsert_playlist_stats(stats_to_cache)  # ← Sync (single DB write)
         result_map = _result_to_mapping(result)
         logger.info(
             f"[Job {job_id}] Upsert result mapping keys={list(result_map.keys())}"
