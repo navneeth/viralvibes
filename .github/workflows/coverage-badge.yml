@@ -1,6 +1,6 @@
 # ============================================================================
 # .github/workflows/coverage-badge.yml
-# SIMPLIFIED VERSION - Generates badge without artifact dependency
+# Production-ready coverage badge generation with proper error handling
 # ============================================================================
 
 name: Coverage Badge & Report
@@ -37,8 +37,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install coverage[toml] genbadge[coverage]
 
-      # Try to download artifact, but don't fail if it doesn't exist
-      - name: Download coverage artifact (if available)
+      # Download coverage artifact from CI workflow
+      - name: Download coverage artifact
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -47,94 +47,142 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           path: ./coverage-data
 
-      # Fallback: Generate minimal coverage.xml if artifact not found
-      - name: Create fallback coverage file
+      # Prepare coverage files
+      - name: Prepare coverage files
         run: |
           mkdir -p htmlcov
 
-          # Check if coverage.xml exists
-          if [ ! -f coverage-data/coverage.xml ] && [ ! -f coverage.xml ]; then
-            echo "⚠️  No coverage.xml found, creating minimal fallback"
+          # Try to find and copy coverage.xml
+          if [ -f coverage-data/coverage.xml ]; then
+            cp coverage-data/coverage.xml ./coverage.xml
+            echo "✅ Found coverage.xml from artifact"
+          elif [ -f coverage.xml ]; then
+            echo "✅ Using existing coverage.xml"
+          else
+            echo "⚠️ WARNING: coverage.xml not found - will use fallback badge" >&2
+            # Create minimal valid coverage.xml (0% coverage)
             cat > coverage.xml << 'EOF'
           <?xml version="1.0" ?>
-          <coverage version="5.5" timestamp="0" lines-valid="0" lines-covered="0" line-rate="0" branches-covered="0" branch-rate="0" complexity="0">
+          <coverage version="5.5" timestamp="0" lines-valid="0" lines-covered="0" line-rate="0.0">
             <sources>
               <source>.</source>
             </sources>
           </coverage>
           EOF
-          else
-            # Copy coverage.xml to root if it exists
-            if [ -f coverage-data/coverage.xml ]; then
-              cp coverage-data/coverage.xml ./coverage.xml
-              echo "✅ Using coverage.xml from artifact"
-            fi
+          fi
 
-            # Copy htmlcov if it exists
-            if [ -d coverage-data/htmlcov ]; then
-              cp -r coverage-data/htmlcov/* ./htmlcov/ 2>/dev/null || true
-              echo "✅ Copied HTML report"
+          # Copy HTML report if available
+          if [ -d coverage-data/htmlcov ]; then
+            cp -r coverage-data/htmlcov/* ./htmlcov/ 2>/dev/null || true
+            echo "✅ Copied HTML coverage report"
+          fi
+
+      # Generate coverage badge with proper error handling
+      - name: Generate coverage badge
+        run: |
+          echo "📊 Generating coverage badge..."
+          mkdir -p htmlcov
+
+          # Validate coverage.xml exists and is readable
+          if [ ! -f coverage.xml ]; then
+            echo "❌ ERROR: coverage.xml not found after preparation" >&2
+            BADGE_STATUS="unknown"
+          else
+            # Try to generate badge (let errors show in logs)
+            if genbadge coverage -i coverage.xml -o htmlcov/coverage-badge.svg; then
+              echo "✅ Coverage badge generated successfully"
+              BADGE_STATUS="success"
+            else
+              echo "⚠️ WARNING: genbadge failed - see error output above" >&2
+              BADGE_STATUS="error"
             fi
           fi
 
-      # Generate badge
-      - name: Generate coverage badge
-        run: |
-          genbadge coverage -i coverage.xml -o htmlcov/coverage-badge.svg 2>/dev/null || {
-            echo "⚠️  Badge generation failed, using fallback"
-            # Fallback: Create a minimal SVG badge
-            mkdir -p htmlcov
-            cat > htmlcov/coverage-badge.svg << 'SVG'
-          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="20" role="img" aria-label="coverage: unknown">
+          # Create fallback badge if generation failed or file missing
+          if [ "$BADGE_STATUS" != "success" ]; then
+            echo "Creating fallback badge (status: $BADGE_STATUS)..."
+
+            if [ "$BADGE_STATUS" = "error" ]; then
+              # Generate error badge (red)
+              cat > htmlcov/coverage-badge.svg << 'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="140" height="20" role="img" aria-label="coverage: error">
+            <title>coverage: error</title>
+            <linearGradient id="s" x2="0" y2="100%">
+              <stop offset="0" stop-color="#bbb"/>
+              <stop offset="1" stop-color="#999"/>
+            </linearGradient>
+            <clipPath id="r">
+              <rect width="140" height="20" rx="3" fill="#fff"/>
+            </clipPath>
+            <g clip-path="url(#r)">
+              <rect width="90" height="20" fill="#555"/>
+              <rect x="90" width="50" height="20" fill="#dc2626"/>
+              <rect width="140" height="20" fill="url(#s)" opacity=".1"/>
+            </g>
+            <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
+              <text aria-hidden="true" x="460" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="800">coverage</text>
+              <text x="460" y="140" transform="scale(.1)" fill="#fff" textLength="800">coverage</text>
+              <text aria-hidden="true" x="1140" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="400">error</text>
+              <text x="1140" y="140" transform="scale(.1)" fill="#fff" textLength="400">error</text>
+            </g>
+          </svg>
+          SVG
+            else
+              # Generate unknown badge (gray)
+              cat > htmlcov/coverage-badge.svg << 'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="140" height="20" role="img" aria-label="coverage: unknown">
             <title>coverage: unknown</title>
             <linearGradient id="s" x2="0" y2="100%">
               <stop offset="0" stop-color="#bbb"/>
               <stop offset="1" stop-color="#999"/>
             </linearGradient>
             <clipPath id="r">
-              <rect width="120" height="20" rx="3" fill="#fff"/>
+              <rect width="140" height="20" rx="3" fill="#fff"/>
             </clipPath>
             <g clip-path="url(#r)">
-              <rect width="84" height="20" fill="#555"/>
-              <rect x="84" width="36" height="20" fill="#9f9f9f"/>
-              <rect width="120" height="20" fill="url(#s)" opacity=".1"/>
+              <rect width="90" height="20" fill="#555"/>
+              <rect x="90" width="50" height="20" fill="#9f9f9f"/>
+              <rect width="140" height="20" fill="url(#s)" opacity=".1"/>
             </g>
             <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
-              <text aria-hidden="true" x="430" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="740">coverage</text>
-              <text x="430" y="140" transform="scale(.1)" fill="#fff" textLength="740">coverage</text>
-              <text aria-hidden="true" x="1010" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="260">?</text>
-              <text x="1010" y="140" transform="scale(.1)" fill="#fff" textLength="260">?</text>
+              <text aria-hidden="true" x="460" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="800">coverage</text>
+              <text x="460" y="140" transform="scale(.1)" fill="#fff" textLength="800">coverage</text>
+              <text aria-hidden="true" x="1140" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="400">unknown</text>
+              <text x="1140" y="140" transform="scale(.1)" fill="#fff" textLength="400">unknown</text>
             </g>
           </svg>
           SVG
-          }
+            fi
+            echo "✅ Fallback badge created"
+          fi
 
-          echo "✅ Badge ready at htmlcov/coverage-badge.svg"
-
-      # Create landing page
+      # Create landing page with metadata
       - name: Create landing page
         run: |
           cat > htmlcov/README.md << 'EOF'
           # 📊 ViralVibes - Test Coverage Report
 
-          ![Coverage](./coverage-badge.svg)
+          ![Coverage Badge](./coverage-badge.svg)
 
           **Last Updated**: $(date -u +"%Y-%m-%d %H:%M UTC")
 
+          **CI Workflow Run**: [${{ github.event.workflow_run.id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})
+
           ---
 
-          ## 📈 Full Report
+          ## 📈 View Full Report
 
-          [View detailed HTML coverage report →](./index.html)
+          [📊 Click here for detailed HTML coverage report →](./index.html)
 
-          ## 📋 Quick Links
+          ## 🔗 Quick Links
 
           - [🏠 Repository](https://github.com/${{ github.repository }})
           - [🔄 CI Workflows](https://github.com/${{ github.repository }}/actions)
+          - [📋 Latest CI Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})
 
           ---
 
-          *Generated by GitHub Actions*
+          *Generated by GitHub Actions • [View Workflow](https://github.com/${{ github.repository }}/actions/workflows/coverage-badge.yml)*
           EOF
 
       # Deploy to GitHub Pages
@@ -148,7 +196,14 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: '📊 Coverage report updated'
 
-      - name: ✅ Workflow complete
+      # Final status
+      - name: Workflow Summary
+        if: always()
         run: |
-          echo "Coverage badge workflow completed successfully!"
-          echo "Report available at: https://github.com/${{ github.repository }}/deployments"
+          echo "## Coverage Badge Workflow" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Badge generated and deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage Report**: https://github.com/${{ github.repository }}/deployments" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pages URL**: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/htmlcov/" >> $GITHUB_STEP_SUMMARY
