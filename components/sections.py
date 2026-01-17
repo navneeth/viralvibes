@@ -57,7 +57,7 @@ def hero_section() -> Section:
     - Glassmorphism effect for CTA
     """
     # Chart bar heights (0-100 representing engagement)
-    heights = [35, 50, 42, 65, 78, 72, 88, 95]
+    ENGAGEMENT_HEIGHTS = [35, 50, 42, 65, 78, 72, 88, 95]
 
     return Section(
         # Subtle animated background glow elements
@@ -110,6 +110,10 @@ def hero_section() -> Section:
                     A(
                         Span("📚 Learn More", cls="inline-flex items-center gap-2"),
                         href="#faq-section",
+                        onclick=(
+                            "document.getElementById('faq-section')"
+                            ".scrollIntoView({behavior:'smooth'}); return false;"
+                        ),
                         cls=(
                             "px-8 py-4 md:px-10 md:py-5 "
                             "border-2 border-gray-500 text-gray-300 font-semibold rounded-full "
@@ -207,12 +211,12 @@ def hero_section() -> Section:
                                 Div(
                                     cls=f"flex-1 rounded-t-lg transition-all duration-500 ease-out animate-in slide-in-from-bottom-0 fill-mode-both",
                                     style=f"animation-delay: {idx * 50}ms; "
-                                    f"height: {heights[idx]}%; "
+                                    f"height: {h}%; "
                                     f"background: linear-gradient(to top, "
                                     f"{'rgb(239, 68, 68)' if idx > 5 else 'rgb(248, 113, 113)' if idx > 3 else 'rgb(254, 165, 165)'}, "
                                     f"{'rgb(220, 38, 38)' if idx > 5 else 'rgb(239, 68, 68)' if idx > 3 else 'rgb(248, 113, 113)'})",
                                 )
-                                for idx in range(8)
+                                for idx, h in enumerate(ENGAGEMENT_HEIGHTS)
                             ],
                             cls="flex items-end justify-between h-32 gap-2",
                             id="engagement-chart",
@@ -272,6 +276,7 @@ def hero_section() -> Section:
                 # Floating "LIVE" Badge
                 Div(
                     "🔥 LIVE",
+                    aria_label="Live analytics preview",
                     cls=(
                         "absolute -top-4 -right-4 "
                         "bg-gradient-to-br from-red-600 to-pink-600 "
