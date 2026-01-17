@@ -30,14 +30,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download coverage artifacts
+        # Only download when triggered by workflow_run; workflow_dispatch uses local coverage.xml
+        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
           name: coverage-report
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
           path: ./coverage-data
-        # Continue even if artifact doesn't exist (first run)
-        continue-on-error: true
 
       - name: Debug - List downloaded files
         run: |
@@ -112,7 +112,8 @@ jobs:
         run: |
           echo "📈 Extracting coverage statistics..."
 
-          # Parse coverage percentage from XML (only prints integer or exits with error)
+          # Parse coverage percentage from XML - prints ONLY the integer to stdout
+          # Errors go to stderr and cause non-zero exit
           COVERAGE=$(python << 'PYTHON_EOF'
           import sys
           import xml.etree.ElementTree as ET
@@ -122,29 +123,24 @@ jobs:
               root = tree.getroot()
               line_rate = float(root.get('line-rate', 0))
               percentage = int(line_rate * 100)
+              # ONLY output the number
               print(percentage)
-              sys.exit(0)
           except Exception as e:
+              # Log error to stderr only, exit non-zero
               print(f"Error parsing coverage.xml: {e}", file=sys.stderr)
               sys.exit(1)
           PYTHON_EOF
           ) || { echo "❌ Failed to extract coverage"; exit 1; }
 
-          echo "percent=$COVERAGE" >> $GITHUB_OUTPUT
-          echo "✅ Coverage: $COVERAGE%"
+          echo "percent=${COVERAGE:-0}" >> $GITHUB_OUTPUT
+          echo "✅ Coverage: ${COVERAGE:-0}%"
 
-          # Validate coverage is a number
-          if ! [[ "$COVERAGE" =~ ^[0-9]+$ ]]; then
-            echo "❌ Invalid coverage value: $COVERAGE"
-            exit 1
-          fi
-
-          # Determine status based on numeric comparison
-          if [ "$COVERAGE" -ge 80 ]; then
+          # Determine status with proper quoting and safe defaults
+          if [ "${COVERAGE:-0}" -ge 80 ]; then
             STATUS="excellent"
-          elif [ "$COVERAGE" -ge 70 ]; then
+          elif [ "${COVERAGE:-0}" -ge 70 ]; then
             STATUS="good"
-          elif [ "$COVERAGE" -ge 50 ]; then
+          elif [ "${COVERAGE:-0}" -ge 50 ]; then
             STATUS="acceptable"
           else
             STATUS="poor"
