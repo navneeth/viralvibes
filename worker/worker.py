@@ -154,7 +154,7 @@ async def fetch_retryable_failed_jobs():
         return []
 
 
-def mark_job_status(
+async def mark_job_status(
     job_id: str, status: str, meta: Optional[Dict[str, Any]] = None
 ) -> bool:
     """Update a job's status with optional metadata."""
