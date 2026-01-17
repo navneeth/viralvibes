@@ -42,68 +42,266 @@ def section_header(mono_text, heading, subheading, max_width=32, center=True) ->
 # =============================================================================
 # Main Sections
 # =============================================================================
+
+
 def hero_section() -> Section:
     """
-    Responsive hero that scales between mobile and desktop:
-    - High-quality background image (Unsplash)
+    Analytics Dashboard Hero - Two Column Layout
+    Left: Text + CTA
+    Right: Live analytics dashboard mockup with metrics
+
+    Uses: Tailwind animations, custom dashboard cards, no external images needed
+
     - Gradient overlay for text readability
     - Better typography hierarchy
     - Glassmorphism effect for CTA
-
     """
+    # Chart bar heights (0-100 representing engagement)
+    ENGAGEMENT_HEIGHTS = [35, 50, 42, 65, 78, 72, 88, 95]
+
     return Section(
-        # Premium background image with gradient overlay
+        # Subtle animated background glow elements
         styled_div(
-            Img(
-                src="https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1920&q=80",
-                alt="YouTube Analytics Background",
-                cls="absolute inset-0 w-full h-full object-cover",
-                loading="lazy",
+            Div(
+                cls="absolute top-20 left-10 w-72 h-72 bg-red-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10"
             ),
-            styled_div(
-                cls="absolute inset-0 bg-gradient-to-b from-black/40 via-black/50 to-black/70"
+            Div(
+                cls="absolute top-40 right-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10"
             ),
-            cls="absolute inset-0 z-0",
+            cls="absolute inset-0 opacity-20",
         ),
-        # Main content container
-        styled_div(
-            # Text content
-            styled_div(
-                H1(
-                    "Decode YouTube Virality.",
-                    cls="text-5xl md:text-6xl font-bold text-white mb-4 leading-tight",
-                ),
-                H1(
-                    "Instantly.",
-                    cls="text-5xl md:text-6xl font-bold bg-gradient-to-r from-red-400 to-pink-400 bg-clip-text text-transparent mb-6",
-                ),
-                P(
-                    "Analyze any YouTube playlist to uncover engagement trends, viral patterns, and creator insights.",
-                    cls="text-lg md:text-xl text-gray-200 max-w-2xl mb-8 leading-relaxed",
-                ),
-                # Glassmorphism CTA buttons
+        # Main Content Container
+        Div(
+            # LEFT COLUMN: Text Content
+            Div(
+                # Headline with gradient
                 styled_div(
-                    A(
-                        "🚀 Start Analyzing",
-                        href="#analysis-form",
-                        cls="px-8 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-full font-semibold hover:shadow-lg hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105 inline-block",
+                    H1(
+                        "Decode YouTube Virality. ",
+                        cls="text-5xl md:text-6xl lg:text-7xl font-bold leading-tight text-white mb-3",
                     ),
-                    A(
-                        "📚 Learn More",
-                        href="#faq-section",
-                        onclick="document.getElementById('faq-section').scrollIntoView({behavior:'smooth'}); return false;",
-                        cls="px-8 py-4 bg-white/10 backdrop-blur-md text-white rounded-full font-semibold border border-white/20 hover:bg-white/20 transition-all duration-300 inline-block ml-4",
+                    H1(
+                        "Instantly.",
+                        cls="text-5xl md:text-6xl lg:text-7xl font-bold leading-tight bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent",
                     ),
-                    cls="flex gap-4 flex-wrap justify-center lg:justify-start",
+                    cls="space-y-0 animate-in fade-in slide-in-from-top-8 duration-700",
                 ),
-                cls=f"{FLEX_COL} lg:{FLEX_CENTER} text-center lg:text-left",
+                # Subheading
+                P(
+                    "See what's trending before it peaks. Analyze playlists, spot viral patterns, "
+                    "and understand your audience with real-time YouTube data.",
+                    cls="text-lg md:text-xl text-gray-300 max-w-2xl leading-relaxed mt-8 animate-in fade-in slide-in-from-top-10 duration-700 delay-100",
+                ),
+                # CTA Buttons
+                Div(
+                    A(
+                        Span(
+                            "🚀 Start Analyzing", cls="inline-flex items-center gap-2"
+                        ),
+                        href="#analysis-form",
+                        cls=(
+                            "px-8 py-4 md:px-10 md:py-5 "
+                            "bg-red-600 text-white font-bold text-lg rounded-full "
+                            "hover:bg-red-700 hover:shadow-2xl hover:shadow-red-500/50 "
+                            "transition-all duration-300 transform hover:scale-105 "
+                            "inline-block"
+                        ),
+                    ),
+                    A(
+                        Span("📚 Learn More", cls="inline-flex items-center gap-2"),
+                        href="#faq-section",
+                        onclick=(
+                            "document.getElementById('faq-section')"
+                            ".scrollIntoView({behavior:'smooth'}); return false;"
+                        ),
+                        cls=(
+                            "px-8 py-4 md:px-10 md:py-5 "
+                            "border-2 border-gray-500 text-gray-300 font-semibold rounded-full "
+                            "hover:border-white hover:text-white hover:bg-white/5 "
+                            "transition-all duration-300 "
+                            "inline-block"
+                        ),
+                    ),
+                    cls="flex flex-col sm:flex-row gap-4 mt-10 animate-in fade-in slide-in-from-top-12 duration-700 delay-200",
+                ),
+                # Trust Badge
+                Div(
+                    Div(
+                        Div(
+                            cls="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-pink-500 -mr-2"
+                        ),
+                        Div(
+                            cls="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 -mr-2"
+                        ),
+                        Div(
+                            cls="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-500"
+                        ),
+                        cls="flex",
+                    ),
+                    Span(
+                        "Join 500+ creators analyzing playlists",
+                        cls="text-gray-400 text-sm",
+                    ),
+                    cls="flex items-center gap-3 mt-10 text-gray-400 text-sm animate-in fade-in delay-300",
+                ),
+                cls=f"{FLEX_COL} flex-1 space-y-6",
             ),
-            cls=(
-                f"{THEME['flex_col']} lg:{THEME['flex_row']} items-center justify-center "
-                "px-4 lg:px-16 h-screen relative z-10 w-full"
+            # RIGHT COLUMN: Analytics Dashboard Mockup
+            Div(
+                # Main Dashboard Card
+                Div(
+                    # Header with Live Indicator
+                    Div(
+                        H3("Viral Analysis", cls="text-white font-bold text-lg"),
+                        Div(cls="w-3 h-3 bg-red-500 rounded-full animate-pulse"),
+                        cls="flex items-center justify-between mb-6",
+                    ),
+                    # Top Stats Grid (3 columns)
+                    Div(
+                        # Viral Score Card
+                        Div(
+                            P(
+                                "Viral Score",
+                                cls="text-gray-400 text-xs font-medium mb-2",
+                            ),
+                            P("87%", cls="text-red-500 text-3xl font-bold"),
+                            P(
+                                "↑ +12%",
+                                cls="text-green-500 text-xs font-semibold mt-2",
+                            ),
+                            cls="bg-gray-900/50 border border-gray-700 rounded-xl p-4 hover:border-red-500/50 transition-colors",
+                        ),
+                        # Views Card
+                        Div(
+                            P("Views", cls="text-gray-400 text-xs font-medium mb-2"),
+                            P("2.4M", cls="text-blue-500 text-3xl font-bold"),
+                            P("↑ +8%", cls="text-green-500 text-xs font-semibold mt-2"),
+                            cls="bg-gray-900/50 border border-gray-700 rounded-xl p-4 hover:border-blue-500/50 transition-colors",
+                        ),
+                        # Engagement Card
+                        Div(
+                            P(
+                                "Engagement",
+                                cls="text-gray-400 text-xs font-medium mb-2",
+                            ),
+                            P("12.3%", cls="text-green-500 text-3xl font-bold"),
+                            P("↑ +4%", cls="text-green-500 text-xs font-semibold mt-2"),
+                            cls="bg-gray-900/50 border border-gray-700 rounded-xl p-4 hover:border-green-500/50 transition-colors",
+                        ),
+                        cls="grid grid-cols-3 gap-3 mb-8",
+                    ),
+                    # Chart Section
+                    Div(
+                        # Chart Header
+                        Div(
+                            H4(
+                                "Engagement Trend",
+                                cls="text-gray-300 font-semibold text-sm",
+                            ),
+                            Div(
+                                Span("📈", cls="mr-1"),
+                                Span("+23%", cls="text-green-500 text-xs font-bold"),
+                                cls="flex items-center gap-1",
+                            ),
+                            cls="flex items-center justify-between mb-4",
+                        ),
+                        # Animated Bar Chart (8 bars representing 8 days)
+                        Div(
+                            *[
+                                Div(
+                                    cls=f"flex-1 rounded-t-lg transition-all duration-500 ease-out animate-in slide-in-from-bottom-0 fill-mode-both",
+                                    style=f"animation-delay: {idx * 50}ms; "
+                                    f"height: {h}%; "
+                                    f"background: linear-gradient(to top, "
+                                    f"{'rgb(239, 68, 68)' if idx > 5 else 'rgb(248, 113, 113)' if idx > 3 else 'rgb(254, 165, 165)'}, "
+                                    f"{'rgb(220, 38, 38)' if idx > 5 else 'rgb(239, 68, 68)' if idx > 3 else 'rgb(248, 113, 113)'})",
+                                )
+                                for idx, h in enumerate(ENGAGEMENT_HEIGHTS)
+                            ],
+                            cls="flex items-end justify-between h-32 gap-2",
+                            id="engagement-chart",
+                        ),
+                        cls="bg-gray-900/50 border border-gray-700 rounded-xl p-5 mb-6",
+                    ),
+                    # Video Stats
+                    Div(
+                        # Top Performer
+                        Div(
+                            Div(
+                                Span("❤️", cls="mr-2"),
+                                Span(
+                                    "Top Performer",
+                                    cls="text-gray-300 text-sm font-medium",
+                                ),
+                                cls="flex items-center",
+                            ),
+                            Span("4.2K likes", cls="text-white font-bold"),
+                            cls="flex items-center justify-between bg-gray-900/50 border border-gray-700 rounded-lg p-3",
+                        ),
+                        # Comments
+                        Div(
+                            Div(
+                                Span("💬", cls="mr-2"),
+                                Span(
+                                    "Comments", cls="text-gray-300 text-sm font-medium"
+                                ),
+                                cls="flex items-center",
+                            ),
+                            Span("847", cls="text-white font-bold"),
+                            cls="flex items-center justify-between bg-gray-900/50 border border-gray-700 rounded-lg p-3 mt-2",
+                        ),
+                        cls="space-y-2",
+                    ),
+                    # Footer Action Button
+                    Button(
+                        Span(
+                            "▶️ View Full Analysis",
+                            cls="flex items-center gap-2 justify-center",
+                        ),
+                        cls=(
+                            "w-full mt-6 py-3 "
+                            "bg-red-600/20 border border-red-600/50 text-red-500 "
+                            "font-semibold rounded-lg "
+                            "hover:bg-red-600/30 transition-colors"
+                        ),
+                        type="button",
+                    ),
+                    cls=(
+                        "bg-gradient-to-br from-gray-800 to-gray-900 "
+                        "border border-gray-700 rounded-2xl p-6 md:p-8 "
+                        "shadow-2xl transform hover:scale-105 transition-transform duration-300 "
+                        "animate-in fade-in slide-in-from-right-8 duration-700 delay-200"
+                    ),
+                ),
+                # Floating "LIVE" Badge
+                Div(
+                    "🔥 LIVE",
+                    aria_label="Live analytics preview",
+                    cls=(
+                        "absolute -top-4 -right-4 "
+                        "bg-gradient-to-br from-red-600 to-pink-600 "
+                        "text-white px-4 py-2 rounded-full font-bold shadow-lg text-sm"
+                    ),
+                ),
+                cls="flex-1 flex items-center justify-center w-full relative max-w-md",
             ),
+            cls="relative z-10 max-w-7xl w-full mx-auto flex flex-col md:flex-row gap-12 md:gap-16 items-center justify-between px-4 md:px-8",
         ),
-        cls="relative overflow-hidden w-full min-h-screen bg-black",
+        # Scroll Indicator
+        Div(
+            P("Scroll to explore", cls="text-gray-400 text-sm mb-2 text-center"),
+            Div(
+                Div(cls="w-1 h-2 bg-gray-600 rounded-full animate-pulse"),
+                cls="w-6 h-10 border-2 border-gray-600 rounded-full flex items-start justify-center p-2 mx-auto",
+            ),
+            cls="absolute bottom-8 left-1/2 transform -translate-x-1/2 animate-bounce",
+        ),
+        cls=(
+            "relative min-h-screen flex items-center justify-center "
+            "bg-gradient-to-br from-gray-900 via-black to-gray-900 "
+            "overflow-hidden py-20"
+        ),
+        id="hero-section",
     )
 
 
