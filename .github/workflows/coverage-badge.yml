@@ -1,23 +1,32 @@
+# ============================================================================
+# .github/workflows/coverage-badge.yml
+# ============================================================================
+# Generates and deploys coverage badge to GitHub Pages after CI runs
+
 name: Coverage Badge & Report
 
 on:
+  # Trigger after CI workflow completes
   workflow_run:
     workflows: ["CI"]
     branches: [main]
     types: [completed]
+  # Also allow manual trigger for debugging
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # ✅ Download coverage artifacts from CI workflow instead of rerunning tests
       - name: Download coverage artifacts
         uses: actions/download-artifact@v4
         with:
@@ -25,10 +34,21 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
           path: ./coverage-data
-      - name: Debug coverage artifacts
+        # Continue even if artifact doesn't exist (first run)
+        continue-on-error: true
+
+      - name: Debug - List downloaded files
         run: |
-          echo "Contents of coverage-data:"
-          ls -R coverage-data || echo "coverage-data directory not found"
+          echo "=== Checking for coverage artifacts ==="
+          if [ -d coverage-data ]; then
+            echo "✅ coverage-data directory exists"
+            find coverage-data -type f -exec ls -lh {} \;
+          else
+            echo "⚠️  coverage-data directory not found"
+          fi
+          echo ""
+          echo "=== Current directory contents ==="
+          ls -la
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,19 +60,89 @@ jobs:
           python -m pip install --upgrade pip
           pip install coverage[toml] genbadge[coverage]
 
-      # ✅ Use existing coverage.xml instead of regenerating
-      - name: Copy coverage files
+      - name: Validate and copy coverage files
         run: |
-          cp coverage-data/coverage-report/coverage.xml ./coverage.xml
-          cp -r coverage-data/coverage-report/htmlcov ./htmlcov || echo "HTML coverage not in artifact"
+          set -e
+          mkdir -p htmlcov
 
+          # Look for coverage.xml in multiple possible locations
+          if [ -f coverage-data/coverage.xml ]; then
+            echo "✅ Found coverage.xml at coverage-data/coverage.xml"
+            cp coverage-data/coverage.xml ./coverage.xml
+          elif [ -f coverage.xml ]; then
+            echo "✅ coverage.xml already exists in root"
+          else
+            echo "❌ ERROR: coverage.xml not found in any location"
+            echo "Available files:"
+            find . -name "coverage.xml" 2>/dev/null || echo "No coverage.xml found"
+            exit 1
+          fi
+
+          # Copy HTML coverage report if it exists
+          if [ -d coverage-data/htmlcov ]; then
+            echo "✅ Copying HTML coverage report from coverage-data/htmlcov"
+            cp -r coverage-data/htmlcov/* ./htmlcov/ 2>/dev/null || true
+          else
+            echo "⚠️  No HTML coverage report found (will be created)"
+          fi
 
       - name: Generate coverage badge
         run: |
-          test -f coverage.xml || (echo "coverage.xml missing" && exit 1)
+          if [ ! -f coverage.xml ]; then
+            echo "❌ FATAL: coverage.xml is missing"
+            exit 1
+          fi
+
+          echo "📊 Generating coverage badge..."
           genbadge coverage -i coverage.xml -o htmlcov/coverage-badge.svg
 
-      - name: Create landing page
+          # Verify badge was created
+          if [ -f htmlcov/coverage-badge.svg ]; then
+            echo "✅ Coverage badge created successfully"
+            ls -lh htmlcov/coverage-badge.svg
+          else
+            echo "❌ Badge generation failed"
+            exit 1
+          fi
+
+      - name: Extract coverage stats
+        id: coverage-stats
+        run: |
+          echo "📈 Extracting coverage statistics..."
+
+          # Parse coverage percentage from XML
+          COVERAGE=$(python << 'PYTHON_EOF'
+          import xml.etree.ElementTree as ET
+          try:
+              tree = ET.parse('coverage.xml')
+              root = tree.getroot()
+              line_rate = float(root.get('line-rate', 0))
+              percentage = int(line_rate * 100)
+              print(percentage)
+          except Exception as e:
+              print(f"Error: {e}")
+              print(0)
+          PYTHON_EOF
+          )
+
+          echo "percent=$COVERAGE" >> $GITHUB_OUTPUT
+          echo "✅ Coverage: $COVERAGE%"
+
+          # Determine status
+          if [ $COVERAGE -ge 80 ]; then
+            STATUS="excellent"
+          elif [ $COVERAGE -ge 70 ]; then
+            STATUS="good"
+          elif [ $COVERAGE -ge 50 ]; then
+            STATUS="acceptable"
+          else
+            STATUS="poor"
+          fi
+
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "Status: $STATUS"
+
+      - name: Create HTML report landing page
         run: |
           cat > htmlcov/README.md << 'EOF'
           # 📊 ViralVibes - Test Coverage Report
@@ -61,16 +151,26 @@ jobs:
 
           **Last Updated**: $(date -u +"%Y-%m-%d %H:%M UTC")
 
-          ## Quick Stats
-
-          $(coverage report --format=markdown coverage.xml)
+          **Coverage**: ${{ steps.coverage-stats.outputs.percent }}% (${{ steps.coverage-stats.outputs.status }})
 
           ---
 
-          [📈 View Full HTML Report →](./index.html)
+          ## 📈 Full Report
 
-          [🏠 Back to Repository](https://github.com/${{ github.repository }})
+          [View detailed HTML coverage report →](./index.html)
+
+          ## 📋 Quick Links
+
+          - [🏠 Repository](https://github.com/${{ github.repository }})
+          - [🔄 CI Workflows](https://github.com/${{ github.repository }}/actions)
+          - [📊 Latest Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          ---
+
+          *Generated by GitHub Actions*
           EOF
+
+          echo "✅ Landing page created"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
@@ -80,4 +180,16 @@ jobs:
           publish_branch: gh-pages
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
-          commit_message: '📊 Update coverage report'
+          commit_message: '📊 Coverage: ${{ steps.coverage-stats.outputs.percent }}%'
+          force_orphan: false
+
+      - name: Add workflow status to summary
+        if: always()
+        run: |
+          echo "## ✅ Coverage Report Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ steps.coverage-stats.outputs.percent }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ steps.coverage-stats.outputs.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Report | [View on GitHub Pages](https://github.com/${{ github.repository }}/deployments/activity_log?environment=github-pages) |" >> $GITHUB_STEP_SUMMARY
