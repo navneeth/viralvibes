@@ -796,3 +796,52 @@ def MetricCard(
             "bg-white"
         ),
     )
+
+
+def AnalyticsDashboardSection(
+    playlist_name,
+    channel_name,
+    channel_thumbnail,
+    summary_stats,
+    dashboard_id=None,
+    mode="embedded",
+):
+    """Dashboard header with share/export functionality."""
+
+    # Share/Export buttons (after channel info, before stats grid)
+    action_buttons = (
+        Div(
+            # Share button
+            Button(
+                UkIcon("share-2", cls="mr-2 w-4 h-4"),
+                "Share",
+                hx_get=f"/modal/share/{dashboard_id}",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                cls="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center",
+                type="button",
+            ),
+            # Export button
+            Button(
+                UkIcon("download", cls="mr-2 w-4 h-4"),
+                "Export",
+                hx_get=f"/modal/export/{dashboard_id}",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                cls="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center",
+                type="button",
+            ),
+            cls="flex gap-3 mt-4",
+        )
+        if dashboard_id
+        else None
+    )
+
+    return Section(
+        # ...existing header content...
+        # ✅ ADD: Action buttons after channel info
+        action_buttons,
+        # ...existing stats grid...
+        cls=f"{THEME['section']} my-12 space-y-8",
+        id="analytics-dashboard",
+    )

@@ -39,6 +39,7 @@ from components import (
     hero_section,
     how_it_works_section,
 )
+from components.modals import ExportModal, ShareModal
 from constants import (
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
@@ -806,6 +807,122 @@ def get_job_progress_data(playlist_url: str, req, sess):
         return auth_error
 
     return job_progress_controller(playlist_url)
+
+
+@rt("/modal/share/{dashboard_id}")
+def get_share_modal(dashboard_id: str, req, sess):
+    """Show share modal for dashboard."""
+
+    # Resolve dashboard info
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+
+    if not playlist_url:
+        return Alert(P("Dashboard not found."), cls=AlertT.error)
+
+    # Get playlist name from cache
+    cached = get_cached_playlist_stats(playlist_url)
+    playlist_name = (
+        cached.get("title", "YouTube Playlist") if cached else "YouTube Playlist"
+    )
+
+    # Build full URL
+    dashboard_url = f"{req.base_url}d/{dashboard_id}"
+
+    return ShareModal(
+        dashboard_url=str(dashboard_url),
+        playlist_name=playlist_name,
+        modal_id="share-modal",
+    )
+
+
+@rt("/modal/export/{dashboard_id}")
+def get_export_modal(dashboard_id: str, req, sess):
+    """Show export modal for dashboard."""
+
+    # Resolve dashboard info
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+
+    if not playlist_url:
+        return Alert(P("Dashboard not found."), cls=AlertT.error)
+
+    # Get playlist name from cache
+    cached = get_cached_playlist_stats(playlist_url)
+    playlist_name = (
+        cached.get("title", "YouTube Playlist") if cached else "YouTube Playlist"
+    )
+
+    return ExportModal(
+        dashboard_id=dashboard_id, playlist_name=playlist_name, modal_id="export-modal"
+    )
+
+
+@rt("/export/{dashboard_id}/csv")
+def export_csv(dashboard_id: str, req, sess):
+    """Export dashboard data as CSV."""
+
+    # Auth check
+    if not (sess and sess.get("auth")):
+        return RedirectResponse("/login", status_code=303)
+
+    # Get data
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+    if not playlist_url:
+        return Response("Dashboard not found", status_code=404)
+
+    data = load_cached_or_stub(playlist_url, 1)
+    df = data["df"]
+
+    # Convert to CSV
+    csv_content = df.write_csv()
+
+    # Return as download
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.csv"
+        },
+    )
+
+
+@rt("/export/{dashboard_id}/json")
+def export_json(dashboard_id: str, req, sess):
+    """Export dashboard data as JSON."""
+
+    # Auth check
+    if not (sess and sess.get("auth")):
+        return RedirectResponse("/login", status_code=303)
+
+    # Get data
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+    if not playlist_url:
+        return Response("Dashboard not found", status_code=404)
+
+    data = load_cached_or_stub(playlist_url, 1)
+    df = data["df"]
+    summary_stats = data["summary_stats"]
+
+    # Convert to JSON
+    import json
+
+    export_data = {
+        "dashboard_id": dashboard_id,
+        "playlist_name": data["playlist_name"],
+        "channel_name": data["channel_name"],
+        "summary_stats": summary_stats,
+        "videos": df.to_dicts(),
+    }
+
+    json_content = json.dumps(export_data, indent=2)
+
+    # Return as download
+    return Response(
+        content=json_content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.json"
+        },
+    )
 
 
 # ============================================================================

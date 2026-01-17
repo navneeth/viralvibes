@@ -6,10 +6,11 @@ from fasthtml.core import HtmxHeaders
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
+from components.modals import ExportModal, ShareModal
+from components.steps import StepProgress
 from components.tables import VideoExtremesSection
 from constants import PLAYLIST_STEPS_CONFIG
 from services.playlist_loader import load_cached_or_stub
-from components.steps import StepProgress
 from ui_components import (
     AnalyticsDashboardSection,
     AnalyticsHeader,
@@ -79,6 +80,8 @@ def render_full_dashboard(
     """Render the full dashboard view."""
 
     return Div(
+        # Modal container (at the top, before existing content)
+        Div(id="modal-container", cls="relative z-50"),
         # 🔽 Persistent dashboard meta
         (
             PersistentDashboardMetaBar(
@@ -108,6 +111,38 @@ def render_full_dashboard(
                     processed_date=date.today().strftime("%b %d, %Y"),
                     engagement_rate=summary_stats.get("avg_engagement"),
                     total_views=summary_stats.get("total_views"),
+                ),
+                # 🔗 Add Share/Export buttons HERE
+                (
+                    Div(
+                        Button(
+                            UkIcon("share-2", cls="mr-2 w-4 h-4"),
+                            "Share",
+                            hx_get=(
+                                f"/modal/share/{dashboard_id}" if dashboard_id else "#"
+                            ),
+                            hx_target="#modal-container",
+                            hx_swap="innerHTML",
+                            cls="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center",
+                            type="button",
+                            disabled=(dashboard_id is None),
+                        ),
+                        Button(
+                            UkIcon("download", cls="mr-2 w-4 h-4"),
+                            "Export",
+                            hx_get=(
+                                f"/modal/export/{dashboard_id}" if dashboard_id else "#"
+                            ),
+                            hx_target="#modal-container",
+                            hx_swap="innerHTML",
+                            cls="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center",
+                            type="button",
+                            disabled=(dashboard_id is None),
+                        ),
+                        cls="flex gap-3 mt-4",
+                    )
+                    if dashboard_id
+                    else None
                 ),
                 # 🔗 Dedicated dashboard link (ONLY in embedded mode)
                 (

@@ -74,6 +74,8 @@ from ui_components import (
     PlaylistMetricsOverview,
 )
 
+# Import modal components
+from .modals import ExportModal, Modal, ShareModal
 from .navigation import NavComponent
 
 __all__ = [
@@ -140,4 +142,8 @@ __all__ = [
     "footer",
     "FooterLinkGroup",
     "NavComponent",
+    # Modal exports
+    "Modal",
+    "ShareModal",
+    "ExportModal",
 ]
