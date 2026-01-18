@@ -14,14 +14,24 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.11.6
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11.6'
+          python-version: "3.11.6"  # ← Changed from '3.11' to '3.11.6'
+
+      - name: Verify Python version
+        run: |
+          python --version
+          if ! python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11, 6) else 1)"; then
+            echo "❌ Python 3.11.6+ required"
+            exit 1
+          fi
+          echo "✅ Python 3.11.6 verified"
 
       - name: Cache pip dependencies
         uses: actions/cache@v4
@@ -57,7 +67,7 @@ jobs:
     needs: build
     uses: ./.github/workflows/tests.yml
     with:
-      python-version: '3.11'
+      python-version: "3.11.6"  # ← Changed from '3.11' to '3.11.6'
     secrets:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
