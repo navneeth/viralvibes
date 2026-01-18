@@ -4,7 +4,6 @@ Centralized configuration for UI components, styling, and feature data.
 """
 
 from fasthtml.components import Path, Svg
-from monsterui.all import StepT
 
 # =============================================================================
 # ASSET PATHS
@@ -85,12 +84,6 @@ STYLES = {
     "table_base": "w-full text-sm text-gray-700 border border-gray-200 rounded-lg shadow-sm overflow-hidden",
 }
 
-
-# =============================================================================
-# STEP COMPONENTS
-# =============================================================================
-# Base class: vertical on mobile, horizontal on desktop
-STEPS_CLS = f"{StepT.neutral} steps-vertical md:steps-horizontal w-full"
 
 # Step configurations for playlist analysis flow
 PLAYLIST_STEPS_CONFIG = [

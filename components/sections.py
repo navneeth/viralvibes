@@ -566,3 +566,199 @@ def SectionDivider() -> Div:
     return Div(
         cls="w-full h-1 rounded-full bg-gradient-to-r from-[#00A3FF] via-[#FF4500] to-[#00A3FF] my-4 shadow-sm"
     )
+
+
+def engagement_slider_section() -> Section:
+    """
+    Premium engagement slider built with MonsterUI Slider components
+    - Beautiful card layout with images
+    - Swipeable on mobile
+    - Navigation arrows with custom styling
+    - High conversion potential
+    """
+
+    slide_data = [
+        {
+            "icon": "📈",
+            "title": "Spot Virality Early",
+            "desc": "Identify breakout playlists before views explode and competition catches up.",
+            "accent": "from-red-500 to-pink-500",
+            "accent_light": "from-red-500/30 to-pink-500/30",
+            "image": "https://images.unsplash.com/photo-1552664730-d307ca884978?w=400&q=80",
+            "alt": "Analytics dashboard showing rising metrics",
+            "link_color": "text-red-500",
+        },
+        {
+            "icon": "🧠",
+            "title": "Pattern-Level Insights",
+            "desc": "We analyze trends across playlists—not just single videos. See the bigger picture.",
+            "accent": "from-blue-500 to-cyan-500",
+            "accent_light": "from-blue-500/30 to-cyan-500/30",
+            "image": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&q=80",
+            "alt": "Data visualization and analytics",
+            "link_color": "text-blue-500",
+        },
+        {
+            "icon": "⚡",
+            "title": "Instant Analysis",
+            "desc": "Paste a playlist. Get engagement, velocity, and signals in seconds. No waiting.",
+            "accent": "from-yellow-400 to-orange-500",
+            "accent_light": "from-yellow-400/30 to-orange-500/30",
+            "image": "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=400&q=80",
+            "alt": "Fast processing and real-time data",
+            "link_color": "text-yellow-500",
+        },
+        {
+            "icon": "🎯",
+            "title": "Actionable Metrics",
+            "desc": "Know what to replicate, what to ignore, and what to double down on.",
+            "accent": "from-green-500 to-emerald-500",
+            "accent_light": "from-green-500/30 to-emerald-500/30",
+            "image": "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400&q=80",
+            "alt": "YouTube analytics and creator metrics",
+            "link_color": "text-green-500",
+        },
+        {
+            "icon": "🔥",
+            "title": "Built for Creators",
+            "desc": "No dashboard bloat. Just insights that move views and grow channels.",
+            "accent": "from-purple-500 to-fuchsia-500",
+            "accent_light": "from-purple-500/30 to-fuchsia-500/30",
+            "image": "https://images.unsplash.com/photo-1611532736579-6b16e2b50449?w=400&q=80",
+            "alt": "Creative content creation",
+            "link_color": "text-purple-500",
+        },
+    ]
+
+    return Section(
+        # Header
+        Div(
+            H2(
+                "Why creators keep scrolling ",
+                Span("👇", cls="inline-block animate-bounce"),
+                cls="text-3xl md:text-4xl font-bold text-white mb-3",
+            ),
+            P(
+                "See what sets ViralVibes apart from the crowd",
+                cls="text-gray-400 text-lg",
+            ),
+            cls="text-center mb-12 px-4",
+        ),
+        # MonsterUI Slider Component
+        Slider(
+            *[
+                slider_card(
+                    icon=card["icon"],
+                    title=card["title"],
+                    desc=card["desc"],
+                    accent=card["accent"],
+                    accent_light=card["accent_light"],
+                    image=card["image"],
+                    alt=card["alt"],
+                    link_color=card["link_color"],
+                )
+                for card in slide_data
+            ],
+            # Slider container styling
+            cls="bg-gradient-to-b from-gray-900 via-black to-gray-900",
+            # Items spacing
+            items_cls="gap-6 px-4 md:px-8",
+            # Custom nav styling
+            nav=True,
+            nav_cls="uk-position-small uk-flex uk-flex-center uk-hidden-hover",
+            # UK Slider options
+            uk_slider="finite: true; center: false; autoplay: false;",
+        ),
+        # Hint text (mobile)
+        P(
+            "← Swipe to explore →",
+            cls="text-gray-500 text-sm text-center mt-8 md:hidden px-4",
+        ),
+        # Stats Row (Social Proof)
+        Div(
+            Div(
+                P("500+", cls="text-2xl font-bold text-white"),
+                P("Creators Analyzing", cls="text-gray-400 text-sm"),
+                cls="text-center",
+            ),
+            Div(
+                P("50K+", cls="text-2xl font-bold text-white"),
+                P("Playlists Decoded", cls="text-gray-400 text-sm"),
+                cls="text-center",
+            ),
+            Div(
+                P("2.5B+", cls="text-2xl font-bold text-white"),
+                P("Videos Analyzed", cls="text-gray-400 text-sm"),
+                cls="text-center",
+            ),
+            cls="grid grid-cols-3 gap-8 mt-16 px-4 max-w-2xl mx-auto",
+        ),
+        cls="relative py-20 md:py-32 overflow-hidden",
+        id="engagement-slider",
+    )
+
+
+def slider_card(
+    icon: str,
+    title: str,
+    desc: str,
+    accent: str,
+    accent_light: str,
+    image: str,
+    alt: str,
+    link_color: str,
+) -> Card:
+    """
+    Slider card using MonsterUI Card component
+    - Image on top with icon badge
+    - Content below with gradient text link
+    """
+
+    return Card(
+        # Image container with overlay
+        Div(
+            # Background image
+            Img(
+                src=image,
+                alt=alt,
+                cls="w-full h-48 object-cover",
+                loading="lazy",
+            ),
+            # Gradient overlay
+            Div(
+                cls="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80"
+            ),
+            # Icon badge (floats over image)
+            Div(
+                Span(icon, cls="text-4xl"),
+                cls=(
+                    f"absolute top-4 right-4 "
+                    f"w-14 h-14 rounded-full flex items-center justify-center "
+                    f"bg-gradient-to-br {accent} "
+                    f"shadow-xl border-2 border-white/30 "
+                    f"backdrop-blur-md"
+                ),
+            ),
+            cls="relative h-48 rounded-t-2xl overflow-hidden",
+        ),
+        # Title and description
+        H3(title, cls="text-white font-bold text-lg mb-2 line-clamp-2"),
+        P(desc, cls="text-gray-300 text-sm leading-relaxed line-clamp-3"),
+        # Gradient text CTA link
+        A(
+            "Learn more →",
+            href="#",
+            cls=f"inline-block mt-4 text-sm font-semibold {link_color} hover:opacity-80 transition-opacity",
+        ),
+        # Card styling
+        cls=(
+            "min-w-[280px] md:min-w-[320px] "
+            "bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl "
+            "shadow-xl hover:shadow-2xl "
+            "hover:border-white/20 hover:bg-white/10 "
+            "transition-all duration-300 "
+            "overflow-hidden "
+            "flex flex-col p-0"
+        ),
+        body_cls="p-5 md:p-6 flex flex-col flex-1",
+    )
