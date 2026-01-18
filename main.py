@@ -33,6 +33,7 @@ from components import (
     NewsletterCard,
     SectionDivider,
     StepProgress,
+    engagement_slider_section,
     faq_section,
     features_section,
     footer,
@@ -208,6 +209,7 @@ def index(req, sess):
             Container(
                 hero_section(),
                 SectionDivider(),
+                engagement_slider_section(),
                 _Section(HeaderCard(), id="home-section"),
                 SectionDivider(),
                 _Section(features_section(), id="features-section"),

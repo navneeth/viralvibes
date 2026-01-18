@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from fasthtml.common import *
 from monsterui.all import *
 
-from components.base import DivCentered, styled_div
+from components.base import STEPS_CLS, DivCentered, styled_div
 from components.buttons import FeaturePill, cta, paste_button, progress_meter
 from constants import (
     BENEFITS,
@@ -20,7 +20,6 @@ from constants import (
     KNOWN_PLAYLISTS,
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
-    STEPS_CLS,
     STYLES,
     THEME,
 )

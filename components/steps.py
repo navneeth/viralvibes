@@ -5,10 +5,13 @@ Provides both simple step progress indicators and complete step wizards
 with consistent styling and behavior.
 """
 
+from typing import List, Optional, Tuple
+
 from fasthtml.common import *
 from monsterui.all import *
-from typing import List, Tuple, Optional
-from constants import STEPS_CLS, PLAYLIST_STEPS_CONFIG
+
+from components.base import STEPS_CLS
+from constants import PLAYLIST_STEPS_CONFIG
 
 
 def StepProgress(

@@ -43,6 +43,7 @@ from components.sections import (
     ExploreGridSection,
     FooterLinkGroup,
     SectionDivider,
+    engagement_slider_section,
     faq_section,
     features_section,
     footer,
@@ -109,6 +110,7 @@ __all__ = [
     "carousel",
     "ExploreGridSection",
     "SectionDivider",
+    "engagement_slider_section",
     # Dashboard Components
     "AnalyticsDashboardSection",
     "AnalyticsHeader",
