@@ -6,7 +6,7 @@ on:
       python-version:
         required: false
         type: string
-        default: '3.11'
+        default: '3.11.6'
       coverage-threshold:
         required: false
         type: number
