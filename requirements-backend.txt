@@ -1,3 +1,4 @@
+fastcore>=1.7.28
 python-fasthtml
 MonsterUI
 
