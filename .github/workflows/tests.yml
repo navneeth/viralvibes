@@ -47,15 +47,18 @@ jobs:
           cache: 'pip'
           cache-dependency-path: '**/requirements*.txt'
 
+      - name: Clear pip cache (force fresh install)
+        run: |
+          pip cache purge
+          echo "✅ Pip cache cleared"
+
       - name: Verify Python version
         run: |
           PYTHON_VERSION=$(python --version | grep -oP '\d+\.\d+\.\d+')
           echo "🐍 Python version: $PYTHON_VERSION"
 
-          # Check if version is 3.11.6 or higher
           if ! python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11, 6) else 1)"; then
             echo "❌ ERROR: Python 3.11.6+ required, but $PYTHON_VERSION is installed"
-            echo "This is likely a GitHub Actions issue. Check: https://github.com/actions/setup-python/issues"
             exit 1
           fi
 
