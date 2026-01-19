@@ -423,12 +423,58 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
         )
 
         _set_stage("validate-df")
-        # Validate results
-        if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
-            error_message = "Empty or invalid playlist data returned."
-            logger.warning(f"[Job {job_id}] {error_message}")
+
+        # Check if we got fallback/error values from the service
+        # This indicates an internal SSL/network error was caught by the service
+        service_error_indicators = (
+            playlist_name == "Unknown Playlist" or channel_name == "Unknown Channel"
+        )
+
+        if df is None:
+            error_message = "DataFrame is None - service returned no data."
+            logger.error(f"[Job {job_id}] {error_message}")
             await handle_job_failure(job_id, retry_count, error_message)
             return
+
+        if not isinstance(df, pl.DataFrame):
+            error_message = f"Invalid DataFrame type: {type(df)}"
+            logger.error(f"[Job {job_id}] {error_message}")
+            await handle_job_failure(job_id, retry_count, error_message)
+            return
+
+        # KEY DISTINCTION: Empty DataFrame + fallback metadata = transient error
+        # (Service caught an SSL/network error internally)
+        if df.is_empty() and service_error_indicators:
+            logger.warning(
+                f"[Job {job_id}] Service returned fallback metadata - indicates internal SSL/network error. "
+                f"Will retry with backoff (attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})"
+            )
+            await handle_job_failure(
+                job_id,
+                retry_count,
+                "Service encountered network error during metadata fetch",
+            )
+            return
+
+        # Empty DataFrame with valid metadata = genuinely empty playlist (permanent)
+        if df.is_empty():
+            logger.info(
+                f"[Job {job_id}] Playlist is genuinely empty (0 videos, valid metadata)"
+            )
+            # Mark as done gracefully - not a failure
+            await mark_job_status(
+                job_id,
+                "done",
+                {
+                    "status_message": "Completed (empty playlist)",
+                    "finished_at": datetime.utcnow().isoformat(),
+                    "result_source": "empty",
+                },
+            )
+            _set_stage("marked-done")
+            logger.info(f"[Job {job_id}] Marked empty playlist as done")
+            return
+
         _set_stage("df-validated")
 
         _set_stage("prepare-stats")
