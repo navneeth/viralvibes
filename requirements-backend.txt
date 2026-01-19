@@ -1,3 +1,5 @@
+fastcore==1.7.21
+
 # Core components
 python-fasthtml>=0.12.39
 MonsterUI>=0.3.0
