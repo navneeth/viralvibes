@@ -1,5 +1,5 @@
 # Pin fastcore to avoid Python 3.11 f-string bug
-fastcore>=1.6.0,<2.0.0
+fastcore==1.12.2
 
 # Core components
 python-fasthtml>=0.6.0
