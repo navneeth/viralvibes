@@ -77,7 +77,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
 
-          # ✅ Install all dependencies from PyPI (no GitHub install)
           echo "📦 Installing dependencies..."
           if [ -f requirements-backend.txt ]; then
             pip install --no-cache-dir -r requirements-backend.txt
@@ -90,11 +89,53 @@ jobs:
 
           echo "✅ All dependencies installed"
 
+      - name: Patch fastcore SyntaxError
+        run: |
+          echo "🔧 Patching fastcore docments.py SyntaxError..."
+
+          FASTCORE_PATH=$(python -c "import fastcore, os; print(os.path.dirname(fastcore.__file__))")
+          DOCMENTS_FILE="$FASTCORE_PATH/docments.py"
+
+          echo "📝 File to patch: $DOCMENTS_FILE"
+
+          # Backup original
+          cp "$DOCMENTS_FILE" "$DOCMENTS_FILE.bak"
+
+          # Apply patch using Python (more reliable than sed)
+          python << 'EOF'
+          import sys
+
+          file_path = sys.argv[1]
+
+          with open(file_path, 'r') as f:
+              lines = f.readlines()
+
+          # Line 359 (index 358) - fix f-string with backslash
+          if len(lines) > 358:
+              old_line = lines[358]
+              # Replace: f"def {get_name(self.obj)}(\n    {'\n    '.join(lines)}\n{self._ret_str}"
+              # With:    f"def {get_name(self.obj)}(\n    " + '\n    '.join(lines) + f"\n{self._ret_str}"
+              new_line = '            sig_str = f"def {get_name(self.obj)}(\\n    " + \'\\n    \'.join(lines) + f"\\n{self._ret_str}"\n'
+              lines[358] = new_line
+
+              with open(file_path, 'w') as f:
+                  f.writelines(lines)
+
+              print(f"✅ Patched line 359")
+              print(f"   Old: {old_line.strip()}")
+              print(f"   New: {new_line.strip()}")
+          else:
+              print(f"❌ File too short, line 359 not found")
+              sys.exit(1)
+          EOF "$DOCMENTS_FILE"
+
+          echo "✅ Fastcore patched successfully"
+
       - name: Verify fastcore installation
         run: |
           # Show installed version
           FASTCORE_VERSION=$(pip show fastcore | grep Version | cut -d' ' -f2)
-          echo "📦 fastcore version: $FASTCORE_VERSION"
+          echo "📦 fastcore version: $FASTCORE_VERSION (patched)"
 
           # Show installation path
           FASTCORE_PATH=$(python -c "import fastcore; print(fastcore.__file__)")
@@ -106,22 +147,23 @@ jobs:
           v = version.parse('$FASTCORE_VERSION')
           if v < version.parse('1.10.0'):
               print('❌ fastcore version too old: $FASTCORE_VERSION')
-              print('   Required: >= 1.10.0 for python-fasthtml')
               sys.exit(1)
-          print('✅ fastcore version OK: $FASTCORE_VERSION (from PyPI)')
+          print('✅ fastcore version OK: $FASTCORE_VERSION (patched)')
           "
 
       - name: Test critical imports
         run: |
-          # ✅ Import basic fastcore - NOT fastcore.all (has SyntaxError in PyPI 1.12.2)
+          # ✅ Now this should work!
           python -B -c "
           import sys
           sys.dont_write_bytecode = True
           try:
-              import fastcore
-              print('✅ fastcore imports successfully')
+              from fastcore.all import *
+              print('✅ fastcore.all imports successfully (after patch)')
           except Exception as e:
-              print(f'❌ fastcore import failed: {e}')
+              print(f'❌ fastcore.all import failed: {e}')
+              import traceback
+              traceback.print_exc()
               sys.exit(1)
           "
 
