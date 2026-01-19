@@ -1,4 +1,4 @@
-fastcore==1.7.21
+fastcore==1.7.22
 
 # Core components
 python-fasthtml>=0.12.39
