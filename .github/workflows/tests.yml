@@ -52,10 +52,7 @@ jobs:
 
       - name: Clear all caches
         run: |
-          # Clear pip cache
           pip cache purge || true
-
-          # Clear Python bytecode cache
           find /opt/hostedtoolcache/Python -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
           find /opt/hostedtoolcache/Python -type f -name "*.pyc" -delete 2>/dev/null || true
 
@@ -101,8 +98,8 @@ jobs:
           # Backup original
           cp "$DOCMENTS_FILE" "$DOCMENTS_FILE.bak"
 
-          # Apply patch using Python (more reliable than sed)
-          python << 'EOF'
+          # Apply patch using Python (pass filename as argument)
+          python - "$DOCMENTS_FILE" << 'PATCHEOF'
           import sys
 
           file_path = sys.argv[1]
@@ -127,7 +124,7 @@ jobs:
           else:
               print(f"❌ File too short, line 359 not found")
               sys.exit(1)
-          EOF "$DOCMENTS_FILE"
+          PATCHEOF
 
           echo "✅ Fastcore patched successfully"
 
@@ -153,7 +150,6 @@ jobs:
 
       - name: Test critical imports
         run: |
-          # ✅ Now this should work!
           python -B -c "
           import sys
           sys.dont_write_bytecode = True
@@ -186,7 +182,6 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          # ✅ Use -B flag to skip .pyc files
           python -B -m coverage run -m pytest tests/ -vv -s \
             --log-cli-level=INFO \
             --junitxml=reports/junit.xml
