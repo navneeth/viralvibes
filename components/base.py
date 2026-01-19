@@ -7,6 +7,12 @@ from constants import (
     THEME,
 )
 
+# =============================================================================
+# STEP COMPONENTS
+# =============================================================================
+# Base class: vertical on mobile, horizontal on desktop
+STEPS_CLS = f"{StepT.neutral} steps-vertical md:steps-horizontal w-full"
+
 
 # =============================================================================
 # UTILITY FUNCTIONS

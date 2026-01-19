@@ -1,10 +1,16 @@
-python-fasthtml
+# Core components
+python-fasthtml>=0.12.39
+MonsterUI>=0.3.0
+
+# Database & storage
 sqlite_minutils==4.0.3
-uvicorn==0.30.1
-MonsterUI
+supabase>=2.0.0
+
+# Server & async
+uvicorn>=0.30.1
+
 yt-dlp
 polars
-supabase
 tenacity
 requests
 google-api-python-client
