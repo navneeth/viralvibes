@@ -1,6 +1,3 @@
-# Install latest fastcore from GitHub (has f-string fix)
-fastcore>=1.7.0
-
 # Core components
 python-fasthtml>=0.12.39
 MonsterUI>=0.3.0
