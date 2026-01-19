@@ -2,7 +2,7 @@
 fastcore @ git+https://github.com/fastai/fastcore.git@master
 
 # Core components
-python-fasthtml>=0.6.0
+python-fasthtml>=0.12.39
 MonsterUI>=0.3.0
 
 # Database & storage
