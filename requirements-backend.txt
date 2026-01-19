@@ -1,5 +1,5 @@
 # Install latest fastcore from GitHub (has f-string fix)
-fastcore @ git+https://github.com/fastai/fastcore.git@master
+fastcore>=1.7.0
 
 # Core components
 python-fasthtml>=0.12.39
