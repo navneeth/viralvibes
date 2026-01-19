@@ -1,5 +1,8 @@
-fastcore>=1.7.28
-python-fasthtml>=0.12.0
+# Pin fastcore to avoid Python 3.11 f-string bug
+fastcore>=1.6.0,<2.0.0
+
+# Core components
+python-fasthtml>=0.6.0
 MonsterUI>=0.3.0
 
 # Database & storage
