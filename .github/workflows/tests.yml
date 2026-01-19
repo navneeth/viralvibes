@@ -80,6 +80,23 @@ jobs:
 
           echo "✅ Dependencies installed"
 
+      - name: Verify fastcore version
+        run: |
+          FASTCORE_VERSION=$(pip show fastcore | grep Version | cut -d' ' -f2)
+          echo "📦 fastcore version: $FASTCORE_VERSION"
+
+          # Check if version is >= 1.7.0 (has the f-string fix)
+          python -c "
+          from packaging import version
+          import sys
+          v = version.parse('$FASTCORE_VERSION')
+          if v < version.parse('1.7.0'):
+              print('❌ fastcore version too old: $FASTCORE_VERSION')
+              print('   Required: >= 1.7.0 (has f-string fix)')
+              sys.exit(1)
+          print('✅ fastcore version OK: $FASTCORE_VERSION')
+          "
+
       - name: Prepare reports directory
         run: mkdir -p reports htmlcov
 
@@ -114,7 +131,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-junit-py3.11.6
+          name: pytest-junit-py3.10
           path: reports/junit.xml
           retention-days: 30
 
@@ -123,7 +140,7 @@ jobs:
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
           files: reports/junit.xml
-          check_name: Test Results (Python 3.11.6)
+          check_name: Test Results (Python 3.10)
           comment_mode: off
 
       - name: Coverage summary
