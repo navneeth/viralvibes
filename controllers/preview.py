@@ -25,6 +25,8 @@ def preview_playlist_controller(playlist_url: str):
     Data sources:
     - Supabase only (frontend-safe)
     - YouTube enrichment happens asynchronously in workers
+    - job state → redirect / blocked / auto-submit
+    - fallback preview → render a preview card WITH auto-submit
     """
     logger.info(f"Received request to preview playlist: {playlist_url}")
 
@@ -48,8 +50,13 @@ def preview_playlist_controller(playlist_url: str):
     # 3. Preview data (DB stub or API fallback)
     preview_info = get_playlist_preview_info(playlist_url) or {}
 
+    # 🆕 Determine if we should auto-submit
+    # Auto-submit if no job exists OR job failed (retry)
+    auto_submit = job_status is None or job_status == "failed"
+
     return render_preview_card(
         playlist_url=playlist_url,
         job_status=job_status,
         preview_info=preview_info,
+        auto_submit=auto_submit,
     )
