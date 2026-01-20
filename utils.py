@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import polars as pl
 from fasthtml.common import *
+
 from constants import TimeEstimates
 
 logger = logging.getLogger(__name__)
@@ -374,3 +375,17 @@ def create_redirect_script(
             window.location.href = '{safe_url}';
         }}, {delay_ms});
     """
+
+
+def clamp(value: float, min_val: float, max_val: float) -> float:
+    """
+    Constrain a value within a min and max range.
+    Works with floats, ints, and comparable types.
+
+    Examples:
+        clamp(50, 0, 100)      # → 50
+        clamp(-10, 0, 100)     # → 0
+        clamp(150, 0, 100)     # → 100
+        clamp(4.2, 0, 3.5)     # → 3.5
+    """
+    return max(min_val, min(value, max_val))
