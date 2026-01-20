@@ -18,7 +18,12 @@ import polars as pl
 from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from constants import PLAYLIST_JOBS_TABLE, PLAYLIST_STATS_TABLE, SIGNUPS_TABLE
+from constants import (
+    PLAYLIST_JOBS_TABLE,
+    PLAYLIST_STATS_TABLE,
+    SIGNUPS_TABLE,
+    JobStatus,
+)
 from utils import compute_dashboard_id
 
 # Use a dedicated DB logger
@@ -536,8 +541,9 @@ def submit_playlist_job(playlist_url: str) -> bool:
             supabase_client.table(PLAYLIST_JOBS_TABLE)
             .select("status, created_at")
             .eq("playlist_url", playlist_url)
-            .not_.eq("status", "complete")
-            .not_.eq("status", "failed")
+            # ✅ Use constants instead of string literals
+            .not_.eq("status", JobStatus.COMPLETE)
+            .not_.eq("status", JobStatus.FAILED)
             .order("created_at", desc=True)
             .limit(1)
             .execute()
@@ -546,9 +552,9 @@ def submit_playlist_job(playlist_url: str) -> bool:
         # If an unfinished job exists, don't submit a new one
         if response.data:
             job_status = response.data[0].get("status")
-            job_created_at = response.data[0].get("created_at")
             logger.info(
-                f"Skipping job submission for {playlist_url}. A job with status '{job_status}' created at {job_created_at} is already in progress or pending."
+                f"Skipping job submission for {playlist_url}. "
+                f"A job with status '{job_status}' is already in progress or pending."
             )
             return False
 
@@ -559,7 +565,7 @@ def submit_playlist_job(playlist_url: str) -> bool:
     # No existing job found, so submit a new one
     payload = {
         "playlist_url": playlist_url,
-        "status": "pending",
+        "status": JobStatus.PENDING,  # ✅ Use constant
         "created_at": datetime.utcnow().isoformat(),
         "retry_count": 0,
     }

@@ -15,13 +15,16 @@ from db import (
 )
 from utils import (
     compute_batches,
-    compute_time_metrics,
+    compute_dashboard_id,
+    estimate_remaining_time,
+    clamp,
+    create_redirect_script,
     format_number,
     format_seconds,
-    compute_dashboard_id,
 )
 from views.job_progress import render_job_progress_view
 from views.job_progress_state import JobProgressViewState
+from constants import JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,8 @@ def job_progress_controller(playlist_url: str):
     Returns:
         HTML component (progress UI or redirect script)
     """
-    logger.info(f"Job progress check for: {playlist_url}")
+    # ✅ Reduced to debug level (polled every 2s)
+    logger.debug(f"Job progress check for: {playlist_url}")
 
     # Get job progress data
     job_data = get_job_progress(playlist_url)
@@ -61,15 +65,19 @@ def job_progress_controller(playlist_url: str):
     progress = job_data.get("progress", 0)
     error = job_data.get("error")
 
-    logger.info(f"Job status: {status}, progress: {progress}%")
+    # ✅ Only log on status transitions (not every poll)
+    # This could be enhanced with a global state tracker if needed
+    logger.debug(f"Job status: {status}, progress: {progress}%")
 
     # ========================================================
-    # 🆕 CHECK FOR COMPLETION → REDIRECT
+    # ✅ CHECK FOR COMPLETION → REDIRECT
     # ========================================================
-    if status in ("complete", "done"):
+    if status in JobStatus.SUCCESS:
+        # ✅ Only log INFO for important state transitions
         logger.info(f"✅ Job complete for {playlist_url}, redirecting to dashboard")
 
         dashboard_id = compute_dashboard_id(playlist_url)
+        redirect_url = f"/d/{dashboard_id}"
 
         return Div(
             # Show completion message briefly
@@ -77,14 +85,13 @@ def job_progress_controller(playlist_url: str):
                 P("✅ Analysis complete! Redirecting to dashboard..."),
                 cls=AlertT.success,
             ),
-            # Redirect script
+            # ✅ Use safe redirect helper
             Script(
-                f"""
-                console.log('Job complete, redirecting to /d/{dashboard_id}');
-                setTimeout(() => {{
-                    window.location.href = '/d/{dashboard_id}';
-                }}, 500);  // Brief delay for user to see success message
-            """
+                create_redirect_script(
+                    url=redirect_url,
+                    delay_ms=500,
+                    message=f"Job complete, redirecting to {redirect_url}",
+                )
             ),
             cls="p-6 max-w-2xl mx-auto",
         )
@@ -92,7 +99,7 @@ def job_progress_controller(playlist_url: str):
     # ========================================================
     # HANDLE FAILED JOB
     # ========================================================
-    if status == "failed":
+    if status == JobStatus.FAILED:
         logger.error(f"❌ Job failed for {playlist_url}: {error}")
         return Div(
             Alert(
@@ -108,7 +115,7 @@ def job_progress_controller(playlist_url: str):
     # ========================================================
     # HANDLE BLOCKED JOB
     # ========================================================
-    if status == "blocked":
+    if status == JobStatus.BLOCKED:
         logger.warning(f"⚠️  Job blocked for {playlist_url}")
         return Div(
             Alert(
@@ -139,7 +146,7 @@ def job_progress_controller(playlist_url: str):
 
 def render_job_progress_ui(
     playlist_url: str,
-    status: str,
+    status: str | None,
     progress: float,
     preview_info: dict,
 ):
@@ -158,24 +165,23 @@ def render_job_progress_ui(
     thumbnail = preview_info.get("thumbnail", "/static/favicon.jpeg")
     video_count = preview_info.get("video_count", 0)
 
-    # Calculate estimated time remaining
-    progress_decimal = progress / 100.0
-    if progress_decimal > 0 and video_count > 0:
-        estimated_total_seconds = video_count * 2.5  # 2.5s per video
-        elapsed = estimated_total_seconds * progress_decimal
-        remaining = estimated_total_seconds - elapsed
-        remaining_minutes = max(1, int(remaining / 60))
-        time_label = f"~{remaining_minutes} min remaining"
-    else:
-        time_label = "Calculating..."
+    # ✅ Use centralized time estimation utility
+    _, time_label = estimate_remaining_time(video_count, progress)
 
-    # Status messages
+    # ✅ Clamp progress to valid range [0, 100]
+    clamped_progress = clamp(progress, 0.0, 100.0)
+
+    # ✅ Handle missing/unknown status gracefully
+    if not status or status not in JobStatus.ACTIVE:
+        status = JobStatus.QUEUED  # Default to queued if unknown
+
+    # ✅ Status messages using constants
     status_messages = {
-        "queued": "Waiting in queue...",
-        "pending": "Starting analysis...",
-        "processing": f"Analyzing videos... {int(progress)}% complete",
+        JobStatus.QUEUED: "Waiting in queue...",
+        JobStatus.PENDING: "Starting analysis...",
+        JobStatus.PROCESSING: f"Analyzing videos... {int(clamped_progress)}% complete",
     }
-    status_message = status_messages.get(status, f"Status: {status}")
+    status_message = status_messages.get(status, "Preparing analysis...")
 
     return Div(
         # Header
@@ -200,7 +206,8 @@ def render_job_progress_ui(
         Div(
             Div(
                 Div(
-                    style=f"width: {progress}%",
+                    # ✅ Use clamped value for width
+                    style=f"width: {clamped_progress}%",
                     cls="bg-blue-600 h-full rounded-full transition-all duration-500",
                 ),
                 cls="w-full bg-gray-200 rounded-full h-4 overflow-hidden",
@@ -220,7 +227,10 @@ def render_job_progress_ui(
                 cls="bg-red-50 border border-red-200 p-4 rounded-lg text-center",
             ),
             Div(
-                Div(f"{int(progress)}%", cls="text-2xl font-bold text-blue-600"),
+                # ✅ Use clamped value for display
+                Div(
+                    f"{int(clamped_progress)}%", cls="text-2xl font-bold text-blue-600"
+                ),
                 Div("Complete", cls="text-sm text-gray-500"),
                 cls="bg-blue-50 border border-blue-200 p-4 rounded-lg text-center",
             ),
