@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
@@ -434,3 +433,329 @@ def test_get_dashboard_event_counts(mock_supabase, monkeypatch):
     assert "share" in counts
     assert isinstance(counts["view"], int)
     assert isinstance(counts["share"], int)
+
+
+# ============================================================================
+# Test 1: Cache Hit → Redirect to Full Analysis
+# ============================================================================
+def test_preview_redirects_on_cache_hit(client, monkeypatch):
+    """
+    Test /validate/preview redirects when cache exists.
+    Should return HTMX redirect script.
+    """
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: {"df": "mock_data", "summary_stats": {}},
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should contain HTMX redirect script
+    assert "htmx.ajax('POST', '/validate/full'" in r.text
+    assert TEST_PLAYLIST_URL in r.text
+
+
+# ============================================================================
+# Test 2: Job Complete (No Cache) → Redirect to Full Analysis
+# ============================================================================
+def test_preview_redirects_on_job_complete(client, monkeypatch):
+    """
+    Test /validate/preview redirects when job is already done.
+    Should return HTMX redirect script (not preview card).
+    """
+    from constants import JobStatus
+
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: JobStatus.COMPLETE,  # ✅ Job already done
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should redirect, not show preview card
+    assert "htmx.ajax('POST', '/validate/full'" in r.text
+    assert TEST_PLAYLIST_URL in r.text
+
+
+# ============================================================================
+# Test 3: No Job Exists → Show Preview Card with Auto-Submit
+# ============================================================================
+def test_preview_shows_card_with_auto_submit_on_no_job(client, monkeypatch):
+    """
+    Test /validate/preview shows preview card when:
+    - No cache
+    - No existing job (auto_submit=True)
+
+    The auto-submit Div with hx-trigger="load" should be present.
+    """
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: None,  # No job exists
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {
+            "title": "Test Playlist",
+            "channel_name": "Test Channel",
+            "video_count": 50,
+        },
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should show preview card (not redirect)
+    assert "Start Deep Analysis" in r.text
+    assert "Test Playlist" in r.text
+    assert "Test Channel" in r.text
+    assert "50" in r.text  # Video count
+    # ✅ Auto-submit trigger should be present (hidden div with hx-post on load)
+    assert 'hx-trigger="load"' in r.text
+
+
+# ============================================================================
+# Test 4: Job Failed → Show Preview Card with Auto-Submit (Retry)
+# ============================================================================
+def test_preview_shows_card_with_auto_submit_on_job_failed(client, monkeypatch):
+    """
+    Test /validate/preview shows preview card when:
+    - No cache
+    - Job status is FAILED (auto_submit=True for retry)
+
+    Should show preview with auto-submit trigger.
+    """
+    from constants import JobStatus
+
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: JobStatus.FAILED,  # ✅ Job failed
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {
+            "title": "Failed Playlist",
+            "channel_name": "Test Channel",
+            "video_count": 100,
+        },
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should show preview card with auto-submit for retry
+    assert "Failed Playlist" in r.text
+    assert 'hx-trigger="load"' in r.text
+    # ✅ Auto-submit div should be present
+    assert 'hx_post="/submit-job"' in r.text or 'hx-post="/submit-job"' in r.text
+
+
+# ============================================================================
+# Test 5: Job Blocked → Show Blocked Message
+# ============================================================================
+def test_preview_shows_blocked_message(client, monkeypatch):
+    """
+    Test /validate/preview shows blocked message when:
+    - No cache
+    - Job status is BLOCKED
+
+    Should not show preview card, just error message.
+    """
+    from constants import JobStatus
+
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: JobStatus.BLOCKED,  # ✅ Job blocked
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should show blocked error message
+    assert "YouTube Bot Challenge Detected" in r.text
+    assert "YouTube temporarily blocked automated access" in r.text
+    # ✅ Should NOT show Start Deep Analysis button
+    assert "Start Deep Analysis" not in r.text
+
+
+# ============================================================================
+# Test 6: Job Processing → Show Preview Card with Status Indicator
+# ============================================================================
+def test_preview_shows_processing_status(client, monkeypatch):
+    """
+    Test /validate/preview shows preview card when job is PROCESSING.
+    Should show status indicator and disabled button.
+    """
+    from constants import JobStatus
+
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: JobStatus.PROCESSING,  # ✅ Job in progress
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {
+            "title": "Processing Playlist",
+            "channel_name": "Test Channel",
+            "video_count": 75,
+        },
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should show preview card
+    assert "Processing Playlist" in r.text
+    # ✅ Should show processing status indicator
+    assert "Status: Processing" in r.text or "Starting analysis..." in r.text
+    # ✅ Button should be disabled
+    assert "Analysis in Progress" in r.text
+    assert "disabled" in r.text
+
+
+# ============================================================================
+# Test 7: Previously Analyzed → Show "Previously Analyzed" Badge
+# ============================================================================
+def test_preview_shows_previously_analyzed_badge(client, monkeypatch):
+    """
+    Test /validate/preview shows correct badge for previously analyzed playlists.
+    """
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: None,  # No current job
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {
+            "title": "Previous Playlist",
+            "channel_name": "Test Channel",
+            "video_count": 30,
+            "processed_video_count": 28,  # ✅ Has been processed
+        },
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should show "Previously Analyzed" badge (not "New Analysis")
+    assert "Previously Analyzed" in r.text
+    assert "blue-100" in r.text  # Blue badge
+
+
+# ============================================================================
+# Test 8: With Description → Show Description Preview
+# ============================================================================
+def test_preview_shows_description_when_available(client, monkeypatch):
+    """
+    Test /validate/preview shows playlist description when available.
+    """
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,  # No cache
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: None,  # No current job
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {
+            "title": "Described Playlist",
+            "channel_name": "Test Channel",
+            "video_count": 20,
+            "description": "This is a test description for a playlist",
+        },
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # ✅ Should show description
+    assert "This is a test description for a playlist" in r.text
+
+
+# ============================================================================
+# Integration Test: Full User Flow
+# ============================================================================
+def test_preview_full_user_flow(client, monkeypatch):
+    """
+    Integration test simulating full preview → submit → results flow.
+    """
+    from constants import JobStatus
+
+    # ✅ Step 1: User posts to preview (no cache, no job)
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status",
+        lambda url: None,
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {
+            "title": "Integration Test Playlist",
+            "channel_name": "Test Channel",
+            "video_count": 50,
+        },
+    )
+
+    r1 = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r1.status_code == 200
+    assert "Start Deep Analysis" in r1.text
+    # ✅ Auto-submit trigger present
+    assert 'hx-trigger="load"' in r1.text

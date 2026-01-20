@@ -1,5 +1,6 @@
 import logging
 
+from constants import JobStatus
 from db import (
     get_cached_playlist_stats,
     get_playlist_job_status,
@@ -10,7 +11,6 @@ from views.preview import (
     render_preview_card,
     render_redirect_to_full,
 )
-from constants import JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ def preview_playlist_controller(playlist_url: str):
         logger.info("Preview: job done → redirect to full")
         return render_redirect_to_full(playlist_url)
 
+    # ⚠️ BLOCKED job → show error
     if job_status == JobStatus.BLOCKED:
         logger.warning("Preview: job blocked")
         return render_blocked_preview()
