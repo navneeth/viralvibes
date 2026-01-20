@@ -32,7 +32,14 @@ def render_preview_card(
     playlist_url: str,
     job_status: str | None,
     preview_info: dict,
+    auto_submit: bool = False,
 ):
+    """
+    Render preview card with optional auto-submit.
+
+    If auto_submit=True, HTMX will automatically trigger /submit-job
+    on page load, eliminating the need for user to click button.
+    """
     # ---- Guaranteed-safe preview fields ----
     title = preview_info.get("title", "YouTube Playlist")
     channel = preview_info.get("channel_name", "Unknown Channel")
@@ -41,7 +48,7 @@ def render_preview_card(
     description = preview_info.get("description", "")
 
     # ---- State derivations (UI-only) ----
-    is_processing = job_status in ("pending", "processing")
+    is_processing = job_status in ("pending", "processing", "queued")
     has_previous_analysis = bool(preview_info.get("processed_video_count"))
 
     # ---- Time estimate (cheap + honest) ----
@@ -50,6 +57,19 @@ def render_preview_card(
     estimate_label = f"~{estimated_minutes} min"
 
     return Div(
+        # 🆕 Auto-submit trigger (hidden, fires on page load)
+        (
+            Div(
+                hx_post="/submit-job",
+                hx_vals={"playlist_url": playlist_url},
+                hx_trigger="load",  # Triggers immediately when page loads
+                hx_target="#preview-box",
+                hx_swap="outerHTML",
+                style="display:none;",
+            )
+            if auto_submit
+            else None
+        ),
         # =========================================================
         # Header: thumbnail + identity
         # =========================================================
@@ -90,7 +110,7 @@ def render_preview_card(
                     cls="text-3xl font-bold text-gray-900",
                 ),
                 Div("Videos", cls="text-sm text-gray-500"),
-                cls="bg-red-50 border border-red-200 p-4 rounded-lg",
+                cls="bg-red-50 border border-red-200 p-4 rounded-lg text-center",
             ),
             Div(
                 Div(
@@ -98,7 +118,7 @@ def render_preview_card(
                     cls="text-lg font-bold text-gray-900",
                 ),
                 Div("Estimated Time", cls="text-sm text-gray-500"),
-                cls="bg-blue-50 border border-blue-200 p-4 rounded-lg",
+                cls="bg-blue-50 border border-blue-200 p-4 rounded-lg text-center",
             ),
             cls="grid grid-cols-2 gap-4 mb-6",
         ),
@@ -120,7 +140,7 @@ def render_preview_card(
         # What will be analyzed (trust builder)
         # =========================================================
         Div(
-            H3("What we’ll analyze", cls="text-sm font-semibold text-gray-700 mb-2"),
+            H3("What we're analyzing", cls="text-sm font-semibold text-gray-700 mb-2"),
             Ul(
                 Li("Views, likes, and engagement metrics"),
                 Li("Engagement rate & distribution"),
@@ -130,39 +150,44 @@ def render_preview_card(
             cls="bg-gradient-to-br from-purple-50 to-blue-50 p-4 rounded-lg border mb-6",
         ),
         # =========================================================
-        # Status indicator (critical reassurance)
+        # Status indicator (shows when auto-submit triggers)
         # =========================================================
         (
             Div(
                 Loading(cls=(LoadingT.ring, LoadingT.sm, "text-blue-600")),
                 Span(
-                    f"Status: {job_status.title()} — you can keep this tab open",
+                    (
+                        "Starting analysis..."
+                        if auto_submit
+                        else f"Status: {job_status.title()}"
+                    ),
                     cls="text-sm text-gray-700 ml-3",
                 ),
                 cls="flex items-center bg-blue-50 p-3 rounded-lg border mb-4",
             )
-            if is_processing
+            if (is_processing or auto_submit)
             else None
         ),
         # =========================================================
-        # Action button
+        # Action button (hidden when auto-submitting)
         # =========================================================
-        Button(
-            "Analysis in Progress…" if is_processing else "Start Deep Analysis",
-            hx_post="/submit-job",
-            hx_vals={"playlist_url": playlist_url},
-            hx_target="#preview-box",
-            hx_indicator="#loading-bar",
-            disabled=is_processing,
-            cls=(
-                "mt-6 px-6 py-3 rounded-xl font-semibold shadow transition "
-                + (
-                    "bg-gray-400 cursor-not-allowed"
-                    if is_processing
-                    else "bg-blue-600 hover:bg-blue-700 text-white"
-                )
-            ),
-            type="button",
+        (
+            Button(
+                "Analysis in Progress…",
+                disabled=True,
+                cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-gray-400 cursor-not-allowed text-white w-full",
+                type="button",
+            )
+            if (is_processing or auto_submit)
+            else Button(
+                "Start Deep Analysis",
+                hx_post="/submit-job",
+                hx_vals={"playlist_url": playlist_url},
+                hx_target="#preview-box",
+                hx_indicator="#loading-bar",
+                cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-blue-600 hover:bg-blue-700 text-white w-full transition",
+                type="button",
+            )
         ),
         Div(
             Loading(
@@ -173,4 +198,5 @@ def render_preview_card(
             id="results-box",
         ),
         cls="p-6 bg-white rounded-xl shadow-lg border max-w-3xl mx-auto",
+        id="preview-box",
     )
