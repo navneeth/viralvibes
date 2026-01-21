@@ -251,16 +251,20 @@ class MockSupabaseTable:
 
         # Handle SELECT operations
         if self.table_name == "dashboard_events":
-            # ✅ Return events for the dashboard
+            # ✅ Return event COUNTS, not raw events
             dashboard_id = self._filters.get("dashboard_id")
             events = self.data.get("dashboard_events", {}).get(dashboard_id, [])
 
-            # Filter by event_type if specified
-            if "event_type" in self._filters:
-                event_type = self._filters["event_type"]
-                events = [e for e in events if e.get("event_type") == event_type]
+            # Group by event_type and count
+            counts = {}
+            for event in events:
+                event_type = event.get("event_type", "view")
+                counts[event_type] = counts.get(event_type, 0) + 1
 
-            return Response(events)
+            # Return in format expected by get_dashboard_event_counts
+            result_data = [{"event_type": k, "count": v} for k, v in counts.items()]
+
+            return Response(result_data)
 
         if self.table_name == "dashboards":
             # Return dashboard data
@@ -654,15 +658,19 @@ def client():
 @pytest.fixture
 def authenticated_client(client, monkeypatch):
     """
-    Test client that bypasses authentication checks.
+    Test client with authenticated session.
 
-    Patches ALL route handlers that check sess.get("auth") to inject
-    a fake authenticated session.
+    Patches the Starlette request scope to inject auth session data.
+    This approach works regardless of secret keys or cookie signing.
+
+    Based on FastHTML/Starlette testing best practices where session
+    data is injected at the ASGI scope level.
     """
-    import main
+    from unittest.mock import PropertyMock
+    from starlette.requests import Request
 
-    # Create fake authenticated session
-    fake_sess = {
+    # Fake authenticated session
+    fake_session = {
         "auth": {
             "email": "test@viralvibes.com",
             "name": "Test User",
@@ -671,23 +679,13 @@ def authenticated_client(client, monkeypatch):
         }
     }
 
-    # Store original handlers
-    original_validate_url = main.validate_url
-    original_submit_job = main.submit_job
-
-    # Patch validate_url to inject auth session
-    def patched_validate_url(playlist, req, sess):
-        # Call original with fake authenticated session
-        return original_validate_url(playlist, req, fake_sess)
-
-    # Patch submit_job to inject auth session
-    def patched_submit_job(playlist_url: str, req, sess):
-        # Call original with fake authenticated session
-        return original_submit_job(playlist_url, req, fake_sess)
-
-    # Apply patches
-    monkeypatch.setattr(main, "validate_url", patched_validate_url)
-    monkeypatch.setattr(main, "submit_job", patched_submit_job)
+    # Patch Request.session to return our fake session
+    monkeypatch.setattr(
+        Request,
+        "session",
+        PropertyMock(return_value=fake_session),
+        raising=False,  # Don't raise if property doesn't exist
+    )
 
     return client
 
