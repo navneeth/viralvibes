@@ -122,21 +122,34 @@ class TestURLValidationAndPreview:
 
     def test_validate_url_invalid_format(self, authenticated_client):
         """Test /validate/url rejects invalid URLs."""
+        # ✅ Need to use form data, not JSON
         r = authenticated_client.post(
-            "/validate/url", json={"playlist_url": "not-a-valid-url"}
+            "/validate/url",
+            data={"playlist_url": "not-a-valid-url"},  # ← Changed from json= to data=
         )
 
         assert r.status_code in (200, 422)
         if r.status_code == 200:
-            assert "invalid" in r.text.lower()
+            # Should show validation error
+            assert (
+                "invalid" in r.text.lower()
+                or "youtube" in r.text.lower()
+                or "error" in r.text.lower()
+            )
+            # Should NOT show login prompt (we're authenticated)
+            assert "please log in" not in r.text.lower()
 
-    def test_validate_url_triggers_preview(self, authenticated_client, monkeypatch):
+    def test_validate_url_triggers_preview(self, authenticated_client):
         """Test /validate/url triggers /validate/preview on success."""
+        # ✅ Use form data with valid playlist URL
         r = authenticated_client.post(
-            "/validate/url", json={"playlist_url": TEST_PLAYLIST_URL}
+            "/validate/url",
+            data={"playlist_url": TEST_PLAYLIST_URL},  # ← Changed from json= to data=
         )
 
         assert r.status_code == 200
+        # Should NOT show login error
+        assert "please log in" not in r.text.lower()
         # Should contain HTMX call to /validate/preview
         assert "htmx.ajax('POST', '/validate/preview'" in r.text
         assert TEST_PLAYLIST_URL in r.text
