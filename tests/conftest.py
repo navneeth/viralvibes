@@ -37,7 +37,25 @@ os.environ.setdefault("YOUTUBE_API_KEY", "mock-api-key-for-testing")
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321")
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key-for-tests")
 
-# Minimal contract mapping: modules -> expected attributes (tests can assert against this)
+# ============================================================================
+# ✅ CONSTANTS (Add before fixtures that use them)
+# ============================================================================
+
+# Use a real playlist URL from constants for testing
+try:
+    from constants import KNOWN_PLAYLISTS
+
+    TEST_PLAYLIST_URL = KNOWN_PLAYLISTS[0]["url"]
+except (ImportError, IndexError, KeyError):
+    # Fallback if constants not available
+    TEST_PLAYLIST_URL = (
+        "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
+    )
+
+# ============================================================================
+# Minimal contract mapping
+# ============================================================================
+
 DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
     "worker.worker": ["Worker", "handle_job"],
     "db": [
@@ -45,7 +63,6 @@ DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
         "get_cached_playlist_stats",
         "get_dashboard_event_counts",
         "record_dashboard_event",
-        # "get_supabase",  # ← TODO: Add after db.py is updated
         "PLAYLIST_STATS_TABLE",
     ],
     "services.youtube_service": ["YoutubePlaylistService", "YouTubeBotChallengeError"],
@@ -69,7 +86,63 @@ def _check_module_exports(module_name: str, keys: List[str]):
         raise AssertionError(f"Module {module_name} missing exports: {missing}")
 
 
-# ✅ ONE AUTOUSE FIXTURE - RULES ALL
+# ============================================================================
+# ✅ HELPER FUNCTIONS (Add before fixtures that use them)
+# ============================================================================
+
+
+def make_cached_row():
+    """
+    Legacy helper for cached data structure.
+
+    Creates a minimal playlist_stats row structure for testing.
+    """
+    df = pl.DataFrame(
+        [
+            {
+                "Rank": 1,
+                "Title": "Sample Video",
+                "Views": 100,
+                "Likes": 10,
+                "Dislikes": 1,
+                "Comments": 5,
+                "Engagement Rate (%)": 16.0,
+                "Controversy": 18.18,
+                "Views Formatted": "100",
+                "Likes Formatted": "10",
+                "Engagement Rate Formatted": "16.00%",
+            }
+        ]
+    )
+
+    return {
+        "df_json": df.write_json(),
+        "title": "Sample Playlist",
+        "channel_name": "Tester",
+        "channel_thumbnail": "/img.png",
+        "summary_stats": {
+            "total_views": 100,
+            "total_likes": 10,
+            "actual_playlist_count": 1,
+            "processed_video_count": 1,
+            "avg_engagement": 5.0,
+        },
+        "video_count": 1,
+    }
+
+
+class Response:
+    """Mock Supabase response object."""
+
+    def __init__(self, data):
+        self.data = data
+
+
+# ============================================================================
+# ✅ AUTOUSE FIXTURE
+# ============================================================================
+
+
 @pytest.fixture(autouse=True, scope="session")
 def setup_test_environment():
     """✅ SINGLE SOURCE OF TRUTH: Loads env + validates + contracts"""
@@ -110,6 +183,10 @@ class MockSupabaseTable:
         self._insert_data = None
         self._update_data = None
         self._delete_filters = {}
+        self._limit_count = None
+        self._order_col = None
+        self._order_desc = False
+        self._select_cols = None
 
     def select(self, cols: str):
         """Mock select() - store column names."""
@@ -365,9 +442,12 @@ def mock_supabase():
                 "channel_thumbnail": "https://example.com/thumb.jpg",
                 "video_count": 10,
                 "df_json": make_cached_row()["df_json"],
-                "summary_stats": make_cached_row()["summary_stats"],
+                "summary_stats": json.dumps(make_cached_row()["summary_stats"]),
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat(),
+                "dashboard_id": "test-dash-abc123",
+                "view_count": 0,
+                "share_count": 0,
             }
         },
         "dashboards": {
@@ -377,10 +457,11 @@ def mock_supabase():
                 "title": "Sample Playlist",
                 "created_at": datetime.utcnow().isoformat(),
                 "df_json": make_cached_row()["df_json"],
-                "summary_stats": make_cached_row()["summary_stats"],
+                "summary_stats": json.dumps(make_cached_row()["summary_stats"]),
             }
         },
-        "dashboard_events": {},  # ✅ Add this for event tracking
+        "dashboard_events": {},  # ✅ For event tracking
+        "playlist_jobs": {},  # ✅ For job tracking
         "analysis_jobs": {},
         "newsletter_signups": [],
     }
@@ -391,7 +472,14 @@ def mock_supabase():
 @pytest.fixture
 def mock_supabase_empty():
     """Provide a mock Supabase client with no data (for cache miss tests)."""
-    return MockSupabase({"playlist_stats": {}})
+    return MockSupabase(
+        {
+            "playlist_stats": {},
+            "dashboard_events": {},
+            "playlist_jobs": {},
+            "dashboards": {},
+        }
+    )
 
 
 @pytest.fixture
@@ -409,7 +497,7 @@ def test_dashboard_id():
 @pytest.fixture
 def test_playlist_url():
     """Provide a test playlist URL."""
-    return "https://www.youtube.com/playlist?list=PLtest123"
+    return TEST_PLAYLIST_URL
 
 
 @pytest.fixture
@@ -504,7 +592,7 @@ def mock_supabase_with_jobs():
 
     For testing worker that needs to update job status.
     """
-    test_url = "https://youtube.com/playlist?list=PL123"
+    test_url = TEST_PLAYLIST_URL
     test_dashboard_id = "test-dash-abc123"
 
     data = {
@@ -523,6 +611,7 @@ def mock_supabase_with_jobs():
                 dashboard_id=test_dashboard_id,
             )
         },
+        "dashboard_events": {},
     }
 
     return MockSupabase(data)
@@ -551,6 +640,15 @@ def create_auth_session_cookie(
     }
 
     return serializer.dumps(session_data)
+
+
+@pytest.fixture
+def client():
+    """Unauthenticated test client."""
+    from starlette.testclient import TestClient
+    import main
+
+    return TestClient(main.app)
 
 
 @pytest.fixture
