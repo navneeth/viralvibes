@@ -230,17 +230,31 @@ class MockSupabaseTable:
         if self._insert_data:
             # ✅ Handle dashboard_events inserts
             if self.table_name == "dashboard_events":
-                # Add to in-memory storage
-                event_id = len(self.data.get("dashboard_events", {})) + 1
-                event_data = {**self._insert_data, "id": event_id}
+                # Initialize storage if needed
+                if "dashboard_events" not in self.data:
+                    self.data["dashboard_events"] = {}
 
-                # Store by dashboard_id for easy lookup
+                # Get dashboard_id from payload
                 dashboard_id = self._insert_data.get("dashboard_id")
-                if dashboard_id not in self.data["dashboard_events"]:
-                    self.data["dashboard_events"][dashboard_id] = []
 
-                self.data["dashboard_events"][dashboard_id].append(event_data)
-                return Response([event_data])
+                if dashboard_id:
+                    # Initialize list for this dashboard
+                    if dashboard_id not in self.data["dashboard_events"]:
+                        self.data["dashboard_events"][dashboard_id] = []
+
+                    # Create event record
+                    event_data = {
+                        **self._insert_data,
+                        "id": len(self.data["dashboard_events"][dashboard_id]) + 1,
+                        "created_at": datetime.utcnow().isoformat(),
+                    }
+
+                    # Store event
+                    self.data["dashboard_events"][dashboard_id].append(event_data)
+
+                    return Response([event_data])
+
+                return Response([self._insert_data])
 
             # Handle other inserts...
             return Response([{**self._insert_data, "id": 1}])
@@ -251,18 +265,26 @@ class MockSupabaseTable:
 
         # Handle SELECT operations
         if self.table_name == "dashboard_events":
-            # ✅ Return event COUNTS, not raw events
+            # ✅ Get dashboard_id from filters
             dashboard_id = self._filters.get("dashboard_id")
+
+            if not dashboard_id:
+                return Response([])
+
+            # Get events for this dashboard
             events = self.data.get("dashboard_events", {}).get(dashboard_id, [])
 
             # Group by event_type and count
-            counts = {}
-            for event in events:
-                event_type = event.get("event_type", "view")
-                counts[event_type] = counts.get(event_type, 0) + 1
+            from collections import Counter
+
+            event_types = [e.get("event_type", "view") for e in events]
+            counts = Counter(event_types)
 
             # Return in format expected by get_dashboard_event_counts
-            result_data = [{"event_type": k, "count": v} for k, v in counts.items()]
+            result_data = [
+                {"event_type": event_type, "count": count}
+                for event_type, count in counts.items()
+            ]
 
             return Response(result_data)
 
@@ -660,14 +682,13 @@ def authenticated_client(client, monkeypatch):
     """
     Test client with authenticated session.
 
-    Patches the Starlette request scope to inject auth session data.
-    This approach works regardless of secret keys or cookie signing.
+    Works by wrapping the ASGI app to inject session data into the
+    request scope BEFORE SessionMiddleware processes it.
 
-    Based on FastHTML/Starlette testing best practices where session
-    data is injected at the ASGI scope level.
+    This is the standard pattern used in Starlette/FastHTML test suites.
     """
-    from unittest.mock import PropertyMock
-    from starlette.requests import Request
+    import main
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
     # Fake authenticated session
     fake_session = {
@@ -679,15 +700,33 @@ def authenticated_client(client, monkeypatch):
         }
     }
 
-    # Patch Request.session to return our fake session
-    monkeypatch.setattr(
-        Request,
-        "session",
-        PropertyMock(return_value=fake_session),
-        raising=False,  # Don't raise if property doesn't exist
-    )
+    # Get the original app
+    original_app = main.app
 
-    return client
+    class SessionInjectingMiddleware:
+        """ASGI middleware that injects session into every request."""
+
+        def __init__(self, app: ASGIApp):
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if scope["type"] == "http":
+                # Inject session into scope BEFORE any middleware runs
+                scope["session"] = fake_session.copy()
+
+            # Call the wrapped app
+            await self.app(scope, receive, send)
+
+    # Wrap the original app
+    wrapped_app = SessionInjectingMiddleware(original_app)
+
+    # Patch main.app so any code that imports it gets the wrapped version
+    monkeypatch.setattr(main, "app", wrapped_app)
+
+    # Create new test client with wrapped app
+    from starlette.testclient import TestClient
+
+    return TestClient(wrapped_app)
 
 
 @pytest.fixture
