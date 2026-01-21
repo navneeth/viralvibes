@@ -588,23 +588,37 @@ class TestDashboard:
         assert r.status_code in (200, 303)
         assert "Sample Playlist" in r.text or "playlist-table" in r.text
 
-    def test_dashboard_records_view_event(self, mock_supabase, monkeypatch):
+    def test_dashboard_records_view_event(self, mock_supabase):
         """Test viewing dashboard increments view count."""
         set_supabase_client(mock_supabase)
 
         dashboard_id = "test-dash-abc123"
 
-        # Record view event
-        result = record_dashboard_event(
+        # Get initial count
+        initial_counts = get_dashboard_event_counts(
+            supabase=mock_supabase,
+            dashboard_id=dashboard_id,
+        )
+        initial_view_count = initial_counts.get("view", 0)
+
+        # Record view event (returns None on success)
+        record_dashboard_event(
             supabase=mock_supabase,
             dashboard_id=dashboard_id,
             event_type="view",
         )
 
-        # Should succeed
-        assert result is True or result is not None
+        # Verify event was recorded by checking count increased
+        updated_counts = get_dashboard_event_counts(
+            supabase=mock_supabase,
+            dashboard_id=dashboard_id,
+        )
+        updated_view_count = updated_counts.get("view", 0)
 
-    def test_dashboard_event_counts(self, mock_supabase, monkeypatch):
+        # View count should have increased by 1
+        assert updated_view_count == initial_view_count + 1
+
+    def test_dashboard_event_counts(self, mock_supabase):
         """Test fetching dashboard event counts."""
         set_supabase_client(mock_supabase)
 

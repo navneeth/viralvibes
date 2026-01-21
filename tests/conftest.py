@@ -12,6 +12,7 @@ import io
 import json
 import os
 import sys
+from datetime import datetime
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
@@ -99,19 +100,16 @@ def setup_test_environment():
 
 
 class MockSupabaseTable:
-    """Mock Supabase table interface supporting query builder pattern."""
+    """Mock Supabase table with chainable query methods."""
 
-    def __init__(self, table_name: str, data: Dict = None):
+    def __init__(self, table_name, data):
         self.table_name = table_name
-        self.data = data or {}
+        self.data = data
         self._filters = {}
-        self._select_cols = "*"
-        self._limit_count = None
-        self._order_col = None
-        self._order_desc = False
-        self._single = False  # Track .single() calls
-        self._update_payload = None  #  Track updates
-        self._insert_payload = None  # Track inserts
+        self._single = False
+        self._insert_data = None
+        self._update_data = None
+        self._delete_filters = {}
 
     def select(self, cols: str):
         """Mock select() - store column names."""
@@ -139,31 +137,60 @@ class MockSupabaseTable:
         self._single = True
         return self
 
-    def insert(self, payload: dict) -> "MockSupabaseTable":
-        """Mock insert() - store payload."""
-        self._insert_payload = payload
+    def insert(self, payload):
+        """Mock insert operation."""
+        self._insert_data = payload
         return self
 
-    def update(self, payload: dict) -> "MockSupabaseTable":
-        """Mock update() - store payload."""
-        self._update_payload = payload
+    def update(self, payload):
+        """Mock update operation."""
+        self._update_data = payload
         return self
 
     def execute(self):
-        """Execute the mocked query."""
-
-        class Response:
-            def __init__(self, data):
-                self.data = data
-
-        # Handle UPDATE operations (for job status updates)
-        if hasattr(self, "_update_payload") and self._update_payload is not None:
-            # Return empty success response for updates
-            return Response([])
-
+        """Execute the query and return mock data."""
         # Handle INSERT operations
-        if hasattr(self, "_insert_payload") and self._insert_payload is not None:
-            return Response([self._insert_payload])
+        if self._insert_data:
+            # ✅ Handle dashboard_events inserts
+            if self.table_name == "dashboard_events":
+                # Add to in-memory storage
+                event_id = len(self.data.get("dashboard_events", {})) + 1
+                event_data = {**self._insert_data, "id": event_id}
+
+                # Store by dashboard_id for easy lookup
+                dashboard_id = self._insert_data.get("dashboard_id")
+                if dashboard_id not in self.data["dashboard_events"]:
+                    self.data["dashboard_events"][dashboard_id] = []
+
+                self.data["dashboard_events"][dashboard_id].append(event_data)
+                return Response([event_data])
+
+            # Handle other inserts...
+            return Response([{**self._insert_data, "id": 1}])
+
+        # Handle UPDATE operations
+        if self._update_data:
+            return Response([self._update_data])
+
+        # Handle SELECT operations
+        if self.table_name == "dashboard_events":
+            # ✅ Return events for the dashboard
+            dashboard_id = self._filters.get("dashboard_id")
+            events = self.data.get("dashboard_events", {}).get(dashboard_id, [])
+
+            # Filter by event_type if specified
+            if "event_type" in self._filters:
+                event_type = self._filters["event_type"]
+                events = [e for e in events if e.get("event_type") == event_type]
+
+            return Response(events)
+
+        if self.table_name == "dashboards":
+            # Return dashboard data
+            dashboard_id = self._filters.get("id")
+            if dashboard_id and dashboard_id in self.data.get("dashboards", {}):
+                return Response([self.data["dashboards"][dashboard_id]])
+            return Response([])
 
         # For playlist_stats table with specific filters
         if self.table_name == "playlist_stats":
@@ -226,14 +253,16 @@ class MockSupabaseTable:
 
 
 class MockSupabase:
-    """Mock Supabase client with playlist_stats data."""
+    """Mock Supabase client that simulates database operations."""
 
-    def __init__(self, data: Dict = None):
-        self.data = data or {}
+    def __init__(self, data):
+        self.data = data
+        self.call_count = 0
 
-    def table(self, name: str) -> MockSupabaseTable:
-        """Return a mock table."""
-        return MockSupabaseTable(name, self.data)
+    def table(self, table_name):
+        """Return a mock table handler."""
+        self.call_count += 1
+        return MockSupabaseTable(table_name, self.data)
 
 
 # ============================================================================
@@ -325,25 +354,38 @@ def create_test_job_row(
 
 @pytest.fixture
 def mock_supabase():
-    """
-    Provide a mock Supabase client with test data.
-
-    ✅ UPDATED: Includes new schema with dashboard_id, view_count, share_count
-    """
-    test_url = "https://www.youtube.com/playlist?list=PLtest123"
-    test_dashboard_id = "test-dash-abc123"
-
-    data = {
+    """Mock Supabase client for testing."""
+    mock_data = {
         "playlist_stats": {
-            test_url: create_test_playlist_row(
-                playlist_url=test_url,
-                dashboard_id=test_dashboard_id,
-                num_videos=5,
-            )
-        }
+            TEST_PLAYLIST_URL: {
+                "id": 1,
+                "playlist_url": TEST_PLAYLIST_URL,
+                "title": "Sample Playlist",
+                "channel_name": "Test Channel",
+                "channel_thumbnail": "https://example.com/thumb.jpg",
+                "video_count": 10,
+                "df_json": make_cached_row()["df_json"],
+                "summary_stats": make_cached_row()["summary_stats"],
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        },
+        "dashboards": {
+            "test-dash-abc123": {
+                "id": "test-dash-abc123",
+                "playlist_url": TEST_PLAYLIST_URL,
+                "title": "Sample Playlist",
+                "created_at": datetime.utcnow().isoformat(),
+                "df_json": make_cached_row()["df_json"],
+                "summary_stats": make_cached_row()["summary_stats"],
+            }
+        },
+        "dashboard_events": {},  # ✅ Add this for event tracking
+        "analysis_jobs": {},
+        "newsletter_signups": [],
     }
 
-    return MockSupabase(data)
+    return MockSupabase(mock_data)
 
 
 @pytest.fixture
