@@ -3,10 +3,10 @@ Integration tests for main application endpoints.
 
 Test Organization:
 1. Public Endpoints (index, newsletter)
-2. Preview Flow (cache checks, auto-submit logic)
-3. Job Submission (duplicate protection, polling setup)
-4. Job Progress (polling, completion, errors)
-5. Dashboard (persistent links, analytics)
+2. URL Validation & Preview (/validate/url, /validate/preview)
+3. Job Submission (/submit-job)
+4. Job Progress (/job-progress)
+5. Dashboard (/d/{id})
 """
 
 from datetime import datetime, timedelta
@@ -104,169 +104,7 @@ class TestPublicEndpoints:
 
 
 # ============================================================
-# Test Class 2: Preview Flow
-# ============================================================
-
-
-class TestPreviewFlow:
-    """Tests for /preview endpoint and auto-submit logic."""
-
-    def test_preview_cache_hit_redirects_to_full_analysis(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: When cached data exists, preview should redirect to full analysis.
-
-        Flow:
-        1. User submits URL
-        2. Cache hit detected
-        3. Returns redirect script to /d/{dashboard_id}
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: {
-                "title": "Cached Playlist",
-                "df_json": "{}",
-            },
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should contain redirect logic (either Script or hx-redirect)
-        assert "window.location" in r.text or "hx-redirect" in r.text
-
-    def test_preview_auto_submit_when_no_job_exists(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Auto-submit should trigger when no active job exists.
-
-        Flow:
-        1. No cache exists
-        2. No active job found (job_status = None)
-        3. auto_submit=True passed to render_preview_card
-        4. HTMX trigger fires /submit-job on page load
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: None,  # No job exists
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should contain auto-submit HTMX trigger
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load once' in r.text
-        assert "Starting analysis" in r.text or "Analysis in Progress" in r.text
-
-    def test_preview_auto_submit_when_job_failed(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Auto-submit should trigger retry when previous job failed.
-
-        Flow:
-        1. No cache exists
-        2. Previous job status = failed
-        3. auto_submit=True (retry logic)
-        4. HTMX trigger fires /submit-job on page load
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: JobStatus.FAILED,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load once' in r.text
-
-    def test_preview_shows_existing_job_progress(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: When job is already processing, show status without auto-submit.
-
-        Flow:
-        1. No cache exists
-        2. Active job found (status = processing)
-        3. auto_submit=False
-        4. Shows disabled button with "Analysis in Progress"
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: JobStatus.PROCESSING,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should NOT have auto-submit trigger
-        assert 'hx-trigger="load once' not in r.text
-        # Should show processing state
-        assert "Analysis in Progress" in r.text or "Processing" in r.text
-
-    def test_preview_handles_blocked_job(self, authenticated_client, monkeypatch):
-        """Test preview shows blocked message for YouTube-blocked playlists."""
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: JobStatus.BLOCKED,
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        assert "blocked" in r.text.lower() or "YouTube" in r.text
-
-
-# ============================================================
-# Test Class 2.5: URL Validation & Preview
+# Test Class 2: URL Validation & Preview
 # ============================================================
 
 
@@ -303,9 +141,16 @@ class TestURLValidationAndPreview:
         assert "htmx.ajax('POST', '/validate/preview'" in r.text
         assert TEST_PLAYLIST_URL in r.text
 
-    def test_preview_cache_hit_returns_redirect_script(self, client, monkeypatch):
-        """Test /validate/preview returns redirect when cache exists."""
-        # Mock cache hit at controller level
+    def test_preview_cache_hit_redirects_to_full_analysis(self, client, monkeypatch):
+        """
+        Test: When cached data exists, /validate/preview redirects to full analysis.
+
+        Flow:
+        1. User submits URL via /validate/url
+        2. HTMX calls /validate/preview
+        3. Cache hit detected
+        4. Returns HTMX redirect to /validate/full
+        """
         monkeypatch.setattr(
             "controllers.preview.get_cached_playlist_stats",
             lambda url, check_date=True: {"title": "Cached Playlist", "df_json": "[]"},
@@ -317,14 +162,15 @@ class TestURLValidationAndPreview:
         # Should redirect to full analysis
         assert "htmx.ajax('POST', '/validate/full'" in r.text
 
-    def test_preview_job_done_redirects(self, client, monkeypatch):
+    def test_preview_redirects_when_job_complete(self, client, monkeypatch):
         """Test /validate/preview redirects when job is complete."""
         monkeypatch.setattr(
             "controllers.preview.get_cached_playlist_stats",
             lambda url, check_date=True: None,
         )
         monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status", lambda url: "done"
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.COMPLETE,  # ✅ Use constant instead of "done"
         )
 
         r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
@@ -332,14 +178,23 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
         assert "htmx.ajax('POST', '/validate/full'" in r.text
 
-    def test_preview_shows_card_on_cache_miss(self, client, monkeypatch):
-        """Test /validate/preview shows preview card when no cache."""
+    def test_preview_auto_submit_when_no_job_exists(self, client, monkeypatch):
+        """
+        Test: Auto-submit triggers when no active job exists.
+
+        Flow:
+        1. No cache exists
+        2. No active job found (job_status = None)
+        3. auto_submit=True passed to render_preview_card
+        4. HTMX trigger fires /submit-job on page load
+        """
         monkeypatch.setattr(
             "controllers.preview.get_cached_playlist_stats",
             lambda url, check_date=True: None,
         )
         monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status", lambda url: None  # No job
+            "controllers.preview.get_playlist_job_status",
+            lambda url: None,  # No job exists
         )
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
@@ -350,12 +205,88 @@ class TestURLValidationAndPreview:
 
         assert r.status_code == 200
         # Should show preview card
-        assert "YouTube Playlist" in r.text or "Test Playlist" in r.text
+        assert "Test Playlist" in r.text
         # Should have auto-submit trigger
         assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load' in r.text
+        assert 'hx-trigger="load once' in r.text
 
-    def test_preview_public_access(self, client, monkeypatch):
+    def test_preview_auto_submit_when_job_failed(self, client, monkeypatch):
+        """
+        Test: Auto-submit triggers retry when previous job failed.
+
+        Flow:
+        1. No cache exists
+        2. Previous job status = failed
+        3. auto_submit=True (retry logic)
+        4. HTMX trigger fires /submit-job on page load
+        """
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: None,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.FAILED,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_preview_info",
+            lambda url: make_test_preview_data(),
+        )
+
+        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert r.status_code == 200
+        assert 'hx-post="/submit-job"' in r.text
+        assert 'hx-trigger="load once' in r.text
+
+    def test_preview_shows_existing_job_without_auto_submit(self, client, monkeypatch):
+        """
+        Test: When job is processing, show status without auto-submit.
+
+        Flow:
+        1. No cache exists
+        2. Active job found (status = processing)
+        3. auto_submit=False
+        4. Shows disabled button with "Analysis in Progress"
+        """
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: None,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.PROCESSING,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_preview_info",
+            lambda url: make_test_preview_data(),
+        )
+
+        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert r.status_code == 200
+        # Should NOT have auto-submit trigger
+        assert 'hx-trigger="load once' not in r.text
+        # Should show processing state
+        assert "Analysis in Progress" in r.text or "Processing" in r.text.lower()
+
+    def test_preview_handles_blocked_job(self, client, monkeypatch):
+        """Test /validate/preview shows blocked message for YouTube-blocked playlists."""
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: None,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.BLOCKED,
+        )
+
+        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert r.status_code == 200
+        assert "blocked" in r.text.lower() or "YouTube" in r.text
+
+    def test_preview_public_access_no_auth_required(self, client, monkeypatch):
         """Test /validate/preview is publicly accessible (no auth required)."""
         # Mock preview data
         monkeypatch.setattr(
