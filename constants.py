@@ -275,3 +275,34 @@ youtube_icon = Svg(
     stroke_linejoin="round",
     cls="lucide lucide-youtube text-red-600",  # Added text-red-600 for YouTube branding color
 )
+
+"""
+Centralized constants for the application.
+"""
+
+
+# Job Status Constants
+class JobStatus:
+    """Job status values used across the application."""
+
+    QUEUED = "queued"
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETE = "complete"
+    DONE = "done"  # Legacy, same as COMPLETE
+    FAILED = "failed"
+    BLOCKED = "blocked"
+
+    # Convenience sets
+    ACTIVE = {QUEUED, PENDING, PROCESSING}
+    FINISHED = {COMPLETE, DONE, FAILED, BLOCKED}
+    SUCCESS = {COMPLETE, DONE}
+    ERROR = {FAILED, BLOCKED}
+
+
+# Time Constants
+class TimeEstimates:
+    """Time estimation constants."""
+
+    SECONDS_PER_VIDEO = 2.5  # Average processing time per video
+    MIN_ESTIMATE_MINUTES = 1  # Minimum time estimate to show

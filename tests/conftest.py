@@ -12,6 +12,7 @@ import io
 import json
 import os
 import sys
+from datetime import datetime
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
@@ -36,7 +37,25 @@ os.environ.setdefault("YOUTUBE_API_KEY", "mock-api-key-for-testing")
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321")
 os.environ.setdefault("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key-for-tests")
 
-# Minimal contract mapping: modules -> expected attributes (tests can assert against this)
+# ============================================================================
+# ✅ CONSTANTS (Add before fixtures that use them)
+# ============================================================================
+
+# Use a real playlist URL from constants for testing
+try:
+    from constants import KNOWN_PLAYLISTS
+
+    TEST_PLAYLIST_URL = KNOWN_PLAYLISTS[0]["url"]
+except (ImportError, IndexError, KeyError):
+    # Fallback if constants not available
+    TEST_PLAYLIST_URL = (
+        "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
+    )
+
+# ============================================================================
+# Minimal contract mapping
+# ============================================================================
+
 DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
     "worker.worker": ["Worker", "handle_job"],
     "db": [
@@ -44,7 +63,6 @@ DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
         "get_cached_playlist_stats",
         "get_dashboard_event_counts",
         "record_dashboard_event",
-        # "get_supabase",  # ← TODO: Add after db.py is updated
         "PLAYLIST_STATS_TABLE",
     ],
     "services.youtube_service": ["YoutubePlaylistService", "YouTubeBotChallengeError"],
@@ -68,7 +86,63 @@ def _check_module_exports(module_name: str, keys: List[str]):
         raise AssertionError(f"Module {module_name} missing exports: {missing}")
 
 
-# ✅ ONE AUTOUSE FIXTURE - RULES ALL
+# ============================================================================
+# ✅ HELPER FUNCTIONS (Add before fixtures that use them)
+# ============================================================================
+
+
+def make_cached_row():
+    """
+    Legacy helper for cached data structure.
+
+    Creates a minimal playlist_stats row structure for testing.
+    """
+    df = pl.DataFrame(
+        [
+            {
+                "Rank": 1,
+                "Title": "Sample Video",
+                "Views": 100,
+                "Likes": 10,
+                "Dislikes": 1,
+                "Comments": 5,
+                "Engagement Rate (%)": 16.0,
+                "Controversy": 18.18,
+                "Views Formatted": "100",
+                "Likes Formatted": "10",
+                "Engagement Rate Formatted": "16.00%",
+            }
+        ]
+    )
+
+    return {
+        "df_json": df.write_json(),
+        "title": "Sample Playlist",
+        "channel_name": "Tester",
+        "channel_thumbnail": "/img.png",
+        "summary_stats": {
+            "total_views": 100,
+            "total_likes": 10,
+            "actual_playlist_count": 1,
+            "processed_video_count": 1,
+            "avg_engagement": 5.0,
+        },
+        "video_count": 1,
+    }
+
+
+class Response:
+    """Mock Supabase response object."""
+
+    def __init__(self, data):
+        self.data = data
+
+
+# ============================================================================
+# ✅ AUTOUSE FIXTURE
+# ============================================================================
+
+
 @pytest.fixture(autouse=True, scope="session")
 def setup_test_environment():
     """✅ SINGLE SOURCE OF TRUTH: Loads env + validates + contracts"""
@@ -99,19 +173,20 @@ def setup_test_environment():
 
 
 class MockSupabaseTable:
-    """Mock Supabase table interface supporting query builder pattern."""
+    """Mock Supabase table with chainable query methods."""
 
-    def __init__(self, table_name: str, data: Dict = None):
+    def __init__(self, table_name, data):
         self.table_name = table_name
-        self.data = data or {}
+        self.data = data
         self._filters = {}
-        self._select_cols = "*"
+        self._single = False
+        self._insert_data = None
+        self._update_data = None
+        self._delete_filters = {}
         self._limit_count = None
         self._order_col = None
         self._order_desc = False
-        self._single = False  # Track .single() calls
-        self._update_payload = None  #  Track updates
-        self._insert_payload = None  # Track inserts
+        self._select_cols = None
 
     def select(self, cols: str):
         """Mock select() - store column names."""
@@ -139,31 +214,86 @@ class MockSupabaseTable:
         self._single = True
         return self
 
-    def insert(self, payload: dict) -> "MockSupabaseTable":
-        """Mock insert() - store payload."""
-        self._insert_payload = payload
+    def insert(self, payload):
+        """Mock insert operation."""
+        self._insert_data = payload
         return self
 
-    def update(self, payload: dict) -> "MockSupabaseTable":
-        """Mock update() - store payload."""
-        self._update_payload = payload
+    def update(self, payload):
+        """Mock update operation."""
+        self._update_data = payload
         return self
 
     def execute(self):
-        """Execute the mocked query."""
-
-        class Response:
-            def __init__(self, data):
-                self.data = data
-
-        # Handle UPDATE operations (for job status updates)
-        if hasattr(self, "_update_payload") and self._update_payload is not None:
-            # Return empty success response for updates
-            return Response([])
-
+        """Execute the query and return mock data."""
         # Handle INSERT operations
-        if hasattr(self, "_insert_payload") and self._insert_payload is not None:
-            return Response([self._insert_payload])
+        if self._insert_data:
+            # ✅ Handle dashboard_events inserts
+            if self.table_name == "dashboard_events":
+                # Initialize storage if needed
+                if "dashboard_events" not in self.data:
+                    self.data["dashboard_events"] = {}
+
+                # Get dashboard_id from payload
+                dashboard_id = self._insert_data.get("dashboard_id")
+
+                if dashboard_id:
+                    # Initialize list for this dashboard
+                    if dashboard_id not in self.data["dashboard_events"]:
+                        self.data["dashboard_events"][dashboard_id] = []
+
+                    # Create event record
+                    event_data = {
+                        **self._insert_data,
+                        "id": len(self.data["dashboard_events"][dashboard_id]) + 1,
+                        "created_at": datetime.utcnow().isoformat(),
+                    }
+
+                    # Store event
+                    self.data["dashboard_events"][dashboard_id].append(event_data)
+
+                    return Response([event_data])
+
+                return Response([self._insert_data])
+
+            # Handle other inserts...
+            return Response([{**self._insert_data, "id": 1}])
+
+        # Handle UPDATE operations
+        if self._update_data:
+            return Response([self._update_data])
+
+        # Handle SELECT operations
+        if self.table_name == "dashboard_events":
+            # ✅ Get dashboard_id from filters
+            dashboard_id = self._filters.get("dashboard_id")
+
+            if not dashboard_id:
+                return Response([])
+
+            # Get events for this dashboard
+            events = self.data.get("dashboard_events", {}).get(dashboard_id, [])
+
+            # Group by event_type and count
+            from collections import Counter
+
+            event_types = [e.get("event_type", "view") for e in events]
+            counts = Counter(event_types)
+
+            # Return in format expected by get_dashboard_event_counts
+            result_data = [
+                {"event_type": event_type, "count": count}
+                for event_type, count in counts.items()
+            ]
+
+            return Response(result_data)
+
+        if self.table_name == "dashboards":
+            # Return dashboard data
+            dashboard_id = self._filters.get("id")
+            if dashboard_id and dashboard_id in self.data.get("dashboards", {}):
+                return Response([self.data["dashboards"][dashboard_id]])
+            return Response([])
 
         # For playlist_stats table with specific filters
         if self.table_name == "playlist_stats":
@@ -226,14 +356,16 @@ class MockSupabaseTable:
 
 
 class MockSupabase:
-    """Mock Supabase client with playlist_stats data."""
+    """Mock Supabase client that simulates database operations."""
 
-    def __init__(self, data: Dict = None):
-        self.data = data or {}
+    def __init__(self, data):
+        self.data = data
+        self.call_count = 0
 
-    def table(self, name: str) -> MockSupabaseTable:
-        """Return a mock table."""
-        return MockSupabaseTable(name, self.data)
+    def table(self, table_name):
+        """Return a mock table handler."""
+        self.call_count += 1
+        return MockSupabaseTable(table_name, self.data)
 
 
 # ============================================================================
@@ -325,31 +457,55 @@ def create_test_job_row(
 
 @pytest.fixture
 def mock_supabase():
-    """
-    Provide a mock Supabase client with test data.
-
-    ✅ UPDATED: Includes new schema with dashboard_id, view_count, share_count
-    """
-    test_url = "https://www.youtube.com/playlist?list=PLtest123"
-    test_dashboard_id = "test-dash-abc123"
-
-    data = {
+    """Mock Supabase client for testing."""
+    mock_data = {
         "playlist_stats": {
-            test_url: create_test_playlist_row(
-                playlist_url=test_url,
-                dashboard_id=test_dashboard_id,
-                num_videos=5,
-            )
-        }
+            TEST_PLAYLIST_URL: {
+                "id": 1,
+                "playlist_url": TEST_PLAYLIST_URL,
+                "title": "Sample Playlist",
+                "channel_name": "Test Channel",
+                "channel_thumbnail": "https://example.com/thumb.jpg",
+                "video_count": 10,
+                "df_json": make_cached_row()["df_json"],
+                "summary_stats": json.dumps(make_cached_row()["summary_stats"]),
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+                "dashboard_id": "test-dash-abc123",
+                "view_count": 0,
+                "share_count": 0,
+            }
+        },
+        "dashboards": {
+            "test-dash-abc123": {
+                "id": "test-dash-abc123",
+                "playlist_url": TEST_PLAYLIST_URL,
+                "title": "Sample Playlist",
+                "created_at": datetime.utcnow().isoformat(),
+                "df_json": make_cached_row()["df_json"],
+                "summary_stats": json.dumps(make_cached_row()["summary_stats"]),
+            }
+        },
+        "dashboard_events": {},  # ✅ For event tracking
+        "playlist_jobs": {},  # ✅ For job tracking
+        "analysis_jobs": {},
+        "newsletter_signups": [],
     }
 
-    return MockSupabase(data)
+    return MockSupabase(mock_data)
 
 
 @pytest.fixture
 def mock_supabase_empty():
     """Provide a mock Supabase client with no data (for cache miss tests)."""
-    return MockSupabase({"playlist_stats": {}})
+    return MockSupabase(
+        {
+            "playlist_stats": {},
+            "dashboard_events": {},
+            "playlist_jobs": {},
+            "dashboards": {},
+        }
+    )
 
 
 @pytest.fixture
@@ -367,7 +523,7 @@ def test_dashboard_id():
 @pytest.fixture
 def test_playlist_url():
     """Provide a test playlist URL."""
-    return "https://www.youtube.com/playlist?list=PLtest123"
+    return TEST_PLAYLIST_URL
 
 
 @pytest.fixture
@@ -462,7 +618,7 @@ def mock_supabase_with_jobs():
 
     For testing worker that needs to update job status.
     """
-    test_url = "https://youtube.com/playlist?list=PL123"
+    test_url = TEST_PLAYLIST_URL
     test_dashboard_id = "test-dash-abc123"
 
     data = {
@@ -481,6 +637,7 @@ def mock_supabase_with_jobs():
                 dashboard_id=test_dashboard_id,
             )
         },
+        "dashboard_events": {},
     }
 
     return MockSupabase(data)
@@ -512,36 +669,64 @@ def create_auth_session_cookie(
 
 
 @pytest.fixture
-def authenticated_client(client, monkeypatch):
-    """
-    Test client that bypasses authentication checks.
-
-    Instead of trying to inject session data, we patch the routes
-    to skip the auth check entirely during tests.
-    """
+def client():
+    """Unauthenticated test client."""
+    from starlette.testclient import TestClient
     import main
 
-    # Store original route handler
-    original_submit_job = main.submit_job
+    return TestClient(main.app)
 
-    # Create wrapper that skips auth check
-    def patched_submit_job(playlist_url: str, req, sess):
-        # Create fake authenticated session
-        fake_sess = {
-            "auth": {
-                "email": "test@viralvibes.com",
-                "name": "Test User",
-                "picture": "https://example.com/test-avatar.jpg",
-                "ident": "test_google_123456",
-            }
+
+@pytest.fixture
+def authenticated_client(client, monkeypatch):
+    """
+    Test client with authenticated session.
+
+    Works by wrapping the ASGI app to inject session data into the
+    request scope BEFORE SessionMiddleware processes it.
+
+    This is the standard pattern used in Starlette/FastHTML test suites.
+    """
+    import main
+    from starlette.types import ASGIApp, Receive, Scope, Send
+
+    # Fake authenticated session
+    fake_session = {
+        "auth": {
+            "email": "test@viralvibes.com",
+            "name": "Test User",
+            "picture": "https://example.com/test-avatar.jpg",
+            "ident": "test_google_123456",
         }
-        # Call original with fake authenticated session
-        return original_submit_job(playlist_url, req, fake_sess)
+    }
 
-    # Apply the patch
-    monkeypatch.setattr(main, "submit_job", patched_submit_job)
+    # Get the original app
+    original_app = main.app
 
-    return client
+    class SessionInjectingMiddleware:
+        """ASGI middleware that injects session into every request."""
+
+        def __init__(self, app: ASGIApp):
+            self.app = app
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if scope["type"] == "http":
+                # Inject session into scope BEFORE any middleware runs
+                scope["session"] = fake_session.copy()
+
+            # Call the wrapped app
+            await self.app(scope, receive, send)
+
+    # Wrap the original app
+    wrapped_app = SessionInjectingMiddleware(original_app)
+
+    # Patch main.app so any code that imports it gets the wrapped version
+    monkeypatch.setattr(main, "app", wrapped_app)
+
+    # Create new test client with wrapped app
+    from starlette.testclient import TestClient
+
+    return TestClient(wrapped_app)
 
 
 @pytest.fixture

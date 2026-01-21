@@ -1,12 +1,16 @@
 import asyncio
 import functools
 import hashlib
+import html
 import logging
 import re
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import polars as pl
 from fasthtml.common import *
+
+from constants import TimeEstimates
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +99,43 @@ def format_duration(seconds: int) -> str:
         # Log the error and return a safe default
         print(f"Error formatting duration: {str(e)}")
         return "00:00"
+
+
+def estimate_remaining_time(video_count: int, progress: float) -> tuple[int, str]:
+    """
+    Estimate remaining time for playlist analysis.
+
+    Args:
+        video_count: Total number of videos in playlist
+        progress: Current progress (0-100)
+
+    Returns:
+        Tuple of (seconds_remaining, formatted_label)
+
+    Example:
+        >>> estimate_remaining_time(100, 50.0)
+        (125, "~2 min remaining")
+    """
+    if video_count <= 0 or progress <= 0:
+        return (0, "Calculating...")
+
+    # Clamp progress to valid range
+    progress_decimal = max(0.0, min(1.0, progress / 100.0))
+
+    # Calculate total estimated time
+    estimated_total_seconds = video_count * TimeEstimates.SECONDS_PER_VIDEO
+
+    # Calculate elapsed and remaining
+    elapsed = estimated_total_seconds * progress_decimal
+    remaining = estimated_total_seconds - elapsed
+
+    # Format output
+    if remaining <= 0:
+        return (0, "Almost done...")
+
+    remaining_minutes = max(TimeEstimates.MIN_ESTIMATE_MINUTES, int(remaining / 60))
+
+    return (int(remaining), f"~{remaining_minutes} min remaining")
 
 
 def format_seconds(seconds: int) -> str:
@@ -304,3 +345,47 @@ def compute_time_metrics(started_at_str: str | None, progress: float):
 def compute_batches(progress: float, batch_count: int = 5):
     current = max(1, int(progress * batch_count))
     return current, batch_count
+
+
+def create_redirect_script(
+    url: str, delay_ms: int = 500, message: str = "Redirecting..."
+) -> str:
+    """
+    Create a safe redirect script with proper escaping.
+
+    Args:
+        url: URL to redirect to (will be escaped)
+        delay_ms: Delay in milliseconds before redirect
+        message: Console message to log
+
+    Returns:
+        Safe JavaScript string
+
+    Example:
+        >>> create_redirect_script("/dashboard/abc123")
+        "console.log('Redirecting...');\\nsetTimeout(() => {\\n..."
+    """
+    # Escape for safe HTML/JS interpolation
+    safe_url = html.escape(url, quote=True)
+    safe_message = html.escape(message, quote=True)
+
+    return f"""
+        console.log('{safe_message}');
+        setTimeout(() => {{
+            window.location.href = '{safe_url}';
+        }}, {delay_ms});
+    """
+
+
+def clamp(value: float, min_val: float, max_val: float) -> float:
+    """
+    Constrain a value within a min and max range.
+    Works with floats, ints, and comparable types.
+
+    Examples:
+        clamp(50, 0, 100)      # → 50
+        clamp(-10, 0, 100)     # → 0
+        clamp(150, 0, 100)     # → 100
+        clamp(4.2, 0, 3.5)     # → 3.5
+    """
+    return max(min_val, min(value, max_val))
