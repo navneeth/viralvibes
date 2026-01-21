@@ -656,29 +656,37 @@ def authenticated_client(client, monkeypatch):
     """
     Test client that bypasses authentication checks.
 
-    Instead of trying to inject session data, we patch the routes
-    to skip the auth check entirely during tests.
+    Patches ALL route handlers that check sess.get("auth") to inject
+    a fake authenticated session.
     """
     import main
 
-    # Store original route handler
+    # Create fake authenticated session
+    fake_sess = {
+        "auth": {
+            "email": "test@viralvibes.com",
+            "name": "Test User",
+            "picture": "https://example.com/test-avatar.jpg",
+            "ident": "test_google_123456",
+        }
+    }
+
+    # Store original handlers
+    original_validate_url = main.validate_url
     original_submit_job = main.submit_job
 
-    # Create wrapper that skips auth check
+    # Patch validate_url to inject auth session
+    def patched_validate_url(playlist, req, sess):
+        # Call original with fake authenticated session
+        return original_validate_url(playlist, req, fake_sess)
+
+    # Patch submit_job to inject auth session
     def patched_submit_job(playlist_url: str, req, sess):
-        # Create fake authenticated session
-        fake_sess = {
-            "auth": {
-                "email": "test@viralvibes.com",
-                "name": "Test User",
-                "picture": "https://example.com/test-avatar.jpg",
-                "ident": "test_google_123456",
-            }
-        }
         # Call original with fake authenticated session
         return original_submit_job(playlist_url, req, fake_sess)
 
-    # Apply the patch
+    # Apply patches
+    monkeypatch.setattr(main, "validate_url", patched_validate_url)
     monkeypatch.setattr(main, "submit_job", patched_submit_job)
 
     return client
