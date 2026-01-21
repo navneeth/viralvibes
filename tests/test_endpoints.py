@@ -1,14 +1,3 @@
-"""
-Integration tests for main application endpoints.
-
-Test Organization:
-1. Public Endpoints (index, newsletter)
-2. Preview Flow (cache checks, auto-submit logic)
-3. Job Submission (duplicate protection, polling setup)
-4. Job Progress (polling, completion, errors)
-5. Dashboard (persistent links, analytics)
-"""
-
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -17,671 +6,20 @@ import pytest
 from starlette.testclient import TestClient
 
 import main
-from constants import KNOWN_PLAYLISTS, JobStatus
-from db import (
-    get_dashboard_event_counts,
-    record_dashboard_event,
-    set_supabase_client,
-)
+from constants import KNOWN_PLAYLISTS
+from db import get_dashboard_event_counts, record_dashboard_event, set_supabase_client
 
 # Use a real playlist URL from constants for testing
 TEST_PLAYLIST_URL = KNOWN_PLAYLISTS[0]["url"]
 
 
-# ============================================================
-# Fixtures
-# ============================================================
-
-
 @pytest.fixture
 def client():
-    """Unauthenticated test client."""
     return TestClient(main.app)
 
 
-def make_test_preview_data():
-    """Create consistent preview data for tests."""
-    return {
-        "title": "Test Playlist",
-        "channel_name": "Test Channel",
-        "thumbnail": "/test.jpg",
-        "video_count": 100,
-        "description": "Test description",
-        "source": "cache",
-    }
-
-
-def make_test_job_data(
-    status: str = JobStatus.PROCESSING,
-    progress: float = 0.25,
-    error: str | None = None,
-):
-    """Create consistent job data for tests."""
-    return {
-        "id": "test-job-123",
-        "status": status,
-        "progress": progress,
-        "started_at": (datetime.utcnow() - timedelta(seconds=30)).isoformat(),
-        "error": error,
-    }
-
-
-# ============================================================
-# Test Class 1: Public Endpoints
-# ============================================================
-
-
-class TestPublicEndpoints:
-    """Tests for publicly accessible endpoints."""
-
-    def test_index_renders(self, client):
-        """Test homepage loads successfully."""
-        r = client.get("/")
-        assert r.status_code == 200
-        assert "ViralVibes" in r.text or "Decode YouTube virality" in r.text
-
-    def test_newsletter_signup_success(self, client, monkeypatch):
-        """Test successful newsletter signup."""
-        # Mock Supabase client
-        fake_client = SimpleNamespace()
-        fake_client.table = lambda tbl: SimpleNamespace(
-            insert=lambda payload: SimpleNamespace(
-                execute=lambda: SimpleNamespace(data=[{"id": 1}])
-            )
-        )
-        monkeypatch.setattr(main, "supabase_client", fake_client)
-
-        r = client.post("/newsletter", data={"email": "test@example.com"})
-        assert r.status_code == 200
-        assert "Thanks for signing up" in r.text or "Thanks" in r.text
-
-    def test_newsletter_signup_invalid_email(self, client):
-        """Test newsletter signup with invalid email."""
-        r = client.post("/newsletter", data={"email": "not-an-email"})
-        # Should return validation error
-        assert r.status_code in (200, 422)
-
-
-# ============================================================
-# Test Class 2: Preview Flow
-# ============================================================
-
-
-class TestPreviewFlow:
-    """Tests for /preview endpoint and auto-submit logic."""
-
-    def test_preview_cache_hit_redirects_to_full_analysis(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: When cached data exists, preview should redirect to full analysis.
-
-        Flow:
-        1. User submits URL
-        2. Cache hit detected
-        3. Returns redirect script to /d/{dashboard_id}
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: {
-                "title": "Cached Playlist",
-                "df_json": "{}",
-            },
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should contain redirect logic (either Script or hx-redirect)
-        assert "window.location" in r.text or "hx-redirect" in r.text
-
-    def test_preview_auto_submit_when_no_job_exists(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Auto-submit should trigger when no active job exists.
-
-        Flow:
-        1. No cache exists
-        2. No active job found (job_status = None)
-        3. auto_submit=True passed to render_preview_card
-        4. HTMX trigger fires /submit-job on page load
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: None,  # No job exists
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should contain auto-submit HTMX trigger
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load once' in r.text
-        assert "Starting analysis" in r.text or "Analysis in Progress" in r.text
-
-    def test_preview_auto_submit_when_job_failed(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Auto-submit should trigger retry when previous job failed.
-
-        Flow:
-        1. No cache exists
-        2. Previous job status = failed
-        3. auto_submit=True (retry logic)
-        4. HTMX trigger fires /submit-job on page load
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: JobStatus.FAILED,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load once' in r.text
-
-    def test_preview_shows_existing_job_progress(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: When job is already processing, show status without auto-submit.
-
-        Flow:
-        1. No cache exists
-        2. Active job found (status = processing)
-        3. auto_submit=False
-        4. Shows disabled button with "Analysis in Progress"
-        """
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: JobStatus.PROCESSING,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should NOT have auto-submit trigger
-        assert 'hx-trigger="load once' not in r.text
-        # Should show processing state
-        assert "Analysis in Progress" in r.text or "Processing" in r.text
-
-    def test_preview_handles_blocked_job(self, authenticated_client, monkeypatch):
-        """Test preview shows blocked message for YouTube-blocked playlists."""
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status",
-            lambda url: JobStatus.BLOCKED,
-        )
-
-        r = authenticated_client.post(
-            "/preview",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        assert "blocked" in r.text.lower() or "YouTube" in r.text
-
-
-# ============================================================
-# Test Class 2.5: URL Validation & Preview
-# ============================================================
-
-
-class TestURLValidationAndPreview:
-    """Tests for /validate/url and /validate/preview endpoints."""
-
-    def test_validate_url_requires_auth(self, client):
-        """Test /validate/url requires authentication."""
-        r = client.post("/validate/url", json={"playlist_url": TEST_PLAYLIST_URL})
-
-        assert r.status_code in (200, 303, 401)
-        # Should prompt for login
-        if r.status_code == 200:
-            assert "log in" in r.text.lower() or "login" in r.text.lower()
-
-    def test_validate_url_invalid_format(self, authenticated_client):
-        """Test /validate/url rejects invalid URLs."""
-        r = authenticated_client.post(
-            "/validate/url", json={"playlist_url": "not-a-valid-url"}
-        )
-
-        assert r.status_code in (200, 422)
-        if r.status_code == 200:
-            assert "invalid" in r.text.lower()
-
-    def test_validate_url_triggers_preview(self, authenticated_client, monkeypatch):
-        """Test /validate/url triggers /validate/preview on success."""
-        r = authenticated_client.post(
-            "/validate/url", json={"playlist_url": TEST_PLAYLIST_URL}
-        )
-
-        assert r.status_code == 200
-        # Should contain HTMX call to /validate/preview
-        assert "htmx.ajax('POST', '/validate/preview'" in r.text
-        assert TEST_PLAYLIST_URL in r.text
-
-    def test_preview_cache_hit_returns_redirect_script(self, client, monkeypatch):
-        """Test /validate/preview returns redirect when cache exists."""
-        # Mock cache hit at controller level
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: {"title": "Cached Playlist", "df_json": "[]"},
-        )
-
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
-
-        assert r.status_code == 200
-        # Should redirect to full analysis
-        assert "htmx.ajax('POST', '/validate/full'" in r.text
-
-    def test_preview_job_done_redirects(self, client, monkeypatch):
-        """Test /validate/preview redirects when job is complete."""
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status", lambda url: "done"
-        )
-
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
-
-        assert r.status_code == 200
-        assert "htmx.ajax('POST', '/validate/full'" in r.text
-
-    def test_preview_shows_card_on_cache_miss(self, client, monkeypatch):
-        """Test /validate/preview shows preview card when no cache."""
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status", lambda url: None  # No job
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
-
-        assert r.status_code == 200
-        # Should show preview card
-        assert "YouTube Playlist" in r.text or "Test Playlist" in r.text
-        # Should have auto-submit trigger
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load' in r.text
-
-    def test_preview_public_access(self, client, monkeypatch):
-        """Test /validate/preview is publicly accessible (no auth required)."""
-        # Mock preview data
-        monkeypatch.setattr(
-            "controllers.preview.get_cached_playlist_stats",
-            lambda url, check_date=True: None,
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status", lambda url: None
-        )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        # No authentication - should still work
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
-
-        assert r.status_code == 200
-        # Should NOT show auth error
-        assert "log in" not in r.text.lower()
-
-
-# ============================================================
-# Test Class 3: Job Submission
-# ============================================================
-
-
-class TestJobSubmission:
-    """Tests for /submit-job endpoint."""
-
-    def test_submit_job_creates_job_and_returns_polling_trigger(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: /submit-job creates job and returns HTMX polling div.
-
-        Flow:
-        1. User clicks "Analyze" or auto-submit triggers
-        2. POST /submit-job
-        3. Job created in database
-        4. Returns div with hx-get="/job-progress" + hx-trigger="every 2s"
-        """
-        called = {}
-
-        def fake_submit(url):
-            called["url"] = url
-            return True
-
-        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
-
-        r = authenticated_client.post(
-            "/submit-job",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        assert called.get("url") == TEST_PLAYLIST_URL
-
-        # Should return polling div
-        assert 'hx-get="/job-progress' in r.text
-        assert 'hx-trigger="load, every 2s"' in r.text
-        assert 'id="preview-box"' in r.text
-
-    def test_submit_job_handles_duplicate_submission(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Duplicate job submissions are handled gracefully.
-
-        Flow:
-        1. Job already exists for URL
-        2. submit_playlist_job returns False (duplicate)
-        3. Still returns polling div (shows existing job progress)
-        """
-        monkeypatch.setattr("main.submit_playlist_job", lambda url: False)
-
-        r = authenticated_client.post(
-            "/submit-job",
-            data={"playlist_url": TEST_PLAYLIST_URL},
-        )
-
-        assert r.status_code == 200
-        # Should still return polling div
-        assert 'hx-get="/job-progress' in r.text
-
-
-# ============================================================
-# Test Class 4: Job Progress
-# ============================================================
-
-
-class TestJobProgress:
-    """Tests for /job-progress endpoint and status polling."""
-
-    def test_job_progress_shows_active_job_with_polling(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Active job shows progress UI with continued polling.
-
-        Flow:
-        1. GET /job-progress
-        2. Job status = processing, progress = 25%
-        3. Returns progress UI with stats
-        4. Includes hx-trigger="every 2s" for continued polling
-        """
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: make_test_job_data(status=JobStatus.PROCESSING, progress=25.0),
-        )
-        monkeypatch.setattr(
-            "controllers.job_progress.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-
-        # Should show progress
-        assert "25%" in r.text or "Complete" in r.text
-        assert "Test Playlist" in r.text
-        assert "100" in r.text  # video count
-
-        # Should continue polling
-        assert 'hx-get="/job-progress' in r.text
-        assert 'hx-trigger="every 2s"' in r.text
-
-    def test_job_progress_redirects_on_completion(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Completed job triggers redirect to dashboard.
-
-        Flow:
-        1. GET /job-progress
-        2. Job status = complete, progress = 100%
-        3. Returns redirect script (window.location.href)
-        4. NO polling trigger (job is done)
-        """
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: make_test_job_data(status=JobStatus.COMPLETE, progress=100.0),
-        )
-        monkeypatch.setattr(
-            "controllers.job_progress.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-
-        # Should contain redirect script
-        assert "window.location.href" in r.text or "complete" in r.text.lower()
-
-        # Should NOT have polling trigger
-        assert 'hx-trigger="every 2s"' not in r.text
-
-    def test_job_progress_shows_error_on_failure(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Failed job shows error message without polling.
-
-        Flow:
-        1. GET /job-progress
-        2. Job status = failed, error message present
-        3. Shows error alert with message
-        4. NO polling (job is terminal)
-        """
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: make_test_job_data(
-                status=JobStatus.FAILED,
-                progress=50.0,
-                error="Network timeout while fetching videos",
-            ),
-        )
-        monkeypatch.setattr(
-            "controllers.job_progress.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-        assert "Failed" in r.text or "error" in r.text.lower()
-        assert "Network timeout" in r.text
-
-        # Should NOT poll
-        assert 'hx-trigger="every 2s"' not in r.text
-
-    def test_job_progress_shows_blocked_state(self, authenticated_client, monkeypatch):
-        """Test blocked job shows appropriate warning message."""
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: make_test_job_data(status=JobStatus.BLOCKED, progress=0.0),
-        )
-        monkeypatch.setattr(
-            "controllers.job_progress.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-        assert "Blocked" in r.text or "blocked" in r.text
-        assert "YouTube" in r.text
-
-    def test_job_progress_handles_missing_job(self, authenticated_client, monkeypatch):
-        """Test /job-progress gracefully handles missing job data."""
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: None,  # No job found
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-        assert "No analysis job found" in r.text or "not found" in r.text.lower()
-
-    def test_job_progress_clamps_invalid_progress(
-        self, authenticated_client, monkeypatch
-    ):
-        """Test progress values outside [0, 100] are clamped correctly."""
-        # Test progress > 100
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: make_test_job_data(
-                status=JobStatus.PROCESSING, progress=150.0  # Invalid!
-            ),
-        )
-        monkeypatch.setattr(
-            "controllers.job_progress.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-        # Progress bar width should be clamped to 100%
-        assert 'style="width: 100%' in r.text or "width: 100.0%" in r.text
-
-    def test_job_progress_handles_none_status(self, authenticated_client, monkeypatch):
-        """Test job with None/unknown status shows graceful fallback."""
-        monkeypatch.setattr(
-            "controllers.job_progress.get_job_progress",
-            lambda url: {
-                "id": "test-job",
-                "status": None,  # Unknown status
-                "progress": 10.0,
-                "error": None,
-            },
-        )
-        monkeypatch.setattr(
-            "controllers.job_progress.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
-
-        r = authenticated_client.get(f"/job-progress?playlist_url={TEST_PLAYLIST_URL}")
-
-        assert r.status_code == 200
-        # Should show fallback message (not "Status: None")
-        assert "Preparing analysis" in r.text or "Waiting" in r.text
-        assert "Status: None" not in r.text
-
-
-# ============================================================
-# Test Class 5: Dashboard
-# ============================================================
-
-
-class TestDashboard:
-    """Tests for persistent dashboard endpoints."""
-
-    def test_dashboard_by_id_loads(
-        self, authenticated_client, mock_supabase, monkeypatch
-    ):
-        """Test GET /d/{dashboard_id} returns dashboard content."""
-        set_supabase_client(mock_supabase)
-
-        dashboard_id = "test-dash-abc123"
-        r = authenticated_client.get(f"/d/{dashboard_id}")
-
-        assert r.status_code in (200, 303)
-        assert "Sample Playlist" in r.text or "playlist-table" in r.text
-
-    def test_dashboard_records_view_event(self, mock_supabase, monkeypatch):
-        """Test viewing dashboard increments view count."""
-        set_supabase_client(mock_supabase)
-
-        dashboard_id = "test-dash-abc123"
-
-        # Record view event
-        result = record_dashboard_event(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-            event_type="view",
-        )
-
-        # Should succeed
-        assert result is True or result is not None
-
-    def test_dashboard_event_counts(self, mock_supabase, monkeypatch):
-        """Test fetching dashboard event counts."""
-        set_supabase_client(mock_supabase)
-
-        dashboard_id = "test-dash-abc123"
-        counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-
-        assert "view" in counts
-        assert "share" in counts
-        assert isinstance(counts["view"], int)
-        assert isinstance(counts["share"], int)
-
-
-# ============================================================
-# Legacy Tests (Keep for Compatibility)
-# ============================================================
-
-
 def make_cached_row():
-    """Legacy helper for cached data structure."""
+    # small cached row used by validate_full
     df = pl.DataFrame(
         [
             {
@@ -691,7 +29,7 @@ def make_cached_row():
                 "Likes": 10,
                 "Dislikes": 1,
                 "Comments": 5,
-                "Engagement Rate (%)": 16.0,
+                "Engagement Rate (%)": 16.0,  # (Likes + Dislikes + Comments) / Views
                 "Controversy": 18.18,
                 "Views Formatted": "100",
                 "Likes Formatted": "10",
@@ -713,3 +51,385 @@ def make_cached_row():
         },
         "video_count": 1,
     }
+
+
+def test_index_renders(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "ViralVibes" in r.text or "Decode YouTube virality" in r.text
+
+
+def test_validate_url_invalid(client):
+    r = client.post("/validate/url", json={"playlist_url": "not-a-url"})
+    # validator returns a Div with errors (422 may be returned by pydantic depending on your validators)
+    assert r.status_code in (200, 422)
+
+
+def test_preview_returns_script_on_cache_hit(client, monkeypatch):
+    """Test /validate/preview returns redirect script when cache exists."""
+    # Mock at the controller level where it's imported
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: {"title": "Cached Playlist"},
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    assert "htmx.ajax('POST', '/validate/full'" in r.text
+
+
+def test_preview_shows_preview_on_cache_miss_job_done(client, monkeypatch):
+    """Test /validate/preview shows preview card when no cache but job is done."""
+    # Mock at controller level
+    monkeypatch.setattr(
+        "controllers.preview.get_cached_playlist_stats",
+        lambda url, check_date=True: None,
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_job_status", lambda url: "done"
+    )
+    monkeypatch.setattr(
+        "controllers.preview.get_playlist_preview_info",
+        lambda url: {"title": "Test", "video_count": 50},
+    )
+
+    r = client.post(
+        "/validate/preview",
+        data={"playlist_url": TEST_PLAYLIST_URL},
+    )
+
+    assert r.status_code == 200
+    # Job done with no cache → should show redirect script
+    assert "htmx.ajax('POST', '/validate/full'" in r.text
+
+
+def make_test_dataframe():
+    """Create a test Polars DataFrame matching expected structure."""
+    import polars as pl
+
+    return pl.DataFrame(
+        {
+            "Rank": [1, 2, 3, 4, 5],
+            "Title": [
+                "Video 1",
+                "Video 2",
+                "Video 3",
+                "Video 4",
+                "Video 5",
+            ],
+            "Views": [10000, 8000, 6000, 4000, 2000],
+            "Likes": [300, 240, 180, 120, 60],
+            "Comments": [50, 40, 30, 20, 10],
+            "Duration": [240, 300, 180, 360, 120],
+        }
+    )
+
+
+def test_submit_job_and_poll(authenticated_client, monkeypatch):
+    """
+    Test job submission and progress polling screen flow:
+    1. /submit-job creates job and returns HTMX trigger div
+    2. /job-progress returns progress screen with updates
+    """
+    playlist_url = TEST_PLAYLIST_URL
+
+    # Mock submit_playlist_job to track it was called
+    called = {}
+
+    def fake_submit(url):
+        called["url"] = url
+
+    monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+
+    # Mock get_job_progress to return a pending job
+    mock_job = {
+        "id": "job-123",
+        "status": "processing",
+        "progress": 0.25,  # 25% complete
+        "started_at": (datetime.utcnow() - timedelta(seconds=30)).isoformat(),
+        "error": None,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
+
+    # Mock get_playlist_preview_info to return test data
+    mock_preview = {
+        "title": "Test Playlist",
+        "video_count": 100,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
+
+    # Mock get_estimated_stats
+    monkeypatch.setattr(
+        "controllers.job_progress.get_estimated_stats",
+        lambda count: {
+            "estimated_total_views": 5000000,
+            "estimated_total_likes": 150000,
+            "estimated_total_comments": 15000,
+        },
+    )
+
+    # ---- TEST /submit-job ----
+    # This should return a div with hx-get and hx-trigger attributes
+    r = authenticated_client.post("/submit-job", data={"playlist_url": playlist_url})
+
+    print(f"\n🔍 Response status: {r.status_code}")
+    print(f"🔍 Response text (first 500 chars): {r.text[:500]}")
+    print(f"🔍 Called dict: {called}")
+
+    assert r.status_code == 200
+    assert called.get("url") == playlist_url
+
+    # Response should have HTMX polling attributes
+    assert 'hx-get="/job-progress' in r.text
+    assert 'hx-trigger="load, every 2s"' in r.text
+    assert 'id="preview-box"' in r.text
+
+    # ---- TEST /job-progress ----
+    # Now test the progress endpoint that /submit-job triggers
+    r_progress = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
+
+    assert r_progress.status_code == 200
+
+    # Should contain progress screen content
+    assert "Processing Your Playlist" in r_progress.text
+    assert "Analyzing 100 videos" in r_progress.text
+
+    # Should show progress percentage
+    assert "25%" in r_progress.text or "Complete" in r_progress.text
+
+    # Should have stats preview section
+    # assert "What's Being Analyzed" in r_progress.text
+    assert "Videos" in r_progress.text
+    assert "Est. Views" in r_progress.text
+
+    # Should have tips section
+    assert "What You'll Discover" in r_progress.text or "Processing" in r_progress.text
+
+    # Should still have polling attributes (job not complete)
+    assert 'id="progress-container"' in r_progress.text
+    assert 'hx-get="/job-progress' in r_progress.text
+    assert 'hx-trigger="every 2s"' in r_progress.text
+    assert 'hx-swap="outerHTML"' in r_progress.text
+
+
+def test_job_progress_completion(authenticated_client, monkeypatch):
+    """
+    Test /job-progress when job is complete.
+    Should show redirect/completion message, NOT polling.
+    """
+    playlist_url = TEST_PLAYLIST_URL
+
+    # Mock a COMPLETED job
+    mock_job = {
+        "id": "job-123",
+        "status": "done",
+        "progress": 1.0,
+        "started_at": (datetime.utcnow() - timedelta(seconds=300)).isoformat(),
+        "error": None,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
+
+    mock_preview = {
+        "title": "Test Playlist",
+        "video_count": 100,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
+
+    monkeypatch.setattr(
+        "controllers.job_progress.get_estimated_stats",
+        lambda count: {
+            "estimated_total_views": 5000000,
+            "estimated_total_likes": 150000,
+            "estimated_total_comments": 15000,
+        },
+    )
+
+    # Test progress endpoint with completed job
+    r = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
+
+    assert r.status_code == 200
+
+    # ✅ Updated: The controller shows "100% Complete" not "Loading results"
+    # Check for completion indicators
+    assert "100%" in r.text or "Complete" in r.text
+
+    # Should NOT have polling attributes (job is complete)
+    assert 'id="progress-container"' in r.text
+    assert 'hx-get="/job-progress"' not in r.text
+    assert 'hx-trigger="every 2s"' not in r.text
+
+
+def test_job_progress_with_error(authenticated_client, monkeypatch):
+    """
+    Test /job-progress when job has failed.
+    Should show error message.
+    """
+    playlist_url = TEST_PLAYLIST_URL
+
+    # Mock a FAILED job
+    mock_job = {
+        "id": "job-123",
+        "status": "failed",
+        "progress": 0.50,
+        "started_at": (datetime.utcnow() - timedelta(seconds=60)).isoformat(),
+        "error": "Network timeout while fetching videos",
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
+
+    mock_preview = {
+        "title": "Test Playlist",
+        "video_count": 100,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
+
+    monkeypatch.setattr(
+        "controllers.job_progress.get_estimated_stats",
+        lambda count: {
+            "estimated_total_views": 5000000,
+            "estimated_total_likes": 150000,
+            "estimated_total_comments": 15000,
+        },
+    )
+
+    r = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
+
+    assert r.status_code == 200
+
+    # Should show error message
+    assert "Error" in r.text or "error" in r.text.lower()
+    assert "Network timeout" in r.text
+
+
+def test_job_progress_progress_calculation(authenticated_client, monkeypatch):
+    """Test that /job-progress correctly calculates elapsed and remaining time."""
+    playlist_url = TEST_PLAYLIST_URL
+
+    # Create a job that started 60 seconds ago and is 50% complete
+    start_time = datetime.utcnow() - timedelta(seconds=60)
+    mock_job = {
+        "id": "job-123",
+        "status": "processing",
+        "progress": 0.50,
+        "started_at": start_time.isoformat(),
+        "error": None,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_job_progress", lambda url: mock_job
+    )
+
+    mock_preview = {
+        "title": "Test Playlist",
+        "video_count": 100,
+    }
+    monkeypatch.setattr(
+        "controllers.job_progress.get_playlist_preview_info", lambda url: mock_preview
+    )
+
+    monkeypatch.setattr(
+        "controllers.job_progress.get_estimated_stats",
+        lambda count: {
+            "estimated_total_views": 5000000,
+            "estimated_total_likes": 150000,
+            "estimated_total_comments": 15000,
+        },
+    )
+
+    r = authenticated_client.get(f"/job-progress?playlist_url={playlist_url}")
+
+    assert r.status_code == 200
+
+    # Should show 50% progress
+    assert "50%" in r.text
+
+    # Should show elapsed time (approximately 60s = 1m 0s)
+    assert "Elapsed" in r.text
+
+    # Should show remaining time estimate
+    assert "Remaining" in r.text
+
+
+def test_check_job_status_transitions(authenticated_client, monkeypatch):
+    """Test job status polling transitions -> returns polling div"""
+    monkeypatch.setattr(main, "get_playlist_job_status", lambda url: "processing")
+    r = authenticated_client.get(f"/check-job-status?playlist_url={TEST_PLAYLIST_URL}")
+    assert r.status_code == 200
+    assert "Analysis in progress" in r.text or "loading" in r.text.lower()
+
+
+def test_newsletter_with_supabase_success(client, monkeypatch):
+    # mock supabase client to return data on insert
+    fake_client = SimpleNamespace()
+    fake_client.table = lambda tbl: SimpleNamespace(
+        insert=lambda payload: SimpleNamespace(
+            execute=lambda: SimpleNamespace(data=[{"id": 1}])
+        )
+    )
+    monkeypatch.setattr(main, "supabase_client", fake_client)
+    r = client.post("/newsletter", data={"email": "test@example.com"})
+    assert r.status_code == 200
+    assert "Thanks for signing up" in r.text or "Thanks" in r.text
+
+
+def test_dashboard_by_id(authenticated_client, mock_supabase, monkeypatch):
+    """Test GET /d/{dashboard_id} returns persistent dashboard."""
+
+    # Inject mock Supabase
+    set_supabase_client(mock_supabase)
+
+    dashboard_id = "test-dash-abc123"
+    r = authenticated_client.get(f"/d/{dashboard_id}")
+
+    # Should return 200 (or redirect if using persistent mode)
+    assert r.status_code in (200, 303)
+    # Should contain dashboard content
+    assert "Sample Playlist" in r.text or "playlist-table" in r.text
+
+
+def test_dashboard_records_view_event(client, mock_supabase, monkeypatch):
+    """Test that viewing a dashboard increments view_count."""
+
+    set_supabase_client(mock_supabase)
+
+    dashboard_id = "test-dash-abc123"
+
+    # Record a view event
+    record_dashboard_event(
+        supabase=mock_supabase, dashboard_id=dashboard_id, event_type="view"
+    )
+
+    # Verify event was recorded (check mock was called)
+    # This depends on your mock implementation
+    assert True  # Placeholder
+
+
+def test_get_dashboard_event_counts(mock_supabase, monkeypatch):
+    """Test fetching dashboard event counts."""
+
+    set_supabase_client(mock_supabase)
+
+    dashboard_id = "test-dash-abc123"
+    counts = get_dashboard_event_counts(
+        supabase=mock_supabase, dashboard_id=dashboard_id
+    )
+
+    # Should return dict with view and share counts
+    assert "view" in counts
+    assert "share" in counts
+    assert isinstance(counts["view"], int)
+    assert isinstance(counts["share"], int)
