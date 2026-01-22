@@ -12,7 +12,7 @@ import io
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,7 +20,7 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
-from utils import compute_dashboard_id  # ✅ Import real function
+from utils import compute_dashboard_id  # ✅ Import real hash function
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
@@ -359,16 +359,8 @@ class MockSupabaseTable:
 class MockSupabase:
     """Mock Supabase client that simulates database operations."""
 
-    def __init__(self):
-        # ✅ Initialize with properly computed dashboard_ids
-        test_row = create_test_playlist_row()
-
-        self.data = {
-            PLAYLIST_STATS_TABLE: [test_row],
-            "dashboard_events": {},
-            "playlist_jobs": {},
-            "dashboards": {},
-        }
+    def __init__(self, data):
+        self.data = data
         self.call_count = 0
 
     def table(self, table_name):
@@ -397,42 +389,61 @@ def create_test_dataframe(num_videos: int = 5) -> pl.DataFrame:
 
 
 def create_test_playlist_row(
-    playlist_url: str = TEST_PLAYLIST_URL,  # ✅ Use constant
+    playlist_url: str = TEST_PLAYLIST_URL,
     num_videos: int = 5,
 ) -> dict:
-    """
-    Create test playlist row with CORRECT dashboard_id.
-
-    ✅ Computes dashboard_id same way as production code.
-    """
-
-    # ✅ Compute dashboard_id using the REAL function
+    """Create complete test playlist_stats row matching DB schema."""
     dashboard_id = compute_dashboard_id(playlist_url)
-
     df = create_test_dataframe(num_videos)
+
+    # ✅ Calculate metrics from DataFrame
+    total_views = int(df["Views"].sum())
+    total_likes = int(df["Likes"].sum())
+    total_comments = int(df["Comments"].sum())
+    avg_engagement = (
+        (total_likes + total_comments) / total_views if total_views > 0 else 0
+    )
+    avg_duration_seconds = int(df["Duration"].mean())
+    avg_duration_interval = str(timedelta(seconds=avg_duration_seconds))  # "0:04:30"
 
     return {
         "id": 1,
         "playlist_url": playlist_url,
-        "title": "Sample Playlist",
+        "dashboard_id": dashboard_id,
+        "title": "Test Playlist",
         "channel_name": "Test Channel",
         "channel_thumbnail": "https://example.com/test.jpg",
+        # ✅ NEW: Add missing DB fields
+        "view_count": total_views,
+        "like_count": total_likes,
+        "dislike_count": 0,  # YouTube removed dislikes
+        "comment_count": total_comments,
+        "video_count": num_videos,
+        "processed_video_count": num_videos,
+        # ✅ NEW: Calculated metrics
+        "engagement_rate": avg_engagement,
+        "controversy_score": 0.0,  # Requires like/dislike ratio
+        # ✅ NEW: Duration as PostgreSQL INTERVAL string
+        "avg_duration": avg_duration_interval,  # ✅ PostgreSQL INTERVAL format
+        # ✅ Timestamps
+        "processed_on": datetime.utcnow().isoformat(),
+        "processed_date": datetime.utcnow().date().isoformat(),
+        # ✅ JSON fields
         "df_json": df.write_json(),
         "summary_stats": json.dumps(
             {
-                "total_views": 50000,
-                "total_likes": 1500,
-                "total_comments": 100,
-                "avg_engagement": 0.05,
+                "total_views": total_views,
+                "total_likes": total_likes,
+                "total_dislikes": 0,
+                "total_comments": total_comments,
+                "avg_engagement": avg_engagement,
                 "actual_playlist_count": num_videos,
                 "processed_video_count": num_videos,
+                "avg_duration": avg_duration_interval,  # Also in JSON
             }
         ),
-        "processed_date": "2024-01-01",
-        "processed_on": "2024-01-01T12:00:00Z",
-        "dashboard_id": dashboard_id,  # ✅ Real computed hash
-        "view_count": num_videos,
-        "share_count": 0,
+        # ✅ Event counters (from dashboard_events aggregation)
+        "share_count": 0,  # This is NOT in DB, see gap #3
     }
 
 
@@ -451,7 +462,7 @@ def create_test_job_row(
         "id": job_id,
         "playlist_url": playlist_url,
         "status": status,
-        "progress": 100 if status == "complete" else 0,
+        "progress": 1.0 if status == "complete" else 0.0,  # ✅ Float fraction
         "dashboard_id": dashboard_id,
         "created_at": "2024-01-01T12:00:00Z",
         "started_at": "2024-01-01T12:01:00Z",

@@ -608,13 +608,7 @@ class TestDashboard:
         """Test GET /d/{dashboard_id} returns dashboard content."""
         set_supabase_client(mock_supabase)
 
-        # ✅ Use the REAL playlist URL from the test data
-        test_url = TEST_PLAYLIST_URL
-
-        # ✅ Compute the REAL dashboard_id
-        dashboard_id = compute_dashboard_id(test_url)
-
-        # ✅ Now the lookup will work!
+        dashboard_id = "test-dash-abc123"
         r = authenticated_client.get(f"/d/{dashboard_id}")
 
         assert r.status_code in (200, 303)
@@ -696,6 +690,27 @@ class TestDashboard:
         assert "share" in counts
         assert isinstance(counts["view"], int)
         assert isinstance(counts["share"], int)
+
+    def test_dashboard_view_increments_counter(authenticated_client, mock_supabase):
+        """Dashboard views should increment view counter in dashboard_events, NOT playlist_stats.view_count."""
+
+        # Get initial state
+        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
+
+        # Visit dashboard
+        r = authenticated_client.get(f"/d/{dashboard_id}")
+        assert r.status_code == 200
+
+        # ✅ CORRECT: Check dashboard_events table, not playlist_stats.view_count
+        events = (
+            mock_supabase.table("dashboard_events")
+            .select("*")
+            .eq("dashboard_id", dashboard_id)
+            .execute()
+        )
+
+        assert len(events.data) == 1
+        assert events.data[0]["event_type"] == "view"
 
 
 # ============================================================
