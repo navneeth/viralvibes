@@ -12,7 +12,7 @@ import io
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,6 +20,7 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
+from utils import compute_dashboard_id  # ✅ Add this import at top
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
@@ -381,15 +382,23 @@ def create_test_dataframe(num_videos: int = 5) -> pl.DataFrame:
             "Title": [f"Test Video {i}" for i in range(1, num_videos + 1)],
             "Views": [10000 - (i * 1000) for i in range(num_videos)],
             "Likes": [300 - (i * 50) for i in range(num_videos)],
+            "Dislikes": [10 - i for i in range(num_videos)],  # ✅ NEW
             "Comments": [50 - (i * 5) for i in range(num_videos)],
-            "Duration": [240, 300, 180, 360, 120][:num_videos],
+            "Duration": [240, 300, 180, 360, 120][:num_videos],  # ✅ NEW (in seconds)
+            "Engagement Rate (%)": [6.0 - (i * 0.5) for i in range(num_videos)],
+            "Controversy": [9.0 + (i * 2.0) for i in range(num_videos)],
+            "Views Formatted": [f"{10000 - (i * 1000):,}" for i in range(num_videos)],
+            "Likes Formatted": [f"{300 - (i * 50):,}" for i in range(num_videos)],
+            "Comments Formatted": [f"{50 - (i * 5):,}" for i in range(num_videos)],
+            "Engagement Rate Formatted": [
+                f"{6.0 - (i * 0.5):.2f}%" for i in range(num_videos)
+            ],
         }
     )
 
 
 def create_test_playlist_row(
-    playlist_url: str = "https://www.youtube.com/playlist?list=PLtest123",
-    dashboard_id: str = "test-dash-abc123",
+    playlist_url: str = TEST_PLAYLIST_URL,  # ✅ REMOVED dashboard_id parameter
     num_videos: int = 5,
 ) -> dict:
     """
@@ -397,56 +406,98 @@ def create_test_playlist_row(
 
     ✅ UPDATED: Includes dashboard_id, view_count, share_count columns
     """
+    # ✅ Compute dashboard_id from URL using real hash function
+    dashboard_id = compute_dashboard_id(playlist_url)
+
     df = create_test_dataframe(num_videos)
+
+    # Calculate metrics from DataFrame
+    total_views = int(df["Views"].sum())
+    total_likes = int(df["Likes"].sum())
+    total_dislikes = int(df["Dislikes"].sum()) if "Dislikes" in df.columns else 0
+    total_comments = int(df["Comments"].sum())
+    avg_engagement = (
+        (total_likes + total_comments) / total_views if total_views > 0 else 0
+    )
+    avg_duration_seconds = (
+        int(df["Duration"].mean()) if "Duration" in df.columns else 270
+    )
 
     return {
         "id": 1,
         "playlist_url": playlist_url,
-        "title": "Test Playlist",
+        "dashboard_id": dashboard_id,  # ✅ Computed from URL
+        "title": "Sample Playlist",  # ✅ Matches test assertion
         "channel_name": "Test Channel",
         "channel_thumbnail": "https://example.com/test.jpg",
-        "df_json": df.write_json(),  # Serialize DataFrame to JSON
+        # ✅ Add all missing DB fields
+        "view_count": total_views,  # Total video views
+        "like_count": total_likes,
+        "dislike_count": total_dislikes,
+        "comment_count": total_comments,
+        "video_count": num_videos,
+        "processed_video_count": num_videos,
+        # ✅ Calculated metrics
+        "engagement_rate": avg_engagement,
+        "controversy_score": 0.0,
+        # ✅ Duration as PostgreSQL INTERVAL string
+        "avg_duration": str(timedelta(seconds=avg_duration_seconds)),
+        # ✅ Timestamps
+        "processed_on": datetime.utcnow().isoformat(),
+        "processed_date": datetime.utcnow().date().isoformat(),
+        # ✅ JSON fields
+        "df_json": df.write_json(),
         "summary_stats": json.dumps(
             {
-                "total_views": 50000,
-                "total_likes": 1500,
-                "total_dislikes": 100,
-                "total_comments": 250,
-                "avg_engagement": 3.2,
+                "total_views": total_views,
+                "total_likes": total_likes,
+                "total_dislikes": total_dislikes,
+                "total_comments": total_comments,
+                "avg_engagement": avg_engagement,
                 "actual_playlist_count": num_videos,
                 "processed_video_count": num_videos,
             }
         ),
-        "processed_date": "2024-01-01",
-        "processed_on": "2024-01-01T12:00:00Z",
-        "dashboard_id": dashboard_id,  # ✅ NEW: Must be present
-        "view_count": 5,  # ✅ NEW: Event counter
-        "share_count": 2,  # ✅ NEW: Event counter
+        # ✅ Event counters
+        "share_count": 0,  # Denormalized from dashboard_events
     }
 
 
 def create_test_job_row(
     job_id: int = 1,
-    playlist_url: str = "https://youtube.com/playlist?list=PL123",
+    playlist_url: str = TEST_PLAYLIST_URL,
     status: str = "complete",
-    dashboard_id: str = "test-dash-123",
+    progress: float = None,  # ✅ REMOVED dashboard_id parameter
 ) -> dict:
     """
     Create a complete test playlist_jobs row.
 
     For testing worker job processing
     """
+    if progress is None:
+        progress = 1.0 if status == "complete" else 0.0
+
     return {
         "id": job_id,
         "playlist_url": playlist_url,
         "status": status,
-        "progress": 100 if status == "complete" else 0,
-        "dashboard_id": dashboard_id,
-        "created_at": "2024-01-01T12:00:00Z",
-        "started_at": "2024-01-01T12:01:00Z",
-        "completed_at": "2024-01-01T12:05:00Z" if status == "complete" else None,
-        "error": None,
+        "progress": progress,  # ✅ Float (0.0-1.0)
+        # ✅ Add all missing DB fields
+        "retry_scheduled": False,
+        "retry_after": None,
         "retry_count": 0,
+        "error_stage": None,
+        "status_message": "Processing complete" if status == "complete" else "Pending",
+        "result_source": "fresh" if status == "complete" else None,
+        "error": None,
+        "error_trace": None,
+        # ✅ Timestamps
+        "created_at": "2024-01-01T12:00:00Z",
+        "updated_at": (
+            "2024-01-01T12:05:00Z" if status in ["complete", "failed"] else None
+        ),
+        "started_at": "2024-01-01T12:01:00Z" if status != "pending" else None,
+        "finished_at": "2024-01-01T12:05:00Z" if status == "complete" else None,
     }
 
 
@@ -457,33 +508,26 @@ def create_test_job_row(
 
 @pytest.fixture
 def mock_supabase():
-    """Mock Supabase client for testing."""
+    """✅ FIXED: Mock Supabase client with computed dashboard_id."""
+    test_playlist_row = create_test_playlist_row(
+        playlist_url=TEST_PLAYLIST_URL,
+        num_videos=5,
+    )
+
     mock_data = {
         "playlist_stats": {
-            TEST_PLAYLIST_URL: {
-                "id": 1,
-                "playlist_url": TEST_PLAYLIST_URL,
-                "title": "Sample Playlist",
-                "channel_name": "Test Channel",
-                "channel_thumbnail": "https://example.com/thumb.jpg",
-                "video_count": 10,
-                "df_json": make_cached_row()["df_json"],
-                "summary_stats": json.dumps(make_cached_row()["summary_stats"]),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
-                "dashboard_id": "test-dash-abc123",
-                "view_count": 0,
-                "share_count": 0,
-            }
+            # ✅ Key by dashboard_id for efficient lookup
+            test_playlist_row["dashboard_id"]: test_playlist_row,
         },
         "dashboards": {
-            "test-dash-abc123": {
-                "id": "test-dash-abc123",
+            # ✅ Also support legacy dashboards table lookup
+            test_playlist_row["dashboard_id"]: {
+                "id": test_playlist_row["dashboard_id"],
                 "playlist_url": TEST_PLAYLIST_URL,
                 "title": "Sample Playlist",
                 "created_at": datetime.utcnow().isoformat(),
-                "df_json": make_cached_row()["df_json"],
-                "summary_stats": json.dumps(make_cached_row()["summary_stats"]),
+                "df_json": test_playlist_row["df_json"],
+                "summary_stats": test_playlist_row["summary_stats"],
             }
         },
         "dashboard_events": {},  # ✅ For event tracking
@@ -619,23 +663,26 @@ def mock_supabase_with_jobs():
     For testing worker that needs to update job status.
     """
     test_url = TEST_PLAYLIST_URL
-    test_dashboard_id = "test-dash-abc123"
+
+    # ✅ Create test data WITHOUT passing dashboard_id
+    test_playlist_row = create_test_playlist_row(
+        playlist_url=test_url,
+        num_videos=5,
+    )
+
+    test_job_row = create_test_job_row(
+        job_id=1,
+        playlist_url=test_url,
+        status="complete",
+    )
 
     data = {
         "playlist_stats": {
-            test_url: create_test_playlist_row(
-                playlist_url=test_url,
-                dashboard_id=test_dashboard_id,
-                num_videos=5,
-            )
+            # ✅ Key by computed dashboard_id
+            test_playlist_row["dashboard_id"]: test_playlist_row,
         },
         "playlist_jobs": {
-            1: create_test_job_row(
-                job_id=1,
-                playlist_url=test_url,
-                status="complete",
-                dashboard_id=test_dashboard_id,
-            )
+            1: test_job_row,
         },
         "dashboard_events": {},
     }
