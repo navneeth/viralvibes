@@ -20,8 +20,7 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
-
-from utils import compute_dashboard_id
+from utils import compute_dashboard_id  # ✅ Import real function
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
@@ -360,8 +359,16 @@ class MockSupabaseTable:
 class MockSupabase:
     """Mock Supabase client that simulates database operations."""
 
-    def __init__(self, data):
-        self.data = data
+    def __init__(self):
+        # ✅ Initialize with properly computed dashboard_ids
+        test_row = create_test_playlist_row()
+
+        self.data = {
+            PLAYLIST_STATS_TABLE: [test_row],
+            "dashboard_events": {},
+            "playlist_jobs": {},
+            "dashboards": {},
+        }
         self.call_count = 0
 
     def table(self, table_name):
@@ -390,12 +397,16 @@ def create_test_dataframe(num_videos: int = 5) -> pl.DataFrame:
 
 
 def create_test_playlist_row(
-    playlist_url: str = "https://www.youtube.com/playlist?list=PLtest123",
+    playlist_url: str = TEST_PLAYLIST_URL,  # ✅ Use constant
     num_videos: int = 5,
 ) -> dict:
-    """Create test playlist row with CORRECT dashboard_id."""
+    """
+    Create test playlist row with CORRECT dashboard_id.
 
-    # ✅ Compute dashboard_id same way as production
+    ✅ Computes dashboard_id same way as production code.
+    """
+
+    # ✅ Compute dashboard_id using the REAL function
     dashboard_id = compute_dashboard_id(playlist_url)
 
     df = create_test_dataframe(num_videos)
@@ -403,7 +414,7 @@ def create_test_playlist_row(
     return {
         "id": 1,
         "playlist_url": playlist_url,
-        "title": "Test Playlist",
+        "title": "Sample Playlist",
         "channel_name": "Test Channel",
         "channel_thumbnail": "https://example.com/test.jpg",
         "df_json": df.write_json(),
@@ -411,18 +422,17 @@ def create_test_playlist_row(
             {
                 "total_views": 50000,
                 "total_likes": 1500,
-                "total_dislikes": 100,
-                "total_comments": 250,
-                "avg_engagement": 3.2,
+                "total_comments": 100,
+                "avg_engagement": 0.05,
                 "actual_playlist_count": num_videos,
                 "processed_video_count": num_videos,
             }
         ),
         "processed_date": "2024-01-01",
         "processed_on": "2024-01-01T12:00:00Z",
-        "dashboard_id": dashboard_id,  # ✅ Computed from URL
-        "view_count": 5,  # ✅ NEW: Event counter
-        "share_count": 2,  # ✅ NEW: Event counter
+        "dashboard_id": dashboard_id,  # ✅ Real computed hash
+        "view_count": num_videos,
+        "share_count": 0,
     }
 
 
