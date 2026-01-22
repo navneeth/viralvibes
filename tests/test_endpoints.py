@@ -24,6 +24,7 @@ from db import (
     record_dashboard_event,
     set_supabase_client,
 )
+from utils import compute_dashboard_id
 
 # Use a real playlist URL from constants for testing
 TEST_PLAYLIST_URL = KNOWN_PLAYLISTS[0]["url"]
@@ -607,7 +608,13 @@ class TestDashboard:
         """Test GET /d/{dashboard_id} returns dashboard content."""
         set_supabase_client(mock_supabase)
 
-        dashboard_id = "test-dash-abc123"
+        # ✅ Use the REAL playlist URL from the test data
+        test_url = TEST_PLAYLIST_URL
+
+        # ✅ Compute the REAL dashboard_id
+        dashboard_id = compute_dashboard_id(test_url)
+
+        # ✅ Now the lookup will work!
         r = authenticated_client.get(f"/d/{dashboard_id}")
 
         assert r.status_code in (200, 303)

@@ -1595,3 +1595,52 @@ def chart_top_performers_radar(
         },
         cls=chart_wrapper_class("radar"),
     )
+
+
+def chart_engagement_sparkline(df: pl.DataFrame) -> ApexChart:
+    """
+    Compact sparkline: Engagement trend over time.
+    Perfect for dashboard cards or inline metrics.
+    """
+    if df is None or df.is_empty():
+        return Span("—", cls="text-muted")
+
+    # Get engagement over time (sorted by rank/index)
+    data = (df["Engagement Rate Raw"] * 100).fill_null(0).to_list()
+
+    return ApexChart(
+        opts={
+            "chart": {
+                "type": "area",
+                "height": 60,  # Compact height
+                "sparkline": {"enabled": True},  # ✅ Removes axes, labels
+            },
+            "series": [{"name": "Engagement %", "data": data}],
+            "stroke": {"curve": "smooth", "width": 2},
+            "colors": ["#3B82F6"],
+            "fill": {
+                "type": "gradient",
+                "gradient": {
+                    "opacityFrom": 0.4,
+                    "opacityTo": 0.1,
+                },
+            },
+            "tooltip": {
+                "fixed": {"enabled": False},
+                "y": {"formatter": "function(val){ return val.toFixed(1) + '%'; }"},
+            },
+        }
+    )
+
+
+# Usage in dashboard cards:
+def SummaryCard(title: str, value: str, sparkline_df: pl.DataFrame):
+    return Card(
+        H3(title, cls="text-sm text-muted"),
+        Div(
+            Span(value, cls="text-3xl font-bold"),
+            chart_engagement_sparkline(sparkline_df),  # ✅ Inline chart
+            cls="flex items-center justify-between",
+        ),
+        cls="p-4",
+    )

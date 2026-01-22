@@ -21,6 +21,8 @@ import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
 
+from utils import compute_dashboard_id
+
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
 
@@ -389,14 +391,13 @@ def create_test_dataframe(num_videos: int = 5) -> pl.DataFrame:
 
 def create_test_playlist_row(
     playlist_url: str = "https://www.youtube.com/playlist?list=PLtest123",
-    dashboard_id: str = "test-dash-abc123",
     num_videos: int = 5,
 ) -> dict:
-    """
-    Create a complete test playlist_stats row matching the new schema.
+    """Create test playlist row with CORRECT dashboard_id."""
 
-    ✅ UPDATED: Includes dashboard_id, view_count, share_count columns
-    """
+    # ✅ Compute dashboard_id same way as production
+    dashboard_id = compute_dashboard_id(playlist_url)
+
     df = create_test_dataframe(num_videos)
 
     return {
@@ -405,7 +406,7 @@ def create_test_playlist_row(
         "title": "Test Playlist",
         "channel_name": "Test Channel",
         "channel_thumbnail": "https://example.com/test.jpg",
-        "df_json": df.write_json(),  # Serialize DataFrame to JSON
+        "df_json": df.write_json(),
         "summary_stats": json.dumps(
             {
                 "total_views": 50000,
@@ -419,7 +420,7 @@ def create_test_playlist_row(
         ),
         "processed_date": "2024-01-01",
         "processed_on": "2024-01-01T12:00:00Z",
-        "dashboard_id": dashboard_id,  # ✅ NEW: Must be present
+        "dashboard_id": dashboard_id,  # ✅ Computed from URL
         "view_count": 5,  # ✅ NEW: Event counter
         "share_count": 2,  # ✅ NEW: Event counter
     }
