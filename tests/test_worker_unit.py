@@ -29,38 +29,32 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
         "created_at": "2024-01-01T12:00:00Z",
     }
 
-    # ✅ Mock the high-level process_playlist function that worker.process_one() calls
-    async def fake_process_playlist(playlist_url: str):
-        """Simulate successful playlist processing."""
+    # ✅ Create a mock YouTube service that returns data without network calls
+    async def fake_get_playlist_data(url, progress_callback=None, max_expanded=20):
+        """Return test playlist data without making API calls."""
+        if progress_callback:
+            await progress_callback(0.5, "Processing videos...")
+
         df = create_test_dataframe(num_videos=5)
 
-        return {
-            "playlist_url": playlist_url,
-            "title": "My Playlist",
-            "channel_name": "Test Channel",
-            "channel_thumbnail": "https://example.com/thumb.jpg",
-            "video_count": 5,
-            "processed_video_count": 5,
-            "avg_duration": timedelta(seconds=180),  # 3 minutes
-            "total_views": 50000,
-            "total_likes": 1500,
-            "total_comments": 250,
-            "engagement_rate": 3.2,
-            "controversy_score": 0.1,
-            "df_json": df.to_json(orient="records"),
-            "summary_stats": {
+        return (
+            df,
+            "My Playlist",
+            "Test Channel",
+            "https://example.com/thumb.jpg",
+            {
                 "total_views": 50000,
                 "total_likes": 1500,
                 "total_comments": 250,
                 "actual_playlist_count": 5,
                 "avg_engagement": 3.2,
             },
-        }
+        )
 
-    # ✅ Mock the jobs.process_playlist function
-    import worker.jobs as jobs_module
-
-    monkeypatch.setattr(jobs_module, "process_playlist", fake_process_playlist)
+    # ✅ Mock YouTube service
+    mock_yt_service = SimpleNamespace(
+        get_playlist_data=fake_get_playlist_data,
+    )
 
     # ✅ Mock database upsert
     async def fake_upsert(stats):
@@ -121,8 +115,8 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
 
     mock_supabase_with_jobs.data["playlist_jobs"][1] = job.copy()
 
-    # ✅ Create worker (doesn't need yt service if we mock process_playlist)
-    worker = Worker(supabase=mock_supabase_with_jobs, yt=None)
+    # ✅ Create worker WITH mock YouTube service
+    worker = Worker(supabase=mock_supabase_with_jobs, yt=mock_yt_service)
 
     # Process job
     result = await worker.process_one(job, is_retry=False)
@@ -137,7 +131,9 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     assert result.job_id == 1, f"Expected job_id=1, got {result.job_id}"
 
     # ✅ Check that mark_job_status was called
-    assert 1 in job_status_updates, "mark_job_status should have been called for job 1"
+    assert (
+        1 in job_status_updates
+    ), f"mark_job_status should have been called for job 1. Updates: {job_status_updates}"
 
     # ✅ Check the status that was set
     final_status = job_status_updates[1]["status"]
@@ -151,10 +147,10 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     )
 
     # ✅ Verify no error
+    final_error = job_status_updates[1].get("updates", {}).get("error")
     assert (
-        result.error is None
-        or mock_supabase_with_jobs.data["playlist_jobs"][1].get("error") is None
-    )
+        result.error is None or final_error is None
+    ), f"Expected no error, but got: {result.error or final_error}"
 
 
 @pytest.mark.asyncio
@@ -173,13 +169,15 @@ async def test_worker_process_one_handles_youtube_error(
         "created_at": "2024-01-01T12:00:00Z",
     }
 
-    # ✅ Mock process_playlist to raise error
-    async def fake_process_playlist_error(playlist_url: str):
+    # ✅ Mock YouTube service to raise error
+    async def fake_get_playlist_data_error(
+        url, progress_callback=None, max_expanded=20
+    ):
         raise Exception("YouTube API quota exceeded")
 
-    import worker.jobs as jobs_module
-
-    monkeypatch.setattr(jobs_module, "process_playlist", fake_process_playlist_error)
+    mock_yt_service = SimpleNamespace(
+        get_playlist_data=fake_get_playlist_data_error,
+    )
 
     # ✅ Track status updates
     job_status_updates = {}
@@ -209,7 +207,7 @@ async def test_worker_process_one_handles_youtube_error(
 
     mock_supabase_with_jobs.data["playlist_jobs"][2] = job.copy()
 
-    worker = Worker(supabase=mock_supabase_with_jobs, yt=None)
+    worker = Worker(supabase=mock_supabase_with_jobs, yt=mock_yt_service)
 
     # Process job (should handle error)
     result = await worker.process_one(job, is_retry=False)
@@ -250,18 +248,19 @@ async def test_worker_process_one_handles_database_error(
     }
 
     # ✅ Mock successful YouTube fetch
-    async def fake_process_playlist(playlist_url: str):
+    async def fake_get_playlist_data(url, progress_callback=None, max_expanded=20):
         df = create_test_dataframe(num_videos=5)
-        return {
-            "playlist_url": playlist_url,
-            "title": "My Playlist",
-            "df_json": df.to_json(orient="records"),
-            "summary_stats": {"total_views": 1000},
-        }
+        return (
+            df,
+            "My Playlist",
+            "Test Channel",
+            "https://example.com/thumb.jpg",
+            {"total_views": 1000},
+        )
 
-    import worker.jobs as jobs_module
-
-    monkeypatch.setattr(jobs_module, "process_playlist", fake_process_playlist)
+    mock_yt_service = SimpleNamespace(
+        get_playlist_data=fake_get_playlist_data,
+    )
 
     # ✅ Mock database error during upsert
     async def fake_upsert_error(stats):
@@ -297,7 +296,7 @@ async def test_worker_process_one_handles_database_error(
 
     mock_supabase_with_jobs.data["playlist_jobs"][3] = job.copy()
 
-    worker = Worker(supabase=mock_supabase_with_jobs, yt=None)
+    worker = Worker(supabase=mock_supabase_with_jobs, yt=mock_yt_service)
 
     # Process job (should handle error)
     result = await worker.process_one(job, is_retry=False)
