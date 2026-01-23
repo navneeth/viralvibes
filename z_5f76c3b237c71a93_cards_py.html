@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for components/cards.py: 54.95%</title>
+    <title>Coverage for components/cards.py: 54.05%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_9ff733b0.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>components&#8201;/&#8201;cards.py</b>:
-            <span class="pc_cov">54.95%</span>
+            <span class="pc_cov">54.05%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -56,8 +56,8 @@
         </aside>
         <h2>
             <span class="text">93 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">55<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">38<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">54<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">39<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">2<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_5f76c3b237c71a93_modals_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.1">coverage.py v7.13.1</a>,
-            created at 2026-01-23 07:22 +0000
+            created at 2026-01-23 15:54 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -863,22 +863,22 @@
     <p class="run run2"><span class="n"><a id="t779" href="#t779">779</a></span><span class="t">    <span class="nam">color</span><span class="op">:</span> <span class="nam">str</span> <span class="op">=</span> <span class="str">"red"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t780" href="#t780">780</a></span><span class="t"><span class="op">)</span> <span class="op">-></span> <span class="nam">Card</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t781" href="#t781">781</a></span><span class="t">    <span class="str">"""Create a clean metric card with icon, value, and context."""</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t782" href="#t782">782</a></span><span class="t">    <span class="key">return</span> <span class="nam">Card</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t783" href="#t783">783</a></span><span class="t">        <span class="nam">Div</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t784" href="#t784">784</a></span><span class="t">            <span class="nam">UkIcon</span><span class="op">(</span><span class="nam">icon</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">f"text-{color}-500"</span><span class="op">,</span> <span class="nam">height</span><span class="op">=</span><span class="num">28</span><span class="op">,</span> <span class="nam">width</span><span class="op">=</span><span class="num">28</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t785" href="#t785">785</a></span><span class="t">            <span class="nam">H3</span><span class="op">(</span><span class="nam">value</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-2xl font-bold text-gray-900 mb-1"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t786" href="#t786">786</a></span><span class="t">            <span class="nam">P</span><span class="op">(</span><span class="nam">subtitle</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-sm text-gray-600"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t787" href="#t787">787</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="str">"flex flex-col items-start space-y-1"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t788" href="#t788">788</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t789" href="#t789">789</a></span><span class="t">        <span class="nam">header</span><span class="op">=</span><span class="nam">H4</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t790" href="#t790">790</a></span><span class="t">            <span class="nam">title</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-xs font-medium text-gray-500 uppercase tracking-wider"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t791" href="#t791">791</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t792" href="#t792">792</a></span><span class="t">        <span class="nam">cls</span><span class="op">=</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t793" href="#t793">793</a></span><span class="t">            <span class="str">"p-5 rounded-xl shadow-sm border border-gray-200 "</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t794" href="#t794">794</a></span><span class="t">            <span class="str">"hover:shadow-lg transition-all duration-200 "</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t795" href="#t795">795</a></span><span class="t">            <span class="str">"bg-white"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t796" href="#t796">796</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t797" href="#t797">797</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t782" href="#t782">782</a></span><span class="t">    <span class="key">return</span> <span class="nam">Card</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t783" href="#t783">783</a></span><span class="t">        <span class="nam">Div</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t784" href="#t784">784</a></span><span class="t">            <span class="nam">UkIcon</span><span class="op">(</span><span class="nam">icon</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">f"text-{color}-500"</span><span class="op">,</span> <span class="nam">height</span><span class="op">=</span><span class="num">28</span><span class="op">,</span> <span class="nam">width</span><span class="op">=</span><span class="num">28</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t785" href="#t785">785</a></span><span class="t">            <span class="nam">H3</span><span class="op">(</span><span class="nam">value</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-2xl font-bold text-gray-900 mb-1"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t786" href="#t786">786</a></span><span class="t">            <span class="nam">P</span><span class="op">(</span><span class="nam">subtitle</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-sm text-gray-600"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t787" href="#t787">787</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="str">"flex flex-col items-start space-y-1"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t788" href="#t788">788</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t789" href="#t789">789</a></span><span class="t">        <span class="nam">header</span><span class="op">=</span><span class="nam">H4</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t790" href="#t790">790</a></span><span class="t">            <span class="nam">title</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-xs font-medium text-gray-500 uppercase tracking-wider"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t791" href="#t791">791</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t792" href="#t792">792</a></span><span class="t">        <span class="nam">cls</span><span class="op">=</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t793" href="#t793">793</a></span><span class="t">            <span class="str">"p-5 rounded-xl shadow-sm border border-gray-200 "</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t794" href="#t794">794</a></span><span class="t">            <span class="str">"hover:shadow-lg transition-all duration-200 "</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t795" href="#t795">795</a></span><span class="t">            <span class="str">"bg-white"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t796" href="#t796">796</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t797" href="#t797">797</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t798" href="#t798">798</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t799" href="#t799">799</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t800" href="#t800">800</a></span><span class="t"><span class="key">def</span> <span class="nam">AnalyticsDashboardSection</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
@@ -937,7 +937,7 @@
             <a class="nav" href="z_5f76c3b237c71a93_modals_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.1">coverage.py v7.13.1</a>,
-            created at 2026-01-23 07:22 +0000
+            created at 2026-01-23 15:54 +0000
         </p>
     </div>
 </footer>
