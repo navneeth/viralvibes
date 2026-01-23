@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,7 +21,7 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
-from utils import compute_dashboard_id  # ✅ Add this import at top
+from utils import compute_dashboard_id
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
