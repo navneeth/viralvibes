@@ -598,23 +598,24 @@ class TestJobProgress:
         """Test that get_job_progress ensures progress is float 0.0-1.0."""
         set_supabase_client(mock_supabase)
 
-        # ✅ Mock a job with invalid progress values
         test_url = "https://youtube.com/playlist?list=PLtest"
 
-        # Test case 1: Integer progress (should convert to float)
-        mock_supabase.table("playlist_jobs").insert(
-            {
-                "playlist_url": test_url,
-                "status": "processing",
-                "progress": 50,  # ❌ Integer (should be 0.5)
-            }
-        ).execute()
+        # ✅ Directly populate mock data
+        mock_supabase.data["playlist_jobs"][1] = {
+            "id": 1,
+            "playlist_url": test_url,
+            "status": "processing",
+            "progress": 50,  # Invalid: integer > 1.0
+            "created_at": "2024-01-01T12:00:00Z",
+            "started_at": "2024-01-01T12:01:00Z",
+            "error": None,
+        }
 
         result = get_job_progress(test_url)
 
-        assert result is not None
+        assert result is not None, "get_job_progress should return dict"
         assert isinstance(result["progress"], float), "Progress must be float"
-        assert result["progress"] == 50.0  # ⚠️ Will clamp to 1.0 if > 1.0
+        assert result["progress"] == 1.0, "Progress=50 should be clamped to 1.0"
 
     def test_get_job_progress_clamps_values(self, mock_supabase):
         """Test that get_job_progress clamps progress to [0.0, 1.0]."""
@@ -622,18 +623,20 @@ class TestJobProgress:
 
         test_url = "https://youtube.com/playlist?list=PLtest2"
 
-        # Test case: Progress > 1.0 (should clamp to 1.0)
-        mock_supabase.table("playlist_jobs").insert(
-            {
-                "playlist_url": test_url,
-                "status": "processing",
-                "progress": 1.5,  # ❌ > 1.0
-            }
-        ).execute()
+        # ✅ Directly populate mock data
+        mock_supabase.data["playlist_jobs"][2] = {
+            "id": 2,
+            "playlist_url": test_url,
+            "status": "processing",
+            "progress": 1.5,  # Invalid: > 1.0
+            "created_at": "2024-01-01T12:00:00Z",
+            "started_at": "2024-01-01T12:01:00Z",
+            "error": None,
+        }
 
         result = get_job_progress(test_url)
 
-        assert result["progress"] == 1.0, "Progress > 1.0 should be clamped to 1.0"
+        assert result["progress"] == 1.0, "Progress=1.5 should be clamped to 1.0"
 
     def test_get_job_progress_handles_null(self, mock_supabase):
         """Test that get_job_progress handles null/missing progress."""
@@ -641,21 +644,21 @@ class TestJobProgress:
 
         test_url = "https://youtube.com/playlist?list=PLtest3"
 
-        # Test case: Missing progress
-        mock_supabase.table("playlist_jobs").insert(
-            {
-                "playlist_url": test_url,
-                "status": "pending",
-                # No progress field
-            }
-        ).execute()
+        # ✅ Directly populate mock data
+        mock_supabase.data["playlist_jobs"][3] = {
+            "id": 3,
+            "playlist_url": test_url,
+            "status": "pending",
+            "progress": None,  # Null progress
+            "created_at": "2024-01-01T12:00:00Z",
+            "error": None,
+        }
 
         result = get_job_progress(test_url)
 
-        # ✅ Now guaranteed to be a dict
         assert isinstance(result, dict), "get_job_progress must always return dict"
-        assert result["progress"] == 0.0, "Missing progress should default to 0.0"
-        assert result["job_id"] is not None, "Should have job_id from inserted row"
+        assert result["progress"] == 0.0, "Null progress should default to 0.0"
+        assert result["job_id"] == 3, "Should have job_id from row"
         assert result["status"] == "pending"
 
     def test_get_job_progress_no_job_exists(self, mock_supabase):
@@ -663,6 +666,8 @@ class TestJobProgress:
         set_supabase_client(mock_supabase)
 
         test_url = "https://youtube.com/playlist?list=PLNotFound"
+
+        # Don't add any data - test "not found" case
 
         result = get_job_progress(test_url)
 
@@ -672,7 +677,7 @@ class TestJobProgress:
         assert result["status"] is None
         assert result["progress"] == 0.0
         assert result["started_at"] is None
-        assert result["error"] is None  # No error for "not found" case
+        assert result["error"] is None
 
     def test_get_job_progress_database_error(self, mock_supabase, monkeypatch):
         """Test get_job_progress handles database errors gracefully."""
@@ -691,5 +696,3 @@ class TestJobProgress:
         assert result["job_id"] is None
         assert result["progress"] == 0.0
         assert "Database connection lost" in result["error"]
-
-    # ...existing tests...
