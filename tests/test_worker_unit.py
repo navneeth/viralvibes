@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import worker.worker as wk
-import worker.jobs as jobs_module  # ✅ Import jobs module to patch it
+import worker.jobs as jobs_module
 from worker.worker import JobResult, Worker
 from constants import JobStatus
 from db import UpsertResult
@@ -57,19 +57,28 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
         get_playlist_data=fake_get_playlist_data,
     )
 
-    # ✅ CRITICAL: Patch the YouTube service in BOTH modules where it's used
-    # worker.worker.yt_service (used by Worker class)
+    # ✅ Patch the YouTube service in BOTH modules
     monkeypatch.setattr(wk, "yt_service", mock_yt_service)
-
-    # worker.jobs.yt_service (used by process_playlist function)
     monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
 
-    # ✅ Mock database upsert
+    # ✅ Mock database upsert with PROPER data
     async def fake_upsert(stats):
+        # ✅ Create test dataframe to return
+        df = create_test_dataframe(num_videos=5)
+        df_json = df.to_json(orient="records")
+
+        summary_stats = {
+            "total_views": 50000,
+            "total_likes": 1500,
+            "total_comments": 250,
+            "actual_playlist_count": 5,
+            "avg_engagement": 3.2,
+        }
+
         return UpsertResult(
             source="fresh",
-            df_json=stats.get("df_json", "[]"),
-            summary_stats_json=json.dumps(stats.get("summary_stats", {})),
+            df_json=df_json,  # ✅ Actual JSON data, not empty "[]"
+            summary_stats_json=json.dumps(summary_stats),  # ✅ Actual stats
             dashboard_id="test-dash-abc123",
             error=None,
             raw_row={
@@ -79,6 +88,8 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
                 "title": "My Playlist",
                 "channel_name": "Test Channel",
                 "processed_video_count": 5,
+                "df_json": df_json,  # ✅ Include df_json in raw_row
+                "summary_stats_json": json.dumps(summary_stats),  # ✅ Include summary
             },
         )
 
