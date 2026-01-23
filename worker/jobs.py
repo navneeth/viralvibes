@@ -51,7 +51,7 @@ async def process_playlist(playlist_url: str) -> dict:
     )
 
     # ✅ FIX 1: Add missing required fields
-    return {
+    result = {
         # ✅ Core identifiers
         "playlist_url": playlist_url,  # ✅ ADD: Authoritative identifier
         "dashboard_id": compute_dashboard_id(
@@ -88,3 +88,12 @@ async def process_playlist(playlist_url: str) -> dict:
         # ✅ Denormalized counters (updated separately via dashboard_events)
         "share_count": 0,  # ✅ ADD: Default to 0 (incremented by event tracking)
     }
+
+    # ✅ DEBUG: Print available columns
+    if df is not None:
+        print(f"🔍 DataFrame columns: {df.columns}")
+        print(f"🔍 DataFrame shape: {df.shape}")
+        if len(df) > 0:
+            print(f"🔍 First row sample: {df.head(1)}")
+
+    return result
