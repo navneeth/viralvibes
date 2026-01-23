@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,7 +21,7 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
-from utils import compute_dashboard_id  # ✅ Add this import at top
+from utils import compute_dashboard_id
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
 os.environ["TESTING"] = "1"
@@ -176,7 +177,7 @@ def setup_test_environment():
 class MockSupabaseTable:
     """Mock Supabase table with chainable query methods."""
 
-    def __init__(self, table_name, data):
+    def __init__(self, table_name: str, data: dict):
         self.table_name = table_name
         self.data = data
         self._filters = {}
@@ -225,8 +226,8 @@ class MockSupabaseTable:
         self._update_data = payload
         return self
 
-    def execute(self):
-        """Execute the query and return mock data."""
+    def execute(self) -> SimpleNamespace:
+        """Execute the query and return results."""
         # Handle INSERT operations
         if self._insert_data:
             # ✅ Handle dashboard_events inserts
@@ -266,28 +267,21 @@ class MockSupabaseTable:
 
         # Handle SELECT operations
         if self.table_name == "dashboard_events":
-            # ✅ Get dashboard_id from filters
-            dashboard_id = self._filters.get("dashboard_id")
+            if self._insert_data:
+                # Insert event
+                self.mock_supabase.data.setdefault("dashboard_events", []).append(
+                    self._insert_data
+                )
+                return SimpleNamespace(data=[self._insert_data])
 
-            if not dashboard_id:
-                return Response([])
-
-            # Get events for this dashboard
-            events = self.data.get("dashboard_events", {}).get(dashboard_id, [])
-
-            # Group by event_type and count
-            from collections import Counter
-
-            event_types = [e.get("event_type", "view") for e in events]
-            counts = Counter(event_types)
-
-            # Return in format expected by get_dashboard_event_counts
-            result_data = [
-                {"event_type": event_type, "count": count}
-                for event_type, count in counts.items()
-            ]
-
-            return Response(result_data)
+            if self._filters.get("dashboard_id"):
+                dashboard_id = self._filters["dashboard_id"]
+                events = [
+                    e
+                    for e in self.mock_supabase.data.get("dashboard_events", [])
+                    if e.get("dashboard_id") == dashboard_id
+                ]
+                return SimpleNamespace(data=events)
 
         if self.table_name == "dashboards":
             # Return dashboard data

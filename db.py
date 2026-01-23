@@ -580,19 +580,32 @@ def submit_playlist_job(playlist_url: str) -> bool:
     return success
 
 
-def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
+def get_job_progress(playlist_url: str) -> Dict[str, Any]:
     """
     Fetch job progress for polling updates.
-    Returns: {
-        'job_id': str,
-        'status': str,
-        'progress': float (0.0-1.0),
-        'started_at': str (ISO),
-        'error': str or None,
-    }
+
+    Always returns a dictionary. If no job exists, returns default values.
+
+    Returns:
+        Dict with keys:
+        - job_id: int | None (renamed from 'id')
+        - status: str | None
+        - progress: float (0.0-1.0, guaranteed non-null)
+        - started_at: str (ISO) | None
+        - error: str | None
     """
+    # ✅ Define default response for "no job found" case
+    default_response = {
+        "job_id": None,
+        "status": None,
+        "progress": 0.0,
+        "started_at": None,
+        "error": None,
+    }
+
     if not supabase_client:
-        return None
+        logger.warning("Supabase client not available to fetch job progress")
+        return {**default_response, "error": "Database unavailable"}
 
     try:
         response = (
@@ -604,12 +617,37 @@ def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
             .execute()
         )
 
-        if response.data:
-            return response.data[0]
-        return None
+        if not response.data:
+            logger.debug(f"No job found for playlist: {playlist_url}")
+            return default_response
+
+        job = response.data[0]
+
+        # ✅ Normalize field names
+        job["job_id"] = job.pop("id", None)
+
+        # ✅ Ensure progress is float and clamped to [0.0, 1.0]
+        raw_progress = job.get("progress")
+
+        if raw_progress is None:
+            job["progress"] = 0.0
+        else:
+            try:
+                progress = float(raw_progress)
+                # Clamp to valid range
+                job["progress"] = max(0.0, min(1.0, progress))
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"Invalid progress value for {playlist_url}: {raw_progress!r}. "
+                    f"Defaulting to 0.0"
+                )
+                job["progress"] = 0.0
+
+        return job
+
     except Exception as e:
-        logger.error(f"Error fetching job progress for {playlist_url}: {e}")
-        return None
+        logger.exception(f"Error fetching job progress for {playlist_url}: {e}")
+        return {**default_response, "error": str(e)}
 
 
 def get_estimated_stats(video_count: int) -> Dict[str, Any]:
@@ -646,7 +684,7 @@ def record_dashboard_event(
     event_type: str = "view",
 ) -> None:
     """
-    Record a dashboard event (view, share, etc).
+    Record a dashboard event (view, share, etc) in the dashboard_events table.
 
     Args:
         supabase: Supabase client (uses global if not provided)
@@ -658,15 +696,23 @@ def record_dashboard_event(
         logger.warning("Supabase client not available to record event")
         return
 
-    try:
-        column = "view_count" if event_type == "view" else "share_count"
+    # ✅ Validate event_type
+    if event_type not in ("view", "share"):
+        logger.warning(f"Invalid event_type: {event_type}. Must be 'view' or 'share'")
+        return
 
-        # Increment the counter atomically on Supabase
-        client.table(PLAYLIST_STATS_TABLE).update(
-            {column: f"{column} + 1"}  # SQL: column = column + 1
-        ).eq("dashboard_id", dashboard_id).execute()
+    try:
+        # ✅ Insert into dashboard_events table (NOT playlist_stats)
+        payload = {
+            "dashboard_id": dashboard_id,
+            "event_type": event_type,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+
+        client.table("dashboard_events").insert(payload).execute()
 
         logger.debug(f"Recorded {event_type} event for dashboard {dashboard_id}")
+
     except Exception as e:
         logger.warning(f"Failed to record dashboard event: {e}")
         # Don't raise - event tracking is non-critical
@@ -676,14 +722,14 @@ def get_dashboard_event_counts(
     supabase: Optional[SupabaseLike] = None, dashboard_id: str = ""
 ) -> dict:
     """
-    Get event counts for a dashboard.
+    Get event counts for a dashboard by aggregating from dashboard_events table.
 
     Args:
         supabase: Supabase client (uses global if not provided)
         dashboard_id: Dashboard ID to fetch events for
 
     Returns:
-        dict with event_type -> count mapping
+        dict with event_type -> count mapping (e.g., {"view": 5, "share": 2})
     """
     client = supabase or supabase_client
     if not client:
@@ -691,23 +737,25 @@ def get_dashboard_event_counts(
         return {"view": 0, "share": 0}
 
     try:
+        # ✅ Query dashboard_events table (NOT playlist_stats)
         response = (
-            client.table(PLAYLIST_STATS_TABLE)
-            .select("view_count, share_count")
+            client.table("dashboard_events")
+            .select("event_type")
             .eq("dashboard_id", dashboard_id)
-            .limit(1)
             .execute()
         )
 
-        if response.data and len(response.data) > 0:
-            row = response.data[0]
-            return {
-                "view": row.get("view_count", 0),
-                "share": row.get("share_count", 0),
-            }
+        # ✅ Aggregate counts by event_type
+        counts = {"view": 0, "share": 0}
+
+        if response.data:
+            for event in response.data:
+                event_type = event.get("event_type")
+                if event_type in counts:
+                    counts[event_type] += 1
 
         logger.debug(f"Event counts for {dashboard_id}: {counts}")
-        return {"view": 0, "share": 0}
+        return counts
 
     except Exception as e:
         logger.warning(f"Failed to get event counts for {dashboard_id}: {e}")
@@ -716,41 +764,32 @@ def get_dashboard_event_counts(
 
 def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> Optional[str]:
     """
-    Look up playlist_url by dashboard_id.
+    Resolve playlist_url from dashboard_id.
 
-    Uses the indexed dashboard_id column in playlist_stats for fast O(1) lookup.
-    (This function can be deleted if main.py queries playlist_stats directly)
+    Note: Uses 64-bit MD5 hash. Collision probability:
+    - 100K playlists: ~0.00003%
+    - 1M playlists: ~0.003%
+    - 10M playlists: ~0.3%
 
-    Args:
-        dashboard_id: Dashboard ID to resolve
-
-    Returns:
-        playlist_url if found, None otherwise
+    Returns most recent playlist if collision occurs.
     """
     if not supabase_client:
-        logger.warning("Supabase client not available to resolve dashboard id")
         return None
 
     try:
-        # Direct indexed lookup instead of scanning all rows
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
             .select("playlist_url")
             .eq("dashboard_id", dashboard_id)
+            .order("processed_on", desc=True)
             .limit(1)
             .execute()
         )
 
-        if response.data and len(response.data) > 0:
-            return response.data[0]["playlist_url"]
-
-        logger.warning(f"No playlist found for dashboard_id: {dashboard_id}")
-        return None
+        return response.data[0]["playlist_url"] if response.data else None
 
     except Exception as e:
-        logger.exception(
-            f"Failed to resolve playlist_url for dashboard_id={dashboard_id}: {e}"
-        )
+        logger.exception(f"Failed to resolve dashboard_id={dashboard_id}: {e}")
         return None
 
 

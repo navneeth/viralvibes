@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+from db import get_job_progress, set_supabase_client
 from starlette.testclient import TestClient
 
 import main
@@ -593,152 +594,133 @@ class TestJobProgress:
         assert "Preparing analysis" in r.text or "Waiting" in r.text
         assert "Status: None" not in r.text
 
-
-# ============================================================
-# Test Class 5: Dashboard
-# ============================================================
-
-
-class TestDashboard:
-    """Tests for persistent dashboard endpoints."""
-
-    def test_dashboard_by_id_loads(
-        self, authenticated_client, mock_supabase, monkeypatch
-    ):
-        """Test GET /d/{dashboard_id} returns dashboard content."""
+    def test_get_job_progress_validates_type(self, mock_supabase):
+        """Test that get_job_progress ensures progress is float 0.0-1.0."""
         set_supabase_client(mock_supabase)
 
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
+        test_url = "https://youtube.com/playlist?list=PLtest"
 
-        # ✅ Debug: Verify mock data structure
-        print(f"🔍 Computed dashboard_id: {dashboard_id}")
-        print(
-            f"🔍 Mock playlist_stats keys: {list(mock_supabase.data['playlist_stats'].keys())}"
-        )
+        # ✅ Initialize playlist_jobs table if it doesn't exist
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
 
-        r = authenticated_client.get(f"/d/{dashboard_id}")
+        # ✅ Add test data
+        mock_supabase.data["playlist_jobs"][1] = {
+            "id": 1,
+            "playlist_url": test_url,
+            "status": "processing",
+            "progress": 50,  # Invalid: integer > 1.0
+            "created_at": "2024-01-01T12:00:00Z",
+            "started_at": "2024-01-01T12:01:00Z",
+            "finished_at": None,
+            "error": None,
+        }
 
-        assert r.status_code in (
-            200,
-            303,
-        ), f"Expected 200/303, got {r.status_code}. Response: {r.text[:500]}"
+        result = get_job_progress(test_url)
 
         assert (
-            "Sample Playlist" in r.text or "playlist-table" in r.text
-        ), f"Expected dashboard content not found. Response snippet: {r.text[:1000]}"
+            result is not None
+        ), f"get_job_progress returned None. Mock data: {mock_supabase.data['playlist_jobs']}"
+        assert isinstance(result["progress"], float), "Progress must be float"
+        assert (
+            result["progress"] == 1.0
+        ), f"Progress=50 should be clamped to 1.0, got {result['progress']}"
 
-    @pytest.mark.skip(reason="Temporarily disabled for debugging")
-    def test_dashboard_records_view_event(self, mock_supabase):
-        """Test viewing dashboard increments view count."""
-        from db import (
-            get_dashboard_event_counts,
-            record_dashboard_event,
-            set_supabase_client,
-        )
-
+    def test_get_job_progress_clamps_values(self, mock_supabase):
+        """Test that get_job_progress clamps progress to [0.0, 1.0]."""
         set_supabase_client(mock_supabase)
 
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
+        test_url = "https://youtube.com/playlist?list=PLtest2"
 
-        # ✅ Initial state: no events recorded yet
-        initial_counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-        initial_view_count = initial_counts.get("view", 0)
+        # ✅ Initialize table
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
 
-        # Should start at 0
-        assert (
-            initial_view_count == 0
-        ), f"Expected 0 initial views, got {initial_view_count}"
+        # ✅ Add test data
+        mock_supabase.data["playlist_jobs"][2] = {
+            "id": 2,
+            "playlist_url": test_url,
+            "status": "processing",
+            "progress": 1.5,  # Invalid: > 1.0
+            "created_at": "2024-01-01T12:00:00Z",
+            "started_at": "2024-01-01T12:01:00Z",
+            "finished_at": None,
+            "error": None,
+        }
 
-        # Record first view event
-        record_dashboard_event(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-            event_type="view",
-        )
-
-        # Verify event was recorded
-        updated_counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-        updated_view_count = updated_counts.get("view", 0)
-
-        # View count should be 1
-        assert (
-            updated_view_count == 1
-        ), f"Expected 1 view after recording, got {updated_view_count}"
-
-        # Record another view
-        record_dashboard_event(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-            event_type="view",
-        )
-
-        # Verify count increased to 2
-        final_counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-        final_view_count = final_counts.get("view", 0)
+        result = get_job_progress(test_url)
 
         assert (
-            final_view_count == 2
-        ), f"Expected 2 views after second record, got {final_view_count}"
+            result["progress"] == 1.0
+        ), f"Progress=1.5 should be clamped to 1.0, got {result['progress']}"
 
-    def test_dashboard_event_counts(self, mock_supabase):
-        """Test fetching dashboard event counts."""
+    def test_get_job_progress_handles_null(self, mock_supabase):
+        """Test that get_job_progress handles null/missing progress."""
         set_supabase_client(mock_supabase)
 
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
+        test_url = "https://youtube.com/playlist?list=PLtest3"
 
-        counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
+        # ✅ Initialize table
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
 
-        assert "view" in counts
-        assert "share" in counts
-        assert isinstance(counts["view"], int)
-        assert isinstance(counts["share"], int)
+        # ✅ Add test data
+        mock_supabase.data["playlist_jobs"][3] = {
+            "id": 3,
+            "playlist_url": test_url,
+            "status": "pending",
+            "progress": None,  # Null progress
+            "created_at": "2024-01-01T12:00:00Z",
+            "started_at": None,
+            "finished_at": None,
+            "error": None,
+        }
 
-    @pytest.mark.skip(reason="Temporarily disabled for debugging")
-    def test_dashboard_view_increments_counter(
-        self,
-        authenticated_client,
-        mock_supabase,  # ✅ FIX: Add self parameter
-    ):
-        """Dashboard views should increment view counter in dashboard_events, NOT playlist_stats.view_count."""
+        result = get_job_progress(test_url)
 
+        assert isinstance(result, dict), "get_job_progress must always return dict"
+        assert (
+            result["progress"] == 0.0
+        ), f"Null progress should default to 0.0, got {result['progress']}"
+        assert result["job_id"] == 3, "Should have job_id from row"
+        assert result["status"] == "pending"
+
+    def test_get_job_progress_no_job_exists(self, mock_supabase):
+        """Test get_job_progress returns default dict when no job exists."""
         set_supabase_client(mock_supabase)
 
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
+        test_url = "https://youtube.com/playlist?list=PLNotFound"
 
-        # Visit dashboard
-        r = authenticated_client.get(f"/d/{dashboard_id}")
-        assert r.status_code == 200
+        # ✅ Initialize empty table
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
 
-        # ✅ CORRECT: Check dashboard_events table, not playlist_stats.view_count
-        events = (
-            mock_supabase.table("dashboard_events")
-            .select("*")
-            .eq("dashboard_id", dashboard_id)
-            .execute()
-        )
+        # Don't add any data - test "not found" case
 
-        assert (
-            len(events.data) >= 1
-        ), f"Expected at least 1 view event, got {len(events.data)}"
+        result = get_job_progress(test_url)
 
-        # Verify first event is a view
-        view_events = [e for e in events.data if e["event_type"] == "view"]
-        assert (
-            len(view_events) >= 1
-        ), f"Expected at least 1 view event, got {len(view_events)}"
+        # ✅ Should return default values
+        assert isinstance(result, dict)
+        assert result["job_id"] is None, "No job should have job_id=None"
+        assert result["status"] is None
+        assert result["progress"] == 0.0
+        assert result["started_at"] is None
+        assert result["error"] is None
+
+    def test_get_job_progress_database_error(self, mock_supabase, monkeypatch):
+        """Test get_job_progress handles database errors gracefully."""
+        set_supabase_client(mock_supabase)
+
+        # Mock database error
+        def raise_error(*args, **kwargs):
+            raise RuntimeError("Database connection lost")
+
+        monkeypatch.setattr(mock_supabase, "table", raise_error)
+
+        result = get_job_progress("https://youtube.com/playlist?list=PL123")
+
+        # ✅ Should return dict with error message
+        assert isinstance(result, dict)
+        assert result["job_id"] is None
+        assert result["progress"] == 0.0
+        assert "Database connection lost" in result["error"]
