@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+from db import get_job_progress, set_supabase_client
 from starlette.testclient import TestClient
 
 import main
@@ -593,6 +594,87 @@ class TestJobProgress:
         assert "Preparing analysis" in r.text or "Waiting" in r.text
         assert "Status: None" not in r.text
 
+    def test_get_job_progress_validates_type(self, mock_supabase):
+        """Test that get_job_progress ensures progress is float 0.0-1.0."""
+        set_supabase_client(mock_supabase)
+
+        # ✅ Mock a job with invalid progress values
+        test_url = "https://youtube.com/playlist?list=PLtest"
+
+        # Test case 1: Integer progress (should convert to float)
+        mock_supabase.table("playlist_jobs").insert(
+            {
+                "playlist_url": test_url,
+                "status": "processing",
+                "progress": 50,  # ❌ Integer (should be 0.5)
+            }
+        ).execute()
+
+        result = get_job_progress(test_url)
+
+        assert result is not None
+        assert isinstance(result["progress"], float), "Progress must be float"
+        assert result["progress"] == 50.0  # ⚠️ Will clamp to 1.0 if > 1.0
+
+    def test_get_job_progress_clamps_values(self, mock_supabase):
+        """Test that get_job_progress clamps progress to [0.0, 1.0]."""
+        set_supabase_client(mock_supabase)
+
+        test_url = "https://youtube.com/playlist?list=PLtest2"
+
+        # Test case: Progress > 1.0 (should clamp to 1.0)
+        mock_supabase.table("playlist_jobs").insert(
+            {
+                "playlist_url": test_url,
+                "status": "processing",
+                "progress": 1.5,  # ❌ > 1.0
+            }
+        ).execute()
+
+        result = get_job_progress(test_url)
+
+        assert result["progress"] == 1.0, "Progress > 1.0 should be clamped to 1.0"
+
+    def test_get_job_progress_handles_null(self, mock_supabase):
+        """Test that get_job_progress handles null/missing progress."""
+        set_supabase_client(mock_supabase)
+
+        test_url = "https://youtube.com/playlist?list=PLtest3"
+
+        # Test case: Missing progress
+        mock_supabase.table("playlist_jobs").insert(
+            {
+                "playlist_url": test_url,
+                "status": "pending",
+                # No progress field
+            }
+        ).execute()
+
+        result = get_job_progress(test_url)
+
+        assert result["progress"] == 0.0, "Missing progress should default to 0.0"
+
+    def test_get_job_progress_handles_string(self, mock_supabase):
+        """Test that get_job_progress handles string progress values."""
+        set_supabase_client(mock_supabase)
+
+        test_url = "https://youtube.com/playlist?list=PLtest4"
+
+        # Test case: String progress (shouldn't happen, but handle gracefully)
+        mock_supabase.table("playlist_jobs").insert(
+            {
+                "playlist_url": test_url,
+                "status": "processing",
+                "progress": "0.75",  # ❌ String
+            }
+        ).execute()
+
+        result = get_job_progress(test_url)
+
+        # Should either convert or default to 0.0
+        assert isinstance(result["progress"], float)
+        assert 0.0 <= result["progress"] <= 1.0
+
 
 # ============================================================
 # Test Class 5: Dashboard
@@ -628,7 +710,6 @@ class TestDashboard:
             "Sample Playlist" in r.text or "playlist-table" in r.text
         ), f"Expected dashboard content not found. Response snippet: {r.text[:1000]}"
 
-    @pytest.mark.skip(reason="Temporarily disabled for debugging")
     def test_dashboard_records_view_event(self, mock_supabase):
         """Test viewing dashboard increments view count."""
         from db import (
@@ -639,7 +720,7 @@ class TestDashboard:
 
         set_supabase_client(mock_supabase)
 
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
+        # ✅ Compute dashboard_id from TEST_PLAYLIST_URL
         dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
 
         # ✅ Initial state: no events recorded yet
