@@ -326,8 +326,8 @@ class TestProcessPlaylist:
         """
         ✅ SCHEMA COMPLIANCE TEST
 
-        Verify that process_playlist() returns all required fields
-        matching the playlist_stats database schema.
+        Verify that process_playlist() returns EXACTLY the required fields
+        matching the playlist_stats database schema (no more, no less).
         """
         # Use test playlist URL
         test_url = TEST_PLAYLIST_URL
@@ -335,8 +335,8 @@ class TestProcessPlaylist:
         # Process the playlist
         result = await process_playlist(test_url)
 
-        # ✅ Define all required fields from playlist_stats schema
-        required_fields = [
+        # ✅ Define EXACT schema from playlist_stats table
+        required_fields = {
             # Core identifiers
             "playlist_url",
             "dashboard_id",
@@ -360,16 +360,35 @@ class TestProcessPlaylist:
             "summary_stats",
             # Event counters
             "share_count",
-        ]
+        }
 
-        # ✅ Check all required fields are present
-        missing_fields = set(required_fields) - set(result.keys())
-        assert not missing_fields, (
-            f"Missing required fields in process_playlist() output: {missing_fields}\n"
-            f"Available fields: {list(result.keys())}"
+        # ✅ STRICT SCHEMA CHECK: Detect extra AND missing fields
+        actual_fields = set(result.keys())
+        extra_fields = actual_fields - required_fields
+        missing_fields = required_fields - actual_fields
+
+        assert not extra_fields, (
+            f"❌ UNEXPECTED FIELDS returned by process_playlist():\n"
+            f"  {sorted(extra_fields)}\n\n"
+            f"These fields are NOT in the playlist_stats schema.\n"
+            f"Action: Either add them to the schema or remove from process_playlist()."
         )
 
-        print(f"\n✅ All {len(required_fields)} required fields present")
+        assert not missing_fields, (
+            f"❌ MISSING REQUIRED FIELDS in process_playlist() output:\n"
+            f"  {sorted(missing_fields)}\n\n"
+            f"Available fields: {sorted(actual_fields)}"
+        )
+
+        # ✅ Ensure EXACT match (combines both checks)
+        assert actual_fields == required_fields, (
+            f"Schema mismatch!\n"
+            f"  Missing: {sorted(missing_fields)}\n"
+            f"  Extra:   {sorted(extra_fields)}"
+        )
+
+        print(f"\n✅ Exact schema match: {len(required_fields)} fields")
+        print(f"✅ No unexpected fields found")
 
         # ✅ Verify field types
         assert isinstance(result["playlist_url"], str), "playlist_url must be string"
