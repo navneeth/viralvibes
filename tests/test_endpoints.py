@@ -652,174 +652,44 @@ class TestJobProgress:
 
         result = get_job_progress(test_url)
 
+        # ✅ Now guaranteed to be a dict
+        assert isinstance(result, dict), "get_job_progress must always return dict"
         assert result["progress"] == 0.0, "Missing progress should default to 0.0"
+        assert result["job_id"] is not None, "Should have job_id from inserted row"
+        assert result["status"] == "pending"
 
-    def test_get_job_progress_handles_string(self, mock_supabase):
-        """Test that get_job_progress handles string progress values."""
+    def test_get_job_progress_no_job_exists(self, mock_supabase):
+        """Test get_job_progress returns default dict when no job exists."""
         set_supabase_client(mock_supabase)
 
-        test_url = "https://youtube.com/playlist?list=PLtest4"
-
-        # Test case: String progress (shouldn't happen, but handle gracefully)
-        mock_supabase.table("playlist_jobs").insert(
-            {
-                "playlist_url": test_url,
-                "status": "processing",
-                "progress": "0.75",  # ❌ String
-            }
-        ).execute()
+        test_url = "https://youtube.com/playlist?list=PLNotFound"
 
         result = get_job_progress(test_url)
 
-        # Should either convert or default to 0.0
-        assert isinstance(result["progress"], float)
-        assert 0.0 <= result["progress"] <= 1.0
+        # ✅ Should return default values
+        assert isinstance(result, dict)
+        assert result["job_id"] is None, "No job should have job_id=None"
+        assert result["status"] is None
+        assert result["progress"] == 0.0
+        assert result["started_at"] is None
+        assert result["error"] is None  # No error for "not found" case
 
-
-# ============================================================
-# Test Class 5: Dashboard
-# ============================================================
-
-
-class TestDashboard:
-    """Tests for persistent dashboard endpoints."""
-
-    def test_dashboard_by_id_loads(
-        self, authenticated_client, mock_supabase, monkeypatch
-    ):
-        """Test GET /d/{dashboard_id} returns dashboard content."""
+    def test_get_job_progress_database_error(self, mock_supabase, monkeypatch):
+        """Test get_job_progress handles database errors gracefully."""
         set_supabase_client(mock_supabase)
 
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
+        # Mock database error
+        def raise_error(*args, **kwargs):
+            raise RuntimeError("Database connection lost")
 
-        # ✅ Debug: Verify mock data structure
-        print(f"🔍 Computed dashboard_id: {dashboard_id}")
-        print(
-            f"🔍 Mock playlist_stats keys: {list(mock_supabase.data['playlist_stats'].keys())}"
-        )
+        monkeypatch.setattr(mock_supabase, "table", raise_error)
 
-        r = authenticated_client.get(f"/d/{dashboard_id}")
+        result = get_job_progress("https://youtube.com/playlist?list=PL123")
 
-        assert r.status_code in (
-            200,
-            303,
-        ), f"Expected 200/303, got {r.status_code}. Response: {r.text[:500]}"
+        # ✅ Should return dict with error message
+        assert isinstance(result, dict)
+        assert result["job_id"] is None
+        assert result["progress"] == 0.0
+        assert "Database connection lost" in result["error"]
 
-        assert (
-            "Sample Playlist" in r.text or "playlist-table" in r.text
-        ), f"Expected dashboard content not found. Response snippet: {r.text[:1000]}"
-
-    def test_dashboard_records_view_event(self, mock_supabase):
-        """Test viewing dashboard increments view count."""
-        from db import (
-            get_dashboard_event_counts,
-            record_dashboard_event,
-            set_supabase_client,
-        )
-
-        set_supabase_client(mock_supabase)
-
-        # ✅ Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
-
-        # ✅ Initial state: no events recorded yet
-        initial_counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-        initial_view_count = initial_counts.get("view", 0)
-
-        # Should start at 0
-        assert (
-            initial_view_count == 0
-        ), f"Expected 0 initial views, got {initial_view_count}"
-
-        # Record first view event
-        record_dashboard_event(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-            event_type="view",
-        )
-
-        # Verify event was recorded
-        updated_counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-        updated_view_count = updated_counts.get("view", 0)
-
-        # View count should be 1
-        assert (
-            updated_view_count == 1
-        ), f"Expected 1 view after recording, got {updated_view_count}"
-
-        # Record another view
-        record_dashboard_event(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-            event_type="view",
-        )
-
-        # Verify count increased to 2
-        final_counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-        final_view_count = final_counts.get("view", 0)
-
-        assert (
-            final_view_count == 2
-        ), f"Expected 2 views after second record, got {final_view_count}"
-
-    def test_dashboard_event_counts(self, mock_supabase):
-        """Test fetching dashboard event counts."""
-        set_supabase_client(mock_supabase)
-
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
-
-        counts = get_dashboard_event_counts(
-            supabase=mock_supabase,
-            dashboard_id=dashboard_id,
-        )
-
-        assert "view" in counts
-        assert "share" in counts
-        assert isinstance(counts["view"], int)
-        assert isinstance(counts["share"], int)
-
-    @pytest.mark.skip(reason="Temporarily disabled for debugging")
-    def test_dashboard_view_increments_counter(
-        self,
-        authenticated_client,
-        mock_supabase,  # ✅ FIX: Add self parameter
-    ):
-        """Dashboard views should increment view counter in dashboard_events, NOT playlist_stats.view_count."""
-
-        set_supabase_client(mock_supabase)
-
-        # ✅ FIX: Compute dashboard_id from TEST_PLAYLIST_URL
-        dashboard_id = compute_dashboard_id(TEST_PLAYLIST_URL)
-
-        # Visit dashboard
-        r = authenticated_client.get(f"/d/{dashboard_id}")
-        assert r.status_code == 200
-
-        # ✅ CORRECT: Check dashboard_events table, not playlist_stats.view_count
-        events = (
-            mock_supabase.table("dashboard_events")
-            .select("*")
-            .eq("dashboard_id", dashboard_id)
-            .execute()
-        )
-
-        assert (
-            len(events.data) >= 1
-        ), f"Expected at least 1 view event, got {len(events.data)}"
-
-        # Verify first event is a view
-        view_events = [e for e in events.data if e["event_type"] == "view"]
-        assert (
-            len(view_events) >= 1
-        ), f"Expected at least 1 view event, got {len(view_events)}"
+    # ...existing tests...

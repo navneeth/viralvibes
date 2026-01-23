@@ -580,20 +580,32 @@ def submit_playlist_job(playlist_url: str) -> bool:
     return success
 
 
-def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
+def get_job_progress(playlist_url: str) -> Dict[str, Any]:
     """
     Fetch job progress for polling updates.
 
-    Returns: {
-        'job_id': str,
-        'status': str,
-        'progress': float (0.0-1.0),  # ✅ Guaranteed to be float
-        'started_at': str (ISO),
-        'error': str or None,
-    }
+    Always returns a dictionary. If no job exists, returns default values.
+
+    Returns:
+        Dict with keys:
+        - job_id: int | None (renamed from 'id')
+        - status: str | None
+        - progress: float (0.0-1.0, guaranteed non-null)
+        - started_at: str (ISO) | None
+        - error: str | None
     """
+    # ✅ Define default response for "no job found" case
+    default_response = {
+        "job_id": None,
+        "status": None,
+        "progress": 0.0,
+        "started_at": None,
+        "error": None,
+    }
+
     if not supabase_client:
-        return None
+        logger.warning("Supabase client not available to fetch job progress")
+        return {**default_response, "error": "Database unavailable"}
 
     try:
         response = (
@@ -605,28 +617,37 @@ def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
             .execute()
         )
 
-        if response.data:
-            job = response.data[0]
+        if not response.data:
+            logger.debug(f"No job found for playlist: {playlist_url}")
+            return default_response
 
-            # ✅ Ensure progress is float and clamped to [0.0, 1.0]
-            raw_progress = job.get("progress", 0.0)
+        job = response.data[0]
+
+        # ✅ Normalize field names
+        job["job_id"] = job.pop("id", None)
+
+        # ✅ Ensure progress is float and clamped to [0.0, 1.0]
+        raw_progress = job.get("progress")
+
+        if raw_progress is None:
+            job["progress"] = 0.0
+        else:
             try:
                 progress = float(raw_progress)
+                # Clamp to valid range
                 job["progress"] = max(0.0, min(1.0, progress))
             except (TypeError, ValueError):
                 logger.warning(
-                    f"Invalid progress value for {playlist_url}: {raw_progress}. "
+                    f"Invalid progress value for {playlist_url}: {raw_progress!r}. "
                     f"Defaulting to 0.0"
                 )
                 job["progress"] = 0.0
 
-            return job
-
-        return None
+        return job
 
     except Exception as e:
-        logger.error(f"Error fetching job progress for {playlist_url}: {e}")
-        return None
+        logger.exception(f"Error fetching job progress for {playlist_url}: {e}")
+        return {**default_response, "error": str(e)}
 
 
 def get_estimated_stats(video_count: int) -> Dict[str, Any]:
@@ -743,53 +764,32 @@ def get_dashboard_event_counts(
 
 def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> Optional[str]:
     """
-    Look up playlist_url by dashboard_id.
+    Resolve playlist_url from dashboard_id.
 
-    ⚠️  IMPORTANT: dashboard_id is a 16-char MD5 hash and is NOT guaranteed unique
-    due to potential hash collisions. If multiple playlists map to the same
-    dashboard_id, this returns the most recently processed one.
+    Note: Uses 64-bit MD5 hash. Collision probability:
+    - 100K playlists: ~0.00003%
+    - 1M playlists: ~0.003%
+    - 10M playlists: ~0.3%
 
-    Uses the indexed dashboard_id column in playlist_stats for fast O(1) lookup.
-    (This function can be deleted if main.py queries playlist_stats directly)
-
-    Args:
-        dashboard_id: Dashboard ID to resolve (16-char MD5 hash)
-
-    Returns:
-        playlist_url if found, None otherwise
+    Returns most recent playlist if collision occurs.
     """
     if not supabase_client:
-        logger.warning("Supabase client not available to resolve dashboard id")
         return None
 
     try:
-        # ✅ Query by dashboard_id and order by processed_on (handle collisions)
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("playlist_url, processed_on")
+            .select("playlist_url")
             .eq("dashboard_id", dashboard_id)
-            .order("processed_on", desc=True)  # ✅ Most recent first
-            .limit(1)  # ✅ Take only the first result
+            .order("processed_on", desc=True)
+            .limit(1)
             .execute()
         )
 
-        if response.data and len(response.data) > 0:
-            # ✅ Log warning if multiple results exist (collision detected)
-            if len(response.data) > 1:
-                logger.warning(
-                    f"Hash collision detected for dashboard_id {dashboard_id}! "
-                    f"Found {len(response.data)} playlists. Returning most recent."
-                )
-
-            return response.data[0]["playlist_url"]
-
-        logger.debug(f"No playlist found for dashboard_id: {dashboard_id}")
-        return None
+        return response.data[0]["playlist_url"] if response.data else None
 
     except Exception as e:
-        logger.exception(
-            f"Failed to resolve playlist_url for dashboard_id={dashboard_id}: {e}"
-        )
+        logger.exception(f"Failed to resolve dashboard_id={dashboard_id}: {e}")
         return None
 
 
