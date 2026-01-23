@@ -432,9 +432,34 @@ class TestProcessPlaylist:
             result["controversy_score"], (int, float)
         ), f"controversy_score must be numeric, got {type(result['controversy_score'])}"
 
+        # ✅ ENHANCED: Validate df_json is valid JSON with expected structure
         assert isinstance(
             result["df_json"], str
         ), f"df_json must be JSON string, got {type(result['df_json'])}"
+
+        try:
+            parsed_df_json = json.loads(result["df_json"])
+        except json.JSONDecodeError as e:
+            pytest.fail(
+                f"df_json is not valid JSON: {e}\nContent: {result['df_json'][:200]}"
+            )
+
+        # ✅ Polars .write_json() returns array of objects (list of dicts)
+        assert isinstance(parsed_df_json, list), (
+            f"df_json must decode to a list (Polars DataFrame format), "
+            f"got {type(parsed_df_json)}"
+        )
+
+        # ✅ If non-empty, verify it's a list of dicts (rows)
+        if parsed_df_json:
+            assert isinstance(
+                parsed_df_json[0], dict
+            ), f"df_json rows must be dicts, got {type(parsed_df_json[0])}"
+            print(f"✅ df_json is valid JSON with {len(parsed_df_json)} rows")
+        else:
+            print(f"✅ df_json is valid empty JSON array")
+
+        # ✅ Validate summary_stats
         assert isinstance(
             result["summary_stats"], dict
         ), f"summary_stats must be dict, got {type(result['summary_stats'])}"
@@ -555,19 +580,14 @@ class TestProcessPlaylist:
             ), "Average duration should be positive for non-empty playlists"
             print(f"✅ Average duration: {result['avg_duration']}")
 
-        # ✅ JSON payload should be valid
-        import json
-
-        try:
-            json.loads(result["df_json"])
-            print(f"✅ df_json is valid JSON")
-        except json.JSONDecodeError as e:
-            pytest.fail(f"df_json is not valid JSON: {e}")
+        # ✅ REMOVED: JSON validation (already in schema test)
+        # Kept only: summary_stats key validation
 
         # ✅ summary_stats should contain expected keys
         expected_summary_keys = ["total_views", "total_likes", "avg_engagement"]
-        for key in expected_summary_keys:
-            assert (
-                key in result["summary_stats"]
-            ), f"summary_stats missing expected key: {key}"
-        print(f"✅ summary_stats contains all expected keys")
+        missing_keys = set(expected_summary_keys) - set(result["summary_stats"].keys())
+        assert not missing_keys, (
+            f"summary_stats missing expected keys: {missing_keys}\n"
+            f"Available keys: {list(result['summary_stats'].keys())}"
+        )
+        print(f"✅ summary_stats contains all expected keys: {expected_summary_keys}")
