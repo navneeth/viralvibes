@@ -583,10 +583,11 @@ def submit_playlist_job(playlist_url: str) -> bool:
 def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
     """
     Fetch job progress for polling updates.
+
     Returns: {
         'job_id': str,
         'status': str,
-        'progress': float (0.0-1.0),
+        'progress': float (0.0-1.0),  # ✅ Guaranteed to be float
         'started_at': str (ISO),
         'error': str or None,
     }
@@ -605,8 +606,24 @@ def get_job_progress(playlist_url: str) -> Optional[Dict[str, Any]]:
         )
 
         if response.data:
-            return response.data[0]
+            job = response.data[0]
+
+            # ✅ Ensure progress is float and clamped to [0.0, 1.0]
+            raw_progress = job.get("progress", 0.0)
+            try:
+                progress = float(raw_progress)
+                job["progress"] = max(0.0, min(1.0, progress))
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"Invalid progress value for {playlist_url}: {raw_progress}. "
+                    f"Defaulting to 0.0"
+                )
+                job["progress"] = 0.0
+
+            return job
+
         return None
+
     except Exception as e:
         logger.error(f"Error fetching job progress for {playlist_url}: {e}")
         return None
@@ -646,7 +663,7 @@ def record_dashboard_event(
     event_type: str = "view",
 ) -> None:
     """
-    Record a dashboard event (view, share, etc).
+    Record a dashboard event (view, share, etc) in the dashboard_events table.
 
     Args:
         supabase: Supabase client (uses global if not provided)
@@ -658,15 +675,23 @@ def record_dashboard_event(
         logger.warning("Supabase client not available to record event")
         return
 
-    try:
-        column = "view_count" if event_type == "view" else "share_count"
+    # ✅ Validate event_type
+    if event_type not in ("view", "share"):
+        logger.warning(f"Invalid event_type: {event_type}. Must be 'view' or 'share'")
+        return
 
-        # Increment the counter atomically on Supabase
-        client.table(PLAYLIST_STATS_TABLE).update(
-            {column: f"{column} + 1"}  # SQL: column = column + 1
-        ).eq("dashboard_id", dashboard_id).execute()
+    try:
+        # ✅ Insert into dashboard_events table (NOT playlist_stats)
+        payload = {
+            "dashboard_id": dashboard_id,
+            "event_type": event_type,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+
+        client.table("dashboard_events").insert(payload).execute()
 
         logger.debug(f"Recorded {event_type} event for dashboard {dashboard_id}")
+
     except Exception as e:
         logger.warning(f"Failed to record dashboard event: {e}")
         # Don't raise - event tracking is non-critical
@@ -676,14 +701,14 @@ def get_dashboard_event_counts(
     supabase: Optional[SupabaseLike] = None, dashboard_id: str = ""
 ) -> dict:
     """
-    Get event counts for a dashboard.
+    Get event counts for a dashboard by aggregating from dashboard_events table.
 
     Args:
         supabase: Supabase client (uses global if not provided)
         dashboard_id: Dashboard ID to fetch events for
 
     Returns:
-        dict with event_type -> count mapping
+        dict with event_type -> count mapping (e.g., {"view": 5, "share": 2})
     """
     client = supabase or supabase_client
     if not client:
@@ -691,23 +716,25 @@ def get_dashboard_event_counts(
         return {"view": 0, "share": 0}
 
     try:
+        # ✅ Query dashboard_events table (NOT playlist_stats)
         response = (
-            client.table(PLAYLIST_STATS_TABLE)
-            .select("view_count, share_count")
+            client.table("dashboard_events")
+            .select("event_type")
             .eq("dashboard_id", dashboard_id)
-            .limit(1)
             .execute()
         )
 
-        if response.data and len(response.data) > 0:
-            row = response.data[0]
-            return {
-                "view": row.get("view_count", 0),
-                "share": row.get("share_count", 0),
-            }
+        # ✅ Aggregate counts by event_type
+        counts = {"view": 0, "share": 0}
+
+        if response.data:
+            for event in response.data:
+                event_type = event.get("event_type")
+                if event_type in counts:
+                    counts[event_type] += 1
 
         logger.debug(f"Event counts for {dashboard_id}: {counts}")
-        return {"view": 0, "share": 0}
+        return counts
 
     except Exception as e:
         logger.warning(f"Failed to get event counts for {dashboard_id}: {e}")
@@ -718,11 +745,15 @@ def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> Optional[str]:
     """
     Look up playlist_url by dashboard_id.
 
+    ⚠️  IMPORTANT: dashboard_id is a 16-char MD5 hash and is NOT guaranteed unique
+    due to potential hash collisions. If multiple playlists map to the same
+    dashboard_id, this returns the most recently processed one.
+
     Uses the indexed dashboard_id column in playlist_stats for fast O(1) lookup.
     (This function can be deleted if main.py queries playlist_stats directly)
 
     Args:
-        dashboard_id: Dashboard ID to resolve
+        dashboard_id: Dashboard ID to resolve (16-char MD5 hash)
 
     Returns:
         playlist_url if found, None otherwise
@@ -732,19 +763,27 @@ def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> Optional[str]:
         return None
 
     try:
-        # Direct indexed lookup instead of scanning all rows
+        # ✅ Query by dashboard_id and order by processed_on (handle collisions)
         response = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("playlist_url")
+            .select("playlist_url, processed_on")
             .eq("dashboard_id", dashboard_id)
-            .limit(1)
+            .order("processed_on", desc=True)  # ✅ Most recent first
+            .limit(1)  # ✅ Take only the first result
             .execute()
         )
 
         if response.data and len(response.data) > 0:
+            # ✅ Log warning if multiple results exist (collision detected)
+            if len(response.data) > 1:
+                logger.warning(
+                    f"Hash collision detected for dashboard_id {dashboard_id}! "
+                    f"Found {len(response.data)} playlists. Returning most recent."
+                )
+
             return response.data[0]["playlist_url"]
 
-        logger.warning(f"No playlist found for dashboard_id: {dashboard_id}")
+        logger.debug(f"No playlist found for dashboard_id: {dashboard_id}")
         return None
 
     except Exception as e:
