@@ -5,6 +5,7 @@ from datetime import timedelta
 import polars as pl
 
 from services.youtube_service import YoutubePlaylistService
+from utils import compute_dashboard_id  # ✅ ADD THIS IMPORT
 
 # Instantiate service once
 yt_service = YoutubePlaylistService()
@@ -49,8 +50,18 @@ async def process_playlist(playlist_url: str) -> dict:
         else 0.0
     )
 
+    # ✅ FIX 1: Add missing required fields
     return {
-        "playlist_name": playlist_name,
+        # ✅ Core identifiers
+        "playlist_url": playlist_url,  # ✅ ADD: Authoritative identifier
+        "dashboard_id": compute_dashboard_id(
+            playlist_url
+        ),  # ✅ ADD: Computed hash for routing
+        # ✅ Playlist metadata
+        "title": playlist_name,  # ✅ RENAME: 'playlist_name' → 'title' (matches DB schema)
+        "channel_name": channel_name,  # ✅ ADD: Missing field
+        "channel_thumbnail": channel_thumbnail,  # ✅ ADD: Missing field
+        # ✅ Aggregate stats
         "view_count": summary_stats.get("total_views", 0),
         "like_count": summary_stats.get("total_likes", 0),
         "dislike_count": (
@@ -58,9 +69,22 @@ async def process_playlist(playlist_url: str) -> dict:
             if video_count > 0 and "Dislike Count Raw" in df.columns
             else 0
         ),
-        "comment_count": 0,  # You can add comment count logic if needed
+        "comment_count": summary_stats.get(
+            "total_comments", 0
+        ),  # ✅ FIX: Use actual value from summary_stats
         "video_count": video_count,
+        "processed_video_count": video_count,  # ✅ ADD: Track how many videos were actually processed
+        # ✅ Computed metrics
         "avg_duration": avg_duration,
         "engagement_rate": engagement_rate,
-        "controversy_score": controversy_score,
+        "controversy_score": (
+            float(controversy_score) if controversy_score else 0.0
+        ),  # ✅ Ensure float
+        # ✅ JSON payloads
+        "df_json": (
+            df.write_json() if df is not None else "[]"
+        ),  # ✅ ADD: DataFrame as JSON string
+        "summary_stats": summary_stats,  # ✅ ADD: Keep original summary_stats dict
+        # ✅ Denormalized counters (updated separately via dashboard_events)
+        "share_count": 0,  # ✅ ADD: Default to 0 (incremented by event tracking)
     }

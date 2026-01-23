@@ -1,8 +1,10 @@
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from datetime import timedelta
 
 import pytest
+from worker.jobs import process_playlist
 
 import worker.worker as wk
 from worker.worker import JobResult, Worker, YouTubeBotChallengeError
@@ -313,3 +315,113 @@ async def test_process_one_retry_flag(fake_db, fake_df, patch_upsert, monkeypatc
     assert isinstance(result, JobResult)
     assert result.job_id == "job_r1"
     assert fake_db.tables["playlist_jobs"][0]["status"] in ("processing", "done")
+
+
+class TestProcessPlaylist:
+    """Tests for process_playlist() function schema compliance."""
+
+    @pytest.mark.asyncio
+    async def test_process_playlist_returns_complete_schema(self, mock_youtube_service):
+        """
+        Test that process_playlist() returns all required fields matching
+        the playlist_stats database schema.
+        """
+        # Use a real playlist URL for testing
+        test_url = (
+            "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
+        )
+
+        # Process the playlist
+        result = await process_playlist(test_url)
+
+        # ✅ Define all required fields from playlist_stats schema
+        required_fields = [
+            # Core identifiers
+            "playlist_url",
+            "dashboard_id",
+            # Metadata
+            "title",
+            "channel_name",
+            "channel_thumbnail",
+            # Aggregate stats
+            "view_count",
+            "like_count",
+            "dislike_count",
+            "comment_count",
+            "video_count",
+            "processed_video_count",
+            # Computed metrics
+            "avg_duration",
+            "engagement_rate",
+            "controversy_score",
+            # JSON payloads
+            "df_json",
+            "summary_stats",
+            # Event counters
+            "share_count",
+        ]
+
+        # ✅ Check all required fields are present
+        missing_fields = set(required_fields) - set(result.keys())
+        assert (
+            not missing_fields
+        ), f"Missing required fields in process_playlist() output: {missing_fields}"
+
+        # ✅ Verify field types
+        assert isinstance(result["playlist_url"], str), "playlist_url must be string"
+        assert isinstance(result["dashboard_id"], str), "dashboard_id must be string"
+        assert len(result["dashboard_id"]) == 16, "dashboard_id must be 16-char hash"
+
+        assert isinstance(result["title"], str), "title must be string"
+        assert isinstance(result["channel_name"], str), "channel_name must be string"
+        assert isinstance(
+            result["channel_thumbnail"], str
+        ), "channel_thumbnail must be string"
+
+        assert isinstance(result["view_count"], int), "view_count must be int"
+        assert isinstance(result["like_count"], int), "like_count must be int"
+        assert isinstance(result["dislike_count"], int), "dislike_count must be int"
+        assert isinstance(result["comment_count"], int), "comment_count must be int"
+        assert isinstance(result["video_count"], int), "video_count must be int"
+        assert isinstance(
+            result["processed_video_count"], int
+        ), "processed_video_count must be int"
+
+        assert isinstance(
+            result["avg_duration"], timedelta
+        ), "avg_duration must be timedelta"
+        assert isinstance(
+            result["engagement_rate"], (int, float)
+        ), "engagement_rate must be numeric"
+        assert isinstance(
+            result["controversy_score"], (int, float)
+        ), "controversy_score must be numeric"
+
+        assert isinstance(result["df_json"], str), "df_json must be JSON string"
+        assert isinstance(result["summary_stats"], dict), "summary_stats must be dict"
+
+        assert isinstance(result["share_count"], int), "share_count must be int"
+        assert result["share_count"] == 0, "share_count must default to 0"
+
+        # ✅ Verify computed dashboard_id matches
+        from utils import compute_dashboard_id
+
+        expected_dashboard_id = compute_dashboard_id(test_url)
+        assert (
+            result["dashboard_id"] == expected_dashboard_id
+        ), f"dashboard_id mismatch: expected {expected_dashboard_id}, got {result['dashboard_id']}"
+
+    @pytest.mark.asyncio
+    async def test_process_playlist_handles_empty_playlist(self, mock_youtube_service):
+        """Test that process_playlist() handles empty playlists gracefully."""
+        # Mock an empty playlist response
+        test_url = "https://www.youtube.com/playlist?list=PLempty"
+
+        result = await process_playlist(test_url)
+
+        # Should still return valid schema with zero values
+        assert result["video_count"] == 0
+        assert result["processed_video_count"] == 0
+        assert result["view_count"] == 0
+        assert result["avg_duration"] == timedelta(seconds=0)
+        assert result["df_json"] == "[]"
