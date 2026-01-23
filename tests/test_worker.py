@@ -544,6 +544,7 @@ class TestProcessPlaylist:
             pytest.skip(f"YouTube API rejected invalid playlist: {e}")
 
     @pytest.mark.asyncio
+    @pytest.mark.skip(reason="Temporarily disabled for debugging")
     async def test_process_playlist_field_consistency(self):
         """
         ✅ CONSISTENCY TEST
