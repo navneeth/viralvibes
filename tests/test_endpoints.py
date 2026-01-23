@@ -600,7 +600,11 @@ class TestJobProgress:
 
         test_url = "https://youtube.com/playlist?list=PLtest"
 
-        # ✅ Directly populate mock data
+        # ✅ Initialize playlist_jobs table if it doesn't exist
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
+
+        # ✅ Add test data
         mock_supabase.data["playlist_jobs"][1] = {
             "id": 1,
             "playlist_url": test_url,
@@ -608,14 +612,19 @@ class TestJobProgress:
             "progress": 50,  # Invalid: integer > 1.0
             "created_at": "2024-01-01T12:00:00Z",
             "started_at": "2024-01-01T12:01:00Z",
+            "finished_at": None,
             "error": None,
         }
 
         result = get_job_progress(test_url)
 
-        assert result is not None, "get_job_progress should return dict"
+        assert (
+            result is not None
+        ), f"get_job_progress returned None. Mock data: {mock_supabase.data['playlist_jobs']}"
         assert isinstance(result["progress"], float), "Progress must be float"
-        assert result["progress"] == 1.0, "Progress=50 should be clamped to 1.0"
+        assert (
+            result["progress"] == 1.0
+        ), f"Progress=50 should be clamped to 1.0, got {result['progress']}"
 
     def test_get_job_progress_clamps_values(self, mock_supabase):
         """Test that get_job_progress clamps progress to [0.0, 1.0]."""
@@ -623,7 +632,11 @@ class TestJobProgress:
 
         test_url = "https://youtube.com/playlist?list=PLtest2"
 
-        # ✅ Directly populate mock data
+        # ✅ Initialize table
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
+
+        # ✅ Add test data
         mock_supabase.data["playlist_jobs"][2] = {
             "id": 2,
             "playlist_url": test_url,
@@ -631,12 +644,15 @@ class TestJobProgress:
             "progress": 1.5,  # Invalid: > 1.0
             "created_at": "2024-01-01T12:00:00Z",
             "started_at": "2024-01-01T12:01:00Z",
+            "finished_at": None,
             "error": None,
         }
 
         result = get_job_progress(test_url)
 
-        assert result["progress"] == 1.0, "Progress=1.5 should be clamped to 1.0"
+        assert (
+            result["progress"] == 1.0
+        ), f"Progress=1.5 should be clamped to 1.0, got {result['progress']}"
 
     def test_get_job_progress_handles_null(self, mock_supabase):
         """Test that get_job_progress handles null/missing progress."""
@@ -644,20 +660,28 @@ class TestJobProgress:
 
         test_url = "https://youtube.com/playlist?list=PLtest3"
 
-        # ✅ Directly populate mock data
+        # ✅ Initialize table
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
+
+        # ✅ Add test data
         mock_supabase.data["playlist_jobs"][3] = {
             "id": 3,
             "playlist_url": test_url,
             "status": "pending",
             "progress": None,  # Null progress
             "created_at": "2024-01-01T12:00:00Z",
+            "started_at": None,
+            "finished_at": None,
             "error": None,
         }
 
         result = get_job_progress(test_url)
 
         assert isinstance(result, dict), "get_job_progress must always return dict"
-        assert result["progress"] == 0.0, "Null progress should default to 0.0"
+        assert (
+            result["progress"] == 0.0
+        ), f"Null progress should default to 0.0, got {result['progress']}"
         assert result["job_id"] == 3, "Should have job_id from row"
         assert result["status"] == "pending"
 
@@ -666,6 +690,10 @@ class TestJobProgress:
         set_supabase_client(mock_supabase)
 
         test_url = "https://youtube.com/playlist?list=PLNotFound"
+
+        # ✅ Initialize empty table
+        if "playlist_jobs" not in mock_supabase.data:
+            mock_supabase.data["playlist_jobs"] = {}
 
         # Don't add any data - test "not found" case
 
