@@ -61,9 +61,15 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     monkeypatch.setattr(wk, "yt_service", mock_yt_service)
     monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
 
-    # ✅ Mock database upsert with PROPER data
+    # ✅ Mock database upsert with COMPLETE data matching what worker expects
     async def fake_upsert(stats):
-        # ✅ Create test dataframe to return
+        """
+        Mock upsert that returns a complete UpsertResult.
+
+        The worker validates that df_json and summary_stats_json are present
+        and not empty. We need to return actual data, not just placeholders.
+        """
+        # Create test data
         df = create_test_dataframe(num_videos=5)
         df_json = df.to_json(orient="records")
 
@@ -74,11 +80,17 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
             "actual_playlist_count": 5,
             "avg_engagement": 3.2,
         }
+        summary_stats_json = json.dumps(summary_stats)
 
-        return UpsertResult(
+        # 🔍 DEBUG: Print what we're about to return
+        print(f"\n🔍 fake_upsert received stats: {list(stats.keys())}")
+        print(f"🔍 Returning df_json length: {len(df_json)}")
+        print(f"🔍 Returning summary_stats_json: {summary_stats_json}")
+
+        result = UpsertResult(
             source="fresh",
-            df_json=df_json,  # ✅ Actual JSON data, not empty "[]"
-            summary_stats_json=json.dumps(summary_stats),  # ✅ Actual stats
+            df_json=df_json,
+            summary_stats_json=summary_stats_json,
             dashboard_id="test-dash-abc123",
             error=None,
             raw_row={
@@ -88,10 +100,19 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
                 "title": "My Playlist",
                 "channel_name": "Test Channel",
                 "processed_video_count": 5,
-                "df_json": df_json,  # ✅ Include df_json in raw_row
-                "summary_stats_json": json.dumps(summary_stats),  # ✅ Include summary
+                "df_json": df_json,
+                "summary_stats_json": summary_stats_json,
             },
         )
+
+        # 🔍 DEBUG: Verify what we're returning
+        print(f"🔍 UpsertResult.df_json is None: {result.df_json is None}")
+        print(
+            f"🔍 UpsertResult.summary_stats_json is None: {result.summary_stats_json is None}"
+        )
+        print(f"🔍 UpsertResult fields: {result.__dict__.keys()}")
+
+        return result
 
     monkeypatch.setattr(wk, "upsert_playlist_stats", fake_upsert)
 
@@ -100,6 +121,9 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
 
     async def fake_mark_job_status(job_id, status, updates=None):
         """Mock job status update."""
+        print(
+            f"🔍 mark_job_status called: job_id={job_id}, status={status}, updates={updates}"
+        )
         job_status_updates[job_id] = {"status": status, "updates": updates}
 
         # Update the mock database
@@ -138,12 +162,20 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     worker = Worker(supabase=mock_supabase_with_jobs, yt=mock_yt_service)
 
     # Process job
+    print("\n" + "=" * 80)
+    print("🚀 Starting worker.process_one()")
+    print("=" * 80)
+
     result = await worker.process_one(job, is_retry=False)
 
     # 🔍 DEBUG: Print result and status updates
-    print(f"\n🔍 Result: {result}")
-    print(f"🔍 Status updates: {job_status_updates}")
-    print(f"🔍 Mock DB job: {mock_supabase_with_jobs.data['playlist_jobs'].get(1)}")
+    print("\n" + "=" * 80)
+    print("📊 RESULTS:")
+    print("=" * 80)
+    print(f"Result: {result}")
+    print(f"Status updates: {job_status_updates}")
+    print(f"Mock DB job: {mock_supabase_with_jobs.data['playlist_jobs'].get(1)}")
+    print("=" * 80 + "\n")
 
     # ✅ Assertions
     assert isinstance(result, JobResult), f"Expected JobResult, got {type(result)}"
@@ -156,6 +188,18 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
 
     # ✅ Check the status that was set
     final_status = job_status_updates[1]["status"]
+
+    # 🔍 If test fails, print extensive debug info
+    if final_status not in [JobStatus.DONE, "complete", "done"]:
+        print("\n" + "🚨" * 40)
+        print("TEST FAILURE DEBUG INFO:")
+        print("🚨" * 40)
+        print(f"Expected status: {JobStatus.DONE} or 'complete' or 'done'")
+        print(f"Actual status: {final_status}")
+        print(f"Job updates: {job_status_updates[1].get('updates')}")
+        print(f"Result object: {result}")
+        print("🚨" * 40 + "\n")
+
     assert final_status in [
         JobStatus.DONE,
         "complete",
@@ -234,10 +278,6 @@ async def test_worker_process_one_handles_youtube_error(
 
     # Process job (should handle error)
     result = await worker.process_one(job, is_retry=False)
-
-    # 🔍 DEBUG
-    print(f"\n🔍 Error handling result: {result}")
-    print(f"🔍 Status updates: {job_status_updates}")
 
     # ✅ Assertions
     assert isinstance(result, JobResult)
@@ -327,10 +367,6 @@ async def test_worker_process_one_handles_database_error(
 
     # Process job (should handle error)
     result = await worker.process_one(job, is_retry=False)
-
-    # 🔍 DEBUG
-    print(f"\n🔍 DB error handling result: {result}")
-    print(f"🔍 Status updates: {job_status_updates}")
 
     # ✅ Assertions
     assert isinstance(result, JobResult)
