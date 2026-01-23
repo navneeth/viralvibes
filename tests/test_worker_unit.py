@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import worker.worker as wk
+import worker.jobs as jobs_module  # ✅ Import jobs module to patch it
 from worker.worker import JobResult, Worker
 from constants import JobStatus
 from db import UpsertResult
@@ -55,6 +56,13 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     mock_yt_service = SimpleNamespace(
         get_playlist_data=fake_get_playlist_data,
     )
+
+    # ✅ CRITICAL: Patch the YouTube service in BOTH modules where it's used
+    # worker.worker.yt_service (used by Worker class)
+    monkeypatch.setattr(wk, "yt_service", mock_yt_service)
+
+    # worker.jobs.yt_service (used by process_playlist function)
+    monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
 
     # ✅ Mock database upsert
     async def fake_upsert(stats):
@@ -179,6 +187,10 @@ async def test_worker_process_one_handles_youtube_error(
         get_playlist_data=fake_get_playlist_data_error,
     )
 
+    # ✅ Patch in BOTH modules
+    monkeypatch.setattr(wk, "yt_service", mock_yt_service)
+    monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
+
     # ✅ Track status updates
     job_status_updates = {}
 
@@ -261,6 +273,10 @@ async def test_worker_process_one_handles_database_error(
     mock_yt_service = SimpleNamespace(
         get_playlist_data=fake_get_playlist_data,
     )
+
+    # ✅ Patch in BOTH modules
+    monkeypatch.setattr(wk, "yt_service", mock_yt_service)
+    monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
 
     # ✅ Mock database error during upsert
     async def fake_upsert_error(stats):
