@@ -177,10 +177,9 @@ def setup_test_environment():
 class MockSupabaseTable:
     """Mock Supabase table with chainable query methods."""
 
-    def __init__(self, table_name: str, mock_supabase: "MockSupabase"):
+    def __init__(self, table_name: str, data: dict):
         self.table_name = table_name
-        self.mock_supabase = mock_supabase
-        self.data = {}
+        self.data = data
         self._filters = {}
         self._single = False
         self._insert_data = None
