@@ -62,7 +62,7 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     monkeypatch.setattr(wk, "yt_service", mock_yt_service)
     monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
 
-    # ✅ Mock database upsert - THIS IS THE KEY FIX
+    # ✅ Mock database upsert - patch in db module
     async def fake_upsert(stats):
         """Mock upsert that returns a complete UpsertResult."""
         # Extract the data that was passed in
@@ -98,7 +98,7 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
 
         return result
 
-    # ✅ KEY FIX: Patch in the db module where it's defined
+    # ✅ Patch upsert in db module (where it's defined)
     monkeypatch.setattr(db, "upsert_playlist_stats", fake_upsert)
 
     # ✅ Track status updates
@@ -119,7 +119,8 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
 
         return True
 
-    monkeypatch.setattr(db, "mark_job_status", fake_mark_job_status)
+    # ✅ Patch mark_job_status in worker.worker module (where it's defined)
+    monkeypatch.setattr(wk, "mark_job_status", fake_mark_job_status)
 
     # ✅ Mock update_progress
     async def fake_update_progress(job_id, processed, total):
@@ -131,7 +132,8 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
                 ] = progress
         return True
 
-    monkeypatch.setattr(db, "update_progress", fake_update_progress)
+    # ✅ Patch update_progress in worker.worker module (where it's defined)
+    monkeypatch.setattr(wk, "update_progress", fake_update_progress)
 
     # ✅ Add job to mock database
     if "playlist_jobs" not in mock_supabase_with_jobs.data:
@@ -210,12 +212,14 @@ async def test_worker_process_one_handles_youtube_error(
                     )
         return True
 
-    monkeypatch.setattr(db, "mark_job_status", fake_mark_job_status)
+    # ✅ Patch in worker.worker, not db
+    monkeypatch.setattr(wk, "mark_job_status", fake_mark_job_status)
 
     async def fake_update_progress(job_id, processed, total):
         return True
 
-    monkeypatch.setattr(db, "update_progress", fake_update_progress)
+    # ✅ Patch in worker.worker, not db
+    monkeypatch.setattr(wk, "update_progress", fake_update_progress)
 
     if "playlist_jobs" not in mock_supabase_with_jobs.data:
         mock_supabase_with_jobs.data["playlist_jobs"] = {}
@@ -265,6 +269,7 @@ async def test_worker_process_one_handles_database_error(
     async def fake_upsert_error(stats):
         raise Exception("Database connection lost")
 
+    # ✅ Patch in db module (where upsert is defined)
     monkeypatch.setattr(db, "upsert_playlist_stats", fake_upsert_error)
 
     job_status_updates = {}
@@ -280,12 +285,14 @@ async def test_worker_process_one_handles_database_error(
                     )
         return True
 
-    monkeypatch.setattr(db, "mark_job_status", fake_mark_job_status)
+    # ✅ Patch in worker.worker (where mark_job_status is defined)
+    monkeypatch.setattr(wk, "mark_job_status", fake_mark_job_status)
 
     async def fake_update_progress(job_id, processed, total):
         return True
 
-    monkeypatch.setattr(db, "update_progress", fake_update_progress)
+    # ✅ Patch in worker.worker (where update_progress is defined)
+    monkeypatch.setattr(wk, "update_progress", fake_update_progress)
 
     if "playlist_jobs" not in mock_supabase_with_jobs.data:
         mock_supabase_with_jobs.data["playlist_jobs"] = {}
