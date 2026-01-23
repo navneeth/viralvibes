@@ -5,15 +5,15 @@ from types import SimpleNamespace
 
 import pytest
 
-import worker.worker as wk
-import worker.jobs as jobs_module
 import db  # ✅ Import db module to patch it
-from worker.worker import JobResult, Worker
+import worker.jobs as jobs_module
+import worker.worker as wk
 from constants import JobStatus
 from db import UpsertResult
 
 # Reuse existing conftest helpers
 from tests.conftest import create_test_dataframe
+from worker.worker import JobResult, Worker
 
 
 @pytest.mark.asyncio
@@ -38,6 +38,9 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
             await progress_callback(0.5, "Processing videos...")
 
         df = create_test_dataframe(num_videos=5)
+        print(
+            f"🔍 fake_get_playlist_data: created df type={type(df)}, shape={df.shape if hasattr(df, 'shape') else 'no shape'}"
+        )
 
         return (
             df,
@@ -63,24 +66,51 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     monkeypatch.setattr(jobs_module, "yt_service", mock_yt_service)
 
     # ✅ Mock database upsert - patch in db module
-    async def fake_upsert(stats):
+    # NOTE: upsert_playlist_stats is NOT async, so the fake shouldn't be either
+    def fake_upsert(stats):
         """Mock upsert that returns a complete UpsertResult."""
-        # Extract the data that was passed in
-        df_json = stats.get("df_json", "")
+        # Worker passes raw "df" (Polars DataFrame) and "summary_stats" (dict)
+        # We need to serialize them like the real function does
+
+        print(f"\n{'=' * 80}")
+        print(f"🔍 fake_upsert called!")
+        print(f"🔍 Received stats keys: {list(stats.keys())}")
+
+        df = stats.get("df")
         summary_stats = stats.get("summary_stats", {})
 
-        print(f"\n🔍 fake_upsert called!")
-        print(f"🔍 Received stats keys: {list(stats.keys())}")
-        print(f"🔍 df_json length: {len(df_json)}")
-        print(f"🔍 summary_stats: {summary_stats}")
+        print(f"🔍 df type: {type(df)}")
+        print(f"🔍 df is None: {df is None}")
+        if df is not None and hasattr(df, "shape"):
+            print(f"🔍 df shape: {df.shape}")
+        if df is not None and hasattr(df, "is_empty"):
+            print(f"🔍 df.is_empty(): {df.is_empty()}")
+
+        # Serialize DataFrame to JSON
+        df_json = None
+        if df is not None:
+            try:
+                df_json = df.write_json()
+                print(
+                    f"🔍 ✅ Successfully serialized df to JSON, length: {len(df_json)}"
+                )
+            except Exception as e:
+                print(f"🔍 ❌ Error serializing df: {e}")
+                import traceback
+
+                traceback.print_exc()
+                df_json = None
+
+        # Serialize summary_stats to JSON
+        summary_stats_json = json.dumps(summary_stats) if summary_stats else "{}"
+        print(f"🔍 summary_stats_json length: {len(summary_stats_json)}")
+
+        print(f"{'=' * 80}")
 
         result = UpsertResult(
             source="fresh",
-            df_json=df_json,  # ✅ Use the df_json from stats
-            summary_stats_json=json.dumps(
-                summary_stats
-            ),  # ✅ Use summary_stats from stats
-            dashboard_id="test-dash-abc123",
+            df_json=df_json,  # ✅ Serialized DataFrame (or None)
+            summary_stats_json=summary_stats_json,  # ✅ Serialized summary_stats
             error=None,
             raw_row={
                 "id": 1,
@@ -92,14 +122,24 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
             },
         )
 
+        # Debug: show what the result looks like
+        result_dict = vars(result)
+        print(f"🔍 result_dict keys: {list(result_dict.keys())}")
         print(
-            f"🔍 Returning UpsertResult with df_json length: {len(result.df_json or '')}"
+            f"🔍 result_dict df_json type: {type(result_dict.get('df_json'))}, truthy: {bool(result_dict.get('df_json'))}"
         )
+        print(
+            f"🔍 result_dict summary_stats_json type: {type(result_dict.get('summary_stats_json'))}, truthy: {bool(result_dict.get('summary_stats_json'))}"
+        )
+
+        print(f"🔍 Returning UpsertResult with df_json: {result.df_json is not None}")
 
         return result
 
-    # ✅ Patch upsert in db module (where it's defined)
+    # ✅ Patch upsert in BOTH db module (where it's defined) AND worker module (where it's imported)
+    # Since worker does: from db import upsert_playlist_stats, we need to patch both locations
     monkeypatch.setattr(db, "upsert_playlist_stats", fake_upsert)
+    monkeypatch.setattr(wk, "upsert_playlist_stats", fake_upsert)
 
     # ✅ Track status updates
     job_status_updates = {}
