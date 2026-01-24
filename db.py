@@ -161,9 +161,15 @@ def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> 
 
 # --- Playlist Caching and Job Management ---
 def get_cached_playlist_stats(
-    playlist_url: str, check_date: bool = False
+    playlist_url: str, user_id: Optional[str] = None, check_date: bool = True
 ) -> Optional[Dict[str, Any]]:
-    """Return stats for a playlist if already cached in DB.
+    """
+    Fetch the most recent cached playlist stats for a given playlist URL,
+    scoped to a specific user (or anonymous if user_id is None).
+
+    - If user_id is None: only anonymous rows (shared across all users) are considered
+    - If user_id is provided: only that user's rows are considered
+    - If check_date is True: restrict to today's snapshot
 
     Args:
         playlist_url (str): The YouTube playlist URL to check.
@@ -182,10 +188,18 @@ def get_cached_playlist_stats(
             .select("*")
             .eq("playlist_url", playlist_url)
         )
+
+        # scope cache by ownership
+        if user_id is None:
+            query = query.is_("user_id", None)  # anonymous cache only
+        else:
+            query = query.eq("user_id", user_id)  # user-specific cache only
+
+        # Optional same-day cache restriction
         if check_date:
-            today = date.today().isoformat()
-            query = query.eq("processed_date", today)
-        response = query.limit(1).execute()
+            query = query.eq("processed_date", date.today().isoformat())
+
+        response = query.order("processed_on", desc=True).limit(1).execute()
 
         if response.data and len(response.data) > 0:
             row = response.data[0]
@@ -195,11 +209,13 @@ def get_cached_playlist_stats(
             # Check if df_json is missing, empty, or represents an empty list/object.
             if _is_empty_json(df_json):
                 logger.warning(
-                    f"[Cache] Found invalid/empty cache entry for {playlist_url}. Treating as miss."
+                    f"[Cache] Found invalid/empty cache entry for {playlist_url}"
+                    f"(user={user_id}). Treating as miss."
                 )
                 return None
 
-            logger.info(f"[Cache] Hit for playlist: {playlist_url}")
+            logger.info(f"[Cache] Hit for playlist: {playlist_url} (user={user_id})")
+
             # Deserialize JSON fields
             try:
                 row["df"] = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
@@ -220,11 +236,13 @@ def get_cached_playlist_stats(
 
             return row
         else:
-            logger.info(f"[Cache] Miss for playlist: {playlist_url}")
+            logger.info(f"[Cache] Miss for playlist: {playlist_url} (user={user_id})")
             return None
 
     except Exception as e:
-        logger.exception(f"Error checking cache for playlist {playlist_url}: {e}")
+        logger.exception(
+            f"Error checking cache for playlist {playlist_url} (user={user_id}): {e}"
+        )
         return None
 
 
@@ -251,6 +269,10 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     - Otherwise insert fresh stats and return an UpsertResult.
 
     Note: This function intentionally does NOT return a Polars DataFrame.
+
+    Required in stats:
+    - playlist_url: str
+    - user_id: Optional[str] (None for anonymous)
     """
     playlist_url = stats.get("playlist_url")
     if not playlist_url:
@@ -265,10 +287,16 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
         )
         return UpsertResult(source="error", error="Empty DataFrame provided")
 
-    # Check cache first
-    cached = get_cached_playlist_stats(playlist_url, check_date=True)
+    # Extract user_id from stats (can be None)
+    user_id = stats.get("user_id")
+
+    # --- Check for existing cache ---
+    cached = get_cached_playlist_stats(playlist_url, user_id=user_id, check_date=True)
+
     if cached:
-        logger.info(f"[Cache] Returning cached stats for {playlist_url}")
+        logger.info(
+            f"[Cache] Returning cached stats for {playlist_url} (user={user_id})"
+        )
         # Prefer any stored df_json present in the raw row, otherwise reserialize the in-memory df
         cached_df_json = cached.get("df_json")
         if not cached_df_json and cached.get("df") is not None:
@@ -315,13 +343,17 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     if not df_json or not summary_stats_json:
         err_msg = (
             f"[DB] Serialization failed for {playlist_url}. "
-            f"df_json present: {bool(df_json)}, summary_stats_json present: {bool(summary_stats_json)}"
+            f"df_json present: {bool(df_json)}, "
+            f"summary_stats_json present: {bool(summary_stats_json)}"
         )
         logger.error(err_msg)
         return UpsertResult(source="error", error=err_msg)
 
+    user_id = stats.get("user_id")
+
     stats_to_insert = {
         **stats,
+        "user_id": user_id,
         "processed_date": date.today().isoformat(),
         "df_json": df_json,
         "summary_stats": summary_stats_json,
@@ -332,32 +364,45 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     stats_to_insert.pop("df", None)
 
     logger.debug(
-        f"[DB] Final stats_to_insert for {playlist_url}: {stats_to_insert.keys()}"
+        f"[DB] Upserting stats for {playlist_url} (user={user_id}): "
+        f"keys={list(stats_to_insert.keys())}"
     )
 
     success = upsert_row(
-        PLAYLIST_STATS_TABLE, stats_to_insert, ["playlist_url", "processed_date"]
+        PLAYLIST_STATS_TABLE,
+        stats_to_insert,
+        # Conflict on (playlist_url, user_id) tuple
+        conflict_fields=["playlist_url", "user_id"],
     )
 
     if success:
-        logger.info(f"[DB] Returning fresh stats for {playlist_url}")
+        logger.info(f"[DB] Returning fresh stats for {playlist_url} (user={user_id}")
         return UpsertResult(
             source="fresh",
             df_json=df_json,
             summary_stats_json=summary_stats_json,
         )
     else:
-        logger.error(f"[DB] Failed to insert fresh stats for {playlist_url}")
+        logger.error(
+            f"[DB] Failed to insert fresh stats for {playlist_url} (user={user_id}"
+        )
         return UpsertResult(source="error", error="DB insert failed")
 
 
 def fetch_playlists(
-    max_items: int = 10, randomize: bool = False
+    user_id: Optional[str] = None,
+    max_items: int = 10,
+    randomize: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Fetch distinct playlists from DB.
+    Fetch playlists analyzed by a specific user (or anonymous).
     If randomize=True, returns a random subset (non-deterministic).
     Otherwise, returns the most recent playlists (deterministic).
+
+    Args:
+        user_id: User ID (None for anonymous playlists)
+        max_items: Maximum number of playlists to return
+        randomize: If True, returns random subset
     """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch playlists")
@@ -365,13 +410,16 @@ def fetch_playlists(
 
     try:
         pool_size = max_items * 5 if randomize else max_items
-        response = (
-            supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("playlist_url, title, processed_date")
-            .order("processed_date", desc=True)
-            .limit(pool_size)
-            .execute()
+        query = supabase_client.table(PLAYLIST_STATS_TABLE).select(
+            "playlist_url, title, processed_date"
         )
+        # Filter by user_id
+        if user_id is None:
+            query = query.is_("user_id", None)  # Anonymous playlists
+        else:
+            query = query.eq("user_id", user_id)  # User-specific playlists
+
+        response = query.order("processed_date", desc=True).limit(pool_size).execute()
 
         seen = set()
         playlists = []
@@ -395,7 +443,7 @@ def fetch_playlists(
             return playlists
 
     except Exception as e:
-        logger.error(f"Error fetching playlists: {e}")
+        logger.error(f"Error fetching playlists for user {user_id}: {e}")
         return []
 
 
@@ -762,34 +810,42 @@ def get_dashboard_event_counts(
         return {"view": 0, "share": 0}
 
 
-def resolve_playlist_url_from_dashboard_id(dashboard_id: str) -> Optional[str]:
+def resolve_playlist_url_from_dashboard_id(
+    dashboard_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[str]:
     """
-    Resolve playlist_url from dashboard_id.
+    Resolve playlist_url from dashboard_id, optionally scoped to a user.
 
     Note: Uses 64-bit MD5 hash. Collision probability:
     - 100K playlists: ~0.00003%
     - 1M playlists: ~0.003%
     - 10M playlists: ~0.3%
 
-    Returns most recent playlist if collision occurs.
+    If collision occurs, returns most recent playlist for that user (or any user if user_id=None)
     """
     if not supabase_client:
         return None
 
     try:
-        response = (
+        query = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
             .select("playlist_url")
             .eq("dashboard_id", dashboard_id)
-            .order("processed_on", desc=True)
-            .limit(1)
-            .execute()
         )
+
+        # Filter by user if provided
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+
+        response = query.order("processed_on", desc=True).limit(1).execute()
 
         return response.data[0]["playlist_url"] if response.data else None
 
     except Exception as e:
-        logger.exception(f"Failed to resolve dashboard_id={dashboard_id}: {e}")
+        logger.exception(
+            f"Failed to resolve dashboard_id={dashboard_id} (user={user_id}): {e}"
+        )
         return None
 
 

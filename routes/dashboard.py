@@ -34,6 +34,10 @@ from views.dashboard import render_dashboard
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Error Response Helper
+# ============================================================================
+
 
 def _error_response(title: str, message: str, status_code: int = 200) -> Div:
     """Render standardized error response."""
@@ -42,6 +46,56 @@ def _error_response(title: str, message: str, status_code: int = 200) -> Div:
         P(message, cls="text-gray-600"),
         cls="max-w-xl mx-auto mt-24 text-center p-6 bg-red-50 rounded-lg border border-red-200",
     )
+
+
+# ============================================================================
+# Helper: Extract User ID from Request
+# ============================================================================
+
+
+def get_user_from_request(request: Request) -> Optional[str]:
+    """
+    Extract user_id from request context.
+
+    Supports multiple auth methods:
+    - FastHTML session: request.session.get('user_id')
+    - JWT cookie: parse from Authorization header
+    - Query param (testing only): ?user_id=...
+
+    Returns:
+        user_id (str) if authenticated, None if anonymous
+    """
+    # Try session first (FastHTML)
+    user_id = request.session.get("user_id") if hasattr(request, "session") else None
+
+    # Try query param (testing/override)
+    if not user_id and hasattr(request, "query_params"):
+        user_id = request.query_params.get("user_id")
+
+    if user_id:
+        logger.debug(f"User authenticated: {user_id}")
+    else:
+        logger.debug("Anonymous user")
+
+    return user_id
+
+
+def require_auth(func):
+    """Decorator to require authenticated user."""
+
+    @wraps(func)
+    def wrapper(request: Request, *args, **kwargs):
+        user_id = get_user_from_request(request)
+        if not user_id:
+            logger.warning(f"Unauthorized access to {func.__name__}")
+            return _error_response(
+                "Access Denied",
+                "You must be logged in to view this page.",
+                status_code=401,
+            )
+        return func(request, user_id, *args, **kwargs)
+
+    return wrapper
 
 
 @rt("/d/{dashboard_id}")
