@@ -376,7 +376,7 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     )
 
     if success:
-        logger.info(f"[DB] Returning fresh stats for {playlist_url} (user={user_id}")
+        logger.info(f"[DB] Returning fresh stats for {playlist_url} (user={user_id})")
         return UpsertResult(
             source="fresh",
             df_json=df_json,
@@ -384,7 +384,7 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
         )
     else:
         logger.error(
-            f"[DB] Failed to insert fresh stats for {playlist_url} (user={user_id}"
+            f"[DB] Failed to insert fresh stats for {playlist_url} (user={user_id})"
         )
         return UpsertResult(source="error", error="DB insert failed")
 
