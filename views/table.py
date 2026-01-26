@@ -144,6 +144,7 @@ def render_playlist_table(
     valid_sort: str,
     valid_order: str,
     next_order,
+    user_id: str | None = None,
 ):
     """Pure extraction of existing table rendering. No behavior changes."""
     # Use yt_service display headers, but map them to the actual df columns used in table

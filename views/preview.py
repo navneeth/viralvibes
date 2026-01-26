@@ -33,6 +33,7 @@ def render_preview_card(
     job_status: str | None,
     preview_info: dict,
     auto_submit: bool = False,
+    user_id: str | None = None,
 ):
     """
     Render preview card with optional auto-submit.
@@ -61,7 +62,12 @@ def render_preview_card(
         (
             Div(
                 hx_post="/submit-job",
-                hx_vals={"playlist_url": playlist_url},
+                hx_vals={
+                    "playlist_url": playlist_url,
+                    **(
+                        {"user_id": user_id} if user_id else {}
+                    ),  # ✅ Include user_id if present
+                },
                 hx_trigger="load",  # Triggers immediately when page loads
                 hx_target="#preview-box",
                 hx_swap="outerHTML",
@@ -182,7 +188,12 @@ def render_preview_card(
             else Button(
                 "Start Deep Analysis",
                 hx_post="/submit-job",
-                hx_vals={"playlist_url": playlist_url},
+                hx_vals={
+                    "playlist_url": playlist_url,
+                    **(
+                        {"user_id": user_id} if user_id else {}
+                    ),  # ✅ Include user_id if present
+                },
                 hx_target="#preview-box",
                 hx_indicator="#loading-bar",
                 cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-blue-600 hover:bg-blue-700 text-white w-full transition",
