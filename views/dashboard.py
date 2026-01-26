@@ -76,8 +76,18 @@ def render_full_dashboard(
     mode: str = "embedded",
     dashboard_id: str | None = None,
     interest: dict | None = None,  # {"view": int, "share": int}
+    user_id: str | None = None,
 ):
-    """Render the full dashboard view."""
+    """Render the full dashboard view.
+    user_id
+    - Used to scope share/export permissions
+    - Can restrict dashboard editing/deletion to owner
+    - Currently passed but not used in rendering
+    """
+    # ✅ Validate ownership if in personal mode (optional)
+    # if mode == "personal" and user_id:
+    #     # Could add ownership check here
+    #     pass
 
     return Div(
         # Modal container (at the top, before existing content)
@@ -165,6 +175,7 @@ def render_full_dashboard(
             valid_sort=valid_sort,
             valid_order=valid_order,
             next_order=next_order,
+            user_id=user_id,
         ),
         # Row 2.5: Video Extremes Section
         VideoExtremesSection(df),
