@@ -78,6 +78,7 @@ from ui_components import (
 # Import modal components
 from .modals import ExportModal, Modal, ShareModal
 from .navigation import NavComponent
+from .auth_dropdown import AuthDropdown
 
 __all__ = [
     # UI Helpers
@@ -148,4 +149,7 @@ __all__ = [
     "Modal",
     "ShareModal",
     "ExportModal",
+    # Auth components
+    "AuthDropdown",
+    "NavComponent",
 ]

@@ -1,10 +1,12 @@
 """
 Navigation component with auth-aware rendering and user profile display.
-Shows personalized content when user is logged in (avatar, name, logout/revoke links).
+Shows personalized content when user is logged in (avatar dropdown with menu).
 """
 
 from fasthtml.common import *
 from monsterui.all import *
+
+from .auth_dropdown import AuthDropdown  # ✅ Import the dropdown
 
 
 def NavComponent(oauth, req=None, sess=None):
@@ -12,13 +14,10 @@ def NavComponent(oauth, req=None, sess=None):
     Reusable navigation component with auth-aware rendering.
 
     When logged in:
-    - Shows user's avatar from Google (stored in avatar_url)
-    - Shows user's first name
-    - Shows Log out and Revoke links
+    - Shows avatar dropdown with My Dashboards, Settings, Logout, Revoke
 
     When logged out:
-    - Shows Log in button
-    - Or CTA to scroll to analysis form if OAuth not configured
+    - Shows "Try It Free" CTA + "Log in" button
 
     Args:
         oauth: OAuth instance for login link generation
@@ -35,81 +34,59 @@ def NavComponent(oauth, req=None, sess=None):
         A("About", href="/#explore-section", cls="text-sm hover:text-blue-600"),
     ]
 
-    # Check auth from session - normalize to strict boolean
+    # Check auth from session
     is_authenticated = bool(sess and sess.get("auth"))
 
     # ============================================================================
     # Build auth section (right side of navbar)
     # ============================================================================
     if is_authenticated:
-        # ✅ User is logged in - show personalized section
-        user_id = sess.get("user_id")
-        user_given_name = sess.get("user_given_name", "User")
-        avatar_url = sess.get("avatar_url")  # ✅ Get avatar URL from session
+        # ✅ LOGGED IN: Use AuthDropdown component
 
-        # Create avatar element - either image or initials
-        if avatar_url:
-            # ✅ Use Google avatar URL directly (stored in avatar_url field)
-            avatar = Img(
-                src=avatar_url,
-                alt=f"{user_given_name}'s avatar",
-                cls="w-8 h-8 rounded-full object-cover border border-gray-300",
-                style="width: 32px; height: 32px; min-width: 32px;",
-            )
-        else:
-            # ✅ Fallback: show first initial in colored circle
-            initial = user_given_name[0].upper() if user_given_name else "U"
-            avatar = Div(
-                initial,
-                cls="w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-sm font-semibold border border-red-700",
-                style="width: 32px; height: 32px; min-width: 32px; flex-shrink: 0;",
-            )
+        # Extract user data from session (populated by auth_service.py)
+        user_data = {
+            "user_id": sess.get("user_id"),
+            "user_name": sess.get("user_name"),
+            "user_given_name": sess.get("user_given_name"),
+            "user_email": sess.get("user_email"),
+        }
 
-        # ✅ Build auth links section
-        auth_section = Div(
-            avatar,
-            Span(
-                f"Welcome back, {user_given_name}!",
-                cls="text-sm font-medium text-gray-700 hidden sm:inline",
-            ),
-            Span("|", cls="text-gray-400 hidden sm:inline"),
-            A(
-                "Log out",
-                href="/logout",
-                cls="text-sm hover:text-blue-600 transition-colors font-medium",
-            ),
-            Span("|", cls="text-gray-400 hidden sm:inline"),
-            A(
-                "Revoke",
-                href="/revoke",
-                cls="text-sm hover:text-red-600 transition-colors font-medium",
-            ),
-            cls="flex items-center gap-3",
-        )
+        # Get avatar URL from session (set by auth_service.py)
+        avatar_url = sess.get("avatar_url")
+
+        # ✅ Use the dropdown component
+        auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url)
+
     else:
-        # ❌ User is not logged in - show login/CTA
-        # User is NOT logged in
+        # ❌ LOGGED OUT: Show "Try It Free" + "Log in"
 
-        # ⭐ DEFENSIVE: Always show login, with graceful fallbacks
-        login_href = "/login"  # Safe default
-
-        # Try to get OAuth login URL
+        # Get login URL with fallback
+        login_href = "/login"
         if oauth and req:
             try:
                 login_url = oauth.login_link(req)
                 if login_url and isinstance(login_url, str):
                     login_href = login_url
             except Exception as e:
-                # Log but don't fail
                 import logging
 
                 logging.warning(f"Failed to generate OAuth login link: {e}")
 
-        # ✅ ALWAYS render login button
-        auth_section = A(
-            "Log in",
-            href=login_href,
-            cls=f"{ButtonT.primary} text-sm",
+        # ✅ Show BOTH buttons (progressive disclosure)
+        auth_section = Div(
+            # Primary CTA: Try the product
+            Button(
+                "Try It Free",
+                cls=f"{ButtonT.secondary} text-sm",
+                onclick="document.querySelector('#analyze-section')?.scrollIntoView({behavior:'smooth'})",
+            ),
+            # Secondary: Login
+            A(
+                "Log in",
+                href=login_href,
+                cls=f"{ButtonT.primary} text-sm",
+            ),
+            cls="flex items-center gap-2",
         )
 
     # ============================================================================
