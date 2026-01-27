@@ -117,16 +117,22 @@ def AuthDropdown(user: dict = None, avatar_url: str = None):
             avatar,
             Span(
                 user_given_name,
-                cls="ml-2 text-sm font-medium text-gray-700 hidden md:inline",  # Hide on mobile
+                cls="ml-2 text-sm font-medium text-gray-700 hidden md:inline",
             ),
             UkIcon("chevron-down", width=14, height=14, cls="ml-1"),
             cls="flex items-center gap-1 bg-transparent border-none hover:opacity-80 cursor-pointer p-0",
+            type="button",
         ),
-        # Dropdown container
-        DropDownNavContainer(
-            *dropdown_items,
-            cls="uk-nav uk-dropdown-nav min-w-[220px]",
+        # Dropdown container - use dict unpacking for uk-dropdown attribute
+        Div(
+            Ul(
+                *dropdown_items,
+                cls="uk-nav uk-dropdown-nav min-w-[220px]",
+            ),
+            cls="uk-dropdown",
+            **{
+                "uk-dropdown": "mode: click; pos: bottom-right; offset: 5"
+            },  # Dict unpacking
         ),
-        cls="relative",
-        uk_dropdown="mode: click; pos: bottom-right; offset: 5",
+        cls="uk-inline",
     )
