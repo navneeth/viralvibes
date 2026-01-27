@@ -1,69 +1,10 @@
 """
 Navigation component with auth-aware rendering and user profile display.
-Shows personalized content when user is logged in (avatar, name, dropdown menu).
+Shows personalized content when user is logged in (avatar, name, logout/revoke links).
 """
 
 from fasthtml.common import *
 from monsterui.all import *
-
-
-# ============================================================================
-# ⭐ NEW: Helper Function for Dropdown Items
-# ============================================================================
-
-
-def _build_auth_dropdown_items(user_given_name: str, user_id: str):
-    """
-    Build dropdown menu items for authenticated users.
-
-    Returns:
-        List of Li elements for MonsterUI DropDownNavContainer
-    """
-    return [
-        # User info header
-        Li(
-            Div(
-                P(user_given_name, cls="font-semibold text-gray-900 text-sm"),
-                P("Logged in", cls="text-xs text-gray-500"),
-                cls="px-4 py-2 border-b",
-            ),
-        ),
-        # My Dashboards (NEW)
-        Li(
-            A(
-                UkIcon("grid", width=16, height=16),
-                Span("My Dashboards", cls="ml-2"),
-                href="/me/dashboards",
-                cls="flex items-center px-4 py-2 hover:bg-gray-100 text-sm",
-            )
-        ),
-        # Divider
-        Li(cls="uk-nav-divider"),
-        # Log out (moved from inline)
-        Li(
-            A(
-                UkIcon("sign-out", width=16, height=16),
-                Span("Log out", cls="ml-2"),
-                href="/logout",
-                cls="flex items-center px-4 py-2 hover:bg-gray-100 text-sm",
-            )
-        ),
-        # Revoke (moved from inline)
-        Li(
-            A(
-                UkIcon("trash", width=16, height=16),
-                Span("Revoke Access", cls="ml-2"),
-                href="/revoke",
-                cls="flex items-center px-4 py-2 hover:bg-red-50 text-red-600 text-sm",
-                onclick="return confirm('This will disconnect your Google account. Continue?')",
-            )
-        ),
-    ]
-
-
-# ============================================================================
-# Main Navigation Component
-# ============================================================================
 
 
 def NavComponent(oauth, req=None, sess=None):
@@ -73,7 +14,7 @@ def NavComponent(oauth, req=None, sess=None):
     When logged in:
     - Shows user's avatar from Google (stored in avatar_url)
     - Shows user's first name
-    - Shows dropdown menu with: My Dashboards, Log out, Revoke
+    - Shows Log out and Revoke links
 
     When logged out:
     - Shows Log in button
@@ -101,7 +42,7 @@ def NavComponent(oauth, req=None, sess=None):
     # Build auth section (right side of navbar)
     # ============================================================================
     if is_authenticated:
-        # User is logged in - show personalized dropdown
+        # ✅ User is logged in - show personalized section
         user_id = sess.get("user_id")
         user_given_name = sess.get("user_given_name", "User")
         avatar_url = sess.get("avatar_url")  # ✅ Get avatar URL from session
@@ -116,7 +57,7 @@ def NavComponent(oauth, req=None, sess=None):
                 style="width: 32px; height: 32px; min-width: 32px;",
             )
         else:
-            # Fallback: show first initial in colored circle
+            # ✅ Fallback: show first initial in colored circle
             initial = user_given_name[0].upper() if user_given_name else "U"
             avatar = Div(
                 initial,
@@ -124,43 +65,52 @@ def NavComponent(oauth, req=None, sess=None):
                 style="width: 32px; height: 32px; min-width: 32px; flex-shrink: 0;",
             )
 
-        # ⭐ CHANGED: Build dropdown menu instead of inline links
+        # ✅ Build auth links section
         auth_section = Div(
-            # Trigger button (avatar + name + dropdown icon)
-            Button(
-                avatar,
-                Span(
-                    f"Welcome back, {user_given_name}!",
-                    cls="text-sm font-medium text-gray-700 hidden sm:inline ml-2",
-                ),
-                UkIcon("chevron-down", width=16, height=16, cls="ml-1"),
-                cls="flex items-center gap-2 bg-transparent border-none hover:opacity-80 cursor-pointer p-0",
+            avatar,
+            Span(
+                f"Welcome back, {user_given_name}!",
+                cls="text-sm font-medium text-gray-700 hidden sm:inline",
             ),
-            # ⭐ NEW: Dropdown menu container
-            DropDownNavContainer(
-                *_build_auth_dropdown_items(user_given_name, user_id),
-                cls="uk-nav uk-dropdown-nav min-w-[200px]",
+            Span("|", cls="text-gray-400 hidden sm:inline"),
+            A(
+                "Log out",
+                href="/logout",
+                cls="text-sm hover:text-blue-600 transition-colors font-medium",
             ),
-            cls="relative",
-            uk_dropdown="mode: click; pos: bottom-right",  # UIKit dropdown behavior
+            Span("|", cls="text-gray-400 hidden sm:inline"),
+            A(
+                "Revoke",
+                href="/revoke",
+                cls="text-sm hover:text-red-600 transition-colors font-medium",
+            ),
+            cls="flex items-center gap-3",
         )
     else:
         # ❌ User is not logged in - show login/CTA
+        # User is NOT logged in
+
+        # ⭐ DEFENSIVE: Always show login, with graceful fallbacks
+        login_href = "/login"  # Safe default
+
+        # Try to get OAuth login URL
         if oauth and req:
-            # OAuth configured - show login link
-            login_url = oauth.login_link(req)
-            auth_section = A(
-                "Log in",
-                href=login_url if isinstance(login_url, str) else "/login",
-                cls=f"{ButtonT.primary} text-sm",
-            )
-        else:
-            # No OAuth - show CTA to scroll to analysis form
-            auth_section = Button(
-                "Try ViralVibes",
-                cls=f"{ButtonT.primary} text-sm",
-                onclick="document.querySelector('#analysis-form')?.scrollIntoView({behavior:'smooth'})",
-            )
+            try:
+                login_url = oauth.login_link(req)
+                if login_url and isinstance(login_url, str):
+                    login_href = login_url
+            except Exception as e:
+                # Log but don't fail
+                import logging
+
+                logging.warning(f"Failed to generate OAuth login link: {e}")
+
+        # ✅ ALWAYS render login button
+        auth_section = A(
+            "Log in",
+            href=login_href,
+            cls=f"{ButtonT.primary} text-sm",
+        )
 
     # ============================================================================
     # Combine all nav items and build navbar
