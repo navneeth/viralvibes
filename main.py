@@ -475,7 +475,7 @@ def validate_full(
 ):
     """Full playlist analysis - PROTECTED route"""
 
-    # Extract user_id
+    # Extract user_id from session
     user_id = sess.get("user_id") if sess else None
 
     # Check auth

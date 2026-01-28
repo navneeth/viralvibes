@@ -575,34 +575,50 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
         return {}
 
 
-def submit_playlist_job(playlist_url: str) -> bool:
-    """Insert a new playlist analysis job into the playlist_jobs table,
+def submit_playlist_job(
+    playlist_url: str, user_id: Optional[str] = None  # ✅ Add user_id parameter
+) -> bool:
+    """
+    Insert a new playlist analysis job into the playlist_jobs table,
     but only if one is not already pending or in progress.
+
+    ✅ Now scoped to user_id for proper job ownership.
+
+    Args:
+        playlist_url: YouTube playlist URL
+        user_id: User ID (None for anonymous jobs)
+
+    Returns:
+        bool: True if job submitted successfully
     """
     if not supabase_client:
         logger.warning("Supabase client not available to submit job")
         return False
 
-    # Check for an existing job that is not finished
+    # Check for existing jobs scoped to user
     try:
-        response = (
+        query = (
             supabase_client.table(PLAYLIST_JOBS_TABLE)
             .select("status, created_at")
             .eq("playlist_url", playlist_url)
-            # ✅ Use constants instead of string literals
             .not_.eq("status", JobStatus.COMPLETE)
             .not_.eq("status", JobStatus.FAILED)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
         )
 
-        # If an unfinished job exists, don't submit a new one
+        # ✅ Scope check to user
+        if user_id is None:
+            query = query.is_("user_id", None)
+        else:
+            query = query.eq("user_id", user_id)
+
+        response = query.order("created_at", desc=True).limit(1).execute()
+
+        # If an unfinished job exists for this user, don't submit a new one
         if response.data:
             job_status = response.data[0].get("status")
             logger.info(
-                f"Skipping job submission for {playlist_url}. "
-                f"A job with status '{job_status}' is already in progress or pending."
+                f"Skipping job submission for {playlist_url} (user={user_id}). "
+                f"Job with status '{job_status}' already exists."
             )
             return False
 
@@ -613,7 +629,8 @@ def submit_playlist_job(playlist_url: str) -> bool:
     # No existing job found, so submit a new one
     payload = {
         "playlist_url": playlist_url,
-        "status": JobStatus.PENDING,  # ✅ Use constant
+        "user_id": user_id,  # ✅ Store user ownership
+        "status": JobStatus.PENDING,
         "created_at": datetime.utcnow().isoformat(),
         "retry_count": 0,
     }
@@ -621,9 +638,9 @@ def submit_playlist_job(playlist_url: str) -> bool:
     # Use insert instead of upsert to avoid conflicts on non-unique columns
     success = upsert_row(PLAYLIST_JOBS_TABLE, payload)
     if success:
-        logger.info(f"Submitted new playlist analysis job for {playlist_url}.")
+        logger.info(f"Submitted job for {playlist_url} (user={user_id})")
     else:
-        logger.error(f"Failed to submit new job for {playlist_url}.")
+        logger.error(f"Failed to submit job for {playlist_url} (user={user_id})")
 
     return success
 

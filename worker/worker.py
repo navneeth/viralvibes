@@ -484,6 +484,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
         stats_to_cache = {
             "playlist_url": playlist_url,
+            "user_id": job.get("user_id"),  # ✅ Store with user ownership
             "title": playlist_name,
             "channel_name": channel_name,
             "channel_thumbnail": channel_thumbnail,
