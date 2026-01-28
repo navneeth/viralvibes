@@ -387,7 +387,10 @@ def dashboard_page(
     dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
 ):
     """View saved dashboard - PROTECTED route"""
+
     # Store intended URL before redirecting to login
+    # Extract user_id from session FIRST
+    user_id = sess.get("user_id") if sess else None
     auth = sess.get("auth") if sess else None
 
     if os.getenv("TESTING") != "1" and not auth:
@@ -395,7 +398,7 @@ def dashboard_page(
         return RedirectResponse("/login", status_code=303)
 
     # 1. Resolve dashboard_id → playlist_url
-    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id, user_id=user_id)
 
     if not playlist_url:
         return Alert(
@@ -404,7 +407,7 @@ def dashboard_page(
         )
 
     # 2. Load data from Supabase (same as validate/full)
-    data = load_cached_or_stub(playlist_url, 1)
+    data = load_cached_or_stub(playlist_url, 1, user_id=user_id)
 
     df = data["df"]
     summary_stats = data["summary_stats"]
@@ -471,7 +474,11 @@ def validate_full(
     order: str = "desc",
 ):
     """Full playlist analysis - PROTECTED route"""
-    # Store intended URL before returning error
+
+    # Extract user_id
+    user_id = sess.get("user_id") if sess else None
+
+    # Check auth
     if not (sess and sess.get("auth")):
         sess["intended_url"] = str(req.url.path)
         return Alert(
@@ -523,7 +530,7 @@ def validate_full(
 
             # --- 2) Try cache first ---
             # ---       Use helper to load cached or stub stats ---
-            data = load_cached_or_stub(playlist_url, initial_max)
+            data = load_cached_or_stub(playlist_url, initial_max, user_id=user_id)
 
             df = data["df"]
             playlist_name = data["playlist_name"]
@@ -862,16 +869,20 @@ def get_export_modal(dashboard_id: str, req, sess):
 def export_csv(dashboard_id: str, req, sess):
     """Export dashboard data as CSV."""
 
+    # Extract user_id
+    user_id = sess.get("user_id") if sess else None
+
     # Auth check
     if not (sess and sess.get("auth")):
         return RedirectResponse("/login", status_code=303)
 
     # Get data
-    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id, user_id=user_id)
     if not playlist_url:
         return Response("Dashboard not found", status_code=404)
 
-    data = load_cached_or_stub(playlist_url, 1)
+    # Pass user_id
+    data = load_cached_or_stub(playlist_url, 1, user_id=user_id)
     df = data["df"]
 
     # Convert to CSV
@@ -891,16 +902,20 @@ def export_csv(dashboard_id: str, req, sess):
 def export_json(dashboard_id: str, req, sess):
     """Export dashboard data as JSON."""
 
+    # Extract user_id
+    user_id = sess.get("user_id") if sess else None
+
     # Auth check
     if not (sess and sess.get("auth")):
         return RedirectResponse("/login", status_code=303)
 
     # Get data
-    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id)
+    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id, user_id=user_id)
     if not playlist_url:
         return Response("Dashboard not found", status_code=404)
 
-    data = load_cached_or_stub(playlist_url, 1)
+    # Pass user_id
+    data = load_cached_or_stub(playlist_url, 1, user_id=user_id)
     df = data["df"]
     summary_stats = data["summary_stats"]
 

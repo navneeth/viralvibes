@@ -14,21 +14,28 @@ from db import (
 logger = logging.getLogger(__name__)
 
 
-def load_cached_or_stub(playlist_url: str, initial_max: int) -> Dict[str, Any]:
+def load_cached_or_stub(
+    playlist_url: str,
+    meter_max: int,
+    user_id: Optional[str] = None,  # ✅ Add user_id parameter
+) -> Dict[str, Any]:
     """
     Loads cached playlist stats if available. Otherwise returns a stub payload.
     Args:
         playlist_url (str): The YouTube playlist URL.
         initial_max (int): Initial maximum value for progress meter.
+        user_id (str): constraint for proper cache lookup.
         Returns: dict: A dictionary containing playlist stats and DataFrame.
-    """
-    cached_stats = get_cached_playlist_stats(playlist_url)
 
-    if cached_stats:
+    """
+    # Pass user_id to cache lookup
+    cached = get_cached_playlist_stats(playlist_url, user_id=user_id, check_date=True)
+
+    if cached:
         logger.info(f"Using cached stats for playlist {playlist_url}")
 
         # reconstruct df other fields from cache row
-        df = pl.read_json(io.BytesIO(cached_stats["df_json"].encode("utf-8")))
+        df = pl.read_json(io.BytesIO(cached["df_json"].encode("utf-8")))
         # TODO: Move this code to worker
         # if logger.isEnabledFor(logging.DEBUG):
         # logger.info("=" * 60)
@@ -40,13 +47,13 @@ def load_cached_or_stub(playlist_url: str, initial_max: int) -> Dict[str, Any]:
         #     else:
         #         logger.warning(f"✗ {col} MISSING")
         # logger.info("=" * 60)
-        playlist_name = cached_stats["title"]
-        channel_name = cached_stats.get("channel_name", "")
-        channel_thumbnail = cached_stats.get("channel_thumbnail", "")
-        summary_stats = cached_stats["summary_stats"]
+        playlist_name = cached["title"]
+        channel_name = cached.get("channel_name", "")
+        channel_thumbnail = cached.get("channel_thumbnail", "")
+        summary_stats = cached["summary_stats"]
 
         # use cached video_count if present; fall back to df.height; then preview meter_max
-        total = cached_stats.get("video_count") or df.height or initial_max
+        total = cached.get("video_count") or df.height or meter_max
         return {
             "cached": True,
             "df": df,
@@ -55,7 +62,7 @@ def load_cached_or_stub(playlist_url: str, initial_max: int) -> Dict[str, Any]:
             "channel_thumbnail": channel_thumbnail,
             "summary_stats": summary_stats,
             "total": total,
-            "cached_stats": cached_stats,
+            "cached_stats": cached,
         }
 
     # ----- original stub path (identical behavior) -----
