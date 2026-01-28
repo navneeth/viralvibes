@@ -516,7 +516,10 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
         result = upsert_playlist_stats(stats_to_cache)  # ← Sync (single DB write)
         result_map = _result_to_mapping(result)
         logger.info(
-            f"[Job {job_id}] Upsert result mapping keys={list(result_map.keys())}"
+            f"[Job {job_id}] Upsert result: source={result_map.get('source')}, "
+            f"error={result_map.get('error')}, "
+            f"df_json present={bool(result_map.get('df_json'))}, "
+            f"summary_stats_json present={bool(result_map.get('summary_stats_json'))}"
         )
         _set_stage("upsert-done")
 
@@ -527,9 +530,12 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
         )
 
         if not df_present or not summary_present:
-            error_message = "Upsert did not return expected data frames (df or summary_stats missing)"
-            logger.warning(f"[Job {job_id}] {error_message}")
-            await handle_job_failure(job_id, retry_count, error_message)
+            error_msg = (
+                result_map.get("error")
+                or "Upsert did not return expected data frames (df or summary_stats missing)"
+            )
+            logger.warning(f"[Job {job_id}] {error_msg}")
+            await handle_job_failure(job_id, retry_count, error_msg)
             return
         _set_stage("validate-upsert-response")
 

@@ -466,3 +466,108 @@ def get_current_user_api(request: Request, user_id: str) -> dict:
     }
 """
 # ============================================================================
+
+
+@rt("/me/dashboards")
+def my_dashboards(req, sess, oauth=None):
+    """
+    User's personal dashboards page.
+
+    Shows list of playlists the user has analyzed.
+    """
+    # Check authentication
+    user_id = sess.get("user_id") if sess else None
+
+    if not user_id:
+        # Not logged in - redirect to login
+        return RedirectResponse("/login?return_to=/me/dashboards", status_code=303)
+
+    supabase = get_supabase()
+    if not supabase:
+        return Div(
+            Alert(
+                P("Service unavailable. Please try again later."),
+                cls=AlertT.error,
+            ),
+            cls="p-6 max-w-2xl mx-auto",
+        )
+
+    try:
+        # Fetch user's analyzed playlists
+        resp = (
+            supabase.table("playlist_stats")
+            .select("dashboard_id, playlist_url, title, created_at, view_count")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        playlists = resp.data or []
+
+    except Exception as e:
+        logger.exception(f"Failed to fetch playlists for user {user_id}: {e}")
+        return Div(
+            Alert(
+                P("Failed to load your dashboards."),
+                cls=AlertT.error,
+            ),
+            cls="p-6 max-w-2xl mx-auto",
+        )
+
+    # Render dashboard list
+    if not playlists:
+        return Titled(
+            "My Dashboards",
+            NavComponent(oauth, req, sess),
+            Container(
+                Div(
+                    H2(
+                        "No Dashboards Yet", cls="text-2xl font-bold text-gray-900 mb-4"
+                    ),
+                    P(
+                        "You haven't analyzed any playlists yet.",
+                        cls="text-gray-600 mb-6",
+                    ),
+                    A(
+                        Button("Analyze Your First Playlist", cls=ButtonT.primary),
+                        href="/#analyze-section",
+                    ),
+                    cls="text-center p-12 bg-gray-50 rounded-lg",
+                )
+            ),
+        )
+
+    # Build playlist cards
+    playlist_cards = [
+        Div(
+            A(
+                H3(
+                    pl.get("title", "Untitled Playlist"),
+                    cls="text-lg font-semibold mb-2",
+                ),
+                P(
+                    f"{pl.get('view_count', 0):,} views",
+                    cls="text-sm text-gray-600",
+                ),
+                href=f"/d/{pl['dashboard_id']}",
+                cls="block p-4 rounded-lg border hover:shadow-lg transition-shadow bg-white",
+            )
+        )
+        for pl in playlists
+    ]
+
+    return Titled(
+        "My Dashboards",
+        NavComponent(oauth, req, sess),
+        Container(
+            Div(
+                H1("My Dashboards", cls="text-3xl font-bold text-gray-900 mb-2"),
+                P(
+                    f"You've analyzed {len(playlists)} playlists",
+                    cls="text-gray-600 mb-8",
+                ),
+                Grid(*playlist_cards, cols_md=2, cols_lg=3, gap=6),
+                cls="py-12",
+            )
+        ),
+    )
