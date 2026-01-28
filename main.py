@@ -54,10 +54,6 @@ from controllers.auth_routes import (
 )
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
-from controllers.dashboard import (
-    view_dashboard_controller,
-    list_user_dashboards_controller,
-)
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
@@ -934,22 +930,5 @@ def export_json(dashboard_id: str, req, sess):
 # ============================================================================
 # Run the app
 # ============================================================================
-
-# ✅ TEMPORARY TEST ROUTES (add near end of file, before serve())
-
-
-@rt("/test/dashboard/{dashboard_id}")
-def test_dashboard(
-    dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
-):
-    """Test new dashboard controller (temporary)"""
-    return view_dashboard_controller(dashboard_id, sess, sort_by, order)
-
-
-@rt("/test/my-dashboards")
-def test_my_dashboards(req, sess):
-    """Test new my dashboards controller (temporary)"""
-    return list_user_dashboards_controller(sess, oauth, req)
-
 
 serve()

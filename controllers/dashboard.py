@@ -14,7 +14,11 @@ from fasthtml.common import *
 from starlette.responses import Response, RedirectResponse
 from monsterui.all import *
 
-from db import get_supabase, record_dashboard_event, get_dashboard_event_counts
+from db import (
+    supabase_client,  # ✅ Global client
+    record_dashboard_event,
+    get_dashboard_event_counts,
+)
 from utils import load_df_from_json
 
 logger = logging.getLogger(__name__)
@@ -66,8 +70,7 @@ def view_dashboard_controller(
     )
 
     # Get Supabase client
-    supabase = get_supabase()
-    if not supabase:
+    if not supabase_client:
         logger.error("Supabase client not initialized")
         return _error_response(
             "Service Unavailable",
@@ -78,7 +81,7 @@ def view_dashboard_controller(
     try:
         logger.debug(f"Querying playlist_stats for dashboard_id={dashboard_id}")
         resp = (
-            supabase.table("playlist_stats")
+            supabase_client.table("playlist_stats")
             .select("*")
             .eq("dashboard_id", dashboard_id)
             .limit(1)
@@ -102,20 +105,20 @@ def view_dashboard_controller(
             "Database Error", "Failed to load dashboard. Please try again later."
         )
 
-    # Validate data integrity
+    # Validate required fields
     required_fields = ["df_json", "playlist_url"]
     missing_fields = [f for f in required_fields if f not in playlist_row]
 
     if missing_fields:
-        logger.error(f"Missing required fields in playlist_row: {missing_fields}")
+        logger.error(f"Missing required fields: {missing_fields}")
         return _error_response(
             "Invalid Data", "Playlist data is corrupted. Please analyze again."
         )
 
-    # Record view event (non-critical)
+    # Record view event
     try:
         record_dashboard_event(
-            supabase,
+            supabase_client,
             dashboard_id=dashboard_id,
             event_type="view",
         )
@@ -141,7 +144,8 @@ def view_dashboard_controller(
     # Fetch interest metrics (analytics)
     interest = {}
     try:
-        interest = get_dashboard_event_counts(supabase, dashboard_id)
+        # ✅ CORRECTED: Pass global client
+        interest = get_dashboard_event_counts(supabase_client, dashboard_id)
         logger.debug(f"Event counts: {interest}")
     except Exception as e:
         logger.warning(
@@ -209,8 +213,7 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
     logger.info(f"Loading personal dashboards for user {user_id}")
 
     # Get Supabase client
-    supabase = get_supabase()
-    if not supabase:
+    if not supabase_client:
         logger.error("Supabase client not initialized")
         # Import NavComponent here to avoid circular import
         from components import NavComponent
@@ -230,7 +233,7 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
     try:
         logger.debug(f"Querying user playlists for user_id={user_id}")
         resp = (
-            supabase.table("playlist_stats")
+            supabase_client.table("playlist_stats")
             .select("dashboard_id, playlist_url, title, created_at, view_count")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
