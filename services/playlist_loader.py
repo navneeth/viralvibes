@@ -84,28 +84,28 @@ def load_cached_or_stub(
     }
 
     # cache stub (same behavior as before)
-    stats_to_cache = {
-        "playlist_url": playlist_url,
-        "title": playlist_name,
-        "channel_name": channel_name,
-        "channel_thumbnail": channel_thumbnail,
-        "view_count": summary_stats.get("total_views"),
-        "like_count": summary_stats.get("total_likes"),
-        "dislike_count": summary_stats.get("total_dislikes"),
-        "comment_count": summary_stats.get("total_comments"),
-        "video_count": summary_stats.get("actual_playlist_count", df.height),
-        "processed_video_count": df.height,
-        "avg_duration": (
-            int(summary_stats.get("avg_duration"))
-            if summary_stats.get("avg_duration") is not None
-            else None
-        ),
-        "engagement_rate": summary_stats.get("avg_engagement"),
-        "controversy_score": summary_stats.get("avg_controversy", 0),
-        "summary_stats": summary_stats,
-        "df_json": df.write_json(),
-    }
-    upsert_playlist_stats(stats_to_cache)
+    # stats_to_cache = {
+    #     "playlist_url": playlist_url,
+    #     "title": playlist_name,
+    #     "channel_name": channel_name,
+    #     "channel_thumbnail": channel_thumbnail,
+    #     "view_count": summary_stats.get("total_views"),
+    #     "like_count": summary_stats.get("total_likes"),
+    #     "dislike_count": summary_stats.get("total_dislikes"),
+    #     "comment_count": summary_stats.get("total_comments"),
+    #     "video_count": summary_stats.get("actual_playlist_count", df.height),
+    #     "processed_video_count": df.height,
+    #     "avg_duration": (
+    #         int(summary_stats.get("avg_duration"))
+    #         if summary_stats.get("avg_duration") is not None
+    #         else None
+    #     ),
+    #     "engagement_rate": summary_stats.get("avg_engagement"),
+    #     "controversy_score": summary_stats.get("avg_controversy", 0),
+    #     "summary_stats": summary_stats,
+    #     "df_json": df.write_json(),
+    # }
+    # upsert_playlist_stats(stats_to_cache)
 
     return {
         "cached": False,
