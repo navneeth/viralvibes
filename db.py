@@ -576,7 +576,8 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
 
 
 def submit_playlist_job(
-    playlist_url: str, user_id: Optional[str] = None  # ✅ Add user_id parameter
+    playlist_url: str,
+    user_id: Optional[str] = None,  # ✅ Add user_id parameter
 ) -> bool:
     """
     Insert a new playlist analysis job into the playlist_jobs table,
@@ -852,8 +853,8 @@ def resolve_playlist_url_from_dashboard_id(
         )
 
         # Filter by user if provided
-        if user_id is not None:
-            query = query.eq("user_id", user_id)
+        # if user_id is not None:
+        #    query = query.eq("user_id", user_id)
 
         response = query.order("processed_on", desc=True).limit(1).execute()
 
