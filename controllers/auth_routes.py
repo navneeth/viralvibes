@@ -10,6 +10,7 @@ from fasthtml.common import *
 from monsterui.all import ButtonT
 from fasthtml.common import Titled, Container
 
+
 logger = logging.getLogger(__name__)
 
 
