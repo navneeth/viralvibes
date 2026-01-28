@@ -9,7 +9,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 
-def AuthDropdown(user: dict = None, avatar_url: str = None):
+def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/login"):
     """
     Authentication dropdown menu.
 
@@ -24,6 +24,7 @@ def AuthDropdown(user: dict = None, avatar_url: str = None):
               - user_given_name (first name)
               - user_email
         avatar_url: Avatar URL from Google (stored in session)
+        login_href: OAuth-aware login URL (allows NavComponent to share its URL generation)
 
     Returns:
         Dropdown component or login button
@@ -33,7 +34,7 @@ def AuthDropdown(user: dict = None, avatar_url: str = None):
     if not user or not user.get("user_id"):
         return A(
             "Log in",
-            href="/login",
+            href=login_href,
             cls=f"{ButtonT.primary} text-sm",
         )
 

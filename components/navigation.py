@@ -40,6 +40,19 @@ def NavComponent(oauth, req=None, sess=None):
     # ============================================================================
     # Build auth section (right side of navbar)
     # ============================================================================
+
+    # Get login URL with fallback (used by both AuthDropdown and fallback button)
+    login_href = "/login"
+    if oauth and req:
+        try:
+            login_url = oauth.login_link(req)
+            if login_url and isinstance(login_url, str):
+                login_href = login_url
+        except Exception as e:
+            import logging
+
+            logging.warning(f"Failed to generate OAuth login link: {e}")
+
     if is_authenticated:
         # ✅ LOGGED IN: Use AuthDropdown component
 
@@ -54,23 +67,13 @@ def NavComponent(oauth, req=None, sess=None):
         # Get avatar URL from session (set by auth_service.py)
         avatar_url = sess.get("avatar_url")
 
-        # ✅ Use the dropdown component
-        auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url)
+        # ✅ Use the dropdown component with OAuth-aware login URL for consistency
+        auth_section = AuthDropdown(
+            user=user_data, avatar_url=avatar_url, login_href=login_href
+        )
 
     else:
         # ❌ LOGGED OUT: Show "Try It Free" + "Log in"
-
-        # Get login URL with fallback
-        login_href = "/login"
-        if oauth and req:
-            try:
-                login_url = oauth.login_link(req)
-                if login_url and isinstance(login_url, str):
-                    login_href = login_url
-            except Exception as e:
-                import logging
-
-                logging.warning(f"Failed to generate OAuth login link: {e}")
 
         # ✅ Show BOTH buttons (progressive disclosure)
         auth_section = Div(

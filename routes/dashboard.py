@@ -469,7 +469,7 @@ def get_current_user_api(request: Request, user_id: str) -> dict:
 
 
 @rt("/me/dashboards")
-def my_dashboards(req, sess):
+def my_dashboards(req, sess, oauth=None):
     """
     User's personal dashboards page.
 
