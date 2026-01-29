@@ -60,6 +60,7 @@ from db import (
     get_job_progress,
     get_playlist_job_status,
     get_playlist_preview_info,
+    get_user_dashboards,
     init_supabase,
     resolve_playlist_url_from_dashboard_id,
     setup_logging,
