@@ -700,6 +700,9 @@ def newsletter(email: str, req, sess):  # ✅ Add sess (public route)
 @rt("/submit-job", methods=["POST"])
 def submit_job(playlist_url: str, req, sess):
     """Submit job - PROTECTED route"""
+
+    # Extract user_id from session
+    user_id = sess.get("user_id") if sess else None
     auth = sess.get("auth") if sess else None
 
     # Use existing require_auth - it will skip in tests
@@ -708,7 +711,10 @@ def submit_job(playlist_url: str, req, sess):
         sess["intended_url"] = str(req.url.path)
         return auth_error  # Returns the Alert
 
-    submit_playlist_job(playlist_url)
+    # Pass user_id to submit_playlist_job
+    logger.info(f"Submitting job for {playlist_url} (user_id={user_id})")
+    submit_playlist_job(playlist_url, user_id=user_id)
+
     # Return HTMX polling instruction
     # return Div(
     #     P("Analyzing playlist... This might take a moment."),
