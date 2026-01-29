@@ -867,4 +867,60 @@ def resolve_playlist_url_from_dashboard_id(
         return None
 
 
-# =============================================================================
+def get_user_dashboards(
+    user_id: str, search: str = "", sort: str = "recent"
+) -> list[dict]:
+    """
+    Get all dashboards owned by a user with optional filtering and sorting.
+
+    Args:
+        user_id: User ID from session
+        search: Optional search query for title/channel
+        sort: Sort option ('recent', 'views', 'videos', 'title')
+
+    Returns:
+        List of dashboard metadata dicts sorted according to sort parameter
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available for get_user_dashboards")
+        return []
+
+    try:
+        # Build query
+        query = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select(
+                "dashboard_id, playlist_url, title, channel_name, "
+                "channel_thumbnail, video_count, view_count, processed_on"
+            )
+            .eq("user_id", user_id)
+        )
+
+        # Apply search filter (database-level)
+        if search:
+            query = query.or_(f"title.ilike.%{search}%,channel_name.ilike.%{search}%")
+
+        # Apply sorting (database-level for efficiency)
+        if sort == "views":
+            query = query.order("view_count", desc=True)
+        elif sort == "videos":
+            query = query.order("video_count", desc=True)
+        elif sort == "title":
+            query = query.order("title", desc=False)
+        else:  # Default: recent
+            query = query.order("processed_on", desc=True)
+
+        # Execute query
+        response = query.execute()
+        dashboards = response.data or []
+
+        logger.info(
+            f"✅ Found {len(dashboards)} dashboards for user {user_id} "
+            f"(search='{search}', sort='{sort}')"
+        )
+
+        return dashboards
+
+    except Exception as e:
+        logger.exception(f"Failed to fetch dashboards for user {user_id}: {e}")
+        return []
