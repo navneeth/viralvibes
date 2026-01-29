@@ -875,7 +875,7 @@ def get_user_dashboards(
 
     Args:
         user_id: User ID from session
-        search: Optional search query for title/channel
+        search: Optional search query for title/channel (sanitized)
         sort: Sort option ('recent', 'views', 'videos', 'title')
 
     Returns:
@@ -886,7 +886,7 @@ def get_user_dashboards(
         return []
 
     try:
-        # Build query
+        # Build base query
         query = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
             .select(
@@ -896,18 +896,29 @@ def get_user_dashboards(
             .eq("user_id", user_id)
         )
 
-        # Apply search filter (database-level)
+        # ✅ SECURITY: Escape wildcards in search input
         if search:
-            query = query.or_(f"title.ilike.%{search}%,channel_name.ilike.%{search}%")
+            # Escape PostgreSQL ILIKE wildcards
+            escaped_search = (
+                search.replace("\\", "\\\\")  # Escape backslash first
+                .replace("%", "\\%")  # Escape percent (any chars)
+                .replace("_", "\\_")  # Escape underscore (single char)
+            )
 
-        # Apply sorting (database-level for efficiency)
+            search_pattern = f"%{escaped_search}%"
+
+            query = query.or_(
+                f"title.ilike.{search_pattern},channel_name.ilike.{search_pattern}"
+            )
+
+        # Apply sorting
         if sort == "views":
             query = query.order("view_count", desc=True)
         elif sort == "videos":
             query = query.order("video_count", desc=True)
         elif sort == "title":
             query = query.order("title", desc=False)
-        else:  # Default: recent
+        else:  # recent
             query = query.order("processed_on", desc=True)
 
         # Execute query
