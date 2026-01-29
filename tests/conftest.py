@@ -738,7 +738,11 @@ def authenticated_client(client, monkeypatch):
             "name": "Test User",
             "picture": "https://example.com/test-avatar.jpg",
             "ident": "test_google_123456",
-        }
+        },
+        # ✅ ADD THESE TOP-LEVEL KEYS
+        "user_id": "test-user-id",  # Critical for user scoping
+        "user_email": "test@viralvibes.com",
+        "user_name": "Test User",
     }
 
     # Get the original app
@@ -785,5 +789,9 @@ def authenticated_session():
             "name": "Test User",
             "picture": "https://example.com/test-avatar.jpg",
             "ident": "test_google_123456",
-        }
+        },
+        # ✅ ADD TOP-LEVEL KEYS
+        "user_id": "test-user-id",
+        "user_email": "test@viralvibes.com",
+        "user_name": "Test User",
     }
