@@ -267,21 +267,10 @@ class MockSupabaseTable:
 
         # Handle SELECT operations
         if self.table_name == "dashboard_events":
-            if self._insert_data:
-                # Insert event
-                self.mock_supabase.data.setdefault("dashboard_events", []).append(
-                    self._insert_data
-                )
-                return SimpleNamespace(data=[self._insert_data])
-
             if self._filters.get("dashboard_id"):
                 dashboard_id = self._filters["dashboard_id"]
-                events = [
-                    e
-                    for e in self.mock_supabase.data.get("dashboard_events", [])
-                    if e.get("dashboard_id") == dashboard_id
-                ]
-                return SimpleNamespace(data=events)
+                events = self.data.get("dashboard_events", {}).get(dashboard_id, [])
+                return Response(events)
 
         if self.table_name == "dashboards":
             # Return dashboard data
@@ -290,22 +279,35 @@ class MockSupabaseTable:
                 return Response([self.data["dashboards"][dashboard_id]])
             return Response([])
 
-        # For playlist_stats table with specific filters
+        # ✅ FIXED: For playlist_stats table with flexible lookup
         if self.table_name == "playlist_stats":
             matching_rows = []
+            stats_data = self.data.get("playlist_stats", {})
 
-            # Filter by playlist_url
+            # ✅ Strategy 1: Direct key lookup (fast path)
             if "playlist_url" in self._filters:
                 url = self._filters["playlist_url"]
-                if url in self.data.get("playlist_stats", {}):
-                    matching_rows.append(self.data["playlist_stats"][url])
 
-            # Filter by dashboard_id
-            if "dashboard_id" in self._filters:
+                # Try URL as direct key first
+                if url in stats_data:
+                    matching_rows.append(stats_data[url])
+                else:
+                    # Fallback: Search by dashboard_id computed from URL
+                    dashboard_id = compute_dashboard_id(url)
+                    if dashboard_id in stats_data:
+                        matching_rows.append(stats_data[dashboard_id])
+
+            # ✅ Strategy 2: Filter by dashboard_id
+            elif "dashboard_id" in self._filters:
                 dashboard_id = self._filters["dashboard_id"]
-                for row in self.data.get("playlist_stats", {}).values():
-                    if row.get("dashboard_id") == dashboard_id:
-                        matching_rows.append(row)
+
+                # Direct lookup by dashboard_id
+                if dashboard_id in stats_data:
+                    matching_rows.append(stats_data[dashboard_id])
+
+            # ✅ Strategy 3: No filters - return all (for table scans)
+            else:
+                matching_rows = list(stats_data.values())
 
             # Apply limit
             if self._limit_count:
