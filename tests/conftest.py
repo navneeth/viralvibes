@@ -719,22 +719,17 @@ def client():
 
 
 @pytest.fixture
-def authenticated_client(monkeypatch):
+def authenticated_client():
     """
-    Authenticated test client using Starlette's request.scope pattern.
+    Test client with authenticated session.
 
-    Based on:
-    - Starlette's SessionMiddleware implementation
-    - FastHTML's sess parameter injection mechanism
-
-    This directly patches scope["session"] at the request level,
-    which is what FastHTML reads to populate the sess parameter.
+    Wraps the app with a middleware that injects session data.
+    This is the standard Starlette testing pattern.
     """
     from starlette.testclient import TestClient
-    from starlette.requests import Request
     import main
 
-    # ✅ Session data matching production structure
+    # Session data matching OAuth structure
     fake_session = {
         "auth": {
             "email": "test@viralvibes.com",
@@ -742,38 +737,39 @@ def authenticated_client(monkeypatch):
             "picture": "https://example.com/test-avatar.jpg",
             "ident": "test_google_123456",
         },
-        # ✅ ADD THESE TOP-LEVEL KEYS
-        "user_id": "test-user-id",  # Critical for user scoping
+        "user_id": "test-user-id",
         "user_email": "test@viralvibes.com",
         "user_name": "Test User",
     }
 
-    # ✅ CRITICAL: Patch Request.__init__ to inject session into scope
-    original_init = Request.__init__
+    # ✅ ASGI middleware wrapper
+    class SessionInjectingApp:
+        """ASGI app that injects session and delegates to main app."""
 
-    def patched_init(self, scope, receive=None):
-        """Inject session into scope before Request initialization."""
-        if scope.get("type") == "http":
-            # ✅ This is what SessionMiddleware does
-            scope["session"] = fake_session.copy()
+        def __init__(self, app, session_data):
+            self.app = app
+            self.session_data = session_data
 
-        # Call original init
-        original_init(self, scope, receive)
+        async def __call__(self, scope, receive, send):
+            """Inject session into scope before passing to app."""
+            if scope["type"] == "http":
+                # Add session to scope
+                scope["session"] = self.session_data.copy()
 
-    monkeypatch.setattr(Request, "__init__", patched_init)
+            # Delegate to the wrapped app
+            await self.app(scope, receive, send)
 
-    # Return standard TestClient
-    return TestClient(main.app)
+    # Wrap the main app
+    wrapped_app = SessionInjectingApp(main.app, fake_session)
+
+    # Create test client with wrapped app
+    return TestClient(wrapped_app)
 
 
 @pytest.fixture
 def authenticated_session():
     """
-    Return mock authenticated session dict.
-
-    Use when testing controllers directly (not via HTTP):
-        def test_controller(authenticated_session):
-            result = some_controller(sess=authenticated_session)
+    Mock authenticated session dict for direct controller testing.
     """
     return {
         "auth": {
@@ -782,7 +778,6 @@ def authenticated_session():
             "picture": "https://example.com/test-avatar.jpg",
             "ident": "test_google_123456",
         },
-        # ✅ ADD TOP-LEVEL KEYS
         "user_id": "test-user-id",
         "user_email": "test@viralvibes.com",
         "user_name": "Test User",
