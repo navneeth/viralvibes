@@ -71,6 +71,7 @@ from services.playlist_loader import load_cached_or_stub
 from utils import compute_dashboard_id
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
+from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 
 # Get logger instance
@@ -945,6 +946,38 @@ def export_json(dashboard_id: str, req, sess):
         headers={
             "Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.json"
         },
+    )
+
+
+@rt("/me/dashboards")
+def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
+    """User's personal dashboards page - PROTECTED route"""
+
+    # Extract user info
+    user_id = sess.get("user_id") if sess else None
+    auth = sess.get("auth") if sess else None
+    user_name = sess.get("user_name", "User") if sess else "User"
+
+    # Auth check
+    if not auth or not user_id:
+        sess["intended_url"] = str(req.url.path)
+        return RedirectResponse("/login", status_code=303)
+
+    # Fetch dashboards with filters
+    dashboards = get_user_dashboards(user_id, search=search, sort=sort)
+
+    # Render page
+    return Titled(
+        f"{user_name}'s Dashboards - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            render_my_dashboards_page(
+                dashboards=dashboards,
+                user_name=user_name,
+                search=search,
+                sort=sort,
+            ),
+        ),
     )
 
 
