@@ -12,6 +12,7 @@ Test Organization:
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from typing import Optional
 
 import polars as pl
 import pytest
@@ -408,13 +409,15 @@ class TestJobSubmission:
     ):
         """
         Test: Duplicate job submissions are handled gracefully.
-
         Flow:
         1. Job already exists for URL
         2. submit_playlist_job returns False (duplicate)
         3. Still returns polling div (shows existing job progress)
         """
-        monkeypatch.setattr("main.submit_playlist_job", lambda url: False)
+        # ✅ FIX: Lambda with correct signature
+        monkeypatch.setattr(
+            "main.submit_playlist_job", lambda playlist_url, user_id=None: False
+        )
 
         r = authenticated_client.post(
             "/submit-job",
@@ -460,19 +463,14 @@ class TestJobSubmission:
 
         monkeypatch.setattr("main.submit_playlist_job", fake_submit)
 
-        # Try to submit without auth
         r = client.post(
             "/submit-job",
             data={"playlist_url": TEST_PLAYLIST_URL},
         )
 
-        # Should redirect or return auth error
-        assert r.status_code in [303, 200], f"Unexpected status: {r.status_code}"
+        assert r.status_code in [303, 200]
+        assert "called" not in called  # Should not be called without auth
 
-        # Job should NOT be submitted
-        assert "called" not in called, "Job was submitted without auth!"
-
-        # Response should indicate auth required
         if r.status_code == 200:
             html = r.text.lower()
             assert (
