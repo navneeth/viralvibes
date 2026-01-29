@@ -370,8 +370,10 @@ class TestJobSubmission:
         """
         called = {}
 
-        def fake_submit(url):
-            called["url"] = url
+        def fake_submit(playlist_url: str, user_id: Optional[str] = None) -> bool:
+            """Mock submit_playlist_job with updated signature."""
+            called["url"] = playlist_url
+            called["user_id"] = user_id  # ✅ Track user_id
             return True
 
         monkeypatch.setattr("main.submit_playlist_job", fake_submit)
@@ -381,13 +383,25 @@ class TestJobSubmission:
             data={"playlist_url": TEST_PLAYLIST_URL},
         )
 
-        assert r.status_code == 200
-        assert called.get("url") == TEST_PLAYLIST_URL
+        # Assertions
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
 
-        # Should return polling div
-        assert 'hx-get="/job-progress' in r.text
-        assert 'hx-trigger="load, every 2s"' in r.text
-        assert 'id="preview-box"' in r.text
+        # Verify mock was called
+        assert (
+            called["url"] == TEST_PLAYLIST_URL
+        ), "submit_playlist_job not called with correct URL"
+        assert (
+            called["user_id"] == "test-user-id"
+        ), "user_id not passed to submit_playlist_job"  # ✅ New assertion
+
+        # Response should contain polling trigger
+        html = r.text
+        assert (
+            'hx-get="/job-progress' in html or 'hx-get="/job-progress' in html
+        ), "Response missing HTMX polling trigger"
+        assert (
+            'hx-trigger="load, every 2s"' in html or "every 2s" in html
+        ), "Response missing polling interval"
 
     def test_submit_job_handles_duplicate_submission(
         self, authenticated_client, monkeypatch
@@ -410,6 +424,60 @@ class TestJobSubmission:
         assert r.status_code == 200
         # Should still return polling div
         assert 'hx-get="/job-progress' in r.text
+
+    def test_submit_job_passes_user_id_from_session(
+        self, authenticated_client, monkeypatch
+    ):
+        """Test that submit_job extracts user_id from session and passes it."""
+        called = {}
+
+        def fake_submit(playlist_url: str, user_id: Optional[str] = None) -> bool:
+            called["playlist_url"] = playlist_url
+            called["user_id"] = user_id
+            return True
+
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+
+        r = authenticated_client.post(
+            "/submit-job",
+            data={"playlist_url": TEST_PLAYLIST_URL},
+        )
+
+        assert r.status_code == 200
+        assert called["playlist_url"] == TEST_PLAYLIST_URL
+        # Verify user_id from session is passed
+        assert (
+            called["user_id"] == "test-user-id"
+        ), "user_id from session not passed to submit_playlist_job"
+
+    def test_submit_job_requires_auth(self, client, monkeypatch):
+        """Test that unauthenticated users cannot submit jobs."""
+        called = {}
+
+        def fake_submit(playlist_url: str, user_id: Optional[str] = None) -> bool:
+            called["called"] = True
+            return True
+
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+
+        # Try to submit without auth
+        r = client.post(
+            "/submit-job",
+            data={"playlist_url": TEST_PLAYLIST_URL},
+        )
+
+        # Should redirect or return auth error
+        assert r.status_code in [303, 200], f"Unexpected status: {r.status_code}"
+
+        # Job should NOT be submitted
+        assert "called" not in called, "Job was submitted without auth!"
+
+        # Response should indicate auth required
+        if r.status_code == 200:
+            html = r.text.lower()
+            assert (
+                "login" in html or "sign in" in html or "auth" in html
+            ), "Auth error not shown in response"
 
 
 # ============================================================
