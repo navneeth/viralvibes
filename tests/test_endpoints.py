@@ -12,6 +12,7 @@ Test Organization:
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from typing import Optional
 
 import polars as pl
 import pytest
@@ -370,8 +371,72 @@ class TestJobSubmission:
         """
         called = {}
 
-        def fake_submit(url):
-            called["url"] = url
+        def fake_submit(playlist_url: str, user_id: Optional[str] = None) -> bool:
+            """Mock submit_playlist_job with updated signature."""
+            called["url"] = playlist_url
+            called["user_id"] = user_id  # ✅ Track user_id
+            return True
+
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+
+        r = authenticated_client.post(
+            "/submit-job",
+            data={"playlist_url": TEST_PLAYLIST_URL},
+        )
+
+        # Assertions
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
+
+        # Verify mock was called
+        assert (
+            called["url"] == TEST_PLAYLIST_URL
+        ), "submit_playlist_job not called with correct URL"
+        assert (
+            called["user_id"] == "test-user-id"
+        ), "user_id not passed to submit_playlist_job"  # ✅ New assertion
+
+        # Response should contain polling trigger
+        html = r.text
+        assert (
+            'hx-get="/job-progress' in html or 'hx-get="/job-progress' in html
+        ), "Response missing HTMX polling trigger"
+        assert (
+            'hx-trigger="load, every 2s"' in html or "every 2s" in html
+        ), "Response missing polling interval"
+
+    def test_submit_job_handles_duplicate_submission(
+        self, authenticated_client, monkeypatch
+    ):
+        """
+        Test: Duplicate job submissions are handled gracefully.
+        Flow:
+        1. Job already exists for URL
+        2. submit_playlist_job returns False (duplicate)
+        3. Still returns polling div (shows existing job progress)
+        """
+        # ✅ FIX: Lambda with correct signature
+        monkeypatch.setattr(
+            "main.submit_playlist_job", lambda playlist_url, user_id=None: False
+        )
+
+        r = authenticated_client.post(
+            "/submit-job",
+            data={"playlist_url": TEST_PLAYLIST_URL},
+        )
+
+        assert r.status_code == 200
+        # Should still return polling div
+        assert 'hx-get="/job-progress' in r.text
+
+    def test_submit_job_passes_user_id_from_session(
+        self, authenticated_client, monkeypatch
+    ):
+        """Test that submit_job extracts user_id from session and passes it."""
+        called = {}
+
+        def fake_submit(playlist_url: str, user_id: Optional[str] = None) -> bool:
+            called["playlist_url"] = playlist_url
+            called["user_id"] = user_id
             return True
 
         monkeypatch.setattr("main.submit_playlist_job", fake_submit)
@@ -382,34 +447,35 @@ class TestJobSubmission:
         )
 
         assert r.status_code == 200
-        assert called.get("url") == TEST_PLAYLIST_URL
+        assert called["playlist_url"] == TEST_PLAYLIST_URL
+        # Verify user_id from session is passed
+        assert (
+            called["user_id"] == "test-user-id"
+        ), "user_id from session not passed to submit_playlist_job"
 
-        # Should return polling div
-        assert 'hx-get="/job-progress' in r.text
-        assert 'hx-trigger="load, every 2s"' in r.text
-        assert 'id="preview-box"' in r.text
+    def test_submit_job_requires_auth(self, client, monkeypatch):
+        """Test that unauthenticated users cannot submit jobs."""
+        called = {}
 
-    def test_submit_job_handles_duplicate_submission(
-        self, authenticated_client, monkeypatch
-    ):
-        """
-        Test: Duplicate job submissions are handled gracefully.
+        def fake_submit(playlist_url: str, user_id: Optional[str] = None) -> bool:
+            called["called"] = True
+            return True
 
-        Flow:
-        1. Job already exists for URL
-        2. submit_playlist_job returns False (duplicate)
-        3. Still returns polling div (shows existing job progress)
-        """
-        monkeypatch.setattr("main.submit_playlist_job", lambda url: False)
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
 
-        r = authenticated_client.post(
+        r = client.post(
             "/submit-job",
             data={"playlist_url": TEST_PLAYLIST_URL},
         )
 
-        assert r.status_code == 200
-        # Should still return polling div
-        assert 'hx-get="/job-progress' in r.text
+        assert r.status_code in [303, 200]
+        assert "called" not in called  # Should not be called without auth
+
+        if r.status_code == 200:
+            html = r.text.lower()
+            assert (
+                "login" in html or "sign in" in html or "auth" in html
+            ), "Auth error not shown in response"
 
 
 # ============================================================

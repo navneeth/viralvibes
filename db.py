@@ -867,4 +867,71 @@ def resolve_playlist_url_from_dashboard_id(
         return None
 
 
-# =============================================================================
+def get_user_dashboards(
+    user_id: str, search: str = "", sort: str = "recent"
+) -> list[dict]:
+    """
+    Get all dashboards owned by a user with optional filtering and sorting.
+
+    Args:
+        user_id: User ID from session
+        search: Optional search query for title/channel (sanitized)
+        sort: Sort option ('recent', 'views', 'videos', 'title')
+
+    Returns:
+        List of dashboard metadata dicts sorted according to sort parameter
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available for get_user_dashboards")
+        return []
+
+    try:
+        # Build base query
+        query = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select(
+                "dashboard_id, playlist_url, title, channel_name, "
+                "channel_thumbnail, video_count, view_count, processed_on"
+            )
+            .eq("user_id", user_id)
+        )
+
+        # ✅ SECURITY: Escape wildcards in search input
+        if search:
+            # Escape PostgreSQL ILIKE wildcards
+            escaped_search = (
+                search.replace("\\", "\\\\")  # Escape backslash first
+                .replace("%", "\\%")  # Escape percent (any chars)
+                .replace("_", "\\_")  # Escape underscore (single char)
+            )
+
+            search_pattern = f"%{escaped_search}%"
+
+            query = query.or_(
+                f"title.ilike.{search_pattern},channel_name.ilike.{search_pattern}"
+            )
+
+        # Apply sorting
+        if sort == "views":
+            query = query.order("view_count", desc=True)
+        elif sort == "videos":
+            query = query.order("video_count", desc=True)
+        elif sort == "title":
+            query = query.order("title", desc=False)
+        else:  # recent
+            query = query.order("processed_on", desc=True)
+
+        # Execute query
+        response = query.execute()
+        dashboards = response.data or []
+
+        logger.info(
+            f"✅ Found {len(dashboards)} dashboards for user {user_id} "
+            f"(search='{search}', sort='{sort}')"
+        )
+
+        return dashboards
+
+    except Exception as e:
+        logger.exception(f"Failed to fetch dashboards for user {user_id}: {e}")
+        return []
