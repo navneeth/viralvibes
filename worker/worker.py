@@ -469,6 +469,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     "status_message": "Completed (empty playlist)",
                     "finished_at": datetime.utcnow().isoformat(),
                     "result_source": "empty",
+                    "progress": 1.0,
                 },
             )
             _set_stage("marked-done")
@@ -563,6 +564,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     "status_message": success_message,
                     "finished_at": datetime.utcnow().isoformat(),
                     "result_source": result_map.get("source"),
+                    "progress": 1.0,
                     # ❌ REMOVED: Don't store dashboard_id in jobs
                 },
             )
