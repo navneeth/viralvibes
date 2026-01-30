@@ -2,12 +2,51 @@
 My Dashboards page - user's playlist analysis history.
 """
 
+import json
 from datetime import datetime
 
 from fasthtml.common import *
 from monsterui.all import *
 
+from components.tables import Badge
 from utils import format_number
+
+
+def extract_engagement_metrics(summary_stats: dict | None) -> dict:
+    """
+    Extract engagement metrics from summary_stats JSON.
+
+    Returns:
+        {
+            'avg_likes': float,
+            'avg_comments': float,
+            'engagement_rate': float,  # (likes+comments)/views * 100
+        }
+    """
+    if not summary_stats:
+        return {"avg_likes": 0, "avg_comments": 0, "engagement_rate": 0}
+
+    try:
+        if isinstance(summary_stats, str):
+            summary_stats = json.loads(summary_stats)
+
+        total_likes = summary_stats.get("total_likes", 0) or 0
+        total_comments = summary_stats.get("total_comments", 0) or 0
+        total_views = summary_stats.get("total_views", 0) or 1
+
+        avg_likes = total_likes / max(1, summary_stats.get("video_count", 1))
+        avg_comments = total_comments / max(1, summary_stats.get("video_count", 1))
+        engagement_rate = (
+            ((total_likes + total_comments) / total_views * 100) if total_views else 0
+        )
+
+        return {
+            "avg_likes": avg_likes,
+            "avg_comments": avg_comments,
+            "engagement_rate": engagement_rate,
+        }
+    except Exception:
+        return {"avg_likes": 0, "avg_comments": 0, "engagement_rate": 0}
 
 
 def render_my_dashboards_page(
@@ -95,6 +134,16 @@ def render_dashboard_grid(dashboards: list[dict]) -> Div:
     )
 
 
+def get_engagement_gradient(rate: float) -> str:
+    """Get gradient color based on engagement rate."""
+    if rate > 10:
+        return "from-green-400 to-green-600"
+    elif rate > 5:
+        return "from-yellow-400 to-yellow-600"
+    else:
+        return "from-gray-300 to-gray-500"
+
+
 def render_dashboard_card(dashboard: dict) -> A:
     """
     Render a single dashboard card with proper aspect ratio, creator thumbnail,
@@ -111,7 +160,7 @@ def render_dashboard_card(dashboard: dict) -> A:
     dashboard_id = dashboard.get("dashboard_id", "")
     title = dashboard.get("title", "Untitled Playlist")
     channel_name = dashboard.get("channel_name", "Unknown Channel")
-    playlist_thumbnail = dashboard.get("playlist_thumbnail", "/static/favicon.jpeg")
+
     channel_thumbnail = dashboard.get("channel_thumbnail", "/static/favicon.jpeg")
     video_count = dashboard.get("video_count", 0) or 0
     view_count = dashboard.get("view_count", 0) or 0
@@ -121,21 +170,38 @@ def render_dashboard_card(dashboard: dict) -> A:
     engagement_score = dashboard.get("engagement_score", 0)
     avg_views_per_video = dashboard.get("avg_views_per_video", 0)
 
+    summary_stats = dashboard.get("summary_stats")
+    engagement_metrics = extract_engagement_metrics(summary_stats)
+
     # Format date
     date_str = format_date(processed_on)
 
     # Format large numbers using existing utility
     views_formatted = format_number(view_count)
 
-    # Calculate average views per video if not provided
-    if not avg_views_per_video and video_count > 0:
-        avg_views_per_video = view_count / video_count
+    # Calculate derived metrics
+    avg_views_per_video = (view_count / video_count) if video_count > 0 else 0
+    engagement_rate = engagement_metrics["engagement_rate"]
+    avg_likes = engagement_metrics["avg_likes"]
 
+    # Determine engagement level for badge styling
+    engagement_level = "low"  # gray
+    if engagement_rate > 5:
+        engagement_level = "medium"  # yellow
+    if engagement_rate > 10:
+        engagement_level = "high"  # green
+
+    engagement_colors = {
+        "low": "bg-gray-100 text-gray-700",
+        "medium": "bg-yellow-100 text-yellow-700",
+        "high": "bg-green-100 text-green-700",
+    }
+
+    # ===== RENDER CARD =====
     return A(
         Card(
-            # Thumbnail container with 16:9 aspect ratio preservation
+            # Thumbnail with 16:9 aspect ratio (REUSE EXISTING)
             Div(
-                # Background playlist image (16:9 aspect ratio)
                 Div(
                     Img(
                         src=channel_thumbnail,
@@ -145,7 +211,7 @@ def render_dashboard_card(dashboard: dict) -> A:
                     ),
                     cls="absolute inset-0 bg-gray-300",
                 ),
-                # Creator thumbnail badge - PROMINENT overlay at bottom-left
+                # Creator avatar overlay (bottom-left)
                 Div(
                     Img(
                         src=channel_thumbnail,
@@ -153,25 +219,26 @@ def render_dashboard_card(dashboard: dict) -> A:
                         cls="w-12 h-12 rounded-full border-2 border-white shadow-lg object-cover",
                         onerror="this.src='/static/favicon.jpeg'",
                     ),
+                    # Scale on hover for premium feel
                     cls="absolute bottom-3 left-3 z-10 group-hover:scale-110 transition-transform duration-200",
                 ),
-                # Dark gradient overlay on hover (for visual feedback)
+                # Dark overlay on hover
                 Div(
                     cls="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200",
                 ),
                 cls="relative w-full overflow-hidden bg-gray-300 aspect-video rounded-t-lg group",
             ),
-            # Content section with flexbox to fill remaining space
+            # Content section
             Div(
-                # Playlist title (2 lines max, proper visual hierarchy)
+                # Title
                 H3(
                     title,
                     cls="text-sm font-semibold mb-1 line-clamp-2 text-gray-900 group-hover:text-blue-600 transition-colors duration-200",
-                    title=title,  # Show full title on hover tooltip
+                    title=title,
                 ),
-                # Channel name with icon - emphasize creator
+                # Channel name
                 Div(
-                    Span("📺", cls="text-gray-400 text-xs mr-1"),
+                    UkIcon("tv", cls="w-3 h-3 text-gray-400 mr-1"),
                     Span(
                         channel_name,
                         cls="text-xs text-gray-700 font-medium truncate group-hover:text-gray-900",
@@ -179,10 +246,22 @@ def render_dashboard_card(dashboard: dict) -> A:
                     ),
                     cls="flex items-center gap-0 mb-2 min-h-[1.25rem]",
                 ),
-                # Primary metrics: Video count + Total views
+                # ✨ NEW: Engagement badges (reuse Badge component from cards.py)
+                Div(
+                    Badge(
+                        f"📊 {engagement_rate:.1f}% engagement",
+                        cls=engagement_colors[engagement_level],
+                    ),
+                    Badge(
+                        f"❤️ {format_number(int(engagement_metrics['avg_likes']))} avg likes",
+                        cls="bg-red-50 text-red-700",
+                    ),
+                    cls="flex flex-wrap gap-2 mb-2",
+                ),
+                # Primary metrics row
                 Div(
                     Div(
-                        Span("📹", cls="text-xs mr-0.5"),
+                        UkIcon("film", cls="w-3 h-3 mr-0.5"),
                         Span(
                             f"{video_count:,}",
                             cls="font-semibold text-gray-900 text-xs",
@@ -192,52 +271,37 @@ def render_dashboard_card(dashboard: dict) -> A:
                     ),
                     Span("•", cls="text-gray-300 text-xs mx-1"),
                     Div(
-                        Span("👁️", cls="text-xs mr-0.5"),
+                        UkIcon("eye", cls="w-3 h-3 mr-0.5"),
                         Span(
                             views_formatted, cls="font-semibold text-gray-900 text-xs"
                         ),
-                        Span(" total", cls="text-gray-500 text-xs"),
+                        Span(" views", cls="text-gray-500 text-xs"),
                         cls="flex items-center gap-0.5",
                     ),
                     cls="flex items-center gap-1 mb-2 text-xs flex-wrap",
                 ),
-                # Secondary metrics: Average views and engagement
-                (
-                    Div(
-                        Div(
-                            Span("📊", cls="text-xs mr-0.5"),
-                            Span(
-                                f"{format_number(int(avg_views_per_video))}",
-                                cls="font-semibold text-gray-700 text-xs",
-                            ),
-                            Span(" avg/video", cls="text-gray-500 text-xs"),
-                            cls="flex items-center gap-0.5",
-                        ),
-                        (
-                            (
-                                Span("•", cls="text-gray-300 text-xs mx-1"),
-                                Div(
-                                    Span("⚡", cls="text-xs mr-0.5"),
-                                    Span(
-                                        f"{int(engagement_score)}%",
-                                        cls="font-semibold text-amber-600 text-xs",
-                                    ),
-                                    Span(" engagement", cls="text-gray-500 text-xs"),
-                                    cls="flex items-center gap-0.5",
-                                ),
-                            )
-                            if engagement_score
-                            else None
-                        ),
-                        cls="flex items-center gap-1 text-xs mb-2",
-                    )
-                    if avg_views_per_video
-                    else None
-                ),
-                # Footer: Date analyzed with visual separator
+                # Secondary metrics
                 Div(
-                    Span(f"📅 {date_str}", cls="text-xs text-gray-500"),
-                    cls="flex items-center pt-2 border-t border-gray-200",
+                    UkIcon("trending-up", cls="w-3 h-3 mr-0.5 text-blue-600"),
+                    Span(
+                        f"{format_number(int(avg_views_per_video))} avg/video",
+                        cls="text-xs text-gray-700 font-medium",
+                    ),
+                    cls="flex items-center gap-1 mb-2",
+                ),
+                # Engagement gauge
+                Div(
+                    Div(
+                        cls=f"h-1 bg-gradient-to-r {get_engagement_gradient(engagement_rate)}",
+                        style=f"width: {min(100, engagement_rate * 10)}%",
+                    ),
+                    cls="w-full h-1 bg-gray-200 rounded-full mb-2",
+                ),
+                # Footer with date
+                Div(
+                    UkIcon("calendar", cls="w-3 h-3 mr-1"),
+                    Span(date_str, cls="text-xs text-gray-500"),
+                    cls="flex items-center pt-2 border-t border-gray-200 gap-1",
                 ),
                 cls="p-4 flex flex-col flex-1 justify-between",
             ),
@@ -245,6 +309,7 @@ def render_dashboard_card(dashboard: dict) -> A:
         ),
         href=f"/d/{dashboard_id}",
         cls="block group no-underline h-full",
+        title=f"View dashboard: {title}",
     )
 
 

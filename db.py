@@ -891,7 +891,8 @@ def get_user_dashboards(
             supabase_client.table(PLAYLIST_STATS_TABLE)
             .select(
                 "dashboard_id, playlist_url, title, channel_name, "
-                "channel_thumbnail, video_count, view_count, processed_on"
+                "channel_thumbnail, video_count, view_count, processed_on, "
+                "summary_stats, processed_date"
             )
             .eq("user_id", user_id)
         )
