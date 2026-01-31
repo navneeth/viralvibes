@@ -17,10 +17,12 @@ except ImportError:
 
 from services.config import YouTubeConfig
 from services.youtube_backend_api import YouTubeBackendAPI
-from services.youtube_backend_ytdlp import YouTubeBackendYTDLP
 from services.youtube_errors import (
     YouTubeBotChallengeError,
 )
+
+# deprecated backend
+# from services.youtube_backend_ytdlp import YouTubeBackendYTDLP
 from services.youtube_transforms import _enrich_dataframe, normalize_columns
 from services.youtube_utils import (
     extract_all_tags,
@@ -113,6 +115,9 @@ class YoutubePlaylistService:
             return  # Already initialized
 
         if self.backend == "yt-dlp":
+            raise DeprecationWarning(
+                "The 'yt-dlp' backend is deprecated and will be removed in future versions."
+            )
             try:
                 import yt_dlp
             except ImportError:
