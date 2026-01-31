@@ -692,3 +692,49 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             df = df.with_columns(pl.col(thumb_src).cast(pl.Utf8).alias("thumbnail"))
 
         return df
+
+    async def get_channel_metadata(self, channel_id, fetch_categories=True):
+        """NEW: Extract channel metadata"""
+        try:
+            response = (
+                self.youtube.channels()
+                .list(
+                    part="snippet,statistics,brandingSettings",
+                    id=channel_id,
+                    maxResults=1,
+                )
+                .execute()
+            )
+
+            if not response.get("items"):
+                return None
+
+            channel = response["items"][0]
+            snippet = channel.get("snippet", {})
+            stats = channel.get("statistics", {})
+
+            return {
+                "channel_id": channel_id,
+                "channel_name": snippet.get("title", ""),
+                "subscriber_count": int(stats.get("subscriberCount", 0) or 0),
+                # ... other fields
+            }
+        except Exception as e:
+            logger.error(f"Failed to get channel metadata: {e}")
+            return None
+
+    async def extract_channel_id_from_playlist(self, playlist_id):
+        """NEW: Extract channel ID from playlist"""
+        try:
+            response = (
+                self.youtube.playlists()
+                .list(part="snippet", id=playlist_id, maxResults=1)
+                .execute()
+            )
+
+            if response.get("items"):
+                return response["items"][0]["snippet"]["channelId"]
+            return None
+        except Exception as e:
+            logger.error(f"Failed to extract channel ID: {e}")
+            return None  # NEW METHODS - added at the end

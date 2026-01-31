@@ -13,7 +13,11 @@ DISLIKE_API_URL = "https://returnyoutubedislikeapi.com/votes?videoId={}"
 
 
 class YouTubeBackendBase(ABC):
-    """Abstract base class for YouTube data backends."""
+    """Abstract base class for YouTube data backends.
+    NOTE:
+    We intentionally support ONLY official YouTube APIs.
+    yt-dlp and scraping are deprecated and removed.
+    """
 
     def __init__(self, cfg=None):
         self.cfg = cfg or YouTubeConfig()
