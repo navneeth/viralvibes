@@ -11,18 +11,18 @@ Test Organization:
 
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 from typing import Optional
+from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
-from db import get_job_progress, set_supabase_client
 from starlette.testclient import TestClient
 
 import main
 from constants import KNOWN_PLAYLISTS, JobStatus
 from db import (
     get_dashboard_event_counts,
+    get_job_progress,
     record_dashboard_event,
     set_supabase_client,
 )
@@ -377,7 +377,7 @@ class TestJobSubmission:
             called["user_id"] = user_id  # ✅ Track user_id
             return True
 
-        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+        monkeypatch.setattr("db.submit_playlist_job", fake_submit)
 
         r = authenticated_client.post(
             "/submit-job",
@@ -416,7 +416,7 @@ class TestJobSubmission:
         """
         # ✅ FIX: Lambda with correct signature
         monkeypatch.setattr(
-            "main.submit_playlist_job", lambda playlist_url, user_id=None: False
+            "db.submit_playlist_job", lambda playlist_url, user_id=None: False
         )
 
         r = authenticated_client.post(
@@ -439,7 +439,7 @@ class TestJobSubmission:
             called["user_id"] = user_id
             return True
 
-        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+        monkeypatch.setattr("db.submit_playlist_job", fake_submit)
 
         r = authenticated_client.post(
             "/submit-job",
@@ -461,7 +461,7 @@ class TestJobSubmission:
             called["called"] = True
             return True
 
-        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+        monkeypatch.setattr("db.submit_playlist_job", fake_submit)
 
         r = client.post(
             "/submit-job",
