@@ -17,6 +17,9 @@ except ImportError:
 
 from services.config import YouTubeConfig
 from services.youtube_backend_api import YouTubeBackendAPI
+from services.youtube_errors import (
+    YouTubeBotChallengeError,
+)
 
 # deprecated backend
 # from services.youtube_backend_ytdlp import YouTubeBackendYTDLP
