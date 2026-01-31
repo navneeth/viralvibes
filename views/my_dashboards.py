@@ -3,6 +3,7 @@ My Dashboards page - user's playlist analysis history.
 """
 
 import json
+import logging
 from datetime import datetime
 
 from fasthtml.common import *
@@ -10,6 +11,8 @@ from monsterui.all import *
 
 from components.tables import Badge
 from utils import format_number
+
+logger = logging.getLogger(__name__)
 
 
 def extract_engagement_metrics(summary_stats: dict | None) -> dict:
@@ -32,20 +35,21 @@ def extract_engagement_metrics(summary_stats: dict | None) -> dict:
 
         total_likes = summary_stats.get("total_likes", 0) or 0
         total_comments = summary_stats.get("total_comments", 0) or 0
-        total_views = summary_stats.get("total_views", 0) or 1
+        total_views = max(1, summary_stats.get("total_views", 0))
 
         avg_likes = total_likes / max(1, summary_stats.get("video_count", 1))
         avg_comments = total_comments / max(1, summary_stats.get("video_count", 1))
-        engagement_rate = (
-            ((total_likes + total_comments) / total_views * 100) if total_views else 0
-        )
+        engagement_rate = (total_likes + total_comments) / total_views * 100
 
         return {
             "avg_likes": avg_likes,
             "avg_comments": avg_comments,
             "engagement_rate": engagement_rate,
         }
-    except Exception:
+    except (json.JSONDecodeError, TypeError, KeyError, ZeroDivisionError) as e:
+        logger.warning(
+            f"Failed to extract engagement metrics from summary_stats: {type(e).__name__}: {e}"
+        )
         return {"avg_likes": 0, "avg_comments": 0, "engagement_rate": 0}
 
 
