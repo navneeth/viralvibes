@@ -377,7 +377,13 @@ class TestJobSubmission:
             called["user_id"] = user_id  # ✅ Track user_id
             return True
 
-        monkeypatch.setattr("db.submit_playlist_job", fake_submit)
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
+
+        # ✅ Mock require_auth to return None (auth passes)
+        monkeypatch.setattr(
+            "controllers.auth_routes.require_auth",
+            lambda auth: None,  # Return None to indicate auth passes
+        )
 
         r = authenticated_client.post(
             "/submit-job",
@@ -416,7 +422,7 @@ class TestJobSubmission:
         """
         # ✅ FIX: Lambda with correct signature
         monkeypatch.setattr(
-            "db.submit_playlist_job", lambda playlist_url, user_id=None: False
+            "main.submit_playlist_job", lambda playlist_url, user_id=None: False
         )
 
         r = authenticated_client.post(
@@ -439,7 +445,7 @@ class TestJobSubmission:
             called["user_id"] = user_id
             return True
 
-        monkeypatch.setattr("db.submit_playlist_job", fake_submit)
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
 
         r = authenticated_client.post(
             "/submit-job",
@@ -461,7 +467,7 @@ class TestJobSubmission:
             called["called"] = True
             return True
 
-        monkeypatch.setattr("db.submit_playlist_job", fake_submit)
+        monkeypatch.setattr("main.submit_playlist_job", fake_submit)
 
         r = client.post(
             "/submit-job",
