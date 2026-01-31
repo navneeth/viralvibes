@@ -21,6 +21,9 @@ import polars as pl
 import pytest
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.testclient import TestClient
+
 from utils import compute_dashboard_id
 
 # ✅ Set TESTING=1 BEFORE any imports that might load main.py
@@ -714,24 +717,66 @@ def create_auth_session_cookie(
 @pytest.fixture
 def client():
     """Unauthenticated test client."""
-    from starlette.testclient import TestClient
-    import main
 
     return TestClient(main.app)
 
 
+# @pytest.fixture
+# def authenticated_client():
+#     """
+#     Test client with authenticated session.
+
+#     Wraps the app with a middleware that injects session data.
+#     This is the standard Starlette testing pattern.
+#     """
+#     from starlette.testclient import TestClient
+
+#     import main
+
+#     # Session data matching OAuth structure
+#     fake_session = {
+#         "auth": {
+#             "email": "test@viralvibes.com",
+#             "name": "Test User",
+#             "picture": "https://example.com/test-avatar.jpg",
+#             "ident": "test_google_123456",
+#         },
+#         "user_id": "test-user-id",
+#         "user_email": "test@viralvibes.com",
+#         "user_name": "Test User",
+#     }
+
+#     # ✅ ASGI middleware wrapper
+#     class SessionInjectingApp:
+#         """ASGI app that injects session and delegates to main app."""
+
+#         def __init__(self, app, session_data):
+#             self.app = app
+#             self.session_data = session_data
+
+#         async def __call__(self, scope, receive, send):
+#             """Inject session into scope before passing to app."""
+#             if scope["type"] == "http":
+#                 # Add session to scope
+#                 scope["session"] = self.session_data.copy()
+
+#             # Delegate to the wrapped app
+#             await self.app(scope, receive, send)
+
+#     # Wrap the main app
+#     wrapped_app = SessionInjectingApp(main.app, fake_session)
+
+#     # Create test client with wrapped app
+#     return TestClient(wrapped_app)
+
+
 @pytest.fixture
 def authenticated_client():
-    """
-    Test client with authenticated session.
-
-    Wraps the app with a middleware that injects session data.
-    This is the standard Starlette testing pattern.
-    """
+    """Test client with authenticated session using custom wrapper."""
     from starlette.testclient import TestClient
+
     import main
 
-    # Session data matching OAuth structure
     fake_session = {
         "auth": {
             "email": "test@viralvibes.com",
@@ -744,27 +789,17 @@ def authenticated_client():
         "user_name": "Test User",
     }
 
-    # ✅ ASGI middleware wrapper
     class SessionInjectingApp:
-        """ASGI app that injects session and delegates to main app."""
-
         def __init__(self, app, session_data):
             self.app = app
             self.session_data = session_data
 
         async def __call__(self, scope, receive, send):
-            """Inject session into scope before passing to app."""
             if scope["type"] == "http":
-                # Add session to scope
                 scope["session"] = self.session_data.copy()
-
-            # Delegate to the wrapped app
             await self.app(scope, receive, send)
 
-    # Wrap the main app
     wrapped_app = SessionInjectingApp(main.app, fake_session)
-
-    # Create test client with wrapped app
     return TestClient(wrapped_app)
 
 
