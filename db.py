@@ -19,6 +19,7 @@ from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from constants import (
+    CREATORS_TABLE,
     PLAYLIST_JOBS_TABLE,
     PLAYLIST_STATS_TABLE,
     SIGNUPS_TABLE,
@@ -853,8 +854,8 @@ def resolve_playlist_url_from_dashboard_id(
         )
 
         # Filter by user if provided
-        # if user_id is not None:
-        #    query = query.eq("user_id", user_id)
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
 
         response = query.order("processed_on", desc=True).limit(1).execute()
 
@@ -936,3 +937,70 @@ def get_user_dashboards(
     except Exception as e:
         logger.exception(f"Failed to fetch dashboards for user {user_id}: {e}")
         return []
+
+
+def get_or_create_creator_from_playlist(
+    channel_id: str,
+    channel_name: str,
+    channel_url: str,
+    channel_thumbnail_url: str | None = None,
+    user_id: str | None = None,
+) -> dict | None:
+    """
+    Get or create a creator row based on YouTube channel identity.
+    Updates metadata if it already exists.
+    """
+
+    if not supabase_client:
+        return None
+
+    try:
+        # 1️⃣ Try to fetch existing creator
+        query = (
+            supabase_client.table(CREATORS_TABLE)
+            .select("*")
+            .eq("channel_id", channel_id)
+        )
+
+        if user_id:
+            query = query.eq("user_id", user_id)
+
+        resp = query.limit(1).execute()
+
+        if resp.data:
+            creator = resp.data[0]
+
+            # 2️⃣ Opportunistic metadata refresh
+            supabase_client.table(CREATORS_TABLE).update(
+                {
+                    "channel_name": channel_name,
+                    "channel_url": channel_url,
+                    "channel_thumbnail_url": channel_thumbnail_url,
+                    "last_updated_at": "now()",
+                }
+            ).eq("id", creator["id"]).execute()
+
+            return creator
+
+        # 3️⃣ Create new creator
+        insert_payload = {
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "channel_url": channel_url,
+            "channel_thumbnail_url": channel_thumbnail_url,
+            "first_seen_at": "now()",
+            "last_updated_at": "now()",
+        }
+
+        if user_id:
+            insert_payload["user_id"] = user_id
+
+        insert_resp = (
+            supabase_client.table(CREATORS_TABLE).insert(insert_payload).execute()
+        )
+
+        return insert_resp.data[0] if insert_resp.data else None
+
+    except Exception:
+        logger.exception(f"Failed to get_or_create creator for channel {channel_id}")
+        return None
