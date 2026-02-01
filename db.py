@@ -971,7 +971,7 @@ def get_or_create_creator_from_playlist(
             creator = resp.data[0]
 
             # 2️⃣ Opportunistic metadata refresh
-            supabase_client.table("creators").update(
+            supabase_client.table(CREATORS_TABLE).update(
                 {
                     "channel_name": channel_name,
                     "channel_url": channel_url,
