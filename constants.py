@@ -211,6 +211,7 @@ FAQS = [
 PLAYLIST_STATS_TABLE = "playlist_stats"
 PLAYLIST_JOBS_TABLE = "playlist_jobs"
 SIGNUPS_TABLE = "signups"
+CREATORS_TABLE = "creators"
 
 # =============================================================================
 # SAMPLE PLAYLISTS (Fallback only - prefer DB fetch)
