@@ -14,7 +14,7 @@ import logging
 import os
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -54,9 +54,9 @@ POLL_INTERVAL = int(
     os.getenv("CREATOR_WORKER_POLL_INTERVAL", str(CREATOR_WORKER_POLL_INTERVAL))
 )
 BATCH_SIZE = int(os.getenv("CREATOR_WORKER_BATCH_SIZE", str(CREATOR_WORKER_BATCH_SIZE)))
-MAX_RUNTIME = (
-    int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600")) * 60
-)  # 1 hour default
+MAX_RUNTIME = int(
+    os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600")
+)  # 1 hour default (in seconds)
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
 
@@ -101,6 +101,17 @@ async def init():
         raise SystemExit(1) from e
 
 
+def _build_youtube_client():
+    """Build and validate YouTube API client with consistent error handling."""
+    from googleapiclient.discovery import build
+
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
+        raise ValueError("YOUTUBE_API_KEY environment variable not set")
+
+    return build("youtube", "v3", developerKey=api_key)
+
+
 async def fetch_pending_syncs() -> List[Dict[str, Any]]:
     """Return list of pending creator sync jobs from creator_sync_jobs table."""
     try:
@@ -117,44 +128,276 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
     """
     Fetch creator channel data from YouTube API.
 
-    TODO: Implement using YouTube API
+    Uses YouTube Data API v3 to fetch:
+    - Channel statistics (subscribers, views, video count)
+    - Engagement metrics from recent videos
+    - Growth rates by comparing with historical data
+    - Quality grade based on engagement performance
 
-    Should return dict with:
-    - subscriber_count: int
-    - view_count: int
-    - video_count: int
-    - engagement_score: float (computed from top videos)
-    - growth_rate_7d: float (% change from 7 days ago)
-    - growth_rate_30d: float (% change from 30 days ago)
-    - quality_grade: str (A+, A, B, C based on engagement)
-    - daily_subscriber_delta: int (change since yesterday)
-    - daily_view_delta: int (change since yesterday)
+    Args:
+        creator_id: YouTube channel ID (starts with UC)
+
+    Returns:
+        Dict with channel stats, or None if fetch fails
     """
-    logger.info(f"[STUB] Fetching channel data for creator {creator_id}")
+    logger.info(f"[Creator] Fetching channel data for {creator_id}")
 
     try:
-        # TODO: Implement YouTube API calls
-        # 1. Get channel metadata (subscriber_count, view_count, video_count)
-        # 2. Fetch top N videos and compute engagement_score
-        # 3. Compare with daily_stats from yesterday for daily_*_delta
-        # 4. Compare with daily_stats from 30 days ago for growth_rate_30d
-        # 5. Compute quality_grade based on engagement
+        # 1. Get channel statistics from YouTube API
+        channel_stats = await _fetch_channel_statistics(creator_id)
+        if not channel_stats:
+            logger.error(f"Failed to fetch channel statistics for {creator_id}")
+            return None
+
+        subscriber_count = channel_stats["subscriber_count"]
+        view_count = channel_stats["view_count"]
+        video_count = channel_stats["video_count"]
+
+        logger.info(
+            f"[Creator] {creator_id}: {subscriber_count:,} subscribers, "
+            f"{view_count:,} views, {video_count:,} videos"
+        )
+
+        # 2. Fetch recent videos to compute engagement score
+        engagement_score = await _compute_engagement_score(creator_id)
+
+        # 3. Get historical data from database for growth calculations
+        growth_data = await _compute_growth_rates(
+            creator_id, subscriber_count, view_count
+        )
+
+        # 4. Determine quality grade based on engagement
+        quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
 
         return {
-            "subscriber_count": 0,
-            "view_count": 0,
-            "video_count": 0,
-            "engagement_score": 0.0,
-            "growth_rate_7d": 0.0,
-            "growth_rate_30d": 0.0,
-            "quality_grade": "N/A",
-            "daily_subscriber_delta": 0,
-            "daily_view_delta": 0,
+            "subscriber_count": subscriber_count,
+            "view_count": view_count,
+            "video_count": video_count,
+            "engagement_score": engagement_score,
+            "growth_rate_7d": growth_data["growth_rate_7d"],
+            "growth_rate_30d": growth_data["growth_rate_30d"],
+            "quality_grade": quality_grade,
+            "daily_subscriber_delta": growth_data["daily_subscriber_delta"],
+            "daily_view_delta": growth_data["daily_view_delta"],
         }
 
     except Exception as e:
         logger.exception(f"Error fetching channel data for creator {creator_id}: {e}")
         raise
+
+
+async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch channel statistics from YouTube Data API."""
+    try:
+        youtube = _build_youtube_client()
+
+        # Request channel statistics
+        response = (
+            youtube.channels()
+            .list(part="statistics,snippet", id=channel_id, maxResults=1)
+            .execute()
+        )
+
+        if not response.get("items"):
+            logger.error(f"Channel not found: {channel_id}")
+            return None
+
+        channel = response["items"][0]
+        stats = channel.get("statistics", {})
+
+        return {
+            "subscriber_count": int(stats.get("subscriberCount", 0) or 0),
+            "view_count": int(stats.get("viewCount", 0) or 0),
+            "video_count": int(stats.get("videoCount", 0) or 0),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to fetch channel statistics for {channel_id}: {e}")
+        return None
+
+
+async def _compute_engagement_score(channel_id: str) -> float:
+    """
+    Compute engagement score from recent videos.
+
+    Engagement = (likes + comments) / views * 100
+    Uses average of last 10 videos.
+    """
+    try:
+        youtube = _build_youtube_client()
+
+        # 1. Get channel's uploads playlist ID
+        channel_resp = (
+            youtube.channels()
+            .list(part="contentDetails", id=channel_id, maxResults=1)
+            .execute()
+        )
+
+        if not channel_resp.get("items"):
+            return 0.0
+
+        uploads_playlist_id = (
+            channel_resp["items"][0]
+            .get("contentDetails", {})
+            .get("relatedPlaylists", {})
+            .get("uploads")
+        )
+
+        if not uploads_playlist_id:
+            logger.warning(f"No uploads playlist found for {channel_id}")
+            return 0.0
+
+        # 2. Get recent video IDs from uploads playlist
+        playlist_resp = (
+            youtube.playlistItems()
+            .list(
+                part="contentDetails",
+                playlistId=uploads_playlist_id,
+                maxResults=10,  # Last 10 videos
+            )
+            .execute()
+        )
+
+        video_ids = [
+            item["contentDetails"]["videoId"] for item in playlist_resp.get("items", [])
+        ]
+
+        if not video_ids:
+            return 0.0
+
+        # 3. Get video statistics
+        videos_resp = (
+            youtube.videos().list(part="statistics", id=",".join(video_ids)).execute()
+        )
+
+        # 4. Calculate average engagement
+        engagement_scores = []
+        for video in videos_resp.get("items", []):
+            stats = video.get("statistics", {})
+            views = int(stats.get("viewCount", 0) or 0)
+            likes = int(stats.get("likeCount", 0) or 0)
+            comments = int(stats.get("commentCount", 0) or 0)
+
+            if views > 0:
+                engagement = ((likes + comments) / views) * 100
+                engagement_scores.append(engagement)
+
+        if not engagement_scores:
+            return 0.0
+
+        avg_engagement = sum(engagement_scores) / len(engagement_scores)
+        logger.debug(f"[Creator] {channel_id}: engagement = {avg_engagement:.2f}%")
+
+        return round(avg_engagement, 2)
+
+    except Exception as e:
+        logger.error(f"Failed to compute engagement for {channel_id}: {e}")
+        return 0.0
+
+
+async def _compute_growth_rates(
+    creator_id: str, current_subscribers: int, current_views: int
+) -> Dict[str, Any]:
+    """
+    Compute growth rates by comparing with historical daily_stats.
+
+    Returns daily deltas and 7d/30d growth rates.
+    """
+    try:
+        # Get yesterday's stats for daily delta
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        yesterday_stats = (
+            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
+            .select("subscriber_count, view_count")
+            .eq("creator_id", creator_id)
+            .eq("snapshot_date", yesterday)
+            .limit(1)
+            .execute()
+        )
+
+        daily_subscriber_delta = 0
+        daily_view_delta = 0
+
+        if yesterday_stats.data:
+            prev_subs = yesterday_stats.data[0].get("subscriber_count", 0)
+            prev_views = yesterday_stats.data[0].get("view_count", 0)
+            daily_subscriber_delta = current_subscribers - prev_subs
+            daily_view_delta = current_views - prev_views
+
+        # Get 7-day-ago stats for weekly growth
+        week_ago = (date.today() - timedelta(days=7)).isoformat()
+        week_stats = (
+            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
+            .select("subscriber_count")
+            .eq("creator_id", creator_id)
+            .eq("snapshot_date", week_ago)
+            .limit(1)
+            .execute()
+        )
+
+        growth_rate_7d = 0.0
+        if week_stats.data:
+            week_subs = week_stats.data[0].get("subscriber_count", 0)
+            if week_subs > 0:
+                growth_rate_7d = ((current_subscribers - week_subs) / week_subs) * 100
+
+        # Get 30-day-ago stats for monthly growth
+        month_ago = (date.today() - timedelta(days=30)).isoformat()
+        month_stats = (
+            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
+            .select("subscriber_count")
+            .eq("creator_id", creator_id)
+            .eq("snapshot_date", month_ago)
+            .limit(1)
+            .execute()
+        )
+
+        growth_rate_30d = 0.0
+        if month_stats.data:
+            month_subs = month_stats.data[0].get("subscriber_count", 0)
+            if month_subs > 0:
+                growth_rate_30d = (
+                    (current_subscribers - month_subs) / month_subs
+                ) * 100
+
+        return {
+            "daily_subscriber_delta": daily_subscriber_delta,
+            "daily_view_delta": daily_view_delta,
+            "growth_rate_7d": round(growth_rate_7d, 2),
+            "growth_rate_30d": round(growth_rate_30d, 2),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to compute growth rates for {creator_id}: {e}")
+        return {
+            "daily_subscriber_delta": 0,
+            "daily_view_delta": 0,
+            "growth_rate_7d": 0.0,
+            "growth_rate_30d": 0.0,
+        }
+
+
+def _compute_quality_grade(engagement_score: float, subscriber_count: int) -> str:
+    """
+    Compute quality grade based on engagement score.
+
+    Grading criteria:
+    - A+: >=5% engagement
+    - A: >=3% engagement
+    - B+: >=1% engagement
+    - B: >=0.5% engagement
+    - C: <0.5% engagement
+    """
+    if engagement_score >= 5.0:
+        return "A+"
+    elif engagement_score >= 3.0:
+        return "A"
+    elif engagement_score >= 1.0:
+        return "B+"
+    elif engagement_score >= 0.5:
+        return "B"
+    else:
+        return "C"
 
 
 async def handle_sync_job(job: Dict[str, Any]) -> bool:
