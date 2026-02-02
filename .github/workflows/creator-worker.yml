@@ -1,0 +1,34 @@
+name: Creator Stats Worker
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Daily at 4 AM UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-creator-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # 1.5 hours (safety buffer for 1 hour runtime)
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      CREATOR_WORKER_POLL_INTERVAL: "30"  # 30 seconds between polls
+      CREATOR_WORKER_BATCH_SIZE: "1"  # Process 1 creator at a time (frugal)
+      CREATOR_WORKER_MAX_RUNTIME: "3600"  # 1 hour in seconds
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install -r requirements-backend.txt
+
+      - name: Run creator worker
+        run: |
+          echo "Starting creator worker at $(date)"
+          python -m worker.creator_worker
+          echo "Creator worker finished at $(date)"
