@@ -230,7 +230,7 @@ CREATOR_WORKER_RETRY_BASE = 3600  # 1 hour
 KNOWN_CREATORS = [
     # Add 3-5 creators you know:
     {
-        "channel_id": "MrBeast",
+        "channel_id": "UCX6OQ3DkcsbYNE6H8uQQuVA",
         "channel_name": "Mr Beast",
         "channel_url": "https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA",
     },
