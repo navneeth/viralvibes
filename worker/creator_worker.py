@@ -101,6 +101,17 @@ async def init():
         raise SystemExit(1) from e
 
 
+def _build_youtube_client():
+    """Build and validate YouTube API client with consistent error handling."""
+    from googleapiclient.discovery import build
+
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
+        raise ValueError("YOUTUBE_API_KEY environment variable not set")
+
+    return build("youtube", "v3", developerKey=api_key)
+
+
 async def fetch_pending_syncs() -> List[Dict[str, Any]]:
     """Return list of pending creator sync jobs from creator_sync_jobs table."""
     try:
@@ -178,14 +189,7 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
 async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]:
     """Fetch channel statistics from YouTube Data API."""
     try:
-        # Build YouTube API client
-        from googleapiclient.discovery import build
-
-        api_key = os.getenv("YOUTUBE_API_KEY")
-        if not api_key:
-            raise ValueError("YOUTUBE_API_KEY not set")
-
-        youtube = build("youtube", "v3", developerKey=api_key)
+        youtube = _build_youtube_client()
 
         # Request channel statistics
         response = (
@@ -220,10 +224,7 @@ async def _compute_engagement_score(channel_id: str) -> float:
     Uses average of last 10 videos.
     """
     try:
-        from googleapiclient.discovery import build
-
-        api_key = os.getenv("YOUTUBE_API_KEY")
-        youtube = build("youtube", "v3", developerKey=api_key)
+        youtube = _build_youtube_client()
 
         # 1. Get channel's uploads playlist ID
         channel_resp = (
@@ -378,21 +379,19 @@ async def _compute_growth_rates(
 
 def _compute_quality_grade(engagement_score: float, subscriber_count: int) -> str:
     """
-    Compute quality grade based on engagement and subscriber count.
+    Compute quality grade based on engagement score.
 
     Grading criteria:
-    - A+: >5% engagement, any size
-    - A: >3% engagement
-    - B: >1% engagement
-    - C: >0.5% engagement
-    - D: <=0.5% engagement
-
-    Larger channels (1M+ subs) get bonus tier if above thresholds.
+    - A+: >=5% engagement
+    - A: >=3% engagement
+    - B+: >=1% engagement
+    - B: >=0.5% engagement
+    - C: <0.5% engagement
     """
     if engagement_score >= 5.0:
-        return "A+" if subscriber_count >= 1_000_000 else "A+"
+        return "A+"
     elif engagement_score >= 3.0:
-        return "A" if subscriber_count >= 1_000_000 else "A"
+        return "A"
     elif engagement_score >= 1.0:
         return "B+"
     elif engagement_score >= 0.5:
