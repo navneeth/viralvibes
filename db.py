@@ -847,69 +847,42 @@ def update_creator_stats(
     """
     Update creator stats after successful sync.
 
-    Updates current_stats (for leaderboard) and daily_stats (for analytics).
+    Updates the creators table with current stats from YouTube API.
+    Schema fields: current_subscribers, current_view_count, current_video_count, last_updated_at
     """
     if not supabase_client:
         logger.warning("Supabase client not available to update creator stats")
         return False
 
     try:
-        # 1️⃣ Update current stats
-        current_payload = {
-            "creator_id": creator_id,
-            "subscriber_count": stats.get("subscriber_count", 0),
-            "view_count": stats.get("view_count", 0),
-            "video_count": stats.get("video_count", 0),
-            "engagement_score": stats.get("engagement_score", 0.0),
-            "growth_rate_7d": stats.get("growth_rate_7d", 0.0),
-            "growth_rate_30d": stats.get("growth_rate_30d", 0.0),
-            "quality_grade": stats.get("quality_grade", "N/A"),
-            "last_synced_at": datetime.utcnow().isoformat(),
-            "source": "youtube_api",
+        # Update creators table with current stats
+        # Match actual DB schema: current_subscribers, current_view_count, current_video_count
+        payload = {
+            "current_subscribers": stats.get("subscriber_count", 0),
+            "current_view_count": stats.get("view_count", 0),
+            "current_video_count": stats.get("video_count", 0),
+            "last_updated_at": datetime.utcnow().isoformat(),
         }
 
-        success = upsert_row(
-            CREATOR_CURRENT_STATS_TABLE,
-            current_payload,
-            conflict_fields=["creator_id"],
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .update(payload)
+            .eq("id", creator_id)
+            .execute()
         )
 
-        if success:
-            logger.info(f"Updated current stats for creator {creator_id}")
+        if response.data:
+            logger.info(f"Updated creator stats for {creator_id}")
         else:
-            logger.error(f"Failed to update current stats for creator {creator_id}")
+            logger.error(f"Failed to update creator stats for {creator_id}")
             return False
 
-        # 2️⃣ Create daily snapshot
-        daily_payload = {
-            "creator_id": creator_id,
-            "snapshot_date": date.today().isoformat(),
-            "subscriber_count": stats.get("subscriber_count", 0),
-            "view_count": stats.get("view_count", 0),
-            "video_count": stats.get("video_count", 0),
-            "daily_subscriber_delta": stats.get("daily_subscriber_delta", 0),
-            "daily_view_delta": stats.get("daily_view_delta", 0),
-            "source": "youtube_api",
-        }
-
-        success = upsert_row(
-            CREATOR_DAILY_STATS_TABLE,
-            daily_payload,
-            conflict_fields=["creator_id", "snapshot_date"],
-        )
-
-        if success:
-            logger.info(f"Created daily snapshot for creator {creator_id}")
-        else:
-            logger.error(f"Failed to create daily snapshot for creator {creator_id}")
-            return False
-
-        # 3️⃣ Mark sync job complete
+        # Mark sync job complete
         if not mark_creator_sync_completed(job_id):
             logger.error(f"Failed to mark job {job_id} as completed")
             return False
 
-        logger.info(f"Successfully updated all stats for creator {creator_id}")
+        logger.info(f"Successfully updated stats for creator {creator_id}")
         return True
 
     except Exception as e:
@@ -918,16 +891,16 @@ def update_creator_stats(
 
 
 def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
-    """Get the current stats snapshot for a creator."""
+    """Get the current stats from the creators table."""
     if not supabase_client:
         logger.warning("Supabase client not available to get creator stats")
         return None
 
     try:
         response = (
-            supabase_client.table(CREATOR_CURRENT_STATS_TABLE)
+            supabase_client.table(CREATOR_TABLE)
             .select("*")
-            .eq("creator_id", creator_id)
+            .eq("id", creator_id)
             .single()
             .execute()
         )
@@ -945,56 +918,69 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_top_creators_by_growth(limit: int = 20) -> List[Dict[str, Any]]:
-    """Get top creators by 30-day growth rate."""
+    """
+    Get top creators by subscriber count.
+
+    Note: Growth rates require historical data tables (not yet implemented).
+    For now, sort by current_subscribers as a proxy.
+    """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch top creators")
         return []
 
     try:
         response = (
-            supabase_client.table(CREATOR_CURRENT_STATS_TABLE)
+            supabase_client.table(CREATOR_TABLE)
             .select(
-                "creator_id, subscriber_count, view_count, engagement_score, "
-                "growth_rate_7d, growth_rate_30d, quality_grade, "
-                "creator:creator_id(id, channel_id, channel_name, channel_url, "
-                "channel_thumbnail_url, verified)"
+                "id, channel_id, channel_name, channel_url, "
+                "channel_thumbnail_url, current_subscribers, "
+                "current_view_count, current_video_count, last_updated_at"
             )
-            .order("growth_rate_30d", desc=True)
+            .order("current_subscribers", desc=True)
             .limit(limit)
             .execute()
         )
 
         creators = response.data if response.data else []
-        logger.info(f"Retrieved {len(creators)} top creators by growth")
+        logger.info(f"Retrieved {len(creators)} top creators by subscriber count")
         return creators
 
     except Exception as e:
-        logger.exception(f"Error getting top creators by growth: {e}")
+        logger.exception(f"Error getting top creators: {e}")
         return []
 
 
 def get_top_creators_by_engagement(limit: int = 20) -> List[Dict[str, Any]]:
-    """Get top creators by engagement score."""
+    """
+    Get top creators by view count.
+
+    Note: Engagement metrics require additional data (not in current schema).
+    For now, sort by current_view_count as a proxy.
+    """
     if not supabase_client:
         logger.warning("Supabase client not available to fetch top creators")
         return []
 
     try:
         response = (
-            supabase_client.table(CREATOR_CURRENT_STATS_TABLE)
+            supabase_client.table(CREATOR_TABLE)
             .select(
-                "creator_id, subscriber_count, view_count, engagement_score, "
-                "growth_rate_30d, quality_grade, "
-                "creator:creator_id(id, channel_id, channel_name, channel_url, "
-                "channel_thumbnail_url, verified)"
+                "id, channel_id, channel_name, channel_url, "
+                "channel_thumbnail_url, current_subscribers, "
+                "current_view_count, current_video_count, last_updated_at"
             )
-            .order("engagement_score", desc=True)
+            .order("current_view_count", desc=True)
             .limit(limit)
             .execute()
         )
 
         creators = response.data if response.data else []
-        logger.info(f"Retrieved {len(creators)} top creators by engagement")
+        logger.info(f"Retrieved {len(creators)} top creators by view count")
+        return creators
+
+    except Exception as e:
+        logger.exception(f"Error getting top creators: {e}")
+        return []
         return creators
 
     except Exception as e:

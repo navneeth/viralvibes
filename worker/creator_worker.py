@@ -1,10 +1,10 @@
 """
 Creator stats background worker: polls Supabase creator_sync_jobs table for pending/failed jobs,
-fetches creator channel stats from YouTube API, updates creator_current_stats and creator_daily_stats,
+fetches creator channel stats from YouTube API, updates creators table with current stats,
 and updates job status. Intelligently retries failed jobs with backoff.
 
 This worker is completely independent from the playlist worker, running on a separate schedule
-with its own configuration for frugal operation (1 creator at a time, 30-minute update cycle).
+with its own configuration for frugal operation (1 creator at a time, 30-day update cycle).
 
 Run as: python -m worker.creator_worker
 """
@@ -20,8 +20,6 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 from constants import (
-    CREATOR_CURRENT_STATS_TABLE,
-    CREATOR_DAILY_STATS_TABLE,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
     CREATOR_WORKER_BATCH_SIZE,
@@ -131,7 +129,6 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
     Uses YouTube Data API v3 to fetch:
     - Channel statistics (subscribers, views, video count)
     - Engagement metrics from recent videos
-    - Growth rates by comparing with historical data
     - Quality grade based on engagement performance
 
     Args:
@@ -161,12 +158,7 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
         # 2. Fetch recent videos to compute engagement score
         engagement_score = await _compute_engagement_score(creator_id)
 
-        # 3. Get historical data from database for growth calculations
-        growth_data = await _compute_growth_rates(
-            creator_id, subscriber_count, view_count
-        )
-
-        # 4. Determine quality grade based on engagement
+        # 3. Determine quality grade based on engagement
         quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
 
         return {
@@ -174,11 +166,7 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
             "view_count": view_count,
             "video_count": video_count,
             "engagement_score": engagement_score,
-            "growth_rate_7d": growth_data["growth_rate_7d"],
-            "growth_rate_30d": growth_data["growth_rate_30d"],
             "quality_grade": quality_grade,
-            "daily_subscriber_delta": growth_data["daily_subscriber_delta"],
-            "daily_view_delta": growth_data["daily_view_delta"],
         }
 
     except Exception as e:
@@ -187,28 +175,38 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
 
 
 async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]:
-    """Fetch channel statistics from YouTube Data API."""
+    """
+    Fetch channel statistics from YouTube Data API v3.
+
+    Uses channels.list method with part=statistics,snippet.
+    Reference: https://developers.google.com/youtube/v3/docs/channels/list
+
+    Args:
+        channel_id: YouTube channel ID (e.g., "UCxxxxx")
+
+    Returns:
+        Dict with statistics fields, or None if channel not found
+    """
     try:
         youtube = _build_youtube_client()
 
-        # Request channel statistics
-        response = (
-            youtube.channels()
-            .list(part="statistics,snippet", id=channel_id, maxResults=1)
-            .execute()
-        )
+        # Call channels.list method
+        # https://developers.google.com/youtube/v3/docs/channels/list
+        request = youtube.channels().list(part="statistics,snippet", id=channel_id)
+        response = request.execute()
 
+        # Check if channel exists in response
         if not response.get("items"):
             logger.error(f"Channel not found: {channel_id}")
             return None
 
         channel = response["items"][0]
-        stats = channel.get("statistics", {})
+        statistics = channel.get("statistics", {})
 
         return {
-            "subscriber_count": int(stats.get("subscriberCount", 0) or 0),
-            "view_count": int(stats.get("viewCount", 0) or 0),
-            "video_count": int(stats.get("videoCount", 0) or 0),
+            "subscriber_count": int(statistics.get("subscriberCount", 0) or 0),
+            "view_count": int(statistics.get("viewCount", 0) or 0),
+            "video_count": int(statistics.get("videoCount", 0) or 0),
         }
 
     except Exception as e:
@@ -218,163 +216,98 @@ async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]
 
 async def _compute_engagement_score(channel_id: str) -> float:
     """
-    Compute engagement score from recent videos.
+    Compute engagement score from recent uploaded videos.
 
     Engagement = (likes + comments) / views * 100
-    Uses average of last 10 videos.
+    Uses average of last 10 videos from the channel's uploads playlist.
+
+    API flow:
+    1. channels.list (part=contentDetails) -> get uploads playlist ID
+    2. playlistItems.list (part=contentDetails) -> get video IDs
+    3. videos.list (part=statistics) -> get engagement metrics
+
+    Reference: https://developers.google.com/youtube/v3/docs/channels/list
+               https://developers.google.com/youtube/v3/docs/playlistItems/list
+               https://developers.google.com/youtube/v3/docs/videos/list
+
+    Args:
+        channel_id: YouTube channel ID (e.g., "UCxxxxx")
+
+    Returns:
+        Average engagement percentage (0.0-100.0)
     """
     try:
         youtube = _build_youtube_client()
 
-        # 1. Get channel's uploads playlist ID
-        channel_resp = (
-            youtube.channels()
-            .list(part="contentDetails", id=channel_id, maxResults=1)
-            .execute()
-        )
+        # Step 1: Get channel's uploads playlist ID from contentDetails.relatedPlaylists.uploads
+        # https://developers.google.com/youtube/v3/docs/channels/list
+        channel_request = youtube.channels().list(part="contentDetails", id=channel_id)
+        channel_response = channel_request.execute()
 
-        if not channel_resp.get("items"):
+        if not channel_response.get("items"):
+            logger.warning(f"Channel not found: {channel_id}")
             return 0.0
 
-        uploads_playlist_id = (
-            channel_resp["items"][0]
-            .get("contentDetails", {})
-            .get("relatedPlaylists", {})
-            .get("uploads")
-        )
+        content_details = channel_response["items"][0].get("contentDetails", {})
+        related_playlists = content_details.get("relatedPlaylists", {})
+        uploads_playlist_id = related_playlists.get("uploads")
 
         if not uploads_playlist_id:
-            logger.warning(f"No uploads playlist found for {channel_id}")
+            logger.warning(f"No uploads playlist found for channel: {channel_id}")
             return 0.0
 
-        # 2. Get recent video IDs from uploads playlist
-        playlist_resp = (
-            youtube.playlistItems()
-            .list(
-                part="contentDetails",
-                playlistId=uploads_playlist_id,
-                maxResults=10,  # Last 10 videos
-            )
-            .execute()
+        # Step 2: Get recent video IDs from uploads playlist
+        # https://developers.google.com/youtube/v3/docs/playlistItems/list
+        playlist_request = youtube.playlistItems().list(
+            part="contentDetails",
+            playlistId=uploads_playlist_id,
+            maxResults=10,  # Retrieve last 10 videos
         )
+        playlist_response = playlist_request.execute()
 
         video_ids = [
-            item["contentDetails"]["videoId"] for item in playlist_resp.get("items", [])
+            item["contentDetails"]["videoId"]
+            for item in playlist_response.get("items", [])
         ]
 
         if not video_ids:
+            logger.debug(f"No videos found in uploads playlist for {channel_id}")
             return 0.0
 
-        # 3. Get video statistics
-        videos_resp = (
-            youtube.videos().list(part="statistics", id=",".join(video_ids)).execute()
+        # Step 3: Get video statistics (views, likes, comments)
+        # https://developers.google.com/youtube/v3/docs/videos/list
+        videos_request = youtube.videos().list(
+            part="statistics", id=",".join(video_ids)
         )
+        videos_response = videos_request.execute()
 
-        # 4. Calculate average engagement
+        # Step 4: Calculate average engagement across all videos
         engagement_scores = []
-        for video in videos_resp.get("items", []):
-            stats = video.get("statistics", {})
-            views = int(stats.get("viewCount", 0) or 0)
-            likes = int(stats.get("likeCount", 0) or 0)
-            comments = int(stats.get("commentCount", 0) or 0)
+        for video in videos_response.get("items", []):
+            statistics = video.get("statistics", {})
+            view_count = int(statistics.get("viewCount", 0) or 0)
+            like_count = int(statistics.get("likeCount", 0) or 0)
+            comment_count = int(statistics.get("commentCount", 0) or 0)
 
-            if views > 0:
-                engagement = ((likes + comments) / views) * 100
-                engagement_scores.append(engagement)
+            if view_count > 0:
+                engagement_rate = ((like_count + comment_count) / view_count) * 100
+                engagement_scores.append(engagement_rate)
 
         if not engagement_scores:
+            logger.debug(f"No engagement data available for {channel_id}")
             return 0.0
 
         avg_engagement = sum(engagement_scores) / len(engagement_scores)
-        logger.debug(f"[Creator] {channel_id}: engagement = {avg_engagement:.2f}%")
+        logger.debug(
+            f"[Creator] {channel_id}: engagement = {avg_engagement:.2f}% "
+            f"(calculated from {len(engagement_scores)} videos)"
+        )
 
         return round(avg_engagement, 2)
 
     except Exception as e:
         logger.error(f"Failed to compute engagement for {channel_id}: {e}")
         return 0.0
-
-
-async def _compute_growth_rates(
-    creator_id: str, current_subscribers: int, current_views: int
-) -> Dict[str, Any]:
-    """
-    Compute growth rates by comparing with historical daily_stats.
-
-    Returns daily deltas and 7d/30d growth rates.
-    """
-    try:
-        # Get yesterday's stats for daily delta
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
-        yesterday_stats = (
-            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
-            .select("subscriber_count, view_count")
-            .eq("creator_id", creator_id)
-            .eq("snapshot_date", yesterday)
-            .limit(1)
-            .execute()
-        )
-
-        daily_subscriber_delta = 0
-        daily_view_delta = 0
-
-        if yesterday_stats.data:
-            prev_subs = yesterday_stats.data[0].get("subscriber_count", 0)
-            prev_views = yesterday_stats.data[0].get("view_count", 0)
-            daily_subscriber_delta = current_subscribers - prev_subs
-            daily_view_delta = current_views - prev_views
-
-        # Get 7-day-ago stats for weekly growth
-        week_ago = (date.today() - timedelta(days=7)).isoformat()
-        week_stats = (
-            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
-            .select("subscriber_count")
-            .eq("creator_id", creator_id)
-            .eq("snapshot_date", week_ago)
-            .limit(1)
-            .execute()
-        )
-
-        growth_rate_7d = 0.0
-        if week_stats.data:
-            week_subs = week_stats.data[0].get("subscriber_count", 0)
-            if week_subs > 0:
-                growth_rate_7d = ((current_subscribers - week_subs) / week_subs) * 100
-
-        # Get 30-day-ago stats for monthly growth
-        month_ago = (date.today() - timedelta(days=30)).isoformat()
-        month_stats = (
-            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
-            .select("subscriber_count")
-            .eq("creator_id", creator_id)
-            .eq("snapshot_date", month_ago)
-            .limit(1)
-            .execute()
-        )
-
-        growth_rate_30d = 0.0
-        if month_stats.data:
-            month_subs = month_stats.data[0].get("subscriber_count", 0)
-            if month_subs > 0:
-                growth_rate_30d = (
-                    (current_subscribers - month_subs) / month_subs
-                ) * 100
-
-        return {
-            "daily_subscriber_delta": daily_subscriber_delta,
-            "daily_view_delta": daily_view_delta,
-            "growth_rate_7d": round(growth_rate_7d, 2),
-            "growth_rate_30d": round(growth_rate_30d, 2),
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to compute growth rates for {creator_id}: {e}")
-        return {
-            "daily_subscriber_delta": 0,
-            "daily_view_delta": 0,
-            "growth_rate_7d": 0.0,
-            "growth_rate_30d": 0.0,
-        }
 
 
 def _compute_quality_grade(engagement_score: float, subscriber_count: int) -> str:
