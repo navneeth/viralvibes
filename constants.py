@@ -213,10 +213,8 @@ PLAYLIST_JOBS_TABLE = "playlist_jobs"
 SIGNUPS_TABLE = "signups"
 CREATORS_TABLE = "creators"
 
-# Creator tables (your existing schema)
+# Creator tables (matching actual DB schema)
 CREATOR_TABLE = "creators"
-CREATOR_CURRENT_STATS_TABLE = "creator_current_stats"
-CREATOR_DAILY_STATS_TABLE = "creator_daily_stats"
 CREATOR_SYNC_JOBS_TABLE = "creator_sync_jobs"
 
 # Update frequency (frugal)

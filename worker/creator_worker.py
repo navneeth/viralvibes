@@ -1,10 +1,10 @@
 """
 Creator stats background worker: polls Supabase creator_sync_jobs table for pending/failed jobs,
-fetches creator channel stats from YouTube API, updates creator_current_stats and creator_daily_stats,
+fetches creator channel stats from YouTube API, updates creators table with current stats,
 and updates job status. Intelligently retries failed jobs with backoff.
 
 This worker is completely independent from the playlist worker, running on a separate schedule
-with its own configuration for frugal operation (1 creator at a time, 30-minute update cycle).
+with its own configuration for frugal operation (1 creator at a time, 30-day update cycle).
 
 Run as: python -m worker.creator_worker
 """
@@ -20,8 +20,6 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 from constants import (
-    CREATOR_CURRENT_STATS_TABLE,
-    CREATOR_DAILY_STATS_TABLE,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
     CREATOR_WORKER_BATCH_SIZE,
@@ -131,7 +129,6 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
     Uses YouTube Data API v3 to fetch:
     - Channel statistics (subscribers, views, video count)
     - Engagement metrics from recent videos
-    - Growth rates by comparing with historical data
     - Quality grade based on engagement performance
 
     Args:
@@ -161,12 +158,7 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
         # 2. Fetch recent videos to compute engagement score
         engagement_score = await _compute_engagement_score(creator_id)
 
-        # 3. Get historical data from database for growth calculations
-        growth_data = await _compute_growth_rates(
-            creator_id, subscriber_count, view_count
-        )
-
-        # 4. Determine quality grade based on engagement
+        # 3. Determine quality grade based on engagement
         quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
 
         return {
@@ -174,11 +166,7 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
             "view_count": view_count,
             "video_count": video_count,
             "engagement_score": engagement_score,
-            "growth_rate_7d": growth_data["growth_rate_7d"],
-            "growth_rate_30d": growth_data["growth_rate_30d"],
             "quality_grade": quality_grade,
-            "daily_subscriber_delta": growth_data["daily_subscriber_delta"],
-            "daily_view_delta": growth_data["daily_view_delta"],
         }
 
     except Exception as e:
@@ -320,88 +308,6 @@ async def _compute_engagement_score(channel_id: str) -> float:
     except Exception as e:
         logger.error(f"Failed to compute engagement for {channel_id}: {e}")
         return 0.0
-
-
-async def _compute_growth_rates(
-    creator_id: str, current_subscribers: int, current_views: int
-) -> Dict[str, Any]:
-    """
-    Compute growth rates by comparing with historical daily_stats.
-
-    Returns daily deltas and 7d/30d growth rates.
-    """
-    try:
-        # Get yesterday's stats for daily delta
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
-        yesterday_stats = (
-            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
-            .select("subscriber_count, view_count")
-            .eq("creator_id", creator_id)
-            .eq("snapshot_date", yesterday)
-            .limit(1)
-            .execute()
-        )
-
-        daily_subscriber_delta = 0
-        daily_view_delta = 0
-
-        if yesterday_stats.data:
-            prev_subs = yesterday_stats.data[0].get("subscriber_count", 0)
-            prev_views = yesterday_stats.data[0].get("view_count", 0)
-            daily_subscriber_delta = current_subscribers - prev_subs
-            daily_view_delta = current_views - prev_views
-
-        # Get 7-day-ago stats for weekly growth
-        week_ago = (date.today() - timedelta(days=7)).isoformat()
-        week_stats = (
-            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
-            .select("subscriber_count")
-            .eq("creator_id", creator_id)
-            .eq("snapshot_date", week_ago)
-            .limit(1)
-            .execute()
-        )
-
-        growth_rate_7d = 0.0
-        if week_stats.data:
-            week_subs = week_stats.data[0].get("subscriber_count", 0)
-            if week_subs > 0:
-                growth_rate_7d = ((current_subscribers - week_subs) / week_subs) * 100
-
-        # Get 30-day-ago stats for monthly growth
-        month_ago = (date.today() - timedelta(days=30)).isoformat()
-        month_stats = (
-            supabase_client.table(CREATOR_DAILY_STATS_TABLE)
-            .select("subscriber_count")
-            .eq("creator_id", creator_id)
-            .eq("snapshot_date", month_ago)
-            .limit(1)
-            .execute()
-        )
-
-        growth_rate_30d = 0.0
-        if month_stats.data:
-            month_subs = month_stats.data[0].get("subscriber_count", 0)
-            if month_subs > 0:
-                growth_rate_30d = (
-                    (current_subscribers - month_subs) / month_subs
-                ) * 100
-
-        return {
-            "daily_subscriber_delta": daily_subscriber_delta,
-            "daily_view_delta": daily_view_delta,
-            "growth_rate_7d": round(growth_rate_7d, 2),
-            "growth_rate_30d": round(growth_rate_30d, 2),
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to compute growth rates for {creator_id}: {e}")
-        return {
-            "daily_subscriber_delta": 0,
-            "daily_view_delta": 0,
-            "growth_rate_7d": 0.0,
-            "growth_rate_30d": 0.0,
-        }
 
 
 def _compute_quality_grade(engagement_score: float, subscriber_count: int) -> str:
