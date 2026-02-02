@@ -68,7 +68,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
 )
-from services.playlist_loader import load_cached_or_stub
+from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
 from utils import compute_dashboard_id
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
@@ -399,25 +399,24 @@ def dashboard_page(
         sess["intended_url"] = str(req.url.path)
         return RedirectResponse("/login", status_code=303)
 
-    # 1. Resolve dashboard_id → playlist_url
-    playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id, user_id=user_id)
+    # 1. Load dashboard via service layer (handles all data deserialization)
+    #    Resolve dashboard_id → playlist data
+    data = load_dashboard_by_id(dashboard_id, user_id=user_id)
 
-    if not playlist_url:
+    if not data:
         return Alert(
             P("Dashboard not found."),
             cls=AlertT.error,
         )
 
-    # 2. Load data from Supabase (same as validate/full)
-    data = load_cached_or_stub(playlist_url, 1, user_id=user_id)
-
+    # 2. Extract clean data from service response
     df = data["df"]
-    summary_stats = data["summary_stats"]
-
+    playlist_url = data["playlist_url"]
     playlist_name = data["playlist_name"]
     channel_name = data["channel_name"]
     channel_thumbnail = data["channel_thumbnail"]
-    cached_stats = data.get("cached_stats")
+    summary_stats = data["summary_stats"]
+    cached_stats = data["cached_stats"]
 
     # 3. Sorting (identical to validate/full)
     sortable_map = {

@@ -1184,6 +1184,73 @@ def get_dashboard_event_counts(
         return {"view": 0, "share": 0}
 
 
+def get_dashboard_stats_by_id(
+    dashboard_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch complete playlist stats directly by dashboard_id.
+
+    This function is used for loading existing dashboards and does NOT filter by date,
+    ensuring that dashboards created on previous days are still accessible.
+
+    Args:
+        dashboard_id: The dashboard ID (MD5 hash of playlist URL)
+        user_id: Optional user_id for ownership filtering
+
+    Returns:
+        Complete stats dict with df_json, summary_stats, etc., or None if not found
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return None
+
+    try:
+        query = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select("*")
+            .eq("dashboard_id", dashboard_id)
+        )
+
+        # Filter by user if provided
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+
+        response = query.order("processed_on", desc=True).limit(1).execute()
+
+        if response.data and len(response.data) > 0:
+            row = response.data[0]
+
+            # Validate df_json
+            df_json = row.get("df_json")
+            if _is_empty_json(df_json):
+                logger.warning(
+                    f"[Dashboard] Found invalid/empty data for dashboard_id={dashboard_id}"
+                )
+                return None
+
+            logger.info(
+                f"[Dashboard] Loaded dashboard: {dashboard_id} (user={user_id})"
+            )
+
+            # Deserialize JSON fields
+            if row.get("summary_stats"):
+                try:
+                    row["summary_stats"] = json.loads(row["summary_stats"])
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse summary_stats: {e}")
+                    row["summary_stats"] = {}
+
+            return row
+        else:
+            logger.warning(f"[Dashboard] Not found: {dashboard_id} (user={user_id})")
+            return None
+
+    except Exception as e:
+        logger.exception(f"Failed to fetch dashboard {dashboard_id}: {e}")
+        return None
+
+
 def resolve_playlist_url_from_dashboard_id(
     dashboard_id: str,
     user_id: Optional[str] = None,
