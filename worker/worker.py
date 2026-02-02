@@ -50,7 +50,9 @@ logger = logging.getLogger("vv_worker")
 # --- Config with improved defaults ---
 POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "30"))
 BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "3"))  # Increased back to 3
-MAX_RUNTIME = int(os.getenv("WORKER_MAX_RUNTIME", "300")) * 60
+MAX_RUNTIME = int(
+    os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600")
+)  # 1 hour default (in seconds)
 MIN_REQUEST_DELAY = float(os.getenv("MIN_REQUEST_DELAY", "1.0"))  # Reduced delay
 MAX_REQUEST_DELAY = float(os.getenv("MAX_REQUEST_DELAY", "3.0"))
 BOT_CHALLENGE_BACKOFF = int(os.getenv("BOT_CHALLENGE_BACKOFF", "180"))  # 3 min

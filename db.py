@@ -11,7 +11,7 @@ import logging
 import os
 import random
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Protocol
 
 import polars as pl
@@ -19,7 +19,8 @@ from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from constants import (
-    CREATORS_TABLE,
+    CREATOR_SYNC_JOBS_TABLE,
+    CREATOR_TABLE,
     PLAYLIST_JOBS_TABLE,
     PLAYLIST_STATS_TABLE,
     SIGNUPS_TABLE,
@@ -647,6 +648,360 @@ def submit_playlist_job(
     return success
 
 
+# =============================================================================
+# 🎬 Creator Sync Queue Management (NEW - Added for creator infrastructure)
+# =============================================================================
+# Manages the creator_sync_jobs queue for background processing
+
+
+def queue_creator_sync(
+    creator_id: str,
+    source: str = "scheduled",
+) -> bool:
+    """
+    Queue a creator for stats sync.
+
+    Args:
+        creator_id: Creator UUID from creators table
+        source: How it got queued ('discovered', 'manual', 'scheduled')
+
+    Returns:
+        True if queued successfully, False otherwise
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to queue creator sync")
+        return False
+
+    try:
+        payload = {
+            "creator_id": creator_id,
+            "status": "pending",
+            "source": source,
+            "job_type": "sync_stats",
+        }
+
+        success = upsert_row(CREATOR_SYNC_JOBS_TABLE, payload)
+
+        if success:
+            logger.info(f"Queued creator {creator_id} for sync (source={source})")
+        else:
+            logger.error(f"Failed to queue creator {creator_id}")
+
+        return success
+
+    except Exception as e:
+        logger.exception(f"Error queuing creator sync: {e}")
+        return False
+
+
+def get_pending_creator_syncs(batch_size: int = 1) -> List[Dict[str, Any]]:
+    """
+    Get pending creator syncs from queue.
+
+    Args:
+        batch_size: How many pending jobs to retrieve (default 1 for frugal)
+
+    Returns:
+        List of pending sync job dicts
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to get pending creator syncs")
+        return []
+
+    try:
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id, creator_id, source, created_at")
+            .eq("status", "pending")
+            .order("created_at", desc=False)
+            .limit(batch_size)
+            .execute()
+        )
+
+        jobs = response.data if response.data else []
+
+        if jobs:
+            logger.info(f"Found {len(jobs)} pending creator syncs")
+        else:
+            logger.debug("No pending creator syncs")
+
+        return jobs
+
+    except Exception as e:
+        logger.exception(f"Error getting pending creator syncs: {e}")
+        return []
+
+
+def mark_creator_sync_processing(job_id: int) -> bool:
+    """Mark a creator sync job as currently processing."""
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return False
+
+    try:
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .update(
+                {
+                    "status": "processing",
+                    "started_at": datetime.utcnow().isoformat(),
+                }
+            )
+            .eq("id", job_id)
+            .execute()
+        )
+
+        return bool(response.data)
+
+    except Exception as e:
+        logger.exception(f"Error marking creator sync {job_id} as processing: {e}")
+        return False
+
+
+def mark_creator_sync_completed(job_id: int) -> bool:
+    """Mark a creator sync job as completed."""
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return False
+
+    try:
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .update(
+                {
+                    "status": "completed",
+                    "completed_at": datetime.utcnow().isoformat(),
+                }
+            )
+            .eq("id", job_id)
+            .execute()
+        )
+
+        return bool(response.data)
+
+    except Exception as e:
+        logger.exception(f"Error marking creator sync {job_id} as completed: {e}")
+        return False
+
+
+def mark_creator_sync_failed(job_id: int, error: str) -> bool:
+    """Mark a creator sync job as failed with retry logic."""
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return False
+
+    try:
+        resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("retry_count")
+            .eq("id", job_id)
+            .single()
+            .execute()
+        )
+
+        retry_count = resp.data.get("retry_count", 0) if resp.data else 0
+
+        if retry_count >= CREATOR_WORKER_MAX_RETRIES:
+            status = "failed"
+            next_retry = None
+            logger.warning(f"Creator sync job {job_id} exhausted retries")
+        else:
+            status = "pending"
+            backoff_seconds = CREATOR_WORKER_RETRY_BASE * (2**retry_count)
+            next_retry = (
+                datetime.utcnow() + timedelta(seconds=backoff_seconds)
+            ).isoformat()
+            logger.info(f"Creator sync job {job_id} will retry in {backoff_seconds}s")
+
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .update(
+                {
+                    "status": status,
+                    "retry_count": retry_count + 1,
+                    "error_message": error,
+                    "next_retry_at": next_retry,
+                }
+            )
+            .eq("id", job_id)
+            .execute()
+        )
+
+        return bool(response.data)
+
+    except Exception as e:
+        logger.exception(f"Error marking creator sync {job_id} as failed: {e}")
+        return False
+
+
+# =============================================================================
+# 📊 Creator Stats Management (NEW - Added for creator infrastructure)
+# =============================================================================
+
+
+def update_creator_stats(
+    creator_id: str,
+    stats: Dict[str, Any],
+    job_id: int,
+) -> bool:
+    """
+    Update creator stats after successful sync.
+
+    Updates current_stats (for leaderboard) and daily_stats (for analytics).
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available to update creator stats")
+        return False
+
+    try:
+        # 1️⃣ Update current stats
+        current_payload = {
+            "creator_id": creator_id,
+            "subscriber_count": stats.get("subscriber_count", 0),
+            "view_count": stats.get("view_count", 0),
+            "video_count": stats.get("video_count", 0),
+            "engagement_score": stats.get("engagement_score", 0.0),
+            "growth_rate_7d": stats.get("growth_rate_7d", 0.0),
+            "growth_rate_30d": stats.get("growth_rate_30d", 0.0),
+            "quality_grade": stats.get("quality_grade", "N/A"),
+            "last_synced_at": datetime.utcnow().isoformat(),
+            "source": "youtube_api",
+        }
+
+        success = upsert_row(
+            CREATOR_CURRENT_STATS_TABLE,
+            current_payload,
+            conflict_fields=["creator_id"],
+        )
+
+        if success:
+            logger.info(f"Updated current stats for creator {creator_id}")
+        else:
+            logger.error(f"Failed to update current stats for creator {creator_id}")
+            return False
+
+        # 2️⃣ Create daily snapshot
+        daily_payload = {
+            "creator_id": creator_id,
+            "snapshot_date": date.today().isoformat(),
+            "subscriber_count": stats.get("subscriber_count", 0),
+            "view_count": stats.get("view_count", 0),
+            "video_count": stats.get("video_count", 0),
+            "daily_subscriber_delta": stats.get("daily_subscriber_delta", 0),
+            "daily_view_delta": stats.get("daily_view_delta", 0),
+            "source": "youtube_api",
+        }
+
+        success = upsert_row(
+            CREATOR_DAILY_STATS_TABLE,
+            daily_payload,
+            conflict_fields=["creator_id", "snapshot_date"],
+        )
+
+        if success:
+            logger.info(f"Created daily snapshot for creator {creator_id}")
+        else:
+            logger.error(f"Failed to create daily snapshot for creator {creator_id}")
+            return False
+
+        # 3️⃣ Mark sync job complete
+        if not mark_creator_sync_completed(job_id):
+            logger.error(f"Failed to mark job {job_id} as completed")
+            return False
+
+        logger.info(f"Successfully updated all stats for creator {creator_id}")
+        return True
+
+    except Exception as e:
+        logger.exception(f"Error updating creator stats: {e}")
+        return False
+
+
+def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
+    """Get the current stats snapshot for a creator."""
+    if not supabase_client:
+        logger.warning("Supabase client not available to get creator stats")
+        return None
+
+    try:
+        response = (
+            supabase_client.table(CREATOR_CURRENT_STATS_TABLE)
+            .select("*")
+            .eq("creator_id", creator_id)
+            .single()
+            .execute()
+        )
+
+        if response.data:
+            logger.info(f"Retrieved stats for creator {creator_id}")
+            return response.data
+        else:
+            logger.debug(f"No stats found for creator {creator_id}")
+            return None
+
+    except Exception as e:
+        logger.exception(f"Error getting creator stats: {e}")
+        return None
+
+
+def get_top_creators_by_growth(limit: int = 20) -> List[Dict[str, Any]]:
+    """Get top creators by 30-day growth rate."""
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch top creators")
+        return []
+
+    try:
+        response = (
+            supabase_client.table(CREATOR_CURRENT_STATS_TABLE)
+            .select(
+                "creator_id, subscriber_count, view_count, engagement_score, "
+                "growth_rate_7d, growth_rate_30d, quality_grade, "
+                "creator:creator_id(id, channel_id, channel_name, channel_url, "
+                "channel_thumbnail_url, verified)"
+            )
+            .order("growth_rate_30d", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        creators = response.data if response.data else []
+        logger.info(f"Retrieved {len(creators)} top creators by growth")
+        return creators
+
+    except Exception as e:
+        logger.exception(f"Error getting top creators by growth: {e}")
+        return []
+
+
+def get_top_creators_by_engagement(limit: int = 20) -> List[Dict[str, Any]]:
+    """Get top creators by engagement score."""
+    if not supabase_client:
+        logger.warning("Supabase client not available to fetch top creators")
+        return []
+
+    try:
+        response = (
+            supabase_client.table(CREATOR_CURRENT_STATS_TABLE)
+            .select(
+                "creator_id, subscriber_count, view_count, engagement_score, "
+                "growth_rate_30d, quality_grade, "
+                "creator:creator_id(id, channel_id, channel_name, channel_url, "
+                "channel_thumbnail_url, verified)"
+            )
+            .order("engagement_score", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        creators = response.data if response.data else []
+        logger.info(f"Retrieved {len(creators)} top creators by engagement")
+        return creators
+
+    except Exception as e:
+        logger.exception(f"Error getting top creators by engagement: {e}")
+        return []
+
+
 def get_job_progress(playlist_url: str) -> Dict[str, Any]:
     """
     Fetch job progress for polling updates.
@@ -829,6 +1184,73 @@ def get_dashboard_event_counts(
         return {"view": 0, "share": 0}
 
 
+def get_dashboard_stats_by_id(
+    dashboard_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch complete playlist stats directly by dashboard_id.
+
+    This function is used for loading existing dashboards and does NOT filter by date,
+    ensuring that dashboards created on previous days are still accessible.
+
+    Args:
+        dashboard_id: The dashboard ID (MD5 hash of playlist URL)
+        user_id: Optional user_id for ownership filtering
+
+    Returns:
+        Complete stats dict with df_json, summary_stats, etc., or None if not found
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return None
+
+    try:
+        query = (
+            supabase_client.table(PLAYLIST_STATS_TABLE)
+            .select("*")
+            .eq("dashboard_id", dashboard_id)
+        )
+
+        # Filter by user if provided
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+
+        response = query.order("processed_on", desc=True).limit(1).execute()
+
+        if response.data and len(response.data) > 0:
+            row = response.data[0]
+
+            # Validate df_json
+            df_json = row.get("df_json")
+            if _is_empty_json(df_json):
+                logger.warning(
+                    f"[Dashboard] Found invalid/empty data for dashboard_id={dashboard_id}"
+                )
+                return None
+
+            logger.info(
+                f"[Dashboard] Loaded dashboard: {dashboard_id} (user={user_id})"
+            )
+
+            # Deserialize JSON fields
+            if row.get("summary_stats"):
+                try:
+                    row["summary_stats"] = json.loads(row["summary_stats"])
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse summary_stats: {e}")
+                    row["summary_stats"] = {}
+
+            return row
+        else:
+            logger.warning(f"[Dashboard] Not found: {dashboard_id} (user={user_id})")
+            return None
+
+    except Exception as e:
+        logger.exception(f"Failed to fetch dashboard {dashboard_id}: {e}")
+        return None
+
+
 def resolve_playlist_url_from_dashboard_id(
     dashboard_id: str,
     user_id: Optional[str] = None,
@@ -945,62 +1367,143 @@ def get_or_create_creator_from_playlist(
     channel_url: str,
     channel_thumbnail_url: str | None = None,
     user_id: str | None = None,
-) -> dict | None:
+) -> Optional[str]:
     """
     Get or create a creator row based on YouTube channel identity.
-    Updates metadata if it already exists.
-    """
 
+    ✅ UPDATED: Returns creator UUID, auto-queues for sync.
+
+    Args:
+        channel_id: YouTube channel ID (e.g., "UCxxxxx")
+        channel_name: Creator's channel name
+        channel_url: YouTube channel URL
+        channel_thumbnail_url: Channel avatar URL
+        user_id: Optional user who discovered (for future ownership)
+
+    Returns:
+        Creator UUID (id) if successful, None if error
+    """
     if not supabase_client:
+        logger.warning("Supabase client not available for creator discovery")
         return None
 
     try:
         # 1️⃣ Try to fetch existing creator
-        query = (
-            supabase_client.table(CREATORS_TABLE)
-            .select("*")
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id")
             .eq("channel_id", channel_id)
+            .limit(1)
+            .execute()
         )
 
-        if user_id:
-            query = query.eq("user_id", user_id)
+        if response.data:
+            creator_id = response.data[0]["id"]
+            logger.info(f"Creator {channel_id} already exists (id={creator_id})")
 
-        resp = query.limit(1).execute()
+            # Opportunistic metadata refresh
+            try:
+                supabase_client.table(CREATOR_TABLE).update(
+                    {
+                        "channel_name": channel_name,
+                        "channel_url": channel_url,
+                        "channel_thumbnail_url": channel_thumbnail_url,
+                        "last_seen_at": datetime.utcnow().isoformat(),
+                    }
+                ).eq("id", creator_id).execute()
+            except Exception as e:
+                logger.debug(f"Metadata refresh failed (non-critical): {e}")
 
-        if resp.data:
-            creator = resp.data[0]
+            return creator_id
 
-            # 2️⃣ Opportunistic metadata refresh
-            supabase_client.table(CREATORS_TABLE).update(
-                {
-                    "channel_name": channel_name,
-                    "channel_url": channel_url,
-                    "channel_thumbnail_url": channel_thumbnail_url,
-                    "last_updated_at": "now()",
-                }
-            ).eq("id", creator["id"]).execute()
-
-            return creator
-
-        # 3️⃣ Create new creator
+        # 2️⃣ Create new creator
         insert_payload = {
             "channel_id": channel_id,
             "channel_name": channel_name,
             "channel_url": channel_url,
             "channel_thumbnail_url": channel_thumbnail_url,
-            "first_seen_at": "now()",
-            "last_updated_at": "now()",
         }
 
-        if user_id:
-            insert_payload["user_id"] = user_id
-
         insert_resp = (
-            supabase_client.table(CREATORS_TABLE).insert(insert_payload).execute()
+            supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
         )
 
-        return insert_resp.data[0] if insert_resp.data else None
+        if not insert_resp.data:
+            logger.error(f"Failed to insert creator {channel_id}")
+            return None
 
-    except Exception:
-        logger.exception(f"Failed to get_or_create creator for channel {channel_id}")
+        creator_id = insert_resp.data[0]["id"]
+        logger.info(f"Discovered new creator {channel_id} (id={creator_id})")
+
+        # 3️⃣ Queue for sync
+        if not queue_creator_sync(creator_id, source="discovered"):
+            logger.warning(f"Failed to queue creator {creator_id} for sync")
+
+        return creator_id
+
+    except Exception as e:
+        logger.exception(f"Error getting/creating creator {channel_id}: {e}")
+        return None
+
+
+def add_creator_manually(
+    channel_id: str,
+    channel_name: str,
+    channel_url: str,
+) -> Optional[str]:
+    """
+    Manual creator addition from UI endpoint.
+
+    Args:
+        channel_id: YouTube channel ID
+        channel_name: Creator's name
+        channel_url: YouTube URL
+
+    Returns:
+        Creator UUID if successful
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available for manual creator add")
+        return None
+
+    try:
+        # Check if already exists
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id")
+            .eq("channel_id", channel_id)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            creator_id = response.data[0]["id"]
+            logger.info(f"Creator {channel_id} already exists")
+            return creator_id
+
+        # Create new
+        insert_payload = {
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "channel_url": channel_url,
+        }
+
+        insert_resp = (
+            supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
+        )
+
+        if not insert_resp.data:
+            logger.error(f"Failed to insert creator {channel_id}")
+            return None
+
+        creator_id = insert_resp.data[0]["id"]
+
+        # Queue for sync
+        queue_creator_sync(creator_id, source="manual")
+
+        logger.info(f"Manually added creator {channel_id} (id={creator_id})")
+        return creator_id
+
+    except Exception as e:
+        logger.exception(f"Error adding creator manually: {e}")
         return None

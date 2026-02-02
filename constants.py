@@ -213,6 +213,29 @@ PLAYLIST_JOBS_TABLE = "playlist_jobs"
 SIGNUPS_TABLE = "signups"
 CREATORS_TABLE = "creators"
 
+# Creator tables (your existing schema)
+CREATOR_TABLE = "creators"
+CREATOR_CURRENT_STATS_TABLE = "creator_current_stats"
+CREATOR_DAILY_STATS_TABLE = "creator_daily_stats"
+CREATOR_SYNC_JOBS_TABLE = "creator_sync_jobs"
+
+# Update frequency (frugal)
+CREATOR_UPDATE_INTERVAL_DAYS = 30
+CREATOR_WORKER_POLL_INTERVAL = 300  # 5 minutes
+CREATOR_WORKER_BATCH_SIZE = 1  # Process 1 at a time
+CREATOR_WORKER_MAX_RETRIES = 2
+CREATOR_WORKER_RETRY_BASE = 3600  # 1 hour
+
+# Start with a few known creators
+KNOWN_CREATORS = [
+    # Add 3-5 creators you know:
+    {
+        "channel_id": "UCX6OQ3DkcsbYNE6H8uQQuVA",
+        "channel_name": "Mr Beast",
+        "channel_url": "https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA",
+    },
+]
+
 # =============================================================================
 # SAMPLE PLAYLISTS (Fallback only - prefer DB fetch)
 # =============================================================================

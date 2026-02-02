@@ -8,10 +8,77 @@ import polars as pl
 
 from db import (
     get_cached_playlist_stats,
+    get_dashboard_stats_by_id,
     upsert_playlist_stats,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def load_dashboard_by_id(
+    dashboard_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Load a persistent dashboard by ID with full data deserialization.
+
+    This function is specifically for loading saved dashboards (not fresh analysis).
+    Unlike load_cached_or_stub(), it does NOT filter by date, ensuring dashboards
+    remain accessible indefinitely.
+
+    All DataFrame deserialization happens here, keeping route handlers clean.
+
+    Args:
+        dashboard_id: Dashboard ID (MD5 hash) to load
+        user_id: Optional user_id for ownership filtering
+
+    Returns:
+        Dict with keys: df, playlist_url, playlist_name, channel_name,
+        channel_thumbnail, summary_stats, cached_stats
+        Returns None if dashboard not found or data is invalid
+    """
+    # 1. Fetch raw stats from database (no date filtering)
+    cached_stats = get_dashboard_stats_by_id(dashboard_id, user_id=user_id)
+
+    if not cached_stats:
+        logger.warning(f"Dashboard {dashboard_id} not found (user={user_id})")
+        return None
+
+    # 2. Deserialize DataFrame from JSON
+    try:
+        df_json = cached_stats.get("df_json")
+        if not df_json:
+            logger.error(f"Dashboard {dashboard_id} has no df_json")
+            return None
+
+        df = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
+    except Exception as e:
+        logger.error(
+            f"Failed to deserialize DataFrame for dashboard {dashboard_id}: {e}"
+        )
+        return None
+
+    # 3. Extract metadata with safe defaults
+    playlist_url = cached_stats.get("playlist_url")
+    playlist_name = cached_stats.get("title", "Untitled Playlist")
+    channel_name = cached_stats.get("channel_name", "Unknown Channel")
+    channel_thumbnail = cached_stats.get("channel_thumbnail", "")
+    summary_stats = cached_stats.get("summary_stats", {})
+
+    logger.info(
+        f"Loaded dashboard {dashboard_id}: '{playlist_name}' "
+        f"({df.height} videos, user={user_id})"
+    )
+
+    return {
+        "df": df,
+        "playlist_url": playlist_url,
+        "playlist_name": playlist_name,
+        "channel_name": channel_name,
+        "channel_thumbnail": channel_thumbnail,
+        "summary_stats": summary_stats,
+        "cached_stats": cached_stats,
+    }
 
 
 def load_cached_or_stub(
