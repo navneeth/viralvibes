@@ -1,0 +1,16 @@
+app = "viralvibes-worker"
+
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[processes]
+  worker = "python -m worker.worker"
+
+[deploy]
+  strategy = "immediate"
+
+# 🚫 NO services block
+# 🚫 NO http checks
+# 🚫 NO ports
