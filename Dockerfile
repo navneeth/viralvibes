@@ -1,21 +1,16 @@
-# Base image
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install ffmpeg and curl (yt-dlp needs ffmpeg)
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 # Install Python deps
 COPY requirements-backend.txt .
 RUN pip install --no-cache-dir -r requirements-backend.txt
 
-# Copy app source
+# Copy only what worker needs (optional refinement later)
 COPY . .
 
-# Entrypoint
-RUN chmod +x /app/fly-entrypoint.sh
-ENTRYPOINT ["/app/fly-entrypoint.sh"]
+# 🚨 No entrypoint script
+CMD ["python", "-m", "worker.worker"]
