@@ -194,55 +194,22 @@ def AnalyticsDashboardSection(
         # =====================================================================
         # BLOCK 5: CONTENT OPTIMIZATION
         # =====================================================================
-        # Div(
-        #     H3(
-        #         "⏱️ Content Optimization",
-        #         cls="text-2xl font-semibold text-gray-800 mb-4",
-        #     ),
-        #     P(
-        #         "Does video length affect engagement? What's the optimal duration for your audience?",
-        #         cls="text-gray-500 mb-6",
-        #     ),
-        #     Grid(
-        #         chart_duration_impact(df, "duration-impact"),
-        #         cols="1",
-        #         gap="8",
-        #         cls="w-full",
-        #     ),
-        #     cls="mb-16 pb-12 border-b border-gray-200",
-        # ),
         Div(
-            H3("⏱️ Content Optimization", ...),
-            P("Does video length affect engagement?", ...),
-            # Subsection 1: Trend
-            Div(
-                H4(
-                    "📊 Duration Impact Trend",
-                    cls="text-lg font-semibold text-gray-700 mb-4",
-                ),
-                Grid(
-                    chart_duration_impact(df, "duration-impact"),
-                    cols="1",
-                    gap="8",
-                    cls="w-full",
-                ),
-                cls="mb-8",
+            H3(
+                "⏱️ Content Optimization",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
             ),
-            # Subsection 2: Individual Analysis
-            # Div(
-            #     H4(
-            #         "📍 Individual Video Analysis",
-            #         cls="text-lg font-semibold text-gray-700 mb-4",
-            #     ),
-            #     Grid(
-            #         chart_duration_vs_engagement(df, "duration-engagement"),
-            #         cols="1",
-            #         gap="8",
-            #         cls="w-full",
-            #     ),
-            #     cls="mb-0",
-            # ),
-            # cls="mb-16 pb-12 border-b border-gray-200",
+            P(
+                "Does video length affect engagement? What's the optimal duration for your audience?",
+                cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                chart_duration_impact(df, "duration-impact"),
+                cols="1",
+                gap="8",
+                cls="w-full",
+            ),
+            cls="mb-16 pb-12 border-b border-gray-200",
         ),
         # =====================================================================
         # BLOCK 4: PERFORMANCE QUADRANTS

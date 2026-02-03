@@ -50,6 +50,27 @@ COLOR_HIGHLIGHT_RED = "#c0392b"  # Viral spikes, controversy, outliers
 COLOR_HIGHLIGHT_BLUE = "#2980b9"  # Baseline, normal performance
 COLOR_NEUTRAL = "#95a5a6"  # Filler, background, context
 
+CHART_PALETTES = {
+    "primary": "#3B82F6",  # Blue - main metric
+    "accent": "#c0392b",  # Red - outliers/emphasis
+    "neutral": "#95a5a6",  # Gray - baseline
+    "success": "#10B981",  # Green - positive
+    "warning": "#F59E0B",  # Amber - caution
+    "danger": "#EF4444",  # Red alt
+    "multi": [  # Multiple series
+        "#3B82F6",  # Blue
+        "#c0392b",  # Red
+        "#10B981",  # Green
+        "#F59E0B",  # Amber
+        "#8B5CF6",  # Violet
+        "#EC4899",  # Pink
+    ],
+    "diverging": [  # Bad → OK → Good
+        "#c0392b",  # Red (bad)
+        "#95a5a6",  # Gray (ok)
+        "#10B981",  # Green (good)
+    ],
+}
 
 # Constant
 CHART_WRAPPER_CLS = (
@@ -1494,47 +1515,47 @@ def chart_video_radar(
     return ApexChart(opts=opts, cls=chart_wrapper_class("radar"))
 
 
-def chart_comments_engagement(
-    df: pl.DataFrame, chart_id: str = "comments-engagement"
-) -> ApexChart:
-    """Scatter: Comments vs Engagement Rate."""
-    if df is None or df.is_empty():
-        return _empty_chart("scatter", chart_id)
+# def chart_comments_engagement(
+#     df: pl.DataFrame, chart_id: str = "comments-engagement"
+# ) -> ApexChart:
+#     """Scatter: Comments vs Engagement Rate."""
+#     if df is None or df.is_empty():
+#         return _empty_chart("scatter", chart_id)
 
-    try:
-        raw = df.select(
-            (pl.col("Comments").cast(pl.Float64, strict=False).fill_null(0)).alias("x"),
-            (pl.col("Engagement Rate Raw") * 100).round(2).alias("y"),
-            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
-                "title"
-            ),
-            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
-            # Required fields for CLICKABLE_TOOLTIP
-            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
-            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
-            pl.col("Duration Formatted").alias("Duration"),
-            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
-        ).to_dicts()
-        data, palette = _apply_point_colors(raw)
-    except Exception as e:
-        logger.warning(f"[charts] Data extraction failed: {e}")
-        return _empty_chart("scatter", chart_id)
+#     try:
+#         raw = df.select(
+#             (pl.col("Comments").cast(pl.Float64, strict=False).fill_null(0)).alias("x"),
+#             (pl.col("Engagement Rate Raw") * 100).round(2).alias("y"),
+#             (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+#                 "title"
+#             ),
+#             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+#             # Required fields for CLICKABLE_TOOLTIP
+#             pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+#             pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+#             pl.col("Duration Formatted").alias("Duration"),
+#             pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
+#         ).to_dicts()
+#         data, palette = _apply_point_colors(raw)
+#     except Exception as e:
+#         logger.warning(f"[charts] Data extraction failed: {e}")
+#         return _empty_chart("scatter", chart_id)
 
-    return ApexChart(
-        opts=_scatter_opts_mobile_safe(
-            chart_type="scatter",
-            x_label="💬 Comments",
-            y_label="Engagement Rate (%)",
-            chart_id=chart_id,
-            disable_zoom=True,
-            series=[{"name": "Videos", "data": data}],
-            xaxis={"title": {"text": "💬 Comments"}},
-            yaxis={"title": {"text": "Engagement Rate (%)"}},
-            title={"text": "💬 Comments vs Engagement", "align": "left"},
-            colors=palette,
-        ),
-        cls=chart_wrapper_class("scatter"),
-    )
+#     return ApexChart(
+#         opts=_scatter_opts_mobile_safe(
+#             chart_type="scatter",
+#             x_label="💬 Comments",
+#             y_label="Engagement Rate (%)",
+#             chart_id=chart_id,
+#             disable_zoom=True,
+#             series=[{"name": "Videos", "data": data}],
+#             xaxis={"title": {"text": "💬 Comments"}},
+#             yaxis={"title": {"text": "Engagement Rate (%)"}},
+#             title={"text": "💬 Comments vs Engagement", "align": "left"},
+#             colors=palette,
+#         ),
+#         cls=chart_wrapper_class("scatter"),
+#     )
 
 
 def chart_comments_engagement(
@@ -2166,3 +2187,173 @@ def chart_duration_impact_tufte(
     opts = apply_tufte_economist(opts, chart_type="line", single_series=True)
 
     return ApexChart(opts=opts, cls=chart_wrapper_class("line"))
+
+
+def chart_upload_schedule_optimization(
+    df: pl.DataFrame,
+    chart_id: str = "upload-schedule",
+) -> ApexChart:
+    """
+    Analyze best upload times by day of week and hour.
+
+    HIGH VALUE: Helps creators optimize posting schedule.
+    Uses: PublishedAt column (always present).
+    """
+    if df is None or df.is_empty() or "PublishedAt" not in df.columns:
+        return _empty_chart("bar", chart_id)
+
+    try:
+        # Parse dates and extract day of week
+        df_schedule = df.with_columns(
+            pl.col("PublishedAt")
+            .str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%SZ")
+            .dt.day_name()
+            .alias("day_of_week")
+        )
+
+        # Aggregate by day
+        by_day = (
+            df_schedule.group_by("day_of_week")
+            .agg(
+                pl.col("Views").mean().alias("avg_views"),
+                pl.col("Engagement Rate Raw").mean().alias("avg_engagement"),
+                pl.col("id").count().alias("count"),
+            )
+            .sort("day_of_week")  # Mon, Tue, Wed, ...
+        )
+
+        days = by_day["day_of_week"].to_list()
+        views = (by_day["avg_views"] / 1000).round(0).to_list()  # Show in K
+        engagement = (by_day["avg_engagement"] * 100).round(2).to_list()
+
+        # Find best day
+        best_day_idx = views.index(max(views))
+        best_day = days[best_day_idx]
+
+        opts = _apex_opts(
+            "bar",
+            id=chart_id,
+            series=[
+                {"name": "Avg Views (K)", "data": views},
+                {"name": "Avg Engagement %", "data": engagement},
+            ],
+            xaxis={"categories": days},
+            yaxis=[
+                {"title": {"text": "Avg Views (Thousands)"}},
+                {"title": {"text": "Avg Engagement %"}},
+            ],
+            title={
+                "text": f"📅 Upload Schedule: Best Day = {best_day}",
+                "align": "left",
+            },
+            colors=[CHART_PALETTES["primary"], CHART_PALETTES["accent"]],
+        )
+
+        opts = apply_unified_styling(opts, style="minimal", palette="multi")
+
+        opts["subtitle"] = {
+            "text": "Tip: Schedule uploads for peak days to maximize visibility",
+            "style": {"fontSize": "11px", "color": "#7f8c8d"},
+        }
+
+        return ApexChart(opts=opts, cls=chart_wrapper_class("bar"))
+
+    except Exception as e:
+        logger.warning(f"[charts] Upload schedule optimization failed: {e}")
+        return _empty_chart("bar", chart_id)
+
+
+def chart_performance_tiers(
+    df: pl.DataFrame,
+    chart_id: str = "performance-tiers",
+) -> ApexChart:
+    """
+    Cluster videos into High/Medium/Low performers.
+
+    Shows: Which videos are outliers? Where does the bulk cluster?
+    Uses: Engagement Rate Raw (always present).
+    """
+    if df is None or df.is_empty() or "Engagement Rate Raw" not in df.columns:
+        return _empty_chart("scatter", chart_id)
+
+    try:
+        # Calculate tiers based on engagement rate percentiles
+        q33 = df["Engagement Rate Raw"].quantile(0.33)
+        q66 = df["Engagement Rate Raw"].quantile(0.66)
+
+        df_tiered = df.with_columns(
+            pl.when(pl.col("Engagement Rate Raw") >= q66)
+            .then(pl.lit("🔥 High Performers"))
+            .when(pl.col("Engagement Rate Raw") >= q33)
+            .then(pl.lit("📈 Medium Performers"))
+            .otherwise(pl.lit("📊 Low Performers"))
+            .alias("tier")
+        )
+
+        # Prepare data
+        data_points = []
+        tier_colors = {
+            "🔥 High Performers": CHART_PALETTES["success"],
+            "📈 Medium Performers": CHART_PALETTES["warning"],
+            "📊 Low Performers": CHART_PALETTES["danger"],
+        }
+
+        for row in df_tiered.iter_rows(named=True):
+            tier = row["tier"]
+            data_points.append(
+                {
+                    "x": row["Views"],
+                    "y": (row["Engagement Rate Raw"] or 0) * 100,
+                    "title": _truncate_title(row["Title"], 60),
+                    "fillColor": tier_colors.get(tier, CHART_PALETTES["neutral"]),
+                    "tier": tier,
+                }
+            )
+
+        # Group by tier for series
+        series = {}
+        for point in data_points:
+            tier = point["tier"]
+            if tier not in series:
+                series[tier] = []
+            series[tier].append(
+                {
+                    "x": point["x"],
+                    "y": point["y"],
+                    "title": point["title"],
+                }
+            )
+
+        series_list = [
+            {"name": tier, "data": points} for tier, points in series.items()
+        ]
+
+        opts = _apex_opts(
+            "scatter",
+            id=chart_id,
+            series=series_list,
+            xaxis={"type": "logarithmic", "title": {"text": "Views (log scale)"}},
+            yaxis={"title": {"text": "Engagement Rate (%)"}},
+            title={
+                "text": "🎯 Performance Tiers: Where Do Your Videos Cluster?",
+                "align": "left",
+            },
+            colors=[
+                CHART_PALETTES["success"],
+                CHART_PALETTES["warning"],
+                CHART_PALETTES["danger"],
+            ],
+        )
+
+        opts = apply_unified_styling(opts, style="minimal")
+
+        opts["subtitle"] = {
+            "text": "Analyze what makes high performers different",
+            "style": {"fontSize": "11px", "color": "#7f8c8d"},
+        }
+
+        return ApexChart(opts=opts, cls=chart_wrapper_class("scatter"))
+
+    except Exception as e:
+        logger.warning(f"[charts] Performance tiers failed: {e}")
+        return _empty_chart("scatter", chart_id)
