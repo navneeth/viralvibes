@@ -3,7 +3,8 @@ services:
   - type: worker
     name: viralvibes-worker
     env: python
-    plan: free # use free plan first; upgrade to starter ($7) if killed often
+    runtime: python-3.10  # Be explicit about runtime version
+    plan: free
     buildCommand: |
       pip install --upgrade pip
       pip install --no-cache-dir -r requirements-backend.txt
@@ -18,27 +19,21 @@ services:
         sync: false
       - key: YOUTUBE_COOKIES
         sync: false
-      # Dramatically increased delays to avoid 429 errors
       - key: WORKER_POLL_INTERVAL
-        value: 60  # Increased from 10 to 60 seconds
+        value: "60"
       - key: WORKER_BATCH_SIZE
-        value: 1  # Reduced from 3 to 1 (process one at a time)
+        value: "1"
       - key: WORKER_MAX_RUNTIME
-        value: 300
+        value: "300"
       - key: COOKIES_FILE
         value: /tmp/cookies.txt
-      # Video processing delays
       - key: MIN_VIDEO_DELAY
-        value: 3.0  # 3 seconds minimum between videos
+        value: "3.0"
       - key: MAX_VIDEO_DELAY
-        value: 8.0  # 8 seconds maximum between videos
+        value: "8.0"
       - key: MIN_REQUEST_DELAY
-        value: 5.0  # 5 seconds before starting job
+        value: "5.0"
       - key: MAX_REQUEST_DELAY
-        value: 10.0  # 10 seconds before starting job
-      # Bot challenge backoff
+        value: "10.0"
       - key: BOT_CHALLENGE_BACKOFF
-        value: 1800  # 30 minutes cooldown after bot detection
-      # Optional: YouTube Data API (recommended)
-      - key: YOUTUBE_API_KEY
-        sync: false  # Add this in Render dashboard if you switch to API
+        value: "1800"
