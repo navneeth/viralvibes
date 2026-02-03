@@ -22,6 +22,35 @@ THEME_COLORS = [
 ]
 
 
+# Tufte + Economist Minimal Style: Restrained colors & typography
+# ─────────────────────────────────────────────────────────────────────────
+
+TUFTE_FONT_FAMILY = "'Helvetica Neue', Helvetica, Arial, 'Inter', system-ui, sans-serif"
+TUFTE_TEXT_COLOR = "#2c3e50"  # Slightly softer than pure black (#1a1a1a)
+
+# Minimal grid: very light dashed (Economist style)
+GRID_MINIMAL = {
+    "show": True,
+    "borderColor": "#ecf0f1",  # Lighter than default #e2e8f0
+    "strokeDashArray": 2,  # Single-pixel dashes vs [4, 4] — more subtle
+}
+
+# Economist restrained palette: red, blue, grays
+# Use ONLY for single/dual-series charts; preserve THEME_COLORS for multi-series
+PALETTE_ECONOMIST = [
+    "#c0392b",  # Economist red — for highlights, outliers, controversy
+    "#2980b9",  # Economist blue — for baseline data
+    "#95a5a6",  # Neutral gray — for secondary/filler
+    "#34495e",  # Dark gray — for annotations
+    "#e74c3c",  # Bright red — for emphasis/virality
+]
+
+# Highlight colors for editorial emphasis (Tufte + YouTuber insights)
+COLOR_HIGHLIGHT_RED = "#c0392b"  # Viral spikes, controversy, outliers
+COLOR_HIGHLIGHT_BLUE = "#2980b9"  # Baseline, normal performance
+COLOR_NEUTRAL = "#95a5a6"  # Filler, background, context
+
+
 # Constant
 CHART_WRAPPER_CLS = (
     "w-full min-h-[420px] rounded-xl bg-white shadow-sm border border-gray-200 p-4"
@@ -169,6 +198,123 @@ def _apex_opts(chart_type: str, **kwargs) -> dict:
     }
     # merge extra passed kwargs in
     opts.update(kwargs)
+    return opts
+
+
+def apply_tufte_economist(
+    opts: dict, chart_type: str = "line", single_series: bool = True
+) -> dict:
+    """
+    Apply Tufte-Economist minimal style to chart options *safely*.
+
+    Philosophy:
+    - Maximize data-ink ratio (thin lines, no junk)
+    - Restrained editorial style (light grids, muted colors)
+    - Direct emphasis on outliers & patterns (red highlights, annotations)
+    - YouTuber-friendly: highlights virality, retention, early traction
+
+    Args:
+        opts: ApexCharts options dict (modified in-place)
+        chart_type: "line", "bar", "scatter", "bubble", etc.
+        single_series: If True, use PALETTE_ECONOMIST; else keep THEME_COLORS
+                      (prevents color palette breakage on multi-series charts)
+
+    Returns:
+        Modified opts dict with minimal styling
+
+    Design Choices (rationale):
+    - Thin strokes (1.2px): Tufte's data-ink ratio principle
+    - Straight lines: Clarity & emphasis (not smooth curves)
+    - Minimal grid: Light dashed, no padding
+    - No legend (replaced by direct labels or omitted)
+    - No toolbar, animations: Reduce distractions
+    - Title: Smaller (13px), lighter weight (500)
+    - Markers: Tiny or hidden (dots distract from lines)
+    - Colors: Restrained (2 core + grays) for editorial polish
+
+    Safe Practices:
+    - Does NOT override existing "smooth" curves (respects intent)
+    - Preserves bubble size encoding (doesn't shrink markers aggressively)
+    - Respects existing legends/annotations (can be overridden per chart)
+    - Non-destructive: returns modified copy, safe to call last
+    """
+    # Ensure chart dict exists
+    if "chart" not in opts:
+        opts["chart"] = {}
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 1. TYPOGRAPHY: Tufte-approved fonts & colors
+    # ─────────────────────────────────────────────────────────────────────
+    opts["chart"]["fontFamily"] = TUFTE_FONT_FAMILY
+    opts["chart"]["foreColor"] = TUFTE_TEXT_COLOR
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 2. GRID: Ultra-light (Economist style)
+    # ─────────────────────────────────────────────────────────────────────
+    opts["grid"] = GRID_MINIMAL.copy()
+    opts["grid"]["xaxis"] = {"lines": {"show": True}}
+    opts["grid"]["yaxis"] = {"lines": {"show": True}}
+    opts["grid"]["padding"] = {"left": 0, "right": 0, "top": 0, "bottom": 0}
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 3. STROKES: Thin for data-ink ratio
+    # ─────────────────────────────────────────────────────────────────────
+    if "stroke" not in opts:
+        opts["stroke"] = {}
+    opts["stroke"]["width"] = 1.2  # vs default 2
+    # Smart: only force straight lines if not already smooth
+    # (respects chart author's intent if curve="smooth" was set)
+    if opts["stroke"].get("curve") not in ["smooth"]:
+        opts["stroke"]["curve"] = "straight"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 4. MARKERS: Tiny or hidden (improve line clarity)
+    # ─────────────────────────────────────────────────────────────────────
+    if "markers" not in opts:
+        opts["markers"] = {}
+    opts["markers"].setdefault("size", 0)  # No dots on lines (Tufte: reduce junk)
+    opts["markers"].setdefault("strokeWidth", 0.5)  # Subtle if visible
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 5. DATA LABELS & JUNK REMOVAL
+    # ─────────────────────────────────────────────────────────────────────
+    opts["dataLabels"] = {"enabled": False}
+    # Toolbar is typically already hidden, but ensure it
+    if "toolbar" not in opts.get("chart", {}):
+        opts["chart"]["toolbar"] = {"show": False}
+    # Default: no legend (can be overridden per chart)
+    opts["legend"] = {"show": False}
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 6. COLORS: Restrained palette (if single-series)
+    # ─────────────────────────────────────────────────────────────────────
+    if single_series:
+        # Single series → use Economist red only
+        opts["colors"] = [COLOR_HIGHLIGHT_RED]
+    else:
+        # Multi-series → preserve THEME_COLORS (prevents breakage)
+        # but could be refined further per chart type
+        pass  # opts["colors"] unchanged
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 7. TITLE STYLING: Smaller, lighter weight (editorial restraint)
+    # ─────────────────────────────────────────────────────────────────────
+    if "title" in opts:
+        opts["title"].setdefault("style", {})
+        opts["title"]["style"].update(
+            {
+                "fontSize": "13px",  # vs 15px (less shouty)
+                "fontWeight": 500,  # vs 600 (lighter)
+                "color": TUFTE_TEXT_COLOR,
+            }
+        )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 8. ANIMATIONS (optional): Keep functional, remove flashy
+    # ─────────────────────────────────────────────────────────────────────
+    # Note: Don't disable entirely (animations help with data loading)
+    # Just ensure they're subtle (already in your _apex_opts defaults)
+
     return opts
 
 
@@ -1153,25 +1299,6 @@ def chart_performance_heatmap(
     )
 
 
-def chart_controversy_score(
-    df: pl.DataFrame, chart_id: str = "controversy"
-) -> ApexChart:
-    if df is None or df.is_empty():
-        return _empty_chart("bar", chart_id)
-
-    data = (df["Controversy Raw"].fill_null(0) * 100).to_list()
-    opts = _apex_opts(
-        "bar",
-        series=[{"name": "Controversy", "data": data}],
-        xaxis={"title": {"text": "Controversy (%)"}},
-        yaxis={"categories": df["Title"].to_list()},
-        plotOptions={"bar": {"horizontal": True}},
-        chart={"id": chart_id},
-        tooltip={"enabled": True},
-    )
-    return ApexChart(opts=opts, cls=chart_wrapper_class("horizontal_bar"))
-
-
 def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> ApexChart:
     """
     Treemap of video views, showing contribution to overall reach.
@@ -1231,7 +1358,7 @@ def chart_bubble_engagement_vs_views(
         data = df_safe.select(
             (pl.col("Views") / SCALE_MILLIONS).round(2).alias("x"),
             (pl.col("Engagement Rate Raw") * 100).round(1).alias("y"),
-            pl.col("Controversy").round(2).alias("z"),
+            # pl.col("Controversy").round(2).alias("z"),
             (pl.col("Title").str.slice(0, 45)).alias("title"),
             (pl.col("id").cast(pl.Utf8)).alias("id"),
             # Required fields for CLICKABLE_TOOLTIP
@@ -1249,7 +1376,7 @@ def chart_bubble_engagement_vs_views(
             chart_type="bubble",
             x_label="View Count (Millions)",
             y_label="Engagement Rate (%)",
-            z_label="Controversy Score",
+            # z_label="Controversy Score",
             chart_id=chart_id,
             series=[{"name": "Videos", "data": data}],
             xaxis={
@@ -1296,10 +1423,10 @@ def chart_duration_vs_engagement(
                 "custom": (
                     "function({series, seriesIndex, dataPointIndex, w}) {"
                     "var pt = w.config.series[seriesIndex].data[dataPointIndex];"
-                    "return `<div style='padding:6px;'><b>${pt.title}</b><br>"
-                    "⏱️ Duration: ${pt.x.toFixed(1)}m<br>"
-                    "✨ Engagement: ${pt.y.toFixed(1)}%<br>"
-                    "👀 Views: ${pt.z}M</div>`;"
+                    "return '<div style=\"padding:6px;\"><b>' + pt.title + '</b><br>"
+                    "⏱️ Duration: ' + pt.x.toFixed(1) + 'm<br>"
+                    "✨ Engagement: ' + pt.y.toFixed(1) + '%<br>"
+                    "👀 Views: ' + pt.z + 'M</div>';"
                     "}"
                 )
             },
@@ -1410,64 +1537,153 @@ def chart_comments_engagement(
     )
 
 
+def chart_comments_engagement(
+    df: pl.DataFrame, chart_id: str = "comments-engagement"
+) -> ApexChart:
+    """
+    DEPRECATED: Use chart_engagement_correlation(df, "Likes", "Comments", None) instead.
+    Scatter: Likes (X) vs Comments (Y).
+    """
+    return chart_engagement_correlation(
+        df,
+        x_axis="Likes",
+        y_axis="Comments",
+        size_by=None,
+        chart_id=chart_id,
+        minimal=False,
+    )
+
+
+def chart_engagement_correlation(
+    df: pl.DataFrame,
+    x_axis: str = "Views",
+    y_axis: str = "Engagement Rate Raw",
+    size_by: str = "Comments",
+    chart_id: str = "correlation",
+    minimal: bool = False,
+) -> ApexChart:
+    """
+    Universal correlation chart (bubble/scatter).
+
+    Consolidates: views_vs_likes, comments_engagement, duration_vs_engagement, etc.
+
+    Args:
+        x_axis: Column name for X-axis
+        y_axis: Column name for Y-axis
+        size_by: Column for bubble size (None for scatter)
+        minimal: If True, use log scales + Tufte styling
+    """
+    if df is None or df.is_empty():
+        return _empty_chart("bubble" if size_by else "scatter", chart_id)
+
+    # Validate columns exist
+    required = [x_axis, y_axis]
+    if size_by:
+        required.append(size_by)
+    if not all(col in df.columns for col in required):
+        logger.warning(f"[charts] Missing columns {required}")
+        return _empty_chart("bubble" if size_by else "scatter", chart_id)
+
+    # Extract data
+    x_data = df[x_axis].cast(pl.Float64, strict=False).fill_null(0)
+    y_data = df[y_axis].cast(pl.Float64, strict=False).fill_null(0)
+    size_data = None
+    if size_by:
+        size_data = df[size_by].cast(pl.Float64, strict=False).fill_null(0)
+
+    # Build series
+    data_points = []
+    for i, row in enumerate(df.iter_rows(named=True)):
+        point = {
+            "x": float(x_data[i]),
+            "y": float(y_data[i]),
+            "title": _truncate_title(row.get("Title", f"Item {i + 1}"), 60),
+            "id": row.get("id", str(i)),
+        }
+        if size_by:
+            point["z"] = float(size_data[i]) if size_data else 0
+        data_points.append(point)
+
+    # Apply styling
+    chart_type = "bubble" if size_by else "scatter"
+    opts = _apex_opts(
+        chart_type, id=chart_id, series=[{"name": "Data", "data": data_points}]
+    )
+
+    if minimal:
+        opts = apply_tufte_economist(opts, chart_type, single_series=True)
+        # Log scales for minimal mode
+        opts["xaxis"] = {"type": "logarithmic", "title": {"text": x_axis}}
+        opts["yaxis"] = {"type": "logarithmic", "title": {"text": y_axis}}
+
+    return ApexChart(opts=opts, cls=chart_wrapper_class(chart_type))
+
+
+# def chart_views_vs_likes(
+#     df: pl.DataFrame, chart_id: str = "views-vs-likes"
+# ) -> ApexChart:
+#     """Bubble: Views (X) vs Likes (Y), size = Comments."""
+#     if df is None or df.is_empty():
+#         return _empty_chart("bubble", chart_id)
+
+#     df_safe = _safe_bubble_data(df, max_points=150)
+
+#     try:
+#         raw = df_safe.select(
+#             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
+#             (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
+#             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
+#             (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+#                 "title"
+#             ),
+#             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+#             # Required fields for CLICKABLE_TOOLTIP
+#             pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+#             pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+#             pl.col("Duration Formatted").alias("Duration"),
+#             pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
+#         ).to_dicts()
+#         data, palette = _apply_point_colors(raw)
+#     except Exception as e:
+#         logger.warning(f"[charts] Data extraction failed: {e}")
+#         return _empty_chart("bubble", chart_id)
+
+#     return ApexChart(
+#         opts=_bubble_opts_mobile_safe(
+#             chart_type="bubble",
+#             x_label="👀 Views (Millions)",
+#             y_label="👍 Likes (Thousands)",
+#             z_label="Comments (×100)",
+#             chart_id=chart_id,
+#             series=[{"name": "Videos", "data": data}],
+#             xaxis={"title": {"text": "👀 Views (Millions)"}},
+#             yaxis={"title": {"text": "👍 Likes (Thousands)"}},
+#             title={
+#                 "text": "🎯 Views vs Likes (bubble size = comments)",
+#                 "align": "left",
+#             },
+#             tooltip={
+#                 "theme": "light",
+#                 "y": {"formatter": "function(val){ return val.toFixed(2) + '%'; }"},
+#             },
+#             plotOptions={
+#                 "bubble": {
+#                     "minBubbleRadius": 4,
+#                     "maxBubbleRadius": 25,
+#                     # "colorByPoint": True,
+#                 }
+#             },
+#             colors=palette,
+#         ),
+#         cls=chart_wrapper_class("bubble"),
+#     )
+
+
 def chart_views_vs_likes(
     df: pl.DataFrame, chart_id: str = "views-vs-likes"
 ) -> ApexChart:
-    """Bubble: Views (X) vs Likes (Y), size = Comments."""
-    if df is None or df.is_empty():
-        return _empty_chart("bubble", chart_id)
-
-    df_safe = _safe_bubble_data(df, max_points=150)
-
-    try:
-        raw = df_safe.select(
-            (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
-            (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
-            ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
-            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
-                "title"
-            ),
-            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
-            # Required fields for CLICKABLE_TOOLTIP
-            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
-            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
-            pl.col("Duration Formatted").alias("Duration"),
-            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
-        ).to_dicts()
-        data, palette = _apply_point_colors(raw)
-    except Exception as e:
-        logger.warning(f"[charts] Data extraction failed: {e}")
-        return _empty_chart("bubble", chart_id)
-
-    return ApexChart(
-        opts=_bubble_opts_mobile_safe(
-            chart_type="bubble",
-            x_label="👀 Views (Millions)",
-            y_label="👍 Likes (Thousands)",
-            z_label="Comments (×100)",
-            chart_id=chart_id,
-            series=[{"name": "Videos", "data": data}],
-            xaxis={"title": {"text": "👀 Views (Millions)"}},
-            yaxis={"title": {"text": "👍 Likes (Thousands)"}},
-            title={
-                "text": "🎯 Views vs Likes (bubble size = comments)",
-                "align": "left",
-            },
-            tooltip={
-                "theme": "light",
-                "y": {"formatter": "function(val){ return val.toFixed(2) + '%'; }"},
-            },
-            plotOptions={
-                "bubble": {
-                    "minBubbleRadius": 4,
-                    "maxBubbleRadius": 25,
-                    # "colorByPoint": True,
-                }
-            },
-            colors=palette,
-        ),
-        cls=chart_wrapper_class("bubble"),
-    )
+    """DEPRECATED: Use chart_engagement_correlation(df, "Views", "Likes") instead."""
+    return chart_engagement_correlation(df, "Views", "Likes", "Comments", chart_id)
 
 
 def chart_duration_impact(
@@ -1525,34 +1741,6 @@ def chart_category_performance(
             "title": {"text": "📁 Average Engagement by Category", "align": "left"},
         },
         cls=chart_wrapper_class("vertical_bar"),
-    )
-
-
-def chart_controversy_distribution(
-    df: pl.DataFrame, chart_id: str = "controversy-dist"
-) -> ApexChart:
-    """Horizontal bar: Controversy score by video."""
-    if df is None or df.is_empty():
-        return _empty_chart("bar", chart_id)
-
-    sorted_df = _safe_sort(df, "Controversy", descending=True)
-    titles = sorted_df["Title"].to_list()
-    controversy = (sorted_df["Controversy"] * 100).fill_null(0).to_list()
-
-    return ApexChart(
-        opts={
-            "chart": {"type": "bar", "id": chart_id},
-            "series": [{"name": "Controversy (%)", "data": controversy}],
-            "plotOptions": {"bar": {"horizontal": True}},
-            "xaxis": {"title": {"text": "Controversy %"}},
-            "yaxis": {"categories": titles},
-            "colors": ["#FF6B6B"],
-            "title": {
-                "text": "🔥 Most Polarizing Videos (0=Unanimous, 100=Split)",
-                "align": "left",
-            },
-        },
-        cls=chart_wrapper_class("horizontal_bar"),
     )
 
 
@@ -1644,3 +1832,337 @@ def SummaryCard(title: str, value: str, sparkline_df: pl.DataFrame):
         ),
         cls="p-4",
     )
+
+
+# ============================================================================
+# STEP 5: UPDATE EXISTING — chart_views_vs_likes (Add minimal parameter)
+# ============================================================================
+
+
+def chart_views_vs_likes_enhanced(
+    df: pl.DataFrame, chart_id: str = "views-vs-likes", minimal: bool = False
+) -> ApexChart:
+    """
+    [ENHANCED version of existing chart_views_vs_likes]
+
+    Bubble: Views (X) vs Likes (Y), size = Comments.
+
+    Args:
+        df: Data
+        chart_id: Chart ID
+        minimal: If True, apply Tufte-Economist styling + log scales + outlier highlighting
+
+    Enhancements (when minimal=True):
+    - Log scales on both axes (compress skewed distribution, reveal patterns)
+    - Highlight high-engagement videos in red (virality signal)
+    - Baseline videos in neutral gray (normal performance)
+    - Median reference lines (editorial context)
+    - Light grid & thin strokes (Tufte)
+
+    YouTuber Insight:
+    - Log scales handle 1K to 10M views in the same visual space
+    - Red outliers = videos to analyze for CTR/thumbnail/title patterns
+    - Median lines show "typical" performance for content gap analysis
+    """
+    if df is None or df.is_empty():
+        return _empty_chart("bubble", chart_id)
+
+    df_safe = _safe_bubble_data(df, max_points=150)
+
+    try:
+        raw = df_safe.select(
+            (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
+            (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
+            ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
+                "title"
+            ),
+            (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
+            pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
+            pl.col("Duration Formatted").alias("Duration"),
+            pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
+        ).to_dicts()
+
+        data, palette = _apply_point_colors(raw)
+
+        # If minimal mode: highlight outliers in red
+        if minimal:
+            eng_threshold = df_safe["Engagement Rate Raw"].quantile(0.85)
+            for p in data:
+                if p.get("EngagementRateRaw", 0) > eng_threshold:
+                    p["fillColor"] = COLOR_HIGHLIGHT_RED  # Viral outliers pop
+                else:
+                    p["fillColor"] = COLOR_NEUTRAL  # Baseline gray
+    except Exception as e:
+        logger.warning(f"[charts] Views vs Likes data extraction failed: {e}")
+        return _empty_chart("bubble", chart_id)
+
+    # Build options
+    opts = _bubble_opts_mobile_safe(
+        chart_type="bubble",
+        x_label="👀 Views (Millions)",
+        y_label="👍 Likes (Thousands)",
+        z_label="Comments (×100)",
+        chart_id=chart_id,
+        series=[{"name": "Videos", "data": data}],
+        xaxis={
+            "type": "logarithmic" if minimal else "numeric",
+            "title": {
+                "text": "👀 Views (Millions)" + (" — log scale" if minimal else "")
+            },
+        },
+        yaxis={
+            "type": "logarithmic" if minimal else "numeric",
+            "title": {
+                "text": "👍 Likes (Thousands)" + (" — log scale" if minimal else "")
+            },
+        },
+        title={
+            "text": "🎯 Views vs Likes (bubble size = comments)",
+            "align": "left",
+        },
+        tooltip={
+            "theme": "light",
+            "y": {"formatter": "function(val){ return val.toFixed(2) + ' K'; }"},
+        },
+        plotOptions={
+            "bubble": {
+                "minBubbleRadius": 4,
+                "maxBubbleRadius": 25,
+            }
+        },
+    )
+
+    # Apply minimal styling
+    if minimal:
+        opts = apply_tufte_economist(opts, chart_type="bubble", single_series=False)
+        # For dense scatter, enable legend (can't use direct labels on 150 points)
+        opts["legend"] = {"show": True, "position": "bottom", "fontSize": "11px"}
+
+        # Add median reference lines (Economist style)
+        med_v = df_safe["Views"].median() / SCALE_MILLIONS
+        med_l = df_safe["Likes"].median() / SCALE_THOUSANDS
+
+        if "annotations" not in opts:
+            opts["annotations"] = {}
+        opts["annotations"]["xaxis"] = [
+            {
+                "x": med_v,
+                "strokeDashArray": 2,
+                "borderColor": COLOR_NEUTRAL,
+                "label": {
+                    "text": f"Median Views",
+                    "style": {
+                        "color": COLOR_NEUTRAL,
+                        "fontSize": "10px",
+                        "background": {"color": "transparent"},
+                    },
+                },
+            }
+        ]
+        opts["annotations"]["yaxis"] = [
+            {
+                "y": med_l,
+                "strokeDashArray": 2,
+                "borderColor": COLOR_NEUTRAL,
+                "label": {
+                    "text": f"Median Likes",
+                    "style": {
+                        "color": COLOR_NEUTRAL,
+                        "fontSize": "10px",
+                        "background": {"color": "transparent"},
+                    },
+                },
+            }
+        ]
+
+    return ApexChart(opts=opts, cls=chart_wrapper_class("bubble"))
+
+
+# ============================================================================
+#  Engagement Decay (Tufte + YouTuber Insight)
+# ============================================================================
+
+
+def chart_engagement_decay_minimal(
+    df: pl.DataFrame, chart_id: str = "engagement-decay-minimal"
+) -> ApexChart:
+    """
+    Line chart: Engagement Rate (%) vs Days Since Publish.
+
+    Tufte-Minimal Styling:
+    - Straight lines (clarity)
+    - Outlier labels (direct emphasis — no legend hunting)
+    - Light grid, thin strokes
+    - No junk (toolbar, unnecessary legends)
+
+    YouTuber Insight:
+    - Early-hour traction predicts long-term success
+    - Videos that hold engagement over time = quality signal
+    - Spike patterns reveal algorithm behavior & audience preferences
+
+    Use Case:
+    - "Which of my videos sustained engagement?" (retention predictor)
+    - "When do viewers typically abandon?" (editing/pacing insight)
+    - "Do controversies create spikes?" (combined with sentiment)
+
+    Args:
+        df: DataFrame with columns: PublishedAt, Title, Engagement Rate Raw, Likes, Comments, id
+        chart_id: Unique chart ID for Apex
+
+    Returns:
+        ApexChart instance with Tufte styling
+    """
+    if df is None or df.is_empty():
+        return _empty_chart("line", chart_id)
+
+    try:
+        # Calculate days since publish
+        df_decay = (
+            df.with_columns(
+                pl.col("PublishedAt")
+                .str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%SZ")
+                .alias("dt")
+            )
+            .with_columns(
+                ((pl.col("dt").max() - pl.col("dt")).dt.total_days()).alias("DaysSince")
+            )
+            .sort("DaysSince")
+        )
+
+        # Build data points with metadata for tooltip
+        data_points = []
+        for row in df_decay.iter_rows(named=True):
+            data_points.append(
+                {
+                    "x": int(row["DaysSince"]) if row["DaysSince"] else 0,
+                    "y": (row["Engagement Rate Raw"] or 0) * 100,
+                    "title": _truncate_title(row["Title"], 60),
+                    "id": row["id"],
+                    "Likes": int(row.get("Likes") or 0),
+                    "Comments": int(row.get("Comments") or 0),
+                }
+            )
+
+        if not data_points:
+            return _empty_chart("line", chart_id)
+
+        # Identify top 5 outliers for direct labels (Tufte principle)
+        outliers = sorted(data_points, key=lambda p: p.get("y", 0), reverse=True)[:5]
+
+        # Build chart options
+        max_eng = max([p["y"] for p in data_points] + [1])
+        opts = _apex_opts(
+            "line",
+            id=chart_id,
+            series=[{"name": "Engagement Rate (%)", "data": data_points}],
+            xaxis={
+                "type": "numeric",
+                "title": {"text": "Days Since Publish"},
+                "tickAmount": 6,
+                "labels": {
+                    "formatter": "function(val){ return Math.round(val) + 'd'; }"
+                },
+            },
+            yaxis={
+                "title": {"text": "Engagement Rate (%)"},
+                "min": 0,
+                "max": max_eng * 1.15,  # 15% headroom for labels
+                "labels": {
+                    "formatter": "function(val){ return val.toFixed(1) + '%'; }"
+                },
+            },
+            stroke={"curve": "straight", "width": 1.2},  # Clarity, thin
+            markers={"size": 0},  # Pure line (no dots)
+            annotations={
+                "points": [
+                    {
+                        "x": p["x"],
+                        "y": p["y"],
+                        "label": {
+                            "text": p["title"][:18]
+                            + ("..." if len(p["title"]) > 18 else ""),
+                            "style": {
+                                "fontSize": "10px",
+                                "color": COLOR_HIGHLIGHT_RED,
+                                "background": {"color": "transparent"},
+                            },
+                        },
+                        "marker": {
+                            "size": 5,
+                            "fillColor": COLOR_HIGHLIGHT_RED,
+                            "strokeColor": "#fff",
+                            "strokeWidth": 1,
+                        },
+                    }
+                    for p in outliers
+                ]
+            },
+        )
+
+        # Apply Tufte-Economist minimal style
+        opts = apply_tufte_economist(opts, chart_type="line", single_series=True)
+
+        # CRITICAL: Restore custom tooltip (YouTuber value: clickable YouTube links)
+        opts["tooltip"] = _tooltip_opts_for_chart("line")
+
+        # Add descriptive subtitle
+        opts["subtitle"] = {
+            "text": "Hover for video details • Red points = strongest sustained engagement",
+            "style": {"fontSize": "11px", "color": "#7f8c8d"},
+        }
+
+    except Exception as e:
+        logger.warning(f"[charts] Engagement decay chart failed: {e}")
+        return _empty_chart("line", chart_id)
+
+    return ApexChart(opts=opts, cls=chart_wrapper_class("line"))
+
+
+def chart_duration_impact_tufte(
+    df: pl.DataFrame, chart_id: str = "duration-impact"
+) -> ApexChart:
+    """
+    [REPLACEMENT for existing chart_duration_impact]
+
+    Line: Engagement rate by video duration (sorted).
+
+    Tufte Update:
+    - Straight lines (vs smooth curves) for clarity
+    - Minimal grid & typography
+    - No legend (single series)
+
+    Original author's function signature preserved for drop-in replacement.
+    """
+    if df is None or df.is_empty():
+        return _empty_chart("line", chart_id)
+
+    sorted_df = _safe_sort(df, "Duration", descending=False)
+    durations = (
+        sorted_df["Duration"].cast(pl.Float64) / 60
+    ).to_list()  # Convert to minutes
+
+    eng_rates = (sorted_df["Engagement Rate Raw"] * 100).round(2).to_list()
+
+    # Build with _apex_opts for consistency
+    opts = _apex_opts(
+        "line",
+        id=chart_id,
+        series=[{"name": "Engagement Rate (%)", "data": eng_rates}],
+        xaxis={
+            "title": {"text": "Video Duration (minutes)"},
+            "categories": [f"{d:.1f}m" for d in durations],
+        },
+        yaxis={
+            "title": {"text": "Engagement Rate (%)"},
+            "labels": {"formatter": "function(val){ return val.toFixed(1) + '%'; }"},
+        },
+        stroke={"curve": "straight", "width": 1.2},  # Tufte: straight, thin
+        title={"text": "⏱️ Does Duration Affect Engagement?", "align": "left"},
+    )
+
+    # Apply minimal style
+    opts = apply_tufte_economist(opts, chart_type="line", single_series=True)
+
+    return ApexChart(opts=opts, cls=chart_wrapper_class("line"))

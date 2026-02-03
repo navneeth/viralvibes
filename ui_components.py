@@ -12,8 +12,6 @@ from charts import (
     chart_bubble_engagement_vs_views,
     chart_category_performance,
     chart_comments_engagement,
-    chart_controversy_distribution,
-    chart_controversy_score,
     chart_duration_impact,
     chart_duration_vs_engagement,
     chart_engagement_breakdown,
@@ -27,6 +25,7 @@ from charts import (
     chart_video_radar,
     chart_views_ranking,
     chart_views_vs_likes,
+    chart_views_vs_likes_enhanced,
 )
 from components import styled_div
 from components.buttons import (
@@ -184,13 +183,66 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_views_vs_likes(df, "views-vs-likes"),
+                chart_views_vs_likes_enhanced(df, "views-vs-likes"),
                 chart_comments_engagement(df, "comments-engagement"),
                 cols="1 md:2",  # 1 col on mobile, 2 on desktop)
                 gap="6 md:10",  # RESPONSIVE GAP
                 cls="w-full",
             ),
             cls="mb-16 pb-12 border-b border-gray-200",
+        ),
+        # =====================================================================
+        # BLOCK 5: CONTENT OPTIMIZATION
+        # =====================================================================
+        # Div(
+        #     H3(
+        #         "⏱️ Content Optimization",
+        #         cls="text-2xl font-semibold text-gray-800 mb-4",
+        #     ),
+        #     P(
+        #         "Does video length affect engagement? What's the optimal duration for your audience?",
+        #         cls="text-gray-500 mb-6",
+        #     ),
+        #     Grid(
+        #         chart_duration_impact(df, "duration-impact"),
+        #         cols="1",
+        #         gap="8",
+        #         cls="w-full",
+        #     ),
+        #     cls="mb-16 pb-12 border-b border-gray-200",
+        # ),
+        Div(
+            H3("⏱️ Content Optimization", ...),
+            P("Does video length affect engagement?", ...),
+            # Subsection 1: Trend
+            Div(
+                H4(
+                    "📊 Duration Impact Trend",
+                    cls="text-lg font-semibold text-gray-700 mb-4",
+                ),
+                Grid(
+                    chart_duration_impact(df, "duration-impact"),
+                    cols="1",
+                    gap="8",
+                    cls="w-full",
+                ),
+                cls="mb-8",
+            ),
+            # Subsection 2: Individual Analysis
+            # Div(
+            #     H4(
+            #         "📍 Individual Video Analysis",
+            #         cls="text-lg font-semibold text-gray-700 mb-4",
+            #     ),
+            #     Grid(
+            #         chart_duration_vs_engagement(df, "duration-engagement"),
+            #         cols="1",
+            #         gap="8",
+            #         cls="w-full",
+            #     ),
+            #     cls="mb-0",
+            # ),
+            # cls="mb-16 pb-12 border-b border-gray-200",
         ),
         # =====================================================================
         # BLOCK 4: PERFORMANCE QUADRANTS
@@ -234,67 +286,76 @@ def AnalyticsDashboardSection(
         #     ),
         #     cls="mb-16 pb-12 border-b border-gray-200",
         # ),
-        # # =====================================================================
-        # # BLOCK 6: CORRELATION & PATTERNS
-        # # =====================================================================
+        # =====================================================================
+        # BLOCK 6: TOP PERFORMERS COMPARISON
+        # =====================================================================
+        Div(
+            H3(
+                "🏆 Top Performers",
+                cls="text-2xl font-semibold text-gray-800 mb-4",
+            ),
+            P(
+                "Compare your best videos across all key metrics (Views, Likes, Comments, Engagement).",
+                cls="text-gray-500 mb-6",
+            ),
+            Grid(
+                chart_top_performers_radar(df, "top-radar", top_n=3),  # ← Top 3 videos
+                cols="1",
+                gap="8",
+                cls="w-full",
+            ),
+            cls="mb-16 pb-12 border-b border-gray-200",
+        ),
+        # =====================================================================
+        # BLOCK 7: CATEGORY PERFORMANCE
+        # =====================================================================
+        (
+            Div(
+                H3(
+                    "📁 Category Performance",
+                    cls="text-2xl font-semibold text-gray-800 mb-4",
+                ),
+                P(
+                    "How do different content categories perform? Which niches drive engagement?",
+                    cls="text-gray-500 mb-6",
+                ),
+                Grid(
+                    chart_category_performance(df, "category-performance"),
+                    cols="1",
+                    gap="8",
+                    cls="w-full",
+                ),
+                cls="pb-16 mb-16 border-b-2 border-gray-100",
+            )
+            if (
+                "CategoryName" in df.columns
+                and df.select("CategoryName").n_unique() > 1  # ← DEFENSIVE CHECK
+            )
+            else None  # Skip if <2 categories
+        ),
+        # =====================================================================
+        # BLOCK 4: ENGAGEMENT ANALYSIS
+        # =====================================================================
         # Div(
         #     H3(
-        #         "📈 Advanced Patterns",
-        #         cls="text-2xl font-semibold text-gray-800 mb-2",
+        #         "🎯 Engagement vs Reach",
+        #         cls="text-2xl font-semibold text-gray-800 mb-4",
         #     ),
         #     P(
-        #         "Uncover relationships: How do likes, dislikes, and views correlate? Multi-dimensional analysis.",
-        #         cls="text-gray-500 mb-8 text-sm",
+        #         "Which videos are efficient? Do more views always mean better engagement?",
+        #         cls="text-gray-500 mb-6",
         #     ),
         #     Grid(
-        #         # chart_scatter_likes_dislikes(df, "scatter-likes"),
-        #         chart_video_radar(df, "video-radar"),
-        #         cols="1 md:2",
-        #         gap="6 md:8",
-        #         cls="w-full",
-        #     ),
-        #     cls="pb-16 mb-16 border-b-2 border-gray-100",
-        # ),
-        # =====================================================================
-        # BLOCK 7: CATEGORY ANALYSIS (if applicable)
-        # =====================================================================
-        # Div(
-        #     H3(
-        #         "📁 Category Performance",
-        #         cls="text-2xl font-semibold text-gray-800 mb-2",
-        #     ),
-        #     P(
-        #         "How do different content categories perform? Identify your strongest niches.",
-        #         cls="text-gray-500 mb-8 text-sm",
-        #     ),
-        #     Grid(
-        #         chart_category_performance(df, "category-performance"),
+        #         chart_bubble_engagement_vs_views(df, "bubble-engagement"),
         #         cols="1",
         #         gap="8",
         #         cls="w-full",
         #     ),
-        #     cls="pb-16 mb-16 border-b-2 border-gray-100",
+        #     cls="mb-16 pb-12 border-b border-gray-200",
         # ),
         # =====================================================================
         # BLOCK 8: SENTIMENT & CONTROVERSY
         # =====================================================================
-        # Div(
-        #     H3(
-        #         "🔥 Audience Sentiment", cls="text-2xl font-semibold text-gray-800 mb-4"
-        #     ),
-        #     P(
-        #         "Which videos create the strongest reactions? Controversy & polarization.",
-        #         cls="text-gray-500 mb-6",
-        #     ),
-        #     Grid(
-        #         chart_controversy_distribution(df, "controversy-dist"),
-        #         # chart_controversy_score(df, "controversy-score"),
-        #         cols="1 md:2",
-        #         gap="6 md:8",
-        #         cls="w-full",
-        #     ),
-        #     cls="mb-16 pb-12 border-b border-gray-200",
-        # ),
         # Group 4: Advanced Insights & Patterns
         # Div(
         #     H3(
@@ -316,20 +377,6 @@ def AnalyticsDashboardSection(
         #         chart_video_radar(df, "video-radar"),
         #         cls="grid-cols-1 md:grid-cols-2 gap-10",
         #     ),
-        #     cls="mb-16",
-        # ),
-        # Group 5: Content Strategy Insights (if we have controversy data)
-        # Div(
-        #     H3(
-        #         "🎯 Content Strategy Insights",
-        #         cls="text-2xl font-semibold text-gray-800 mb-4",
-        #     ),
-        #     P(
-        #         "Strategic insights to help optimize your content mix and audience targeting.",
-        #         cls="text-gray-500 mb-6",
-        #     ),
-        #     # Single chart that gives strategic insight
-        #     chart_controversy_score(df, "controversy-score"),
         #     cls="mb-16",
         # ),
         # =====================================================================
@@ -537,7 +584,6 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     # b) Pull enriched stats if they exist – otherwise calculate on-the-fly
     # ------------------------------------------------------------------
     avg_engagement = summary.get("avg_engagement", 0.0)
-    avg_controversy = summary.get("avg_controversy", 0.0)
 
     # If the enriched columns are missing, compute them ourselves
     if "Engagement Rate Raw" not in df.columns and total_videos:
@@ -546,12 +592,7 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
         comments = _safe_agg(df, "Comments", "sum")
         views = _safe_agg(df, "Views", "sum") or 1
         avg_engagement = (likes + comments) / views
-
-    if "Controversy" not in df.columns and total_videos:
-        likes = _safe_agg(df, "Likes", "sum")
-        dislikes = _safe_agg(df, "Dislikes", "sum")
-        total = likes + dislikes or 1
-        avg_controversy = 1 - abs(likes - dislikes) / total
+        avg_engagement_quality = comments / likes  # Engagement quality proxy
 
     # ------------------------------------------------------------------
     # c) Top-performer & average view count
