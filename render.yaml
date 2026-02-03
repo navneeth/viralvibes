@@ -19,6 +19,8 @@ services:
         sync: false
       - key: YOUTUBE_COOKIES
         sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
       - key: WORKER_POLL_INTERVAL
         value: "60"
       - key: WORKER_BATCH_SIZE
