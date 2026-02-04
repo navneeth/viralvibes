@@ -25,6 +25,7 @@ from constants import (
     PLAYLIST_STATS_TABLE,
     SIGNUPS_TABLE,
     JobStatus,
+    CREATOR_UPDATE_INTERVAL_DAYS,
 )
 from utils import compute_dashboard_id
 
@@ -150,8 +151,12 @@ def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> 
     try:
         query = supabase_client.table(table)
         if conflict_fields:
+            logger.debug(
+                f"[DB] Upserting to {table} with conflict resolution on {conflict_fields}"
+            )
             query = query.upsert(payload, on_conflict=",".join(conflict_fields))
         else:
+            logger.debug(f"[DB] Inserting to {table} (no conflict resolution)")
             query = query.insert(payload)
         response = query.execute()
         logger.debug(f"[DB] Upsert response for table {table}: {response.data}")
@@ -680,7 +685,11 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        success = upsert_row(CREATOR_SYNC_JOBS_TABLE, payload)
+        # Use creator_id as conflict field for idempotent job creation
+        # This ensures we don't create duplicate pending jobs for the same creator
+        success = upsert_row(
+            CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=["creator_id"]
+        )
 
         if success:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
@@ -1399,6 +1408,49 @@ def get_or_create_creator_from_playlist(
                 ).eq("id", creator_id).execute()
             except Exception as e:
                 logger.debug(f"Metadata refresh failed (non-critical): {e}")
+
+            # Queue for sync if not recently synced (intelligent deduplication)
+            try:
+                creator_resp = (
+                    supabase_client.table(CREATOR_TABLE)
+                    .select("last_synced_at")
+                    .eq("id", creator_id)
+                    .single()
+                    .execute()
+                )
+
+                last_synced = (
+                    creator_resp.data.get("last_synced_at")
+                    if creator_resp.data
+                    else None
+                )
+                should_queue = True
+
+                if last_synced:
+                    last_synced_dt = datetime.fromisoformat(
+                        last_synced.replace("Z", "+00:00")
+                    )
+                    days_since_sync = (
+                        datetime.utcnow() - last_synced_dt.replace(tzinfo=None)
+                    ).days
+                    should_queue = days_since_sync >= CREATOR_UPDATE_INTERVAL_DAYS
+
+                    if not should_queue:
+                        logger.debug(
+                            f"Skipping sync queue for {channel_id} - synced {days_since_sync} days ago "
+                            f"(threshold: {CREATOR_UPDATE_INTERVAL_DAYS} days)"
+                        )
+
+                if should_queue:
+                    if not queue_creator_sync(creator_id, source="rediscovered"):
+                        logger.warning(
+                            f"Failed to queue existing creator {creator_id} for sync"
+                        )
+
+            except Exception as e:
+                logger.debug(
+                    f"Sync queuing check failed (non-critical): {e}", exc_info=True
+                )
 
             return creator_id
 
