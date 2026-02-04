@@ -6,7 +6,6 @@ import logging
 
 from fasthtml.common import *
 
-from auth.auth_service import get_current_user
 from db import supabase_client
 from constants import CREATOR_TABLE
 from views.creators import render_creators_page
