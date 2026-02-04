@@ -950,9 +950,7 @@ def export_json(dashboard_id: str, req, sess):
 
 
 @rt("/creators")
-def creators(
-    req, sess, search: str = "", sort: str = "subscribers", grade: str = "all"
-):
+def creators(req, sess):
     """Creators discovery page - PUBLIC route with filtering and sorting"""
 
     from routes.creators import creators_route

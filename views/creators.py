@@ -4,6 +4,7 @@ Creators page - discover and explore top YouTube creators.
 
 import logging
 from datetime import datetime
+from urllib.parse import urlencode
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -132,7 +133,7 @@ def render_filter_controls(
                             )
                         ),
                     ),
-                    href=f"/creators?sort={sort}&search={search}&grade={grade_val}",
+                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_val})}",
                     cls="no-underline",
                 )
                 for grade_val, label, emoji in grade_options

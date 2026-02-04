@@ -6,8 +6,8 @@ import logging
 
 from fasthtml.common import *
 
-from db import supabase_client
 from constants import CREATOR_TABLE
+from db import supabase_client
 from views.creators import render_creators_page
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,10 @@ def get_all_creators(
             "views": ("current_view_count", True),
             "videos": ("current_video_count", True),
             "engagement": ("engagement_score", True),
-            "quality": ("quality_grade", False),  # A+ first
+            "quality": (
+                "quality_grade",
+                True,
+            ),  # Descending: A+ → A → B+ → B → C (lexicographically reverse)
             "recent": ("last_updated_at", True),
         }
 
