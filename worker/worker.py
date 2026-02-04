@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from constants import PLAYLIST_JOBS_TABLE
 from db import (
     get_latest_playlist_job,
+    get_or_create_creator_from_playlist,
     init_supabase,
     setup_logging,
     supabase_client,
@@ -558,6 +559,41 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
             # Compute dashboard_id for logging (don't store in jobs table)
             dashboard_id = compute_dashboard_id(playlist_url)
+
+            # ✅ Seed creator from playlist metadata
+            try:
+                channel_id = summary_stats.get("channel_id")
+                channel_url = summary_stats.get("channel_url")
+
+                if channel_id and channel_name:
+                    logger.info(
+                        f"[Job {job_id}] Seeding creator: {channel_name} ({channel_id})"
+                    )
+                    creator_uuid = get_or_create_creator_from_playlist(
+                        channel_id=channel_id,
+                        channel_name=channel_name,
+                        channel_url=channel_url
+                        or f"https://www.youtube.com/channel/{channel_id}",
+                        channel_thumbnail_url=channel_thumbnail,
+                        user_id=job.get("user_id"),
+                    )
+                    if creator_uuid:
+                        logger.info(
+                            f"[Job {job_id}] Creator seeded successfully: {creator_uuid}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[Job {job_id}] Failed to seed creator {channel_name}"
+                        )
+                else:
+                    logger.debug(
+                        f"[Job {job_id}] No channel_id available for creator seeding"
+                    )
+            except Exception as e:
+                # Don't fail the job if creator seeding fails
+                logger.warning(
+                    f"[Job {job_id}] Creator seeding failed (non-critical): {e}"
+                )
 
             await mark_job_status(
                 job_id,
