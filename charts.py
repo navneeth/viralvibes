@@ -1587,12 +1587,13 @@ def chart_engagement_correlation(
     Universal correlation chart (bubble/scatter).
 
     Consolidates: views_vs_likes, comments_engagement, duration_vs_engagement, etc.
+    Uses existing helpers for mobile-safety, color encoding, and rich tooltips.
 
     Args:
         x_axis: Column name for X-axis
         y_axis: Column name for Y-axis
         size_by: Column for bubble size (None for scatter)
-        minimal: If True, use log scales + Tufte styling
+        minimal: If True, use Tufte styling (no log scales - ApexCharts doesn't support them)
     """
     if df is None or df.is_empty():
         return _empty_chart("bubble" if size_by else "scatter", chart_id)
@@ -1605,99 +1606,82 @@ def chart_engagement_correlation(
         logger.warning(f"[charts] Missing columns {required}")
         return _empty_chart("bubble" if size_by else "scatter", chart_id)
 
-    # Extract data
-    x_data = df[x_axis].cast(pl.Float64, strict=False).fill_null(0)
-    y_data = df[y_axis].cast(pl.Float64, strict=False).fill_null(0)
-    size_data = None
-    if size_by:
-        size_data = df[size_by].cast(pl.Float64, strict=False).fill_null(0)
-
-    # Build series
-    data_points = []
-    for i, row in enumerate(df.iter_rows(named=True)):
-        point = {
-            "x": float(x_data[i]),
-            "y": float(y_data[i]),
-            "title": _truncate_title(row.get("Title", f"Item {i + 1}"), 60),
-            "id": row.get("id", str(i)),
-        }
-        if size_by:
-            point["z"] = float(size_data[i]) if size_data else 0
-        data_points.append(point)
-
-    # Apply styling
     chart_type = "bubble" if size_by else "scatter"
-    opts = _apex_opts(
-        chart_type, id=chart_id, series=[{"name": "Data", "data": data_points}]
-    )
 
+    # ✅ Use _safe_bubble_data for mobile performance
+    df_safe = _safe_bubble_data(df, max_points=150) if size_by else df
+
+    # ✅ Build data with proper structure for CLICKABLE_TOOLTIP
+    try:
+        # Build selection expression dynamically
+        select_exprs = [
+            pl.col(x_axis).cast(pl.Float64, strict=False).fill_null(0).alias("x"),
+            pl.col(y_axis).cast(pl.Float64, strict=False).fill_null(0).alias("y"),
+            pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55).alias("title"),
+            pl.col("id").cast(pl.Utf8, strict=False).alias("id"),
+        ]
+
+        if size_by:
+            select_exprs.append(
+                pl.col(size_by).cast(pl.Float64, strict=False).fill_null(0).alias("z")
+            )
+
+        # Add fields for CLICKABLE_TOOLTIP
+        if "Likes" in df_safe.columns:
+            select_exprs.append(
+                pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0)
+            )
+        if "Comments" in df_safe.columns:
+            select_exprs.append(
+                pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0)
+            )
+        if "Duration Formatted" in df_safe.columns:
+            select_exprs.append(pl.col("Duration Formatted").alias("Duration"))
+        if "Engagement Rate Raw" in df_safe.columns:
+            select_exprs.append(
+                pl.col("Engagement Rate Raw").alias("EngagementRateRaw")
+            )
+
+        raw = df_safe.select(select_exprs).to_dicts()
+
+        # ✅ Apply color encoding
+        data, palette = _apply_point_colors(raw)
+    except Exception as e:
+        logger.warning(f"[charts] {chart_type} data extraction failed: {e}")
+        return _empty_chart(chart_type, chart_id)
+
+    # ✅ Use appropriate mobile-safe helper
+    if size_by:
+        opts_dict = _bubble_opts_mobile_safe(
+            chart_type="bubble",
+            x_label=x_axis,
+            y_label=y_axis,
+            z_label=size_by,
+            chart_id=chart_id,
+            series=[{"name": "Videos", "data": data}],
+            xaxis={"title": {"text": x_axis}},
+            yaxis={"title": {"text": y_axis}},
+            title={"text": f"{y_axis} vs {x_axis}", "align": "left"},
+            colors=palette,
+        )
+    else:
+        opts_dict = _scatter_opts_mobile_safe(
+            chart_type="scatter",
+            x_label=x_axis,
+            y_label=y_axis,
+            chart_id=chart_id,
+            series=[{"name": "Videos", "data": data}],
+            xaxis={"title": {"text": x_axis}},
+            yaxis={"title": {"text": y_axis}},
+            title={"text": f"{y_axis} vs {x_axis}", "align": "left"},
+            colors=palette,
+        )
+
+    # Apply minimal styling if requested (no log scales - not supported by ApexCharts)
     if minimal:
-        opts = apply_tufte_economist(opts, chart_type, single_series=True)
-        # Log scales for minimal mode
-        opts["xaxis"] = {"type": "logarithmic", "title": {"text": x_axis}}
-        opts["yaxis"] = {"type": "logarithmic", "title": {"text": y_axis}}
+        opts_dict = apply_tufte_economist(opts_dict, chart_type, single_series=True)
 
-    return ApexChart(opts=opts, cls=chart_wrapper_class(chart_type))
-
-
-# def chart_views_vs_likes(
-#     df: pl.DataFrame, chart_id: str = "views-vs-likes"
-# ) -> ApexChart:
-#     """Bubble: Views (X) vs Likes (Y), size = Comments."""
-#     if df is None or df.is_empty():
-#         return _empty_chart("bubble", chart_id)
-
-#     df_safe = _safe_bubble_data(df, max_points=150)
-
-#     try:
-#         raw = df_safe.select(
-#             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
-#             (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
-#             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
-#             (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
-#                 "title"
-#             ),
-#             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
-#             # Required fields for CLICKABLE_TOOLTIP
-#             pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
-#             pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
-#             pl.col("Duration Formatted").alias("Duration"),
-#             pl.col("Engagement Rate Raw").alias("EngagementRateRaw"),
-#         ).to_dicts()
-#         data, palette = _apply_point_colors(raw)
-#     except Exception as e:
-#         logger.warning(f"[charts] Data extraction failed: {e}")
-#         return _empty_chart("bubble", chart_id)
-
-#     return ApexChart(
-#         opts=_bubble_opts_mobile_safe(
-#             chart_type="bubble",
-#             x_label="👀 Views (Millions)",
-#             y_label="👍 Likes (Thousands)",
-#             z_label="Comments (×100)",
-#             chart_id=chart_id,
-#             series=[{"name": "Videos", "data": data}],
-#             xaxis={"title": {"text": "👀 Views (Millions)"}},
-#             yaxis={"title": {"text": "👍 Likes (Thousands)"}},
-#             title={
-#                 "text": "🎯 Views vs Likes (bubble size = comments)",
-#                 "align": "left",
-#             },
-#             tooltip={
-#                 "theme": "light",
-#                 "y": {"formatter": "function(val){ return val.toFixed(2) + '%'; }"},
-#             },
-#             plotOptions={
-#                 "bubble": {
-#                     "minBubbleRadius": 4,
-#                     "maxBubbleRadius": 25,
-#                     # "colorByPoint": True,
-#                 }
-#             },
-#             colors=palette,
-#         ),
-#         cls=chart_wrapper_class("bubble"),
-#     )
+    return ApexChart(opts=opts_dict, cls=chart_wrapper_class(chart_type))
 
 
 def chart_views_vs_likes(
@@ -1888,8 +1872,11 @@ def chart_views_vs_likes_enhanced(
     if df is None or df.is_empty():
         return _empty_chart("bubble", chart_id)
 
+    # Sample data for performance
     df_safe = _safe_bubble_data(df, max_points=150)
 
+    # Build data as required: array of [x, y, z] with extra "title" kept separately
+    # Vectorized data extraction (faster than iter_rows)
     try:
         raw = df_safe.select(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
@@ -1928,16 +1915,12 @@ def chart_views_vs_likes_enhanced(
         chart_id=chart_id,
         series=[{"name": "Videos", "data": data}],
         xaxis={
-            "type": "logarithmic" if minimal else "numeric",
-            "title": {
-                "text": "👀 Views (Millions)" + (" — log scale" if minimal else "")
-            },
+            "type": "numeric",
+            "title": {"text": "👀 Views (Millions)"},
         },
         yaxis={
-            "type": "logarithmic" if minimal else "numeric",
-            "title": {
-                "text": "👍 Likes (Thousands)" + (" — log scale" if minimal else "")
-            },
+            "type": "numeric",
+            "title": {"text": "👍 Likes (Thousands)"},
         },
         title={
             "text": "🎯 Views vs Likes (bubble size = comments)",
@@ -2332,7 +2315,7 @@ def chart_performance_tiers(
             "scatter",
             id=chart_id,
             series=series_list,
-            xaxis={"type": "logarithmic", "title": {"text": "Views (log scale)"}},
+            xaxis={"type": "numeric", "title": {"text": "Views"}},
             yaxis={"title": {"text": "Engagement Rate (%)"}},
             title={
                 "text": "🎯 Performance Tiers: Where Do Your Videos Cluster?",

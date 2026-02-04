@@ -296,7 +296,7 @@ def AnalyticsDashboardSection(
             )
             if (
                 "CategoryName" in df.columns
-                and df.select("CategoryName").n_unique() > 1  # ← DEFENSIVE CHECK
+                and df["CategoryName"].n_unique() > 1  # ✅ FIXED: Use column expression
             )
             else None  # Skip if <2 categories
         ),
@@ -554,12 +554,11 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
 
     # If the enriched columns are missing, compute them ourselves
     if "Engagement Rate Raw" not in df.columns and total_videos:
-        # (likes + dislikes + comments) / views
+        # (likes + comments) / views
         likes = _safe_agg(df, "Likes", "sum")
         comments = _safe_agg(df, "Comments", "sum")
         views = _safe_agg(df, "Views", "sum") or 1
         avg_engagement = (likes + comments) / views
-        avg_engagement_quality = comments / likes  # Engagement quality proxy
 
     # ------------------------------------------------------------------
     # c) Top-performer & average view count
