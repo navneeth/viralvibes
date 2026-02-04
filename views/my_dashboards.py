@@ -10,7 +10,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from components.tables import Badge
-from utils import format_number
+from utils import format_number, format_date_simple
 
 logger = logging.getLogger(__name__)
 
@@ -380,29 +380,3 @@ def render_empty_state(search: str = "") -> Div:
             ),
             cls="bg-gradient-to-br from-blue-50 to-purple-50",
         )
-
-
-def format_date(date_str: str | None) -> str:
-    """
-    Format ISO datetime to human-readable date.
-
-    Examples:
-        "2026-01-29T10:30:00Z" → "Jan 29, 2026"
-        "2026-01-29" → "Jan 29, 2026"
-        None → "Recently"
-    """
-    if not date_str:
-        return "Recently"
-
-    try:
-        # Handle both datetime and date strings
-        if isinstance(date_str, str):
-            # Remove timezone info for parsing
-            clean_date = date_str.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(clean_date)
-        else:
-            dt = date_str
-
-        return dt.strftime("%b %d, %Y")
-    except Exception:
-        return "Recently"

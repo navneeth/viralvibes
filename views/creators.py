@@ -8,7 +8,7 @@ from datetime import datetime
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import format_number
+from utils import format_number, format_date_relative
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +413,7 @@ def render_creator_card(creator: dict) -> Div:
                 Div(
                     UkIcon("clock", cls="w-3 h-3 text-gray-400"),
                     Span(
-                        format_date(last_updated),
+                        format_date_relative(last_updated),
                         cls="text-xs text-gray-500",
                     ),
                     cls="flex items-center gap-1",
@@ -481,41 +481,3 @@ def render_empty_state(search: str, grade_filter: str) -> Div:
             ),
             cls="bg-gradient-to-br from-blue-50 to-purple-50",
         )
-
-
-def format_date(date_str: str | None) -> str:
-    """
-    Format ISO datetime to relative time.
-
-    Examples:
-        Recent: "Just now", "2 hours ago", "Yesterday"
-        Older: "Jan 29, 2026"
-    """
-    if not date_str:
-        return "Never updated"
-
-    try:
-        # Parse datetime
-        clean_date = date_str.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(clean_date)
-        now = datetime.utcnow()
-
-        # Calculate difference
-        diff = now - dt.replace(tzinfo=None)
-
-        # Format based on age
-        if diff.days == 0:
-            hours = diff.seconds // 3600
-            if hours == 0:
-                minutes = diff.seconds // 60
-                return f"{minutes}m ago" if minutes > 0 else "Just now"
-            return f"{hours}h ago"
-        elif diff.days == 1:
-            return "Yesterday"
-        elif diff.days < 7:
-            return f"{diff.days}d ago"
-        else:
-            return dt.strftime("%b %d, %Y")
-
-    except Exception:
-        return "Unknown"
