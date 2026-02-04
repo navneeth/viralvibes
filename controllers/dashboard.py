@@ -14,6 +14,7 @@ from fasthtml.common import *
 from starlette.responses import Response, RedirectResponse
 from monsterui.all import *
 
+from components.errors import ErrorAlert
 from db import (
     supabase_client,  # ✅ Global client
     record_dashboard_event,
@@ -22,20 +23,6 @@ from db import (
 from utils import load_df_from_json
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# Error Helpers
-# ============================================================================
-
-
-def _error_response(title: str, message: str) -> Div:
-    """Standardized error response component."""
-    return Div(
-        H2(title, cls="text-2xl font-bold text-gray-900 mb-2"),
-        P(message, cls="text-gray-600"),
-        cls="max-w-xl mx-auto mt-24 text-center p-6 bg-red-50 rounded-lg border border-red-200",
-    )
 
 
 # ============================================================================
@@ -72,7 +59,7 @@ def view_dashboard_controller(
     # Get Supabase client
     if not supabase_client:
         logger.error("Supabase client not initialized")
-        return _error_response(
+        return ErrorAlert(
             "Service Unavailable",
             "Dashboard service is temporarily unavailable. Please try again later.",
         )
@@ -90,7 +77,7 @@ def view_dashboard_controller(
 
         if not resp.data or len(resp.data) == 0:
             logger.warning(f"Dashboard not found: {dashboard_id}")
-            return _error_response(
+            return ErrorAlert(
                 "Dashboard Not Found",
                 "This playlist dashboard does not exist. Try analyzing a new playlist.",
             )
@@ -101,7 +88,7 @@ def view_dashboard_controller(
 
     except Exception as e:
         logger.exception(f"Database query failed for dashboard {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Database Error", "Failed to load dashboard. Please try again later."
         )
 
@@ -111,7 +98,7 @@ def view_dashboard_controller(
 
     if missing_fields:
         logger.error(f"Missing required fields: {missing_fields}")
-        return _error_response(
+        return ErrorAlert(
             "Invalid Data", "Playlist data is corrupted. Please analyze again."
         )
 
@@ -132,12 +119,12 @@ def view_dashboard_controller(
         logger.debug(f"Loaded DataFrame: {len(df)} rows")
     except KeyError as e:
         logger.error(f"Missing JSON field in playlist_row: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Invalid Data", "Playlist data is corrupted. Please contact support."
         )
     except Exception as e:
         logger.exception(f"Failed to deserialize DataFrame for {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Data Error", "Failed to parse playlist data. Please try again later."
         )
 
@@ -182,7 +169,7 @@ def view_dashboard_controller(
 
     except Exception as e:
         logger.exception(f"Failed to render dashboard for {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Render Error", "Failed to display dashboard. Please refresh the page."
         )
 

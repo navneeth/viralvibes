@@ -24,6 +24,7 @@ from typing import Union
 from fasthtml.common import *
 from starlette.responses import Response
 
+from components.errors import ErrorAlert
 from db import (
     get_dashboard_event_counts,
     get_supabase,
@@ -33,19 +34,6 @@ from utils import load_df_from_json
 from views.dashboard import render_dashboard
 
 logger = logging.getLogger(__name__)
-
-# ============================================================================
-# Error Response Helper
-# ============================================================================
-
-
-def _error_response(title: str, message: str, status_code: int = 200) -> Div:
-    """Render standardized error response."""
-    return Div(
-        H2(title, cls="text-2xl font-bold text-gray-900 mb-2"),
-        P(message, cls="text-gray-600"),
-        cls="max-w-xl mx-auto mt-24 text-center p-6 bg-red-50 rounded-lg border border-red-200",
-    )
 
 
 # ============================================================================
@@ -88,7 +76,7 @@ def require_auth(func):
         user_id = get_user_from_request(request)
         if not user_id:
             logger.warning(f"Unauthorized access to {func.__name__}")
-            return _error_response(
+            return ErrorAlert(
                 "Access Denied",
                 "You must be logged in to view this page.",
                 status_code=401,
@@ -135,13 +123,13 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
         supabase = get_supabase()
         if not supabase:
             logger.error("Supabase client not initialized")
-            return _error_response(
+            return ErrorAlert(
                 "Service Unavailable",
                 "Dashboard service is temporarily unavailable. Please try again later.",
             )
     except Exception as e:
         logger.exception(f"Failed to initialize Supabase: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Service Error",
             "Unable to load dashboard. Please try again later.",
         )
@@ -159,7 +147,7 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
 
         if not resp.data or len(resp.data) == 0:
             logger.warning(f"Dashboard not found: {dashboard_id}")
-            return _error_response(
+            return ErrorAlert(
                 "Dashboard Not Found",
                 "This playlist dashboard does not exist. Try analyzing a new playlist.",
             )
@@ -170,7 +158,7 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
 
     except Exception as e:
         logger.exception(f"Database query failed for dashboard {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Database Error",
             "Failed to load dashboard. Please try again later.",
         )
@@ -183,14 +171,14 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
 
         if missing_fields:
             logger.error(f"Missing required fields in playlist_row: {missing_fields}")
-            return _error_response(
+            return ErrorAlert(
                 "Invalid Data",
                 "Playlist data is corrupted. Please analyze again.",
             )
 
     except Exception as e:
         logger.exception(f"Data validation failed for {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Validation Error",
             "Failed to validate playlist data. Please try again.",
         )
@@ -213,13 +201,13 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
         logger.debug(f"Loaded DataFrame: {len(df)} rows")
     except KeyError as e:
         logger.error(f"Missing JSON field in playlist_row: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Invalid Data",
             "Playlist data is corrupted. Please contact support.",
         )
     except Exception as e:
         logger.exception(f"Failed to deserialize DataFrame for {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Data Error",
             "Failed to parse playlist data. Please try again later.",
         )
@@ -262,7 +250,7 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
 
     except Exception as e:
         logger.exception(f"Failed to render dashboard for {dashboard_id}: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Render Error",
             "Failed to display dashboard. Please refresh.",
         )
@@ -292,7 +280,7 @@ def my_dashboards(request: Request, user_id: str) -> Div:
     logger.info(f"Loading personal dashboards for user: {user_id}")
 
     if not supabase_client:
-        return _error_response(
+        return ErrorAlert(
             "Service Unavailable",
             "Dashboard service is temporarily unavailable.",
         )
@@ -315,7 +303,7 @@ def my_dashboards(request: Request, user_id: str) -> Div:
 
     except Exception as e:
         logger.exception(f"Failed to fetch user playlists: {e}")
-        return _error_response(
+        return ErrorAlert(
             "Database Error",
             "Failed to load your dashboards. Please try again.",
         )
@@ -385,7 +373,7 @@ def user_profile(request: Request, user_id: str) -> Div:
     logger.info(f"Loading profile for user: {user_id}")
 
     if not supabase_client:
-        return _error_response("Service Unavailable", "Please try again later.")
+        return ErrorAlert("Service Unavailable", "Please try again later.")
 
     # --- Fetch user stats ---
     try:
@@ -410,7 +398,7 @@ def user_profile(request: Request, user_id: str) -> Div:
 
     except Exception as e:
         logger.exception(f"Failed to fetch user info: {e}")
-        return _error_response("Database Error", "Failed to load profile.")
+        return ErrorAlert("Database Error", "Failed to load profile.")
 
     # --- Render profile ---
     return Div(
