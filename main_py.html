@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for main.py: 28.22%</title>
+    <title>Coverage for main.py: 28.36%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_9ff733b0.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>main.py</b>:
-            <span class="pc_cov">28.22%</span>
+            <span class="pc_cov">28.36%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,9 +55,9 @@
             </div>
         </aside>
         <h2>
-            <span class="text">324 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">107<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">217<span class="text"> missing</span></button>
+            <span class="text">329 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">109<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">220<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">5<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="run_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.3">coverage.py v7.13.3</a>,
-            created at 2026-02-04 07:39 +0000
+            created at 2026-02-04 11:31 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1033,43 +1033,62 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t949" href="#t949">949</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t950" href="#t950">950</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t951" href="#t951">951</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t952" href="#t952">952</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/me/dashboards"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t953" href="#t953">953</a></span><span class="t"><span class="key">def</span> <span class="nam">my_dashboards</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">,</span> <span class="nam">search</span><span class="op">:</span> <span class="nam">str</span> <span class="op">=</span> <span class="str">""</span><span class="op">,</span> <span class="nam">sort</span><span class="op">:</span> <span class="nam">str</span> <span class="op">=</span> <span class="str">"recent"</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t954" href="#t954">954</a></span><span class="t">    <span class="str">"""User's personal dashboards page - PROTECTED route"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t952" href="#t952">952</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/creators"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t953" href="#t953">953</a></span><span class="t"><span class="key">def</span> <span class="nam">creators</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t954" href="#t954">954</a></span><span class="t">    <span class="str">"""Creators discovery page - PUBLIC route with filtering and sorting"""</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t955" href="#t955">955</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t956" href="#t956">956</a></span><span class="t">    <span class="com"># Extract user info</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t957" href="#t957">957</a></span><span class="t">    <span class="nam">user_id</span> <span class="op">=</span> <span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"user_id"</span><span class="op">)</span> <span class="key">if</span> <span class="nam">sess</span> <span class="key">else</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t958" href="#t958">958</a></span><span class="t">    <span class="nam">auth</span> <span class="op">=</span> <span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"auth"</span><span class="op">)</span> <span class="key">if</span> <span class="nam">sess</span> <span class="key">else</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t959" href="#t959">959</a></span><span class="t">    <span class="nam">user_name</span> <span class="op">=</span> <span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"user_name"</span><span class="op">,</span> <span class="str">"User"</span><span class="op">)</span> <span class="key">if</span> <span class="nam">sess</span> <span class="key">else</span> <span class="str">"User"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t956" href="#t956">956</a></span><span class="t">    <span class="key">from</span> <span class="nam">routes</span><span class="op">.</span><span class="nam">creators</span> <span class="key">import</span> <span class="nam">creators_route</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t957" href="#t957">957</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t958" href="#t958">958</a></span><span class="t">    <span class="com"># Call the route handler</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t959" href="#t959">959</a></span><span class="t">    <span class="nam">page_content</span> <span class="op">=</span> <span class="nam">creators_route</span><span class="op">(</span><span class="nam">req</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t960" href="#t960">960</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t961" href="#t961">961</a></span><span class="t">    <span class="com"># Auth check</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t962" href="#t962">962</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">auth</span> <span class="key">or</span> <span class="key">not</span> <span class="nam">user_id</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t963" href="#t963">963</a></span><span class="t">        <span class="nam">sess</span><span class="op">[</span><span class="str">"intended_url"</span><span class="op">]</span> <span class="op">=</span> <span class="nam">str</span><span class="op">(</span><span class="nam">req</span><span class="op">.</span><span class="nam">url</span><span class="op">.</span><span class="nam">path</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t964" href="#t964">964</a></span><span class="t">        <span class="key">return</span> <span class="nam">RedirectResponse</span><span class="op">(</span><span class="str">"/login"</span><span class="op">,</span> <span class="nam">status_code</span><span class="op">=</span><span class="num">303</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t965" href="#t965">965</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t966" href="#t966">966</a></span><span class="t">    <span class="com"># Fetch dashboards with filters</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t967" href="#t967">967</a></span><span class="t">    <span class="nam">dashboards</span> <span class="op">=</span> <span class="nam">get_user_dashboards</span><span class="op">(</span><span class="nam">user_id</span><span class="op">,</span> <span class="nam">search</span><span class="op">=</span><span class="nam">search</span><span class="op">,</span> <span class="nam">sort</span><span class="op">=</span><span class="nam">sort</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t968" href="#t968">968</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t969" href="#t969">969</a></span><span class="t">    <span class="com"># Render page</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t970" href="#t970">970</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t971" href="#t971">971</a></span><span class="t">        <span class="str">f"{user_name}'s Dashboards - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t972" href="#t972">972</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t973" href="#t973">973</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t974" href="#t974">974</a></span><span class="t">            <span class="nam">render_my_dashboards_page</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t975" href="#t975">975</a></span><span class="t">                <span class="nam">dashboards</span><span class="op">=</span><span class="nam">dashboards</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t976" href="#t976">976</a></span><span class="t">                <span class="nam">user_name</span><span class="op">=</span><span class="nam">user_name</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t977" href="#t977">977</a></span><span class="t">                <span class="nam">search</span><span class="op">=</span><span class="nam">search</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t978" href="#t978">978</a></span><span class="t">                <span class="nam">sort</span><span class="op">=</span><span class="nam">sort</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t979" href="#t979">979</a></span><span class="t">            <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t980" href="#t980">980</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t981" href="#t981">981</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t982" href="#t982">982</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t983" href="#t983">983</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t984" href="#t984">984</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t985" href="#t985">985</a></span><span class="t"><span class="com"># Run the app</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t986" href="#t986">986</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t961" href="#t961">961</a></span><span class="t">    <span class="com"># Render with navigation</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t962" href="#t962">962</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t963" href="#t963">963</a></span><span class="t">        <span class="str">"Top Creators - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t964" href="#t964">964</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t965" href="#t965">965</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t966" href="#t966">966</a></span><span class="t">            <span class="nam">page_content</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t967" href="#t967">967</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t968" href="#t968">968</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t969" href="#t969">969</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t970" href="#t970">970</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t971" href="#t971">971</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/me/dashboards"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t972" href="#t972">972</a></span><span class="t"><span class="key">def</span> <span class="nam">my_dashboards</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">,</span> <span class="nam">search</span><span class="op">:</span> <span class="nam">str</span> <span class="op">=</span> <span class="str">""</span><span class="op">,</span> <span class="nam">sort</span><span class="op">:</span> <span class="nam">str</span> <span class="op">=</span> <span class="str">"recent"</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t973" href="#t973">973</a></span><span class="t">    <span class="str">"""User's personal dashboards page - PROTECTED route"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t974" href="#t974">974</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t975" href="#t975">975</a></span><span class="t">    <span class="com"># Extract user info</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t976" href="#t976">976</a></span><span class="t">    <span class="nam">user_id</span> <span class="op">=</span> <span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"user_id"</span><span class="op">)</span> <span class="key">if</span> <span class="nam">sess</span> <span class="key">else</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t977" href="#t977">977</a></span><span class="t">    <span class="nam">auth</span> <span class="op">=</span> <span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"auth"</span><span class="op">)</span> <span class="key">if</span> <span class="nam">sess</span> <span class="key">else</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t978" href="#t978">978</a></span><span class="t">    <span class="nam">user_name</span> <span class="op">=</span> <span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"user_name"</span><span class="op">,</span> <span class="str">"User"</span><span class="op">)</span> <span class="key">if</span> <span class="nam">sess</span> <span class="key">else</span> <span class="str">"User"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t979" href="#t979">979</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t980" href="#t980">980</a></span><span class="t">    <span class="com"># Auth check</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t981" href="#t981">981</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">auth</span> <span class="key">or</span> <span class="key">not</span> <span class="nam">user_id</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t982" href="#t982">982</a></span><span class="t">        <span class="nam">sess</span><span class="op">[</span><span class="str">"intended_url"</span><span class="op">]</span> <span class="op">=</span> <span class="nam">str</span><span class="op">(</span><span class="nam">req</span><span class="op">.</span><span class="nam">url</span><span class="op">.</span><span class="nam">path</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t983" href="#t983">983</a></span><span class="t">        <span class="key">return</span> <span class="nam">RedirectResponse</span><span class="op">(</span><span class="str">"/login"</span><span class="op">,</span> <span class="nam">status_code</span><span class="op">=</span><span class="num">303</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t984" href="#t984">984</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t985" href="#t985">985</a></span><span class="t">    <span class="com"># Fetch dashboards with filters</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t986" href="#t986">986</a></span><span class="t">    <span class="nam">dashboards</span> <span class="op">=</span> <span class="nam">get_user_dashboards</span><span class="op">(</span><span class="nam">user_id</span><span class="op">,</span> <span class="nam">search</span><span class="op">=</span><span class="nam">search</span><span class="op">,</span> <span class="nam">sort</span><span class="op">=</span><span class="nam">sort</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t987" href="#t987">987</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t988" href="#t988">988</a></span><span class="t"><span class="nam">serve</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t988" href="#t988">988</a></span><span class="t">    <span class="com"># Render page</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t989" href="#t989">989</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t990" href="#t990">990</a></span><span class="t">        <span class="str">f"{user_name}'s Dashboards - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t991" href="#t991">991</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t992" href="#t992">992</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t993" href="#t993">993</a></span><span class="t">            <span class="nam">render_my_dashboards_page</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t994" href="#t994">994</a></span><span class="t">                <span class="nam">dashboards</span><span class="op">=</span><span class="nam">dashboards</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t995" href="#t995">995</a></span><span class="t">                <span class="nam">user_name</span><span class="op">=</span><span class="nam">user_name</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t996" href="#t996">996</a></span><span class="t">                <span class="nam">search</span><span class="op">=</span><span class="nam">search</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t997" href="#t997">997</a></span><span class="t">                <span class="nam">sort</span><span class="op">=</span><span class="nam">sort</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t998" href="#t998">998</a></span><span class="t">            <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t999" href="#t999">999</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1000" href="#t1000">1000</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1001" href="#t1001">1001</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1002" href="#t1002">1002</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1003" href="#t1003">1003</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1004" href="#t1004">1004</a></span><span class="t"><span class="com"># Run the app</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1005" href="#t1005">1005</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1006" href="#t1006">1006</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1007" href="#t1007">1007</a></span><span class="t"><span class="nam">serve</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -1079,7 +1098,7 @@
             <a class="nav" href="run_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.3">coverage.py v7.13.3</a>,
-            created at 2026-02-04 07:39 +0000
+            created at 2026-02-04 11:31 +0000
         </p>
     </div>
 </footer>
