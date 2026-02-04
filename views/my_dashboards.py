@@ -10,7 +10,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from components.tables import Badge
-from utils import format_number, format_date_simple
+from utils import format_date_simple, format_number
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ def render_dashboard_card(dashboard: dict) -> A:
                         cls=f"h-1 bg-gradient-to-r {get_engagement_gradient(engagement_rate)}",
                         style=f"width: {min(100, engagement_rate * 10)}%",
                     ),
-                    cls="w-full h-1 bg-gray-200 rounded-full mb-2",
+                    cls="w-full h-2 bg-gray-200 rounded-full mb-3",
                 ),
                 # Footer with date
                 Div(
