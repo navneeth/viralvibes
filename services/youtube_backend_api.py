@@ -247,11 +247,11 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             stats["backend"] = "youtubeapi"
             stats["analyzed_videos"] = len(videos)
             # Add channel metadata for creator tracking
-            stats["channel_id"] = playlist_metadata.get("channel_id", "")
+            stats["channel_id"] = playlist_metadata.get("channel_id") or None
             stats["channel_url"] = (
-                f"https://www.youtube.com/channel/{playlist_metadata.get('channel_id', '')}"
+                f"https://www.youtube.com/channel/{playlist_metadata.get('channel_id')}"
                 if playlist_metadata.get("channel_id")
-                else ""
+                else None
             )
 
             # Add enhanced metadata if videos were processed

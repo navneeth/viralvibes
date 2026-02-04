@@ -587,12 +587,15 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                         )
                 else:
                     logger.debug(
-                        f"[Job {job_id}] No channel_id available for creator seeding"
+                        f"[Job {job_id}] Skipping creator seeding - missing required data "
+                        f"(channel_id={'present' if channel_id else 'missing'}, "
+                        f"channel_name={'present' if channel_name else 'missing'})"
                     )
             except Exception as e:
                 # Don't fail the job if creator seeding fails
                 logger.warning(
-                    f"[Job {job_id}] Creator seeding failed (non-critical): {e}"
+                    f"[Job {job_id}] Creator seeding failed (non-critical): {e}",
+                    exc_info=True,
                 )
 
             await mark_job_status(
