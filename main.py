@@ -949,6 +949,27 @@ def export_json(dashboard_id: str, req, sess):
     )
 
 
+@rt("/creators")
+def creators(
+    req, sess, search: str = "", sort: str = "subscribers", grade: str = "all"
+):
+    """Creators discovery page - PUBLIC route with filtering and sorting"""
+
+    from routes.creators import creators_route
+
+    # Call the route handler
+    page_content = creators_route(req)
+
+    # Render with navigation
+    return Titled(
+        "Top Creators - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
 @rt("/me/dashboards")
 def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
     """User's personal dashboards page - PROTECTED route"""

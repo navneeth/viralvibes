@@ -31,6 +31,7 @@ def NavComponent(oauth, req=None, sess=None):
     base_links = [
         A("Why ViralVibes", href="/#home-section", cls="text-sm hover:text-blue-600"),
         A("Product", href="/#analyze-section", cls="text-sm hover:text-blue-600"),
+        A("Creators", href="/creators", cls="text-sm hover:text-blue-600"),
         A("About", href="/#explore-section", cls="text-sm hover:text-blue-600"),
     ]
 
