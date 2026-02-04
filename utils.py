@@ -389,3 +389,97 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
         clamp(4.2, 0, 3.5)     # → 3.5
     """
     return max(min_val, min(value, max_val))
+
+
+# =============================================================================
+# Date formatting utilities
+# =============================================================================
+
+
+def format_date_simple(date_str: str | None) -> str:
+    """
+    Format ISO datetime to simple date string.
+
+    Args:
+        date_str: ISO datetime string (e.g., "2026-01-29T10:30:00Z")
+
+    Returns:
+        Formatted date (e.g., "Jan 29, 2026") or "Recently" if None
+
+    Examples:
+        >>> format_date_simple("2026-01-29T10:30:00Z")
+        "Jan 29, 2026"
+        >>> format_date_simple("2026-01-29")
+        "Jan 29, 2026"
+        >>> format_date_simple(None)
+        "Recently"
+    """
+    if not date_str:
+        return "Recently"
+
+    try:
+        # Handle both datetime and date strings
+        if isinstance(date_str, str):
+            # Remove timezone info for parsing
+            clean_date = date_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(clean_date)
+        else:
+            dt = date_str
+
+        return dt.strftime("%b %d, %Y")
+    except Exception:
+        return "Recently"
+
+
+def format_date_relative(date_str: str | None) -> str:
+    """
+    Format ISO datetime to relative time or simple date.
+
+    Returns relative time for recent dates (e.g., "2h ago", "Yesterday"),
+    otherwise returns simple date format.
+
+    Args:
+        date_str: ISO datetime string
+
+    Returns:
+        Relative time string or simple date
+
+    Examples:
+        >>> format_date_relative("2026-02-04T12:00:00Z")  # 2 hours ago
+        "2h ago"
+        >>> format_date_relative("2026-02-03T12:00:00Z")  # Yesterday
+        "Yesterday"
+        >>> format_date_relative("2026-01-20T12:00:00Z")  # 2 weeks ago
+        "Jan 20, 2026"
+        >>> format_date_relative(None)
+        "Never updated"
+    """
+    if not date_str:
+        return "Never updated"
+
+    try:
+        # Parse datetime
+        clean_date = date_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean_date)
+        now = datetime.utcnow()
+
+        # Calculate difference
+        diff = now - dt.replace(tzinfo=None)
+
+        # Format based on age
+        if diff.days == 0:
+            hours = diff.seconds // 3600
+            if hours == 0:
+                minutes = diff.seconds // 60
+                return f"{minutes}m ago" if minutes > 0 else "Just now"
+            return f"{hours}h ago"
+        elif diff.days == 1:
+            return "Yesterday"
+        elif diff.days < 7:
+            return f"{diff.days}d ago"
+        else:
+            # Fall back to simple date for older dates
+            return dt.strftime("%b %d, %Y")
+
+    except Exception:
+        return "Unknown"

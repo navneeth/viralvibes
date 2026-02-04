@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 from fasthtml.common import *
 from monsterui.all import *
 
+from components.errors import get_user_friendly_error
 from components.processing_tips import get_tip_for_progress
 from constants import JobStatus
 from db import (
@@ -27,67 +28,6 @@ from views.job_progress import render_job_progress_view
 from views.job_progress_state import JobProgressViewState
 
 logger = logging.getLogger(__name__)
-
-
-# Add this helper function
-def get_user_friendly_error(error_text: str) -> dict:
-    """Convert technical error to user-friendly message"""
-    error_lower = (error_text or "").lower()
-
-    errors = {
-        "network": {
-            "title": "Network Connection Issue",
-            "message": "We had trouble connecting to YouTube. This might be a temporary network issue or YouTube rate limiting. Please wait a minute and try again.",
-            "suggestions": [
-                "Check your internet connection",
-                "Try a different playlist",
-                "Wait a few minutes and retry",
-            ],
-        },
-        "timeout": {
-            "title": "Request Timed Out",
-            "message": "YouTube took too long to respond. This usually happens with very large playlists.",
-            "suggestions": [
-                "Try analyzing a smaller playlist first",
-                "Wait and try again later",
-                "Check if the playlist is public",
-            ],
-        },
-        "blocked": {
-            "title": "YouTube Bot Protection",
-            "message": "YouTube detected our request as bot activity. This is common with large playlist analyses.",
-            "suggestions": [
-                "Wait 5-10 minutes before trying again",
-                "Try a smaller playlist",
-                "Enable JavaScript for better compatibility",
-            ],
-        },
-        "not found": {
-            "title": "Playlist Not Found",
-            "message": "We couldn't find or access this playlist. It might be private or deleted.",
-            "suggestions": [
-                "Verify the playlist URL is correct",
-                "Make sure the playlist is public",
-                "Try a different playlist",
-            ],
-        },
-    }
-
-    # Match error type
-    for error_type, details in errors.items():
-        if error_type in error_lower:
-            return details
-
-    # Default
-    return {
-        "title": "Analysis Failed",
-        "message": f"Unexpected error during analysis. Please try again.",
-        "suggestions": [
-            "Try a different playlist",
-            "Wait a few minutes",
-            "Check the URL is correct",
-        ],
-    }
 
 
 def job_progress_controller(playlist_url: str):
