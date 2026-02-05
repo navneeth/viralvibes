@@ -110,6 +110,32 @@ def _build_youtube_client():
     return build("youtube", "v3", developerKey=api_key)
 
 
+def _normalize_channel_id(channel_id: str) -> str:
+    """
+    Normalize channel ID by removing common prefixes.
+
+    Handles formats like:
+    - "channel:UC6QZ_ss3i_8qLV_RczPZBkw" -> "UC6QZ_ss3i_8qLV_RczPZBkw"
+    - "UC6QZ_ss3i_8qLV_RczPZBkw" -> "UC6QZ_ss3i_8qLV_RczPZBkw"
+
+    Args:
+        channel_id: Raw channel ID from database
+
+    Returns:
+        Clean channel ID suitable for YouTube API
+    """
+    if not channel_id:
+        return channel_id
+
+    # Strip known prefixes
+    if channel_id.startswith("channel:"):
+        return channel_id[8:]  # len("channel:") == 8
+    if channel_id.startswith("@"):
+        return channel_id  # Handle @username separately if needed
+
+    return channel_id
+
+
 async def fetch_pending_syncs() -> List[Dict[str, Any]]:
     """Return list of pending creator sync jobs from creator_sync_jobs table."""
     try:
@@ -132,18 +158,21 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
     - Quality grade based on engagement performance
 
     Args:
-        creator_id: YouTube channel ID (starts with UC)
+        creator_id: YouTube channel ID (starts with UC), may have "channel:" prefix
 
     Returns:
         Dict with channel stats, or None if fetch fails
     """
-    logger.info(f"[Creator] Fetching channel data for {creator_id}")
+    # Normalize channel ID to remove any prefixes
+    channel_id = _normalize_channel_id(creator_id)
+
+    logger.info(f"[Creator] Fetching channel data for {channel_id}")
 
     try:
         # 1. Get channel statistics from YouTube API
-        channel_stats = await _fetch_channel_statistics(creator_id)
+        channel_stats = await _fetch_channel_statistics(channel_id)
         if not channel_stats:
-            logger.error(f"Failed to fetch channel statistics for {creator_id}")
+            logger.error(f"Failed to fetch channel statistics for {channel_id}")
             return None
 
         subscriber_count = channel_stats["subscriber_count"]
@@ -151,12 +180,12 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
         video_count = channel_stats["video_count"]
 
         logger.info(
-            f"[Creator] {creator_id}: {subscriber_count:,} subscribers, "
+            f"[Creator] {channel_id}: {subscriber_count:,} subscribers, "
             f"{view_count:,} views, {video_count:,} videos"
         )
 
         # 2. Fetch recent videos to compute engagement score
-        engagement_score = await _compute_engagement_score(creator_id)
+        engagement_score = await _compute_engagement_score(channel_id)
 
         # 3. Determine quality grade based on engagement
         quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
@@ -170,7 +199,7 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
         }
 
     except Exception as e:
-        logger.exception(f"Error fetching channel data for creator {creator_id}: {e}")
+        logger.exception(f"Error fetching channel data for creator {channel_id}: {e}")
         raise
 
 

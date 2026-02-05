@@ -21,11 +21,13 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from constants import (
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
+    CREATOR_UPDATE_INTERVAL_DAYS,
+    CREATOR_WORKER_MAX_RETRIES,
+    CREATOR_WORKER_RETRY_BASE,
     PLAYLIST_JOBS_TABLE,
     PLAYLIST_STATS_TABLE,
     SIGNUPS_TABLE,
     JobStatus,
-    CREATOR_UPDATE_INTERVAL_DAYS,
 )
 from utils import compute_dashboard_id
 
