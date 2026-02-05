@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import db  # Import module to access the global supabase_client after init
+from constants import CREATOR_SYNC_JOBS_TABLE, CREATOR_TABLE
 from db import init_supabase, setup_logging
 
 WIKI_URL = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channels"
@@ -24,18 +25,39 @@ logger = logging.getLogger(__name__)
 def extract_youtube_urls(html: str) -> List[str]:
     """
     Extract YouTube channel URLs from Wikipedia HTML.
-    Parses the table of most-subscribed channels.
+    Targets the specific "Most-subscribed channels" table to avoid noise.
+
+    The Wikipedia page structure typically has tables with class 'wikitable'
+    containing the channel data. We target those specifically rather than
+    scanning the entire page.
     """
     soup = BeautifulSoup(html, "html.parser")
 
     urls = set()
 
-    # Find all links that point to YouTube
-    for link in soup.find_all("a", href=True):
+    # Target the main content tables (wikitable class contains the subscription data)
+    # This avoids footer links, navigation, citations, etc.
+    tables = soup.find_all("table", class_="wikitable")
+
+    if not tables:
+        logger.warning("No wikitable found - Wikipedia structure may have changed")
+        # Fallback to scanning entire page if table structure changed
+        search_area = soup
+    else:
+        # Create a new soup containing only the tables
+        search_area = BeautifulSoup(str(tables), "html.parser")
+        logger.debug(f"Found {len(tables)} wikitables to search")
+
+    # Find YouTube links within the targeted area
+    for link in search_area.find_all("a", href=True):
         href = link["href"]
 
         # Match various YouTube URL formats by checking the hostname
-        parsed = urlparse(href if href.startswith("http") or href.startswith("//") else f"https://{href.lstrip('/')}")
+        parsed = urlparse(
+            href
+            if href.startswith("http") or href.startswith("//")
+            else f"https://{href.lstrip('/')}"
+        )
         host = parsed.hostname.lower() if parsed.hostname else None
         if host and (host == "youtube.com" or host.endswith(".youtube.com")):
             # Handle relative Wikipedia links
@@ -112,7 +134,7 @@ def get_or_create_creator(channel_id: str) -> str | None:
     try:
         # First, try to find existing creator by channel_id
         response = (
-            db.supabase_client.table("creators")
+            db.supabase_client.table(CREATOR_TABLE)
             .select("id")
             .eq("channel_id", channel_id)
             .limit(1)
@@ -126,7 +148,7 @@ def get_or_create_creator(channel_id: str) -> str | None:
 
         # Creator doesn't exist, create it
         insert_response = (
-            db.supabase_client.table("creators")
+            db.supabase_client.table(CREATOR_TABLE)
             .insert(
                 {
                     "channel_id": channel_id,
@@ -157,7 +179,7 @@ def enqueue_creator_sync(creator_id: str) -> bool:
 
     try:
         result = (
-            db.supabase_client.table("creator_sync_jobs")
+            db.supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
             .insert(
                 {
                     "creator_id": creator_id,
