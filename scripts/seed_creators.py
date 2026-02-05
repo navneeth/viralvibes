@@ -34,8 +34,10 @@ def extract_youtube_urls(html: str) -> List[str]:
     for link in soup.find_all("a", href=True):
         href = link["href"]
 
-        # Match various YouTube URL formats
-        if "youtube.com" in href:
+        # Match various YouTube URL formats by checking the hostname
+        parsed = urlparse(href if href.startswith("http") or href.startswith("//") else f"https://{href.lstrip('/')}")
+        host = parsed.hostname.lower() if parsed.hostname else None
+        if host and (host == "youtube.com" or host.endswith(".youtube.com")):
             # Handle relative Wikipedia links
             if href.startswith("/wiki/"):
                 continue
