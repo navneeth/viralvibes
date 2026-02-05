@@ -853,7 +853,7 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
 def update_creator_stats(
     creator_id: str,
     stats: Dict[str, Any],
-    job_id: str,
+    job_id: int,
 ) -> bool:
     """
     Update creator stats after successful sync.
