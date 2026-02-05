@@ -266,31 +266,35 @@ def render_creators_grid(creators: list[dict]) -> Div:
     )
 
 
-def _creator_insight(creator: dict) -> str | None:
+def _creator_insight(
+    engagement_score: float,
+    avg_views_per_video: float,
+    video_count: int,
+    subscribers: int,
+) -> str | None:
     """
     Generate a micro-signal explaining why this creator matters.
 
     Uses existing data to highlight creator strengths:
-    - High engagement → engaged audience
+    - High engagement (% based) → engaged audience
     - High growth efficiency → fast-growing channel
     - High avg views → viral content density
 
-    Returns insight string with emoji, or None if no standout quality.
+    Args:
+        engagement_score: Engagement as percentage (e.g., 5.3 for 5.3%)
+        avg_views_per_video: Average views per video (already calculated)
+        video_count: Number of videos published
+        subscribers: Current subscriber count
+
+    Returns:
+        Insight string with emoji, or None if no standout quality.
     """
-    engagement = creator.get("engagement_score", 0) or 0
-    video_count = creator.get("current_video_count", 0) or 0
-    subscribers = creator.get("current_subscribers", 0) or 0
-    total_views = creator.get("current_view_count", 0) or 0
-
-    # Calculate avg views per video
-    avg_views = (total_views / video_count) if video_count > 0 else 0
-
     # Prioritize insights (order matters - most impressive first)
-    if engagement > 6:
+    if engagement_score >= 5.0:  # 5% engagement or higher is excellent
         return "🔥 Highly engaged audience"
     if video_count < 200 and subscribers > 500_000:
         return "🚀 Fast-growing channel"
-    if avg_views > 1_000_000:
+    if avg_views_per_video > 1_000_000:
         return "🎯 Viral content density"
 
     return None
@@ -325,8 +329,13 @@ def render_creator_card(creator: dict) -> Div:
     # Calculate derived metrics
     avg_views_per_video = (current_views / current_videos) if current_videos > 0 else 0
 
-    # Get creator insight
-    insight = _creator_insight(creator)
+    # Get creator insight (pass computed values to avoid duplication)
+    insight = _creator_insight(
+        engagement_score=engagement_score,
+        avg_views_per_video=avg_views_per_video,
+        video_count=current_videos,
+        subscribers=current_subs,
+    )
 
     # Format numbers
     subs_formatted = format_number(current_subs)
