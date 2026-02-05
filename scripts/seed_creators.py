@@ -122,10 +122,53 @@ def normalize_channel_id(url: str) -> str | None:
         return None
 
 
+def extract_raw_channel_id(url: str) -> str | None:
+    """
+    Extract ONLY the raw YouTube channel ID (UCxxxxxx format).
+
+    Handles:
+    - /channel/UCxxxxxx → UCxxxxxx
+    - /@handle → Resolve to UCxxxxxx via API (optional)
+    - /user/name → Skip (needs API resolution)
+    - /c/name → Skip (needs API resolution)
+
+    Returns raw channel ID or None if not directly extractable.
+    """
+    try:
+        parsed = urlparse(url)
+        path = parsed.path
+
+        # Only handle direct channel ID format
+        if "/channel/" in path:
+            parts = path.split("/channel/")
+            if len(parts) > 1:
+                channel_id = parts[1].strip("/").split("?")[0]
+                # Validate format (UC followed by 22 chars)
+                if channel_id.startswith("UC") and len(channel_id) == 24:
+                    return channel_id
+
+        # Log other formats for manual review
+        if "/@" in path or "/user/" in path or "/c/" in path:
+            logger.debug(f"Skipping non-direct channel URL (needs resolution): {url}")
+
+        return None
+    except Exception as e:
+        logger.warning(f"Error parsing URL {url}: {e}")
+        return None
+
+
 def get_or_create_creator(channel_id: str) -> str | None:
     """
-    Get or create a creator in the creators table.
-    Returns the creator UUID if successful, None otherwise.
+    Get existing creator or create minimal creator record with just channel_id.
+
+    Returns existing creator_id if found, otherwise creates a new minimal record.
+    Worker will populate full metadata (name, stats, etc.) via YouTube API.
+
+    Args:
+        channel_id: Raw YouTube channel ID (format: UCxxxxxx)
+
+    Returns:
+        Creator UUID if successful, None on error
     """
     if not db.supabase_client:
         logger.error("Supabase client not available")
@@ -141,33 +184,35 @@ def get_or_create_creator(channel_id: str) -> str | None:
             .execute()
         )
 
-        if response.data and len(response.data) > 0:
+        if response.data:
             creator_id = response.data[0]["id"]
-            logger.debug(f"Found existing creator {channel_id}: {creator_id}")
+            logger.debug(f"Creator already exists: {channel_id} → {creator_id}")
             return creator_id
 
-        # Creator doesn't exist, create it
+        # Create minimal record (worker will enrich)
         insert_response = (
             db.supabase_client.table(CREATOR_TABLE)
             .insert(
                 {
                     "channel_id": channel_id,
-                    "channel_name": channel_id,  # Use channel_id as placeholder for name
+                    # Don't set channel_name - let worker fetch real name
+                    # Don't set channel_url - let worker construct it
                 }
             )
             .execute()
         )
 
-        if insert_response.data and len(insert_response.data) > 0:
+        if insert_response.data:
             creator_id = insert_response.data[0]["id"]
-            logger.info(f"Created new creator for {channel_id}: {creator_id}")
+            logger.info(f"Created minimal creator record: {channel_id} → {creator_id}")
             return creator_id
 
-        logger.error(f"Failed to create creator for {channel_id}")
+        # Insert failed but no exception - log for visibility
+        logger.error(f"Failed to create creator {channel_id}: insert returned no data")
         return None
 
     except Exception as e:
-        logger.error(f"Error getting/creating creator {channel_id}: {e}")
+        logger.error(f"Error creating creator {channel_id}: {e}")
         return None
 
 

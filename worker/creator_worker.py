@@ -202,11 +202,17 @@ async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]
 
         channel = response["items"][0]
         statistics = channel.get("statistics", {})
+        snippet = channel.get("snippet", {})
 
         return {
             "subscriber_count": int(statistics.get("subscriberCount", 0) or 0),
             "view_count": int(statistics.get("viewCount", 0) or 0),
             "video_count": int(statistics.get("videoCount", 0) or 0),
+            # NEW: Extract metadata
+            "channel_name": snippet.get("title", ""),
+            "channel_thumbnail": snippet.get("thumbnails", {})
+            .get("default", {})
+            .get("url"),
         }
 
     except Exception as e:
