@@ -178,6 +178,8 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
         subscriber_count = channel_stats["subscriber_count"]
         view_count = channel_stats["view_count"]
         video_count = channel_stats["video_count"]
+        channel_name = channel_stats.get("channel_name", "")
+        channel_thumbnail = channel_stats.get("channel_thumbnail")
 
         logger.info(
             f"[Creator] {channel_id}: {subscriber_count:,} subscribers, "
@@ -191,11 +193,14 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
         quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
 
         return {
+            "channel_id": channel_id,
             "subscriber_count": subscriber_count,
             "view_count": view_count,
             "video_count": video_count,
             "engagement_score": engagement_score,
             "quality_grade": quality_grade,
+            "channel_name": channel_name,
+            "channel_thumbnail": channel_thumbnail,
         }
 
     except Exception as e:
