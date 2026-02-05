@@ -18,3 +18,4 @@ isodate
 click
 pytest
 pytest-asyncio
+beautifulsoup4
