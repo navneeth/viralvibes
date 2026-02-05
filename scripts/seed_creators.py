@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -22,26 +23,60 @@ WIKI_URL = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channe
 logger = logging.getLogger(__name__)
 
 
+def build_youtube_client():
+    """Build YouTube API client for channel validation."""
+    try:
+        from googleapiclient.discovery import build
+
+        api_key = os.getenv("YOUTUBE_API_KEY")
+        if not api_key:
+            logger.warning("YOUTUBE_API_KEY not set - skipping validation")
+            return None
+
+        return build("youtube", "v3", developerKey=api_key)
+    except Exception as e:
+        logger.warning(f"Failed to build YouTube client: {e}")
+        return None
+
+
+def validate_channel_id(channel_id: str, youtube=None) -> bool:
+    """
+    Validate that a channel ID exists on YouTube.
+
+    Args:
+        channel_id: Raw YouTube channel ID (UCxxxxxx)
+        youtube: Optional YouTube API client
+
+    Returns:
+        True if valid, False if invalid or cannot be verified
+    """
+    if not youtube:
+        # Without API client, do basic format validation
+        return channel_id.startswith("UC") and len(channel_id) == 24
+
+    try:
+        request = youtube.channels().list(part="snippet", id=channel_id)
+        response = request.execute()
+        return bool(response.get("items"))
+    except Exception as e:
+        logger.debug(f"Failed to validate {channel_id}: {e}")
+        return False
+
+
 def extract_youtube_urls(html: str) -> List[str]:
     """
     Extract YouTube channel URLs from Wikipedia HTML.
     Targets the specific "Most-subscribed channels" table to avoid noise.
-
-    The Wikipedia page structure typically has tables with class 'wikitable'
-    containing the channel data. We target those specifically rather than
-    scanning the entire page.
     """
     soup = BeautifulSoup(html, "html.parser")
 
     urls = set()
 
     # Target the main content tables (wikitable class contains the subscription data)
-    # This avoids footer links, navigation, citations, etc.
     tables = soup.find_all("table", class_="wikitable")
 
     if not tables:
         logger.warning("No wikitable found - Wikipedia structure may have changed")
-        # Fallback to scanning entire page if table structure changed
         search_area = soup
     else:
         # Create a new soup containing only the tables
@@ -53,103 +88,66 @@ def extract_youtube_urls(html: str) -> List[str]:
         href = link["href"]
 
         # Match various YouTube URL formats by checking the hostname
-        parsed = urlparse(
-            href
-            if href.startswith("http") or href.startswith("//")
-            else f"https://{href.lstrip('/')}"
-        )
-        host = parsed.hostname.lower() if parsed.hostname else None
-        if host and (host == "youtube.com" or host.endswith(".youtube.com")):
-            # Handle relative Wikipedia links
-            if href.startswith("/wiki/"):
-                continue
+        try:
+            parsed = urlparse(
+                href
+                if href.startswith("http") or href.startswith("//")
+                else f"https://{href.lstrip('/')}"
+            )
+            host = parsed.hostname.lower() if parsed.hostname else None
+            if host and (host == "youtube.com" or host.endswith(".youtube.com")):
+                # Handle relative Wikipedia links
+                if href.startswith("/wiki/"):
+                    continue
 
-            # Extract full YouTube URLs
-            if href.startswith("http"):
-                urls.add(href)
-            elif href.startswith("//"):
-                urls.add("https:" + href)
+                # Extract full YouTube URLs
+                if href.startswith("http"):
+                    urls.add(href)
+                elif href.startswith("//"):
+                    urls.add("https:" + href)
+        except Exception as e:
+            logger.debug(f"Error parsing URL {href}: {e}")
+            continue
 
     return list(urls)
 
 
-def normalize_channel_id(url: str) -> str | None:
-    """
-    Extract channel_id or handle from YouTube URL.
-    Handles multiple formats: @handle, /channel/, /user/, /c/
-    """
-    try:
-        parsed = urlparse(url)
-        path = parsed.path
-
-        # Remove query parameters
-        if "?" in url:
-            url = url.split("?")[0]
-
-        # Modern @handle format
-        if "/@" in url:
-            match = re.search(r"/@([^/?]+)", url)
-            if match:
-                return "@" + match.group(1)
-
-        # Channel ID format
-        if "/channel/" in path:
-            parts = path.split("/channel/")
-            if len(parts) > 1:
-                channel_id = parts[1].strip("/")
-                if channel_id:
-                    return "channel:" + channel_id
-
-        # User format
-        if "/user/" in path:
-            parts = path.split("/user/")
-            if len(parts) > 1:
-                user = parts[1].strip("/")
-                if user:
-                    return "user:" + user
-
-        # /c/ format
-        if "/c/" in path:
-            parts = path.split("/c/")
-            if len(parts) > 1:
-                channel = parts[1].strip("/")
-                if channel:
-                    return "c:" + channel
-
-        return None
-    except Exception as e:
-        logger.warning(f"Error parsing URL {url}: {e}")
-        return None
-
-
 def extract_raw_channel_id(url: str) -> str | None:
     """
-    Extract ONLY the raw YouTube channel ID (UCxxxxxx format).
+    Extract ONLY raw YouTube channel IDs (UCxxxxxx format).
 
-    Handles:
-    - /channel/UCxxxxxx → UCxxxxxx
-    - /@handle → Resolve to UCxxxxxx via API (optional)
-    - /user/name → Skip (needs API resolution)
-    - /c/name → Skip (needs API resolution)
+    Only handles direct /channel/ URLs. Other formats (@handle, /user/, /c/)
+    are skipped as they would require API resolution.
 
-    Returns raw channel ID or None if not directly extractable.
+    Args:
+        url: YouTube channel URL
+
+    Returns:
+        Raw channel ID (UCxxxxxx) or None if not extractable
     """
     try:
         parsed = urlparse(url)
         path = parsed.path
 
-        # Only handle direct channel ID format
+        # Only extract from direct /channel/UCxxxxxx format
         if "/channel/" in path:
             parts = path.split("/channel/")
             if len(parts) > 1:
-                channel_id = parts[1].strip("/").split("?")[0]
-                # Validate format (UC followed by 22 chars)
+                channel_id = parts[1].strip("/").split("?")[0].split("#")[0]
+
+                # Validate format: UC + 22 characters
                 if channel_id.startswith("UC") and len(channel_id) == 24:
                     return channel_id
+                else:
+                    logger.debug(f"Invalid channel ID format: {channel_id}")
 
-        # Log other formats for manual review
-        if "/@" in path or "/user/" in path or "/c/" in path:
-            logger.debug(f"Skipping non-direct channel URL (needs resolution): {url}")
+        # Log other formats for awareness
+        if "/@" in path:
+            logger.debug(f"Skipping @handle URL (needs API resolution): {url}")
+        elif "/user/" in path:
+            logger.debug(f"Skipping /user/ URL (needs API resolution): {url}")
+        elif "/c/" in path:
+            logger.debug(f"Skipping /c/ URL (needs API resolution): {url}")
 
         return None
     except Exception as e:
@@ -159,13 +157,13 @@ def extract_raw_channel_id(url: str) -> str | None:
 
 def get_or_create_creator(channel_id: str) -> str | None:
     """
-    Get existing creator or create minimal creator record with just channel_id.
+    Get existing creator or create minimal creator record.
 
-    Returns existing creator_id if found, otherwise creates a new minimal record.
-    Worker will populate full metadata (name, stats, etc.) via YouTube API.
+    ⚠️ CRITICAL: Store ONLY raw channel IDs (UCxxxxxx format)
+    Worker and collation logic depend on this consistency.
 
     Args:
-        channel_id: Raw YouTube channel ID (format: UCxxxxxx)
+        channel_id: Raw YouTube channel ID (UCxxxxxx)
 
     Returns:
         Creator UUID if successful, None on error
@@ -189,14 +187,15 @@ def get_or_create_creator(channel_id: str) -> str | None:
             logger.debug(f"Creator already exists: {channel_id} → {creator_id}")
             return creator_id
 
-        # Create minimal record (worker will enrich)
+        # Create minimal record with ONLY channel_id
+        # Worker will fetch real metadata (name, URL, stats) via YouTube API
         insert_response = (
             db.supabase_client.table(CREATOR_TABLE)
             .insert(
                 {
                     "channel_id": channel_id,
-                    # Don't set channel_name - let worker fetch real name
-                    # Don't set channel_url - let worker construct it
+                    # Leave NULL: channel_name, channel_url, etc.
+                    # Worker fills these in via YouTube API
                 }
             )
             .execute()
@@ -204,10 +203,9 @@ def get_or_create_creator(channel_id: str) -> str | None:
 
         if insert_response.data:
             creator_id = insert_response.data[0]["id"]
-            logger.info(f"Created minimal creator record: {channel_id} → {creator_id}")
+            logger.info(f"Created minimal creator: {channel_id} → {creator_id}")
             return creator_id
 
-        # Insert failed but no exception - log for visibility
         logger.error(f"Failed to create creator {channel_id}: insert returned no data")
         return None
 
@@ -257,6 +255,9 @@ def main():
         )
         sys.exit(1)
 
+    # Optional: Build YouTube client for validation
+    youtube = build_youtube_client()
+
     logger.info("Fetching Wikipedia page...")
 
     # Add User-Agent header to avoid being blocked
@@ -284,35 +285,49 @@ def main():
         logger.warning("  - Network/access issue")
         sys.exit(1)
 
+    # Extract raw channel IDs only
     seen = set()
     enqueued = 0
+    skipped = 0
     failed = 0
 
     for url in sorted(urls):
-        channel_id = normalize_channel_id(url)
-        if not channel_id or channel_id in seen:
+        channel_id = extract_raw_channel_id(url)
+
+        if not channel_id:
+            skipped += 1
+            continue
+
+        if channel_id in seen:
+            logger.debug(f"Skipping duplicate: {channel_id}")
             continue
 
         seen.add(channel_id)
 
+        # Optional: Validate against YouTube API
+        if youtube and not validate_channel_id(channel_id, youtube):
+            logger.warning(f"Channel validation failed: {channel_id}")
+            # Still try to add it - may have different API quota issues
+
         # Step 1: Get or create creator
         creator_id = get_or_create_creator(channel_id)
         if not creator_id:
-            logger.warning(f"Failed to get/create creator for: {channel_id}")
+            logger.warning(f"Failed to get/create creator: {channel_id}")
             failed += 1
             continue
 
         # Step 2: Enqueue sync job
         if enqueue_creator_sync(creator_id):
-            logger.info(f"✓ Enqueued: {channel_id} (creator_id: {creator_id})")
+            logger.info(f"✓ Enqueued: {channel_id}")
             enqueued += 1
         else:
-            logger.warning(f"Failed to enqueue sync job for: {channel_id}")
+            logger.warning(f"Failed to enqueue: {channel_id}")
             failed += 1
 
     logger.info(f"\n✅ Successfully enqueued {enqueued} creators")
+    logger.info(f"⏭️  Skipped {skipped} non-direct URLs (need manual/API resolution)")
     if failed > 0:
-        logger.warning(f"⚠️  Failed to enqueue {failed} creators")
+        logger.warning(f"❌ Failed to process {failed} creators")
 
 
 if __name__ == "__main__":
