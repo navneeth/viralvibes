@@ -149,7 +149,7 @@ def extract_raw_channel_id(url: str) -> str | None:
 
         # Log other formats for manual review
         if "/@" in path or "/user/" in path or "/c/" in path:
-            logger.info(f"Skipping non-direct channel URL (needs resolution): {url}")
+            logger.debug(f"Skipping non-direct channel URL (needs resolution): {url}")
 
         return None
     except Exception as e:
@@ -159,8 +159,16 @@ def extract_raw_channel_id(url: str) -> str | None:
 
 def get_or_create_creator(channel_id: str) -> str | None:
     """
-    Create minimal creator record with just channel_id.
-    Worker will populate full metadata via YouTube API.
+    Get existing creator or create minimal creator record with just channel_id.
+
+    Returns existing creator_id if found, otherwise creates a new minimal record.
+    Worker will populate full metadata (name, stats, etc.) via YouTube API.
+
+    Args:
+        channel_id: Raw YouTube channel ID (format: UCxxxxxx)
+
+    Returns:
+        Creator UUID if successful, None on error
     """
     if not db.supabase_client:
         logger.error("Supabase client not available")
@@ -198,6 +206,10 @@ def get_or_create_creator(channel_id: str) -> str | None:
             creator_id = insert_response.data[0]["id"]
             logger.info(f"Created minimal creator record: {channel_id} → {creator_id}")
             return creator_id
+
+        # Insert failed but no exception - log for visibility
+        logger.error(f"Failed to create creator {channel_id}: insert returned no data")
+        return None
 
     except Exception as e:
         logger.error(f"Error creating creator {channel_id}: {e}")
