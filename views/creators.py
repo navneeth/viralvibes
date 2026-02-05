@@ -39,10 +39,20 @@ def render_creators_page(
             H1("🌟 Top Creators", cls="text-4xl font-bold mb-2"),
             P(
                 f"Discover {len(creators)} YouTube creators with verified stats",
-                cls="text-gray-600 text-lg",
+                cls="text-gray-600 text-lg mb-3",
+            ),
+            # Value proposition - monetization hook
+            Alert(
+                P(
+                    "Ranked by engagement quality — not just subscriber count.",
+                    cls="text-sm font-medium mb-0",
+                ),
+                cls=f"{AlertT.info} border-0 bg-indigo-50",
             ),
             cls="mb-8 mt-8",
         ),
+        # Stats Overview Cards (moved above filters for better UX flow)
+        render_stats_overview(creators) if creators else None,
         # Filter & Sort Controls
         render_filter_controls(
             search=search,
@@ -50,8 +60,6 @@ def render_creators_page(
             grade_filter=grade_filter,
             grade_counts=grade_counts,
         ),
-        # Stats Overview Cards
-        render_stats_overview(creators) if creators else None,
         # Creators Grid or Empty State
         (
             render_creators_grid(creators)
@@ -160,7 +168,7 @@ def render_filter_controls(
                         selected=(sort == "engagement"),
                     ),
                     Option(
-                        "⭐ Quality Grade",
+                        "⭐ Best Quality (Engagement × Views)",
                         value="quality",
                         selected=(sort == "quality"),
                     ),
@@ -258,6 +266,36 @@ def render_creators_grid(creators: list[dict]) -> Div:
     )
 
 
+def _creator_insight(creator: dict) -> str | None:
+    """
+    Generate a micro-signal explaining why this creator matters.
+
+    Uses existing data to highlight creator strengths:
+    - High engagement → engaged audience
+    - High growth efficiency → fast-growing channel
+    - High avg views → viral content density
+
+    Returns insight string with emoji, or None if no standout quality.
+    """
+    engagement = creator.get("engagement_score", 0) or 0
+    video_count = creator.get("current_video_count", 0) or 0
+    subscribers = creator.get("current_subscribers", 0) or 0
+    total_views = creator.get("current_view_count", 0) or 0
+
+    # Calculate avg views per video
+    avg_views = (total_views / video_count) if video_count > 0 else 0
+
+    # Prioritize insights (order matters - most impressive first)
+    if engagement > 6:
+        return "🔥 Highly engaged audience"
+    if video_count < 200 and subscribers > 500_000:
+        return "🚀 Fast-growing channel"
+    if avg_views > 1_000_000:
+        return "🎯 Viral content density"
+
+    return None
+
+
 def render_creator_card(creator: dict) -> Div:
     """
     Render a single creator card with stats and quality indicators.
@@ -286,6 +324,9 @@ def render_creator_card(creator: dict) -> Div:
 
     # Calculate derived metrics
     avg_views_per_video = (current_views / current_videos) if current_videos > 0 else 0
+
+    # Get creator insight
+    insight = _creator_insight(creator)
 
     # Format numbers
     subs_formatted = format_number(current_subs)
@@ -343,8 +384,17 @@ def render_creator_card(creator: dict) -> Div:
             # Channel ID
             P(
                 channel_id,
-                cls="text-xs text-gray-500 mb-4 font-mono truncate",
+                cls="text-xs text-gray-500 mb-3 font-mono truncate",
                 title=channel_id,
+            ),
+            # Creator insight ("Why this matters" signal)
+            (
+                Div(
+                    P(insight, cls="text-xs text-indigo-600 font-medium mb-0"),
+                    cls="mb-3 px-3 py-1.5 bg-indigo-50 rounded-md border border-indigo-100",
+                )
+                if insight
+                else None
             ),
             # Stats grid
             Div(
@@ -382,30 +432,37 @@ def render_creator_card(creator: dict) -> Div:
             ),
             # Engagement section
             Div(
+                # Primary metric: Avg views per video (quality over quantity)
                 Div(
-                    Span("🔥 Engagement", cls="text-xs text-gray-600 font-medium"),
-                    Span(
-                        f"{engagement_score:.2f}%",
-                        cls="text-sm font-bold text-gray-900",
+                    UkIcon("trending-up", cls="w-4 h-4 text-blue-600"),
+                    Div(
+                        Span(
+                            format_number(int(avg_views_per_video)),
+                            cls="text-lg font-bold text-gray-900",
+                        ),
+                        Span(" avg views/video", cls="text-xs text-gray-600"),
+                        cls="flex flex-col",
                     ),
-                    cls="flex justify-between items-center mb-2",
+                    cls="flex items-center gap-2 mb-4",
                 ),
-                # Engagement gauge
+                # Engagement score with gauge
                 Div(
                     Div(
-                        cls=f"h-2 bg-gradient-to-r {engagement_color} rounded-full transition-all duration-500",
-                        style=f"width: {min(100, engagement_score * 10)}%",
+                        Span("🔥 Engagement", cls="text-xs text-gray-600 font-medium"),
+                        Span(
+                            f"{engagement_score:.2f}%",
+                            cls="text-sm font-bold text-gray-900",
+                        ),
+                        cls="flex justify-between items-center mb-2",
                     ),
-                    cls="w-full h-2 bg-gray-200 rounded-full mb-3",
-                ),
-                # Avg views per video
-                Div(
-                    UkIcon("trending-up", cls="w-3 h-3 text-blue-600"),
-                    Span(
-                        f"{format_number(int(avg_views_per_video))} avg views/video",
-                        cls="text-xs text-gray-600",
+                    # Engagement gauge
+                    Div(
+                        Div(
+                            cls=f"h-2 bg-gradient-to-r {engagement_color} rounded-full transition-all duration-500",
+                            style=f"width: {min(100, engagement_score * 10)}%",
+                        ),
+                        cls="w-full h-2 bg-gray-200 rounded-full",
                     ),
-                    cls="flex items-center gap-1",
                 ),
                 cls="mb-4",
             ),
