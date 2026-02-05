@@ -853,7 +853,7 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
 def update_creator_stats(
     creator_id: str,
     stats: Dict[str, Any],
-    job_id: int,
+    job_id: str,
 ) -> bool:
     """
     Update creator stats after successful sync.
@@ -872,7 +872,12 @@ def update_creator_stats(
             "current_subscribers": stats.get("subscriber_count", 0),
             "current_view_count": stats.get("view_count", 0),
             "current_video_count": stats.get("video_count", 0),
+            "engagement_score": stats.get("engagement_score", 0),
+            "quality_grade": stats.get("quality_grade", "C"),
             "last_updated_at": datetime.utcnow().isoformat(),
+            "channel_name": stats.get("channel_name"),
+            "channel_thumbnail_url": stats.get("channel_thumbnail"),
+            "channel_url": f"https://www.youtube.com/channel/{stats.get('channel_id')}",
         }
 
         response = (
