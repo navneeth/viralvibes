@@ -824,16 +824,18 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
             ).isoformat()
             logger.info(f"Creator sync job {job_id} will retry in {backoff_seconds}s")
 
+        update_payload = {
+            "status": status,
+            "retry_count": retry_count + 1,
+            "error_message": error,
+        }
+
+        if next_retry:
+            update_payload["next_retry_at"] = next_retry
+
         response = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .update(
-                {
-                    "status": status,
-                    "retry_count": retry_count + 1,
-                    "error_message": error,
-                    "next_retry_at": next_retry,
-                }
-            )
+            .update(update_payload)
             .eq("id", job_id)
             .execute()
         )
@@ -872,13 +874,17 @@ def update_creator_stats(
             "current_subscribers": stats.get("subscriber_count", 0),
             "current_view_count": stats.get("view_count", 0),
             "current_video_count": stats.get("video_count", 0),
-            "engagement_score": stats.get("engagement_score", 0),
-            "quality_grade": stats.get("quality_grade", "C"),
             "last_updated_at": datetime.utcnow().isoformat(),
             "channel_name": stats.get("channel_name"),
             "channel_thumbnail_url": stats.get("channel_thumbnail"),
             "channel_url": f"https://www.youtube.com/channel/{stats.get('channel_id')}",
         }
+
+        # Conditionally add optional fields if they exist in stats
+        if "engagement_score" in stats:
+            payload["engagement_score"] = stats.get("engagement_score")
+        if "quality_grade" in stats:
+            payload["quality_grade"] = stats.get("quality_grade")
 
         response = (
             supabase_client.table(CREATOR_TABLE)
