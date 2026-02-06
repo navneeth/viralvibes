@@ -112,15 +112,85 @@ def extract_youtube_urls(html: str) -> List[str]:
     return list(urls)
 
 
-def extract_raw_channel_id(url: str) -> str | None:
+def resolve_channel_id_from_handle(handle: str, youtube=None) -> str | None:
     """
-    Extract ONLY raw YouTube channel IDs (UCxxxxxx format).
+    Resolve YouTube handle (@username, /user/, /c/) to raw channel ID.
 
-    Only handles direct /channel/ URLs. Other formats (@handle, /user/, /c/)
-    are skipped as they would require API resolution.
+    Uses YouTube API to convert handles to proper channel IDs.
+
+    Args:
+        handle: YouTube handle or username (with or without @)
+        youtube: YouTube API client (required for resolution)
+
+    Returns:
+        Raw channel ID (UCxxxxxx) or None if resolution fails
+    """
+    if not youtube:
+        logger.debug(f"YouTube API client required for handle resolution: {handle}")
+        return None
+
+    try:
+        # Clean up handle format
+        username = handle.lstrip("/@").split("?")[0].split("#")[0].strip()
+
+        if not username:
+            return None
+
+        logger.debug(f"Resolving handle: {handle} -> username: {username}")
+
+        # Try forUsername first (most common)
+        try:
+            request = youtube.channels().list(part="id,snippet", forUsername=username)
+            response = request.execute()
+
+            if response.get("items"):
+                channel_id = response["items"][0]["id"]
+                channel_name = response["items"][0]["snippet"]["title"]
+                logger.info(
+                    f"✅ Resolved handle '{handle}' to {channel_id} ({channel_name})"
+                )
+                return channel_id
+        except Exception as e:
+            logger.debug(f"forUsername failed for {username}: {e}")
+
+        # Try forCustomUrl as fallback (for @handle format)
+        try:
+            request = youtube.channels().list(
+                part="id,snippet", forCustomUrl="@" + username
+            )
+            response = request.execute()
+
+            if response.get("items"):
+                channel_id = response["items"][0]["id"]
+                channel_name = response["items"][0]["snippet"]["title"]
+                logger.info(
+                    f"✅ Resolved custom URL '@{username}' to {channel_id} ({channel_name})"
+                )
+                return channel_id
+        except Exception as e:
+            logger.debug(f"forCustomUrl failed for @{username}: {e}")
+
+        logger.warning(f"Could not resolve handle: {handle}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Error resolving handle {handle}: {e}")
+        return None
+
+
+def extract_raw_channel_id(url: str, youtube=None) -> str | None:
+    """
+    Extract raw YouTube channel IDs from various URL formats.
+
+    Supports:
+    - Direct IDs: /channel/UCxxxxxx (no API needed)
+    - Handles: /@username (requires YouTube API)
+    - User URLs: /user/username (requires YouTube API)
+    - Custom URLs: /c/customname (requires YouTube API)
 
     Args:
         url: YouTube channel URL
+        youtube: Optional YouTube API client for handle resolution
 
     Returns:
         Raw channel ID (UCxxxxxx) or None if not extractable
@@ -129,7 +199,7 @@ def extract_raw_channel_id(url: str) -> str | None:
         parsed = urlparse(url)
         path = parsed.path
 
-        # Only extract from direct /channel/UCxxxxxx format
+        # ========== Format 1: Direct channel ID ==========
         if "/channel/" in path:
             parts = path.split("/channel/")
             if len(parts) > 1:
@@ -137,19 +207,44 @@ def extract_raw_channel_id(url: str) -> str | None:
 
                 # Validate format: UC + 22 characters
                 if channel_id.startswith("UC") and len(channel_id) == 24:
+                    logger.debug(f"Extracted direct channel ID: {channel_id}")
                     return channel_id
                 else:
                     logger.debug(f"Invalid channel ID format: {channel_id}")
+                    return None
 
-        # Log other formats for awareness
+        # ========== Format 2: @handle (/@username) ==========
         if "/@" in path:
-            logger.debug(f"Skipping @handle URL (needs API resolution): {url}")
-        elif "/user/" in path:
-            logger.debug(f"Skipping /user/ URL (needs API resolution): {url}")
-        elif "/c/" in path:
-            logger.debug(f"Skipping /c/ URL (needs API resolution): {url}")
+            if youtube:
+                handle = path.split("/@")[1].split("?")[0].split("#")[0].strip("/")
+                return resolve_channel_id_from_handle("@" + handle, youtube)
+            else:
+                logger.debug(f"Skipping @handle URL (YouTube API not available): {url}")
+                return None
 
+        # ========== Format 3: /user/ URL ==========
+        if "/user/" in path:
+            if youtube:
+                username = (
+                    path.split("/user/")[1].split("?")[0].split("#")[0].strip("/")
+                )
+                return resolve_channel_id_from_handle(username, youtube)
+            else:
+                logger.debug(f"Skipping /user/ URL (YouTube API not available): {url}")
+                return None
+
+        # ========== Format 4: /c/ URL ==========
+        if "/c/" in path:
+            if youtube:
+                customname = path.split("/c/")[1].split("?")[0].split("#")[0].strip("/")
+                return resolve_channel_id_from_handle(customname, youtube)
+            else:
+                logger.debug(f"Skipping /c/ URL (YouTube API not available): {url}")
+                return None
+
+        logger.warning(f"Unrecognized URL format: {url}")
         return None
+
     except Exception as e:
         logger.warning(f"Error parsing URL {url}: {e}")
         return None
@@ -255,8 +350,12 @@ def main():
         )
         sys.exit(1)
 
-    # Optional: Build YouTube client for validation
+    # Build YouTube client for validation AND handle resolution
     youtube = build_youtube_client()
+
+    if not youtube:
+        logger.warning("⚠️  YouTube API not available - will skip handle resolution")
+        logger.warning("   Only direct /channel/UCxxxxx URLs will be processed")
 
     logger.info("Fetching Wikipedia page...")
 
@@ -285,14 +384,15 @@ def main():
         logger.warning("  - Network/access issue")
         sys.exit(1)
 
-    # Extract raw channel IDs only
+    # Extract raw channel IDs (with handle resolution if API available)
     seen = set()
     enqueued = 0
     skipped = 0
     failed = 0
 
     for url in sorted(urls):
-        channel_id = extract_raw_channel_id(url)
+        # Pass youtube client to enable handle resolution
+        channel_id = extract_raw_channel_id(url, youtube)
 
         if not channel_id:
             skipped += 1
@@ -318,16 +418,23 @@ def main():
 
         # Step 2: Enqueue sync job
         if enqueue_creator_sync(creator_id):
-            logger.info(f"✓ Enqueued: {channel_id}")
+            logger.info(f"✅ Enqueued: {channel_id}")
             enqueued += 1
         else:
             logger.warning(f"Failed to enqueue: {channel_id}")
             failed += 1
 
     logger.info(f"\n✅ Successfully enqueued {enqueued} creators")
-    logger.info(f"⏭️  Skipped {skipped} non-direct URLs (need manual/API resolution)")
+    logger.info(f"⭐️  Skipped {skipped} non-resolvable URLs (YouTube API unavailable)")
     if failed > 0:
         logger.warning(f"❌ Failed to process {failed} creators")
+
+    # Summary
+    total_processed = enqueued + skipped + failed
+    success_rate = (enqueued / total_processed * 100) if total_processed > 0 else 0
+    logger.info(
+        f"\n📊 Success rate: {success_rate:.1f}% ({enqueued}/{total_processed})"
+    )
 
 
 if __name__ == "__main__":

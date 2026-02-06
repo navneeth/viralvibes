@@ -193,18 +193,15 @@ def _render_filter_bar(
     )
 
 
-def _render_creators_grid(creators: list[dict]) -> Container:
+def _render_creators_grid(creators: list[dict]) -> Grid:
     """Grid of creator cards using MonsterUI Grid."""
-    return Container(
-        Grid(
-            *[_render_creator_card(creator) for creator in creators],
-            cols_xl=3,
-            cols_lg=2,
-            cols_md=1,
-            cols_sm=1,
-            gap=6,
-        ),
-        cls=ContainerT.xl,
+    return Grid(
+        *[_render_creator_card(creator) for creator in creators],
+        cols_xl=3,
+        cols_lg=2,
+        cols_md=1,
+        cols_sm=1,
+        gap=6,
     )
 
 
@@ -220,7 +217,9 @@ def _render_creator_card(creator: dict) -> Card:
     channel_id = creator.get("channel_id", "N/A")
     channel_name = creator.get("channel_name", "Unknown")
     channel_thumbnail = creator.get("channel_thumbnail_url", "/static/favicon.jpeg")
-    channel_url = f"https://youtube.com/channel/{channel_id}"
+    channel_url = (
+        creator.get("channel_url") or f"https://youtube.com/channel/{channel_id}"
+    )
     quality_grade = creator.get("quality_grade", "C")
     last_updated = creator.get("last_updated", datetime.now())
 
@@ -238,12 +237,12 @@ def _render_creator_card(creator: dict) -> Card:
     avg_views_per_video = (
         current_views / max(1, current_videos) if current_videos > 0 else 0
     )
-    growth_rate = (
-        (subs_change / max(1, current_subs - subs_change)) * 100
-        if subs_change > 0
-        else 0
-    )
-    estimated_revenue = (current_views * 0.004) / 30 if current_views > 0 else 0
+    # Allow negative growth rates to show declining trends
+    if current_subs - subs_change > 0:
+        growth_rate = (subs_change / (current_subs - subs_change)) * 100
+    else:
+        growth_rate = 0
+    estimated_revenue = _estimate_monthly_revenue(current_views, views_change)
 
     # Tier styling
     tier_styles = {
@@ -256,11 +255,16 @@ def _render_creator_card(creator: dict) -> Card:
     tier_gradient, tier_label = tier_styles.get(quality_grade, tier_styles["C"])
 
     # Growth color indicator
-    growth_color = (
-        "text-green-600"
-        if growth_rate > 5
-        else ("text-yellow-600" if growth_rate > 2 else "text-gray-600")
-    )
+    if growth_rate > 5:
+        growth_color = "text-green-600"
+    elif growth_rate > 2:
+        growth_color = "text-green-600"
+    elif growth_rate > 0:
+        growth_color = "text-yellow-600"
+    elif growth_rate < 0:
+        growth_color = "text-red-600"
+    else:
+        growth_color = "text-gray-600"
 
     return Card(
         # HEADER: Avatar + Name + Tier Badge
@@ -373,21 +377,37 @@ def _render_creator_card(creator: dict) -> Card:
         # Growth indicator bar
         Div(
             Div(
-                P("30-Day Growth", cls="text-xs font-semibold text-gray-600"),
+                P("30-Day Trend", cls="text-xs font-semibold text-gray-600"),
                 P(
-                    f"{growth_rate:.1f}% growth" if growth_rate > 0 else "Stable",
+                    (
+                        f"+{growth_rate:.1f}% growth"
+                        if growth_rate > 0
+                        else (
+                            f"{growth_rate:.1f}% decline"
+                            if growth_rate < 0
+                            else "Stable"
+                        )
+                    ),
                     cls=f"text-xs font-bold {growth_color}",
                 ),
                 cls="flex justify-between items-center mb-2",
             ),
             Div(
                 Div(
-                    cls=f"h-1.5 bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500 rounded-full",
-                    style=f"width: {min(100, max(0, growth_rate * 5))}%",
+                    cls=(
+                        "h-1.5 bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500 rounded-full"
+                        if growth_rate >= 0
+                        else "h-1.5 bg-gradient-to-r from-red-400 to-red-600 transition-all duration-500 rounded-full"
+                    ),
+                    style=f"width: {min(100, max(0, abs(growth_rate) * 5))}%",
                 ),
                 cls="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden",
             ),
-            cls="bg-green-50 border border-green-100 rounded-lg p-3 mb-4",
+            cls=(
+                "bg-green-50 border border-green-100 rounded-lg p-3 mb-4"
+                if growth_rate >= 0
+                else "bg-red-50 border border-red-100 rounded-lg p-3 mb-4"
+            ),
         ),
         # TIER 3: FOOTER (Metadata + Action)
         Div(
@@ -471,3 +491,27 @@ def _count_by_grade(creators: list[dict]) -> dict:
         if grade in counts:
             counts[grade] += 1
     return counts
+
+
+def _estimate_monthly_revenue(current_views: int, views_30d: int = 0) -> float:
+    """
+    Estimate monthly revenue based on YouTube CPM model.
+
+    Uses a baseline CPM of $4 per 1000 views. If 30-day view data is available,
+    uses that for direct estimation. Otherwise, assumes current_views represents
+    lifetime views and extrapolates monthly average.
+
+    Args:
+        current_views: Lifetime or total view count
+        views_30d: Optional 30-day view count for direct calculation
+
+    Returns:
+        Estimated monthly revenue in USD
+    """
+    if views_30d > 0:
+        # Direct calculation from 30-day data
+        return (views_30d * 4) / 1000
+    else:
+        # Fallback: assume current_views is lifetime, extrapolate monthly average
+        # This is a rough estimate and should ideally use historical data
+        return (current_views * 4) / 1000 / 30 if current_views > 0 else 0

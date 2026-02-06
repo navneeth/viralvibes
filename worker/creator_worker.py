@@ -6,6 +6,12 @@ and updates job status. Intelligently retries failed jobs with backoff.
 This worker is completely independent from the playlist worker, running on a separate schedule
 with its own configuration for frugal operation (1 creator at a time, 30-day update cycle).
 
+PATCHED VERSION:
+- Removes dependency on engagement_score column (may not exist in schema)
+- Only updates columns that definitely exist
+- Gracefully handles missing schema columns
+- Gracefully handles missing playlist/engagement data
+
 Run as: python -m worker.creator_worker
 """
 
@@ -100,7 +106,7 @@ async def init():
 
 
 def _build_youtube_client():
-    """Build and validate YouTube API client with consistent error handling."""
+    """Build YouTube API client."""
     from googleapiclient.discovery import build
 
     api_key = os.getenv("YOUTUBE_API_KEY")
@@ -110,70 +116,188 @@ def _build_youtube_client():
     return build("youtube", "v3", developerKey=api_key)
 
 
-def _normalize_channel_id(channel_id: str) -> str:
+async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
     """
-    Normalize channel ID by removing common prefixes.
+    Handle a single creator sync job.
 
-    Handles formats like:
-    - "channel:UC6QZ_ss3i_8qLV_RczPZBkw" -> "UC6QZ_ss3i_8qLV_RczPZBkw"
-    - "UC6QZ_ss3i_8qLV_RczPZBkw" -> "UC6QZ_ss3i_8qLV_RczPZBkw"
+    Steps:
+    1. Mark job as processing
+    2. Fetch creator metadata (channel_id)
+    3. Fetch channel statistics from YouTube API
+    4. Update creator stats in database
+    5. Mark job as completed
 
     Args:
-        channel_id: Raw channel ID from database
-
-    Returns:
-        Clean channel ID suitable for YouTube API
+        job_id: Job ID in creator_sync_jobs table
+        creator_id: Creator UUID
+        job_number: For logging purposes
     """
-    if not channel_id:
-        return channel_id
-
-    # Strip known prefixes
-    if channel_id.startswith("channel:"):
-        return channel_id[8:]  # len("channel:") == 8
-    if channel_id.startswith("@"):
-        return channel_id  # Handle @username separately if needed
-
-    return channel_id
-
-
-async def fetch_pending_syncs() -> List[Dict[str, Any]]:
-    """Return list of pending creator sync jobs from creator_sync_jobs table."""
     try:
-        jobs = get_pending_creator_syncs(batch_size=BATCH_SIZE)
-        if jobs:
-            logger.debug(f"Fetched {len(jobs)} pending creator syncs")
-        return jobs
+        logger.info(f"[Job {job_number}] STAGE: start")
+        logger.info(f"[Job {job_number}] Starting sync for creator {creator_id}")
+
+        # STAGE 1: Fetch creator metadata
+        logger.info(f"[Job {job_number}] STAGE: fetch-creator-metadata")
+
+        if not supabase_client:
+            raise Exception("Supabase client not initialized")
+
+        creator_response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("channel_id,channel_name")
+            .eq("id", creator_id)
+            .execute()
+        )
+
+        if not creator_response.data:
+            raise Exception(f"Creator not found: {creator_id}")
+
+        creator = creator_response.data[0]
+        channel_id = creator.get("channel_id")
+
+        if not channel_id:
+            raise Exception(f"Creator has no channel_id: {creator_id}")
+
+        logger.info(f"[Job {job_number}] Found creator {channel_id}")
+
+        # STAGE 2: Mark as processing
+        logger.info(f"[Job {job_number}] STAGE: mark-processing")
+        mark_creator_sync_processing(job_id)
+
+        # STAGE 3: Fetch channel data
+        logger.info(f"[Job {job_number}] STAGE: fetch-channel-data")
+        channel_data = await _fetch_channel_data(channel_id)
+
+        logger.info(f"[Job {job_number}] Retrieved stats: {channel_data}")
+
+        # STAGE 4: Update creator stats
+        logger.info(f"[Job {job_number}] STAGE: update-stats")
+
+        # Build update payload - ONLY include columns we're sure exist
+        update_payload = {
+            "channel_id": channel_data["channel_id"],
+            "current_subscribers": channel_data["subscriber_count"],
+            "current_view_count": channel_data["view_count"],
+            "current_video_count": channel_data["video_count"],
+            "channel_name": channel_data.get("channel_name"),
+            "channel_thumbnail_url": channel_data.get("channel_thumbnail"),
+            "last_synced_at": datetime.utcnow().isoformat(),
+        }
+
+        # OPTIONAL: Add engagement_score and quality_grade IF they exist in schema
+        # Try to add them, but don't fail if they don't exist
+        if "engagement_score" in channel_data:
+            update_payload["engagement_score"] = channel_data.get(
+                "engagement_score", 0.0
+            )
+        if "quality_grade" in channel_data:
+            update_payload["quality_grade"] = channel_data.get("quality_grade", "C")
+
+        logger.debug(
+            f"[Job {job_number}] Update payload: {list(update_payload.keys())}"
+        )
+
+        try:
+            update_creator_stats(creator_id, update_payload, job_id)
+            logger.info(f"[Job {job_number}] Successfully updated creator stats")
+        except Exception as e:
+            # Check if it's a schema error about engagement_score
+            error_msg = str(e)
+            if "engagement_score" in error_msg or "quality_grade" in error_msg:
+                logger.warning(
+                    f"[Job {job_number}] Schema column not found, retrying without optional fields"
+                )
+
+                # Remove optional fields and retry
+                update_payload.pop("engagement_score", None)
+                update_payload.pop("quality_grade", None)
+
+                try:
+                    update_creator_stats(creator_id, update_payload, job_id)
+                    logger.info(
+                        f"[Job {job_number}] Successfully updated creator stats (without engagement/quality)"
+                    )
+                except Exception as retry_error:
+                    logger.error(
+                        f"[Job {job_number}] Update failed again: {retry_error}"
+                    )
+                    raise Exception("Failed to update creator stats")
+            else:
+                raise Exception("Failed to update creator stats")
+
+        # STAGE 5: Mark as completed
+        logger.info(f"[Job {job_number}] STAGE: mark-completed")
+        mark_creator_sync_completed(job_id)
+        logger.info(f"[Job {job_number}] ✅ Sync completed successfully")
+
     except Exception as e:
-        logger.exception(f"Failed to fetch pending creator syncs: {e}")
-        return []
+        logger.exception(f"[Job {job_number}] Sync failed: {str(e)}")
+        logger.debug(f"[Job {job_number}] Full traceback:\n{traceback.format_exc()}")
+
+        try:
+            retry_count_response = (
+                supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                .select("retry_count")
+                .eq("id", job_id)
+                .execute()
+            )
+
+            if retry_count_response.data:
+                retry_count = retry_count_response.data[0]["retry_count"]
+
+                if retry_count >= MAX_RETRY_ATTEMPTS:
+                    logger.warning(
+                        f"[Job {job_number}] Sync failed - max retries exhausted"
+                    )
+                    mark_creator_sync_failed(job_id)
+                else:
+                    logger.warning(
+                        f"[Job {job_number}] Sync failed - will retry later (attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS}): {str(e)}"
+                    )
+                    # Calculate backoff: retry_base * (2 ^ retry_count)
+                    retry_delay = RETRY_BACKOFF_BASE * (2**retry_count)
+                    retry_after = datetime.utcnow() + timedelta(seconds=retry_delay)
+
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
+                        {
+                            "status": "pending",
+                            "retry_count": retry_count + 1,
+                            "retry_after": retry_after.isoformat(),
+                            "error_message": str(e)[
+                                :500
+                            ],  # Store first 500 chars of error
+                        }
+                    ).eq("id", job_id).execute()
+        except Exception as err:
+            logger.error(f"[Job {job_number}] Failed to update job status: {err}")
 
 
-async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]]:
+async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
     """
-    Fetch creator channel data from YouTube API.
+    Fetch complete channel data from YouTube API.
 
-    Uses YouTube Data API v3 to fetch:
-    - Channel statistics (subscribers, views, video count)
-    - Engagement metrics from recent videos
-    - Quality grade based on engagement performance
+    Returns dict with:
+    - channel_id
+    - subscriber_count
+    - view_count
+    - video_count
+    - channel_name
+    - channel_thumbnail
+    - engagement_score (optional, may be 0 if playlist unavailable)
+    - quality_grade (optional)
 
     Args:
-        creator_id: YouTube channel ID (starts with UC), may have "channel:" prefix
+        channel_id: YouTube channel ID
 
     Returns:
-        Dict with channel stats, or None if fetch fails
+        Dictionary with channel statistics
     """
-    # Normalize channel ID to remove any prefixes
-    channel_id = _normalize_channel_id(creator_id)
-
-    logger.info(f"[Creator] Fetching channel data for {channel_id}")
-
     try:
-        # 1. Get channel statistics from YouTube API
+        # 1. Fetch channel statistics (subscribers, views, videos)
         channel_stats = await _fetch_channel_statistics(channel_id)
+
         if not channel_stats:
-            logger.error(f"Failed to fetch channel statistics for {channel_id}")
-            return None
+            raise Exception(f"Could not fetch channel stats for {channel_id}")
 
         subscriber_count = channel_stats["subscriber_count"]
         view_count = channel_stats["view_count"]
@@ -186,18 +310,30 @@ async def fetch_creator_channel_data(creator_id: str) -> Optional[Dict[str, Any]
             f"{view_count:,} views, {video_count:,} videos"
         )
 
-        # 2. Fetch recent videos to compute engagement score
-        engagement_score = await _compute_engagement_score(channel_id)
+        # 2. TRY to compute engagement score (optional - set to 0 if unavailable)
+        try:
+            engagement_score = await _compute_engagement_score(channel_id)
+        except Exception as e:
+            logger.warning(
+                f"[Creator] Could not compute engagement for {channel_id}: {e}"
+            )
+            engagement_score = 0.0  # Fallback to 0 instead of failing
 
-        # 3. Determine quality grade based on engagement
-        quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
+        # 3. Compute quality grade (optional - can be None if no column)
+        try:
+            quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
+        except Exception as e:
+            logger.warning(f"[Creator] Could not compute quality grade: {e}")
+            quality_grade = None
 
         return {
             "channel_id": channel_id,
             "subscriber_count": subscriber_count,
             "view_count": view_count,
             "video_count": video_count,
-            "engagement_score": engagement_score,
+            "engagement_score": (
+                engagement_score if engagement_score is not None else 0.0
+            ),
             "quality_grade": quality_grade,
             "channel_name": channel_name,
             "channel_thumbnail": channel_thumbnail,
@@ -242,7 +378,7 @@ async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]
             "subscriber_count": int(statistics.get("subscriberCount", 0) or 0),
             "view_count": int(statistics.get("viewCount", 0) or 0),
             "video_count": int(statistics.get("videoCount", 0) or 0),
-            # NEW: Extract metadata
+            # Extract metadata
             "channel_name": snippet.get("title", ""),
             "channel_thumbnail": snippet.get("thumbnails", {})
             .get("default", {})
@@ -250,328 +386,218 @@ async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]
         }
 
     except Exception as e:
-        logger.error(f"Failed to fetch channel statistics for {channel_id}: {e}")
+        logger.exception(f"Error fetching channel statistics for {channel_id}: {e}")
         return None
 
 
 async def _compute_engagement_score(channel_id: str) -> float:
     """
-    Compute engagement score from recent uploaded videos.
+    Compute engagement score from recent videos.
 
-    Engagement = (likes + comments) / views * 100
-    Uses average of last 10 videos from the channel's uploads playlist.
+    Fetches the last 10 videos from a channel's uploads playlist and calculates
+    the average engagement rate across those videos.
 
-    API flow:
-    1. channels.list (part=contentDetails) -> get uploads playlist ID
-    2. playlistItems.list (part=contentDetails) -> get video IDs
-    3. videos.list (part=statistics) -> get engagement metrics
+    Engagement rate = (likes + comments) / views * 100
 
-    Reference: https://developers.google.com/youtube/v3/docs/channels/list
-               https://developers.google.com/youtube/v3/docs/playlistItems/list
-               https://developers.google.com/youtube/v3/docs/videos/list
+    Returns 0.0 if:
+    - Channel has no videos
+    - Playlist cannot be found (private/restricted)
+    - Videos have 0 views
+    - API rate limit exceeded
 
     Args:
-        channel_id: YouTube channel ID (e.g., "UCxxxxx")
+        channel_id: YouTube channel ID
 
     Returns:
-        Average engagement percentage (0.0-100.0)
+        Engagement score as float percentage (0-100+)
     """
     try:
         youtube = _build_youtube_client()
 
-        # Step 1: Get channel's uploads playlist ID from contentDetails.relatedPlaylists.uploads
-        # https://developers.google.com/youtube/v3/docs/channels/list
-        channel_request = youtube.channels().list(part="contentDetails", id=channel_id)
-        channel_response = channel_request.execute()
+        # Convert channel ID to uploads playlist ID
+        # For a channel "UCxxxxx", the uploads playlist is "UUxxxxx"
+        uploads_playlist_id = "U" + channel_id[1:]
 
-        if not channel_response.get("items"):
-            logger.warning(f"Channel not found: {channel_id}")
-            return 0.0
-
-        content_details = channel_response["items"][0].get("contentDetails", {})
-        related_playlists = content_details.get("relatedPlaylists", {})
-        uploads_playlist_id = related_playlists.get("uploads")
-
-        if not uploads_playlist_id:
-            logger.warning(f"No uploads playlist found for channel: {channel_id}")
-            return 0.0
-
-        # Step 2: Get recent video IDs from uploads playlist
-        # https://developers.google.com/youtube/v3/docs/playlistItems/list
-        playlist_request = youtube.playlistItems().list(
-            part="contentDetails",
-            playlistId=uploads_playlist_id,
-            maxResults=10,  # Retrieve last 10 videos
+        logger.debug(
+            f"[Engagement] Fetching engagement for {channel_id} "
+            f"(uploads playlist: {uploads_playlist_id})"
         )
-        playlist_response = playlist_request.execute()
 
-        video_ids = [
-            item["contentDetails"]["videoId"]
-            for item in playlist_response.get("items", [])
-        ]
-
-        if not video_ids:
-            logger.debug(f"No videos found in uploads playlist for {channel_id}")
+        # Get the last 10 videos from uploads playlist
+        try:
+            playlist_request = youtube.playlistItems().list(
+                part="contentDetails",
+                playlistId=uploads_playlist_id,
+                maxResults=10,
+            )
+            playlist_response = playlist_request.execute()
+        except Exception as e:
+            logger.warning(
+                f"[Engagement] Could not fetch playlist {uploads_playlist_id}: {e}"
+            )
+            # Return 0 instead of failing - some channels have private playlists
             return 0.0
 
-        # Step 3: Get video statistics (views, likes, comments)
-        # https://developers.google.com/youtube/v3/docs/videos/list
-        videos_request = youtube.videos().list(
-            part="statistics", id=",".join(video_ids)
-        )
-        videos_response = videos_request.execute()
+        items = playlist_response.get("items", [])
 
-        # Step 4: Calculate average engagement across all videos
+        if not items:
+            logger.debug(f"[Engagement] No videos found in uploads playlist")
+            return 0.0
+
+        video_ids = [item["contentDetails"]["videoId"] for item in items]
+
+        # Fetch statistics for these videos
+        try:
+            stats_request = youtube.videos().list(
+                part="statistics",
+                id=",".join(video_ids),
+            )
+            stats_response = stats_request.execute()
+        except Exception as e:
+            logger.warning(f"[Engagement] Could not fetch video stats: {e}")
+            return 0.0
+
         engagement_scores = []
-        for video in videos_response.get("items", []):
-            statistics = video.get("statistics", {})
-            view_count = int(statistics.get("viewCount", 0) or 0)
-            like_count = int(statistics.get("likeCount", 0) or 0)
-            comment_count = int(statistics.get("commentCount", 0) or 0)
+
+        for video in stats_response.get("items", []):
+            stats = video.get("statistics", {})
+            view_count = int(stats.get("viewCount", 0) or 0)
+            like_count = int(stats.get("likeCount", 0) or 0)
+            comment_count = int(stats.get("commentCount", 0) or 0)
 
             if view_count > 0:
-                engagement_rate = ((like_count + comment_count) / view_count) * 100
+                engagement_rate = (like_count + comment_count) / view_count * 100
                 engagement_scores.append(engagement_rate)
 
         if not engagement_scores:
-            logger.debug(f"No engagement data available for {channel_id}")
+            logger.debug(f"[Engagement] No engagement data available")
             return 0.0
 
         avg_engagement = sum(engagement_scores) / len(engagement_scores)
-        logger.debug(
-            f"[Creator] {channel_id}: engagement = {avg_engagement:.2f}% "
+
+        logger.info(
+            f"[Engagement] {channel_id}: {avg_engagement:.2f}% "
             f"(calculated from {len(engagement_scores)} videos)"
         )
 
-        return round(avg_engagement, 2)
+        return avg_engagement
 
     except Exception as e:
-        logger.error(f"Failed to compute engagement for {channel_id}: {e}")
+        logger.warning(f"[Engagement] Error computing engagement for {channel_id}: {e}")
+        # Return 0 instead of failing - engagement is optional
         return 0.0
 
 
 def _compute_quality_grade(engagement_score: float, subscriber_count: int) -> str:
     """
-    Compute quality grade based on engagement score.
+    Compute quality grade based on engagement and subscriber count.
 
-    Grading criteria:
-    - A+: >=5% engagement
-    - A: >=3% engagement
-    - B+: >=1% engagement
-    - B: >=0.5% engagement
-    - C: <0.5% engagement
+    Grading:
+    - A+ (5000+ subs, 5%+ engagement)
+    - A (1000+ subs, 3%+ engagement)
+    - B+ (100+ subs, 1%+ engagement)
+    - B (10+ subs, 0.5%+ engagement)
+    - C (default)
+
+    Args:
+        engagement_score: Engagement percentage
+        subscriber_count: Subscriber count
+
+    Returns:
+        Quality grade as string (A+, A, B+, B, C)
     """
-    if engagement_score >= 5.0:
+    if subscriber_count >= 5000 and engagement_score >= 5.0:
         return "A+"
-    elif engagement_score >= 3.0:
+    elif subscriber_count >= 1000 and engagement_score >= 3.0:
         return "A"
-    elif engagement_score >= 1.0:
+    elif subscriber_count >= 100 and engagement_score >= 1.0:
         return "B+"
-    elif engagement_score >= 0.5:
+    elif subscriber_count >= 10 and engagement_score >= 0.5:
         return "B"
     else:
         return "C"
 
 
-async def handle_sync_job(job: Dict[str, Any]) -> bool:
+async def process_creator_syncs():
     """
-    Process a single creator sync job.
+    Main worker loop: continuously poll and process creator sync jobs.
 
-    Returns True if successful, False if failed.
+    Fetches pending jobs, processes them in batches, and handles retries.
     """
-    job_id = job.get("id")
-    creator_id = job.get("creator_id")
+    logger.info(
+        f"Configuration: poll_interval={POLL_INTERVAL}s, batch_size={BATCH_SIZE}, "
+        f"max_runtime={MAX_RUNTIME}s, max_retries={MAX_RETRY_ATTEMPTS}, "
+        f"retry_base={RETRY_BACKOFF_BASE}s"
+    )
 
-    def _log_stage(name: str):
-        """Log current stage for debugging."""
-        logger.info(f"[Job {job_id}] STAGE: {name}")
-
-    _log_stage("start")
-    logger.info(f"[Job {job_id}] Starting sync for creator {creator_id}")
-
-    try:
-        # Get creator details
-        _log_stage("fetch-creator-metadata")
-        resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("channel_id, channel_name")
-            .eq("id", creator_id)
-            .single()
-            .execute()
-        )
-
-        if not resp.data:
-            raise Exception("Creator not found")
-
-        channel_id = resp.data["channel_id"]
-        logger.info(f"[Job {job_id}] Found creator {channel_id}")
-
-        # Mark as processing
-        _log_stage("mark-processing")
-        if not mark_creator_sync_processing(job_id):
-            logger.error(f"[Job {job_id}] Failed to mark as processing")
-            return False
-
-        # Fetch creator stats from YouTube
-        _log_stage("fetch-channel-data")
-        stats = await fetch_creator_channel_data(channel_id)
-
-        if not stats:
-            raise Exception("Failed to fetch channel data")
-
-        logger.info(f"[Job {job_id}] Retrieved stats: {stats}")
-
-        # Update database
-        _log_stage("update-stats")
-        if not update_creator_stats(creator_id, stats, job_id):
-            raise Exception("Failed to update creator stats")
-
-        _log_stage("completed")
-        logger.info(
-            f"[Job {job_id}] Sync completed successfully for creator {creator_id}"
-        )
-        return True
-
-    except Exception as e:
-        error_msg = str(e)
-        error_trace = traceback.format_exc()
-        logger.exception(f"[Job {job_id}] Sync failed: {error_msg}")
-
-        # Handle failure with retry logic
-        resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("retry_count")
-            .eq("id", job_id)
-            .single()
-            .execute()
-        )
-
-        retry_count = resp.data.get("retry_count", 0) if resp.data else 0
-
-        if retry_count < MAX_RETRY_ATTEMPTS:
-            logger.warning(
-                f"[Job {job_id}] Sync failed - will retry later "
-                f"(attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS}): {error_msg}"
-            )
-
-        # Mark as failed (with retry if applicable)
-        if not mark_creator_sync_failed(job_id, error_msg):
-            logger.error(f"[Job {job_id}] Failed to mark sync as failed")
-
-        return False
-
-
-async def worker_loop() -> int:
-    """
-    Main worker loop.
-
-    Polls creator_sync_jobs table, processes pending syncs, and retries failed jobs.
-    Runs for MAX_RUNTIME, then exits.
-
-    Returns: Total number of syncs processed.
-    """
     start_time = time.time()
     syncs_processed = 0
 
-    logger.info("Starting creator worker loop...")
-    logger.info(
-        f"Configuration: poll_interval={POLL_INTERVAL}s, batch_size={BATCH_SIZE}, "
-        f"max_runtime={MAX_RUNTIME // 60}m, max_retries={MAX_RETRY_ATTEMPTS}, "
-        f"retry_base={RETRY_BACKOFF_BASE}s"
-    )
-
     while True:
-        elapsed_time = time.time() - start_time
-        if elapsed_time >= MAX_RUNTIME:
-            logger.info(
-                f"Creator worker reached max runtime ({MAX_RUNTIME // 60}m). "
-                f"Processed {syncs_processed} syncs. Exiting."
-            )
+        # Check if we should stop
+        if stop_event.is_set():
+            logger.info("Shutdown signal received, exiting worker loop")
             break
 
-        remaining_time = MAX_RUNTIME - elapsed_time
-        if int(elapsed_time) % 300 == 0 and elapsed_time > 0:
-            logger.info(
-                f"Creator worker progress: {int(elapsed_time // 60)}m elapsed, "
-                f"{int(remaining_time // 60)}m remaining, {syncs_processed} syncs processed"
-            )
+        # Check if we've exceeded max runtime
+        elapsed = time.time() - start_time
+        remaining = MAX_RUNTIME - elapsed
 
-        try:
-            # Fetch pending syncs
-            pending_syncs = await fetch_pending_syncs()
+        if remaining <= 0:
+            logger.info(f"Max runtime ({MAX_RUNTIME}s) exceeded, exiting")
+            break
 
-            if not pending_syncs:
-                sleep_time = min(POLL_INTERVAL, remaining_time)
-                if sleep_time <= 0:
-                    logger.info("No time remaining, exiting worker loop")
-                    break
-                logger.debug(f"No pending syncs, sleeping {sleep_time}s")
-                await asyncio.sleep(sleep_time)
-                continue
-
-            logger.info(f"Processing {len(pending_syncs)} pending sync(s)")
-
-            for job in pending_syncs:
-                job_id = job.get("id")
-                if not job_id:
-                    logger.warning("Got job without id, skipping")
-                    continue
-
-                # Check time before processing
-                if time.time() - start_time >= MAX_RUNTIME:
-                    logger.info("Max runtime reached while processing jobs, stopping")
-                    break
-
-                # Process job
-                success = await handle_sync_job(job)
-
-                if success:
-                    syncs_processed += 1
-
-            # Small delay between polling cycles
-            await asyncio.sleep(min(0.5, remaining_time))
-
-        except Exception:
-            logger.exception(
-                "Unexpected error in creator worker loop; sleeping before retry"
-            )
-            error_sleep_time = min(POLL_INTERVAL, remaining_time)
-            if error_sleep_time > 0:
-                await asyncio.sleep(error_sleep_time)
-            else:
-                logger.info("No time remaining for error retry sleep, exiting")
-                break
-
-    logger.info(
-        f"Creator worker loop completed. Total syncs processed: {syncs_processed}"
-    )
-    return syncs_processed
-
-
-def main():
-    """Entrypoint for running the creator worker."""
-    logger.info("Starting ViralVibes creator worker (frugal mode)...")
-    logger.info(
-        f"Configuration: poll_interval={POLL_INTERVAL}s, batch_size={BATCH_SIZE}, "
-        f"max_runtime={MAX_RUNTIME // 60}m, max_retries={MAX_RETRY_ATTEMPTS}, "
-        f"retry_base={RETRY_BACKOFF_BASE}s"
-    )
-
-    try:
-        asyncio.run(init())
-        syncs_processed = asyncio.run(worker_loop())
         logger.info(
-            f"Creator worker completed successfully. Total syncs processed: {syncs_processed}"
+            f"Creator worker progress: {int(elapsed / 60)}m elapsed, "
+            f"{int(remaining / 60)}m remaining, {syncs_processed} syncs processed"
         )
 
-    except KeyboardInterrupt:
-        logger.info("Creator worker interrupted by user, exiting gracefully.")
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.exception(f"Creator worker failed with unexpected error: {e}")
-        raise SystemExit(1) from e
+        try:
+            # Fetch pending jobs
+            pending_jobs = get_pending_creator_syncs(batch_size=BATCH_SIZE)
+
+            if not pending_jobs:
+                logger.debug(f"No pending creator syncs, waiting {POLL_INTERVAL}s")
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
+            logger.info(f"Processing {len(pending_jobs)} pending sync(s)")
+
+            # Process each job
+            for job_number, job in enumerate(pending_jobs, 1):
+                try:
+                    await handle_sync_job(
+                        job_id=job["id"],
+                        creator_id=job["creator_id"],
+                        job_number=job_number,
+                    )
+                    syncs_processed += 1
+
+                except Exception as e:
+                    logger.exception(
+                        f"Unhandled error processing job {job_number}: {e}"
+                    )
+
+                # Small delay between jobs
+                await asyncio.sleep(0.1)
+
+            # Sleep before next poll
+            logger.debug(f"Batch complete, waiting {POLL_INTERVAL}s for next batch")
+            await asyncio.sleep(POLL_INTERVAL)
+
+        except Exception as e:
+            logger.exception(f"Error in worker loop: {e}")
+            await asyncio.sleep(POLL_INTERVAL)
+
+
+async def main():
+    """Main entry point."""
+    logger.info("Starting ViralVibes creator worker (patched version)...")
+    await init()
+    logger.info("Starting creator worker loop...")
+    await process_creator_syncs()
+    logger.info("Creator worker stopped")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
