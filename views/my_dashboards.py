@@ -10,7 +10,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from components.tables import Badge
-from utils import format_date_simple, format_number
+from utils import format_date_relative, format_date_simple, format_number
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ def render_dashboard_card(dashboard: dict) -> A:
     engagement_metrics = extract_engagement_metrics(summary_stats)
 
     # Format date
-    date_str = format_date(processed_on)
+    date_str = format_date_relative(processed_on)
 
     # Format large numbers using existing utility
     views_formatted = format_number(view_count)
