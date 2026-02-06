@@ -1,5 +1,16 @@
 """
-Creator stats background worker: polls Supabase creator_sync_jobs table for pending/failed jobs,
+Creator stats background worker - SCHEMA-AWARE VERSION
+
+This version properly maps to the actual database schema:
+  ✅ current_subscribers (not subscriber_count)
+  ✅ current_view_count (not view_count)
+  ✅ current_video_count (not video_count)
+  ✅ channel_thumbnail_url (not channel_thumbnail)
+  ✅ last_updated_at (not last_synced_at)
+  ❌ NO engagement_score (doesn't exist in schema)
+  ❌ NO quality_grade (doesn't exist in schema)
+
+This worker polls Supabase creator_sync_jobs table for pending/failed jobs,
 fetches creator channel stats from YouTube API, updates creators table with current stats,
 and updates job status. Intelligently retries failed jobs with backoff.
 
@@ -11,6 +22,7 @@ PATCHED VERSION:
 - Only updates columns that definitely exist
 - Gracefully handles missing schema columns
 - Gracefully handles missing playlist/engagement data
+
 
 Run as: python -m worker.creator_worker
 """
@@ -42,7 +54,6 @@ from db import (
     mark_creator_sync_processing,
     setup_logging,
     supabase_client,
-    update_creator_stats,
 )
 from services.youtube_service import YoutubePlaylistService
 
@@ -124,7 +135,7 @@ async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
     1. Mark job as processing
     2. Fetch creator metadata (channel_id)
     3. Fetch channel statistics from YouTube API
-    4. Update creator stats in database
+    4. Update creator stats in database (with CORRECT SCHEMA MAPPING)
     5. Mark job as completed
 
     Args:
@@ -170,10 +181,10 @@ async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
 
         logger.info(f"[Job {job_number}] Retrieved stats: {channel_data}")
 
-        # STAGE 4: Update creator stats
+        # STAGE 4: Update creator stats with CORRECT SCHEMA MAPPING
         logger.info(f"[Job {job_number}] STAGE: update-stats")
 
-        # Build update payload - ONLY include columns we're sure exist
+        # Build update payload using ACTUAL column names from schema
         update_payload = {
             "channel_id": channel_data["channel_id"],
             "current_subscribers": channel_data["subscriber_count"],
@@ -181,49 +192,33 @@ async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
             "current_video_count": channel_data["video_count"],
             "channel_name": channel_data.get("channel_name"),
             "channel_thumbnail_url": channel_data.get("channel_thumbnail"),
-            "last_synced_at": datetime.utcnow().isoformat(),
+            "last_updated_at": datetime.utcnow().isoformat(),
         }
 
-        # OPTIONAL: Add engagement_score and quality_grade IF they exist in schema
-        # Try to add them, but don't fail if they don't exist
-        if "engagement_score" in channel_data:
-            update_payload["engagement_score"] = channel_data.get(
-                "engagement_score", 0.0
-            )
-        if "quality_grade" in channel_data:
-            update_payload["quality_grade"] = channel_data.get("quality_grade", "C")
-
         logger.debug(
-            f"[Job {job_number}] Update payload: {list(update_payload.keys())}"
+            f"[Job {job_number}] Update payload keys: {list(update_payload.keys())}"
         )
+        logger.debug(f"[Job {job_number}] Update payload: {update_payload}")
 
         try:
-            update_creator_stats(creator_id, update_payload, job_id)
-            logger.info(f"[Job {job_number}] Successfully updated creator stats")
-        except Exception as e:
-            # Check if it's a schema error about engagement_score
-            error_msg = str(e)
-            if "engagement_score" in error_msg or "quality_grade" in error_msg:
+            # Direct Supabase update with correct column mapping
+            result = (
+                supabase_client.table(CREATOR_TABLE)
+                .update(update_payload)
+                .eq("id", creator_id)
+                .execute()
+            )
+
+            if result.data:
+                logger.info(f"[Job {job_number}] Successfully updated creator stats")
+            else:
                 logger.warning(
-                    f"[Job {job_number}] Schema column not found, retrying without optional fields"
+                    f"[Job {job_number}] Update returned no data, but no error"
                 )
 
-                # Remove optional fields and retry
-                update_payload.pop("engagement_score", None)
-                update_payload.pop("quality_grade", None)
-
-                try:
-                    update_creator_stats(creator_id, update_payload, job_id)
-                    logger.info(
-                        f"[Job {job_number}] Successfully updated creator stats (without engagement/quality)"
-                    )
-                except Exception as retry_error:
-                    logger.error(
-                        f"[Job {job_number}] Update failed again: {retry_error}"
-                    )
-                    raise Exception("Failed to update creator stats")
-            else:
-                raise Exception("Failed to update creator stats")
+        except Exception as e:
+            logger.error(f"[Job {job_number}] Failed to update: {e}")
+            raise Exception("Failed to update creator stats")
 
         # STAGE 5: Mark as completed
         logger.info(f"[Job {job_number}] STAGE: mark-completed")
@@ -262,10 +257,8 @@ async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
                         {
                             "status": "pending",
                             "retry_count": retry_count + 1,
-                            "retry_after": retry_after.isoformat(),
-                            "error_message": str(e)[
-                                :500
-                            ],  # Store first 500 chars of error
+                            "next_retry_at": retry_after.isoformat(),
+                            "error_message": str(e)[:500],
                         }
                     ).eq("id", job_id).execute()
         except Exception as err:
@@ -283,8 +276,6 @@ async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
     - video_count
     - channel_name
     - channel_thumbnail
-    - engagement_score (optional, may be 0 if playlist unavailable)
-    - quality_grade (optional)
 
     Args:
         channel_id: YouTube channel ID
@@ -293,7 +284,7 @@ async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
         Dictionary with channel statistics
     """
     try:
-        # 1. Fetch channel statistics (subscribers, views, videos)
+        # 1. Fetch channel statistics
         channel_stats = await _fetch_channel_statistics(channel_id)
 
         if not channel_stats:
@@ -310,33 +301,36 @@ async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
             f"{view_count:,} views, {video_count:,} videos"
         )
 
-        # 2. TRY to compute engagement score (optional - set to 0 if unavailable)
+        # 2. TRY to compute engagement score (optional - but don't fail)
         try:
             engagement_score = await _compute_engagement_score(channel_id)
+            logger.debug(
+                f"[Creator] Computed engagement score: {engagement_score:.2f}%"
+            )
         except Exception as e:
             logger.warning(
                 f"[Creator] Could not compute engagement for {channel_id}: {e}"
             )
-            engagement_score = 0.0  # Fallback to 0 instead of failing
+            engagement_score = 0.0
 
-        # 3. Compute quality grade (optional - can be None if no column)
+        # 3. Compute quality grade (informational only - not stored)
         try:
             quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
+            logger.debug(f"[Creator] Computed quality grade: {quality_grade}")
         except Exception as e:
             logger.warning(f"[Creator] Could not compute quality grade: {e}")
-            quality_grade = None
+            quality_grade = "C"
 
         return {
             "channel_id": channel_id,
             "subscriber_count": subscriber_count,
             "view_count": view_count,
             "video_count": video_count,
-            "engagement_score": (
-                engagement_score if engagement_score is not None else 0.0
-            ),
-            "quality_grade": quality_grade,
             "channel_name": channel_name,
             "channel_thumbnail": channel_thumbnail,
+            # These are not stored but useful for logging
+            "engagement_score": engagement_score,
+            "quality_grade": quality_grade,
         }
 
     except Exception as e:
@@ -392,7 +386,7 @@ async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]
 
 async def _compute_engagement_score(channel_id: str) -> float:
     """
-    Compute engagement score from recent videos.
+    Compute engagement score from recent videos (informational only).
 
     Fetches the last 10 videos from a channel's uploads playlist and calculates
     the average engagement rate across those videos.
@@ -403,7 +397,7 @@ async def _compute_engagement_score(channel_id: str) -> float:
     - Channel has no videos
     - Playlist cannot be found (private/restricted)
     - Videos have 0 views
-    - API rate limit exceeded
+    - API errors
 
     Args:
         channel_id: YouTube channel ID
@@ -418,10 +412,7 @@ async def _compute_engagement_score(channel_id: str) -> float:
         # For a channel "UCxxxxx", the uploads playlist is "UUxxxxx"
         uploads_playlist_id = "U" + channel_id[1:]
 
-        logger.debug(
-            f"[Engagement] Fetching engagement for {channel_id} "
-            f"(uploads playlist: {uploads_playlist_id})"
-        )
+        logger.debug(f"[Engagement] Fetching engagement for {channel_id}")
 
         # Get the last 10 videos from uploads playlist
         try:
@@ -490,7 +481,7 @@ async def _compute_engagement_score(channel_id: str) -> float:
 
 def _compute_quality_grade(engagement_score: float, subscriber_count: int) -> str:
     """
-    Compute quality grade based on engagement and subscriber count.
+    Compute quality grade based on engagement and subscriber count (informational only).
 
     Grading:
     - A+ (5000+ subs, 5%+ engagement)
@@ -592,7 +583,7 @@ async def process_creator_syncs():
 
 async def main():
     """Main entry point."""
-    logger.info("Starting ViralVibes creator worker (patched version)...")
+    logger.info("Starting ViralVibes creator worker (SCHEMA-AWARE VERSION)...")
     await init()
     logger.info("Starting creator worker loop...")
     await process_creator_syncs()
