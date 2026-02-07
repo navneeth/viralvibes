@@ -133,9 +133,8 @@ class YouTubeResolver:
         Resolve @handle, /user/, /c/ to actual channel ID.
 
         Tries multiple YouTube API methods:
-        1. forUsername (fastest, most common)
-        2. forCustomUrl (for @handles)
-        3. Search fallback (least preferred)
+        1. forUsername (for old-style usernames, fastest)
+        2. Search API (for @-handles and custom URLs, more flexible)
 
         Args:
             handle: YouTube handle (@username, username, or custom URL)
@@ -155,12 +154,12 @@ class YouTubeResolver:
 
         logger.debug(f"[YouTubeResolver] Resolving handle: {handle}")
 
-        # Strategy 1: Try as username with forUsername
+        # Strategy 1: Try as old-style username with forUsername
+        # This works for legacy usernames but NOT for @-handles
         try:
             request = youtube.channels().list(
                 part="id,snippet",
-                # forUsername=handle,
-                forCustomUrl=handle,
+                forUsername=handle,
             )
             response = await self._execute_async(request)
 
@@ -174,24 +173,26 @@ class YouTubeResolver:
         except HttpError as e:
             logger.debug(f"[YouTubeResolver] forUsername failed: {e}")
 
-        # Strategy 2: Try as custom URL with forCustomUrl
+        # Strategy 2: Use search API for @-handles and custom URLs
+        # More flexible than forUsername, works with @-handles
         try:
-            request = youtube.channels().list(
-                part="id,snippet",
-                # forUsername=handle,
-                forCustomUrl=handle,
+            request = youtube.search().list(
+                part="snippet",
+                q=handle,
+                type="channel",
+                maxResults=1,
             )
             response = await self._execute_async(request)
 
             if response.get("items"):
-                channel_id = response["items"][0]["id"]
+                channel_id = response["items"][0]["snippet"]["channelId"]
                 channel_name = response["items"][0]["snippet"]["title"]
                 logger.info(
                     f"[YouTubeResolver] ✅ Resolved @{handle} → {channel_id} ({channel_name})"
                 )
                 return channel_id
         except HttpError as e:
-            logger.debug(f"[YouTubeResolver] forCustomUrl failed: {e}")
+            logger.debug(f"[YouTubeResolver] Search API failed: {e}")
 
         logger.warning(f"[YouTubeResolver] ❌ Could not resolve: {handle}")
         return None

@@ -1,10 +1,24 @@
+"""
+Seed creator discovery from Wikipedia's "Most-subscribed YouTube channels" list.
+
+Updated version with new schema support:
+- source_rank: Position in source ranking (e.g., Wikipedia rank)
+- country_code: Creator's country (auto-extracted from YouTube API)
+- discovered_at: When creator was discovered (automatic)
+
+Integrates improved code patterns:
+- Regex-based channel ID extraction (fast, reliable)
+- YouTubeResolver for unified API operations
+- ChannelIDValidator for format validation
+"""
+
+import asyncio
 import logging
 import os
-import re
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import List
-from urllib.parse import urlparse
+from typing import List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -13,68 +27,22 @@ from dotenv import load_dotenv
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import db  # Import module to access the global supabase_client after init
+import db
 from constants import CREATOR_SYNC_JOBS_TABLE, CREATOR_TABLE
 from db import init_supabase, setup_logging
+from services.channel_utils import ChannelIDValidator, YouTubeResolver
 
 WIKI_URL = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channels"
-
-# Get logger instance
 logger = logging.getLogger(__name__)
 
 
-def build_youtube_client():
-    """Build YouTube API client for channel validation."""
-    try:
-        from googleapiclient.discovery import build
-
-        api_key = os.getenv("YOUTUBE_API_KEY")
-        if not api_key:
-            logger.warning("YOUTUBE_API_KEY not set - skipping validation")
-            return None
-
-        return build("youtube", "v3", developerKey=api_key)
-    except Exception as e:
-        logger.warning(f"Failed to build YouTube client: {e}")
-        return None
-
-
-def validate_channel_id(channel_id: str, youtube=None) -> bool:
-    """
-    Validate that a channel ID exists on YouTube.
-
-    Args:
-        channel_id: Raw YouTube channel ID (UCxxxxxx)
-        youtube: Optional YouTube API client
-
-    Returns:
-        True if valid, False if invalid or cannot be verified
-    """
-    if not youtube:
-        # Without API client, do basic format validation
-        return channel_id.startswith("UC") and len(channel_id) == 24
-
-    try:
-        request = youtube.channels().list(part="snippet", id=channel_id)
-        response = request.execute()
-        return bool(response.get("items"))
-    except Exception as e:
-        logger.debug(f"Failed to validate {channel_id}: {e}")
-        return False
-
-
 def extract_youtube_urls(html: str) -> List[str]:
-    """
-    Extract YouTube channel URLs from Wikipedia HTML.
-    Targets the specific "Most-subscribed channels" table to avoid noise.
-    """
+    """Extract YouTube channel URLs from Wikipedia HTML."""
     soup = BeautifulSoup(html, "html.parser")
-
     urls = set()
 
     # Target the main content tables (wikitable class contains the subscription data)
     tables = soup.find_all("table", class_="wikitable")
-
     if not tables:
         logger.warning("No wikitable found - Wikipedia structure may have changed")
         search_area = soup
@@ -89,6 +57,8 @@ def extract_youtube_urls(html: str) -> List[str]:
 
         # Match various YouTube URL formats by checking the hostname
         try:
+            from urllib.parse import urlparse
+
             parsed = urlparse(
                 href
                 if href.startswith("http") or href.startswith("//")
@@ -112,164 +82,29 @@ def extract_youtube_urls(html: str) -> List[str]:
     return list(urls)
 
 
-def resolve_channel_id_from_handle(handle: str, youtube=None) -> str | None:
+async def add_creator_with_source(
+    channel_id: str,
+    source: str = "wikipedia",
+    source_rank: Optional[int] = None,
+) -> Optional[str]:
     """
-    Resolve YouTube handle (@username, /user/, /c/) to raw channel ID.
-
-    Uses YouTube API to convert handles to proper channel IDs.
+    Add creator to database with source information.
 
     Args:
-        handle: YouTube handle or username (with or without @)
-        youtube: YouTube API client (required for resolution)
+        channel_id: YouTube channel ID (UCxxxxxx)
+        source: Where creator came from (wikipedia, playlist, api, manual)
+        source_rank: Position in source ranking (e.g., rank on Wikipedia)
 
     Returns:
-        Raw channel ID (UCxxxxxx) or None if resolution fails
-    """
-    if not youtube:
-        logger.debug(f"YouTube API client required for handle resolution: {handle}")
-        return None
-
-    try:
-        # Clean up handle format
-        username = handle.lstrip("/@").split("?")[0].split("#")[0].strip()
-
-        if not username:
-            return None
-
-        logger.debug(f"Resolving handle: {handle} -> username: {username}")
-
-        # Try forUsername first (most common)
-        try:
-            request = youtube.channels().list(part="id,snippet", forUsername=username)
-            response = request.execute()
-
-            if response.get("items"):
-                channel_id = response["items"][0]["id"]
-                channel_name = response["items"][0]["snippet"]["title"]
-                logger.info(
-                    f"✅ Resolved handle '{handle}' to {channel_id} ({channel_name})"
-                )
-                return channel_id
-        except Exception as e:
-            logger.debug(f"forUsername failed for {username}: {e}")
-
-        # Try forCustomUrl as fallback (for @handle format)
-        try:
-            request = youtube.channels().list(
-                part="id,snippet", forCustomUrl="@" + username
-            )
-            response = request.execute()
-
-            if response.get("items"):
-                channel_id = response["items"][0]["id"]
-                channel_name = response["items"][0]["snippet"]["title"]
-                logger.info(
-                    f"✅ Resolved custom URL '@{username}' to {channel_id} ({channel_name})"
-                )
-                return channel_id
-        except Exception as e:
-            logger.debug(f"forCustomUrl failed for @{username}: {e}")
-
-        logger.warning(f"Could not resolve handle: {handle}")
-        return None
-
-    except Exception as e:
-        logger.error(f"Error resolving handle {handle}: {e}")
-        return None
-
-
-def extract_raw_channel_id(url: str, youtube=None) -> str | None:
-    """
-    Extract raw YouTube channel IDs from various URL formats.
-
-    Supports:
-    - Direct IDs: /channel/UCxxxxxx (no API needed)
-    - Handles: /@username (requires YouTube API)
-    - User URLs: /user/username (requires YouTube API)
-    - Custom URLs: /c/customname (requires YouTube API)
-
-    Args:
-        url: YouTube channel URL
-        youtube: Optional YouTube API client for handle resolution
-
-    Returns:
-        Raw channel ID (UCxxxxxx) or None if not extractable
-    """
-    try:
-        parsed = urlparse(url)
-        path = parsed.path
-
-        # ========== Format 1: Direct channel ID ==========
-        if "/channel/" in path:
-            parts = path.split("/channel/")
-            if len(parts) > 1:
-                channel_id = parts[1].strip("/").split("?")[0].split("#")[0]
-
-                # Validate format: UC + 22 characters
-                if channel_id.startswith("UC") and len(channel_id) == 24:
-                    logger.debug(f"Extracted direct channel ID: {channel_id}")
-                    return channel_id
-                else:
-                    logger.debug(f"Invalid channel ID format: {channel_id}")
-                    return None
-
-        # ========== Format 2: @handle (/@username) ==========
-        if "/@" in path:
-            if youtube:
-                handle = path.split("/@")[1].split("?")[0].split("#")[0].strip("/")
-                return resolve_channel_id_from_handle("@" + handle, youtube)
-            else:
-                logger.debug(f"Skipping @handle URL (YouTube API not available): {url}")
-                return None
-
-        # ========== Format 3: /user/ URL ==========
-        if "/user/" in path:
-            if youtube:
-                username = (
-                    path.split("/user/")[1].split("?")[0].split("#")[0].strip("/")
-                )
-                return resolve_channel_id_from_handle(username, youtube)
-            else:
-                logger.debug(f"Skipping /user/ URL (YouTube API not available): {url}")
-                return None
-
-        # ========== Format 4: /c/ URL ==========
-        if "/c/" in path:
-            if youtube:
-                customname = path.split("/c/")[1].split("?")[0].split("#")[0].strip("/")
-                return resolve_channel_id_from_handle(customname, youtube)
-            else:
-                logger.debug(f"Skipping /c/ URL (YouTube API not available): {url}")
-                return None
-
-        logger.warning(f"Unrecognized URL format: {url}")
-        return None
-
-    except Exception as e:
-        logger.warning(f"Error parsing URL {url}: {e}")
-        return None
-
-
-def get_or_create_creator(channel_id: str) -> str | None:
-    """
-    Get existing creator or create minimal creator record.
-
-    ⚠️ CRITICAL: Store ONLY raw channel IDs (UCxxxxxx format)
-    Worker and collation logic depend on this consistency.
-
-    Args:
-        channel_id: Raw YouTube channel ID (UCxxxxxx)
-
-    Returns:
-        Creator UUID if successful, None on error
+        Creator ID if successful, None otherwise
     """
     if not db.supabase_client:
         logger.error("Supabase client not available")
         return None
 
     try:
-        # First, try to find existing creator by channel_id
-        response = (
+        # Check if already exists
+        existing = (
             db.supabase_client.table(CREATOR_TABLE)
             .select("id")
             .eq("channel_id", channel_id)
@@ -277,31 +112,31 @@ def get_or_create_creator(channel_id: str) -> str | None:
             .execute()
         )
 
+        if existing.data:
+            logger.debug(f"Creator already exists: {channel_id}")
+            return existing.data[0]["id"]
+
+        # Insert with source info + discovered_at (auto-set to now)
+        insert_data = {
+            "channel_id": channel_id,
+            "source": source,
+        }
+
+        if source_rank is not None:
+            insert_data["source_rank"] = source_rank
+
+        # discovered_at gets set to NOW() by database default
+
+        response = db.supabase_client.table(CREATOR_TABLE).insert(insert_data).execute()
+
         if response.data:
             creator_id = response.data[0]["id"]
-            logger.debug(f"Creator already exists: {channel_id} → {creator_id}")
-            return creator_id
-
-        # Create minimal record with ONLY channel_id
-        # Worker will fetch real metadata (name, URL, stats) via YouTube API
-        insert_response = (
-            db.supabase_client.table(CREATOR_TABLE)
-            .insert(
-                {
-                    "channel_id": channel_id,
-                    # Leave NULL: channel_name, channel_url, etc.
-                    # Worker fills these in via YouTube API
-                }
+            logger.info(
+                f"Created creator: {channel_id} (source={source}, rank={source_rank})"
             )
-            .execute()
-        )
-
-        if insert_response.data:
-            creator_id = insert_response.data[0]["id"]
-            logger.info(f"Created minimal creator: {channel_id} → {creator_id}")
             return creator_id
 
-        logger.error(f"Failed to create creator {channel_id}: insert returned no data")
+        logger.error(f"Insert returned no data for {channel_id}")
         return None
 
     except Exception as e:
@@ -309,8 +144,8 @@ def get_or_create_creator(channel_id: str) -> str | None:
         return None
 
 
-def enqueue_creator_sync(creator_id: str) -> bool:
-    """Enqueue a creator sync job in Supabase"""
+async def enqueue_creator_sync(creator_id: str) -> bool:
+    """Enqueue a creator sync job."""
     if not db.supabase_client:
         logger.error("Supabase client not available")
         return False
@@ -333,16 +168,75 @@ def enqueue_creator_sync(creator_id: str) -> bool:
         return False
 
 
-def main():
-    # Load environment variables
-    load_dotenv()
+async def process_creators(
+    urls: List[str],
+    validator: ChannelIDValidator,
+    resolver: YouTubeResolver,
+) -> dict:
+    """
+    Process discovered URLs and add creators to database.
 
-    # Setup logging
+    Args:
+        urls: List of YouTube URLs from Wikipedia
+        validator: ChannelIDValidator instance
+        resolver: YouTubeResolver instance
+
+    Returns:
+        Stats dict with counts (enqueued, skipped, failed)
+    """
+    stats = {"enqueued": 0, "skipped": 0, "failed": 0, "duplicate": 0}
+    seen = set()
+
+    for position, url in enumerate(sorted(urls), 1):
+        # Strategy 1: Extract directly using regex (fast, no API)
+        channel_id = validator.extract_from_url(url)
+
+        # Strategy 2: Resolve handle if regex didn't find it
+        if not channel_id and ("/@" in url or "/user/" in url or "/c/" in url):
+            logger.debug(f"Attempting handle resolution for: {url}")
+            channel_id = await resolver.resolve_handle_to_channel_id(url)
+
+        if not channel_id:
+            stats["skipped"] += 1
+            logger.debug(f"Could not extract channel ID from: {url}")
+            continue
+
+        # Check for duplicates within this batch
+        if channel_id in seen:
+            stats["duplicate"] += 1
+            logger.debug(f"Duplicate: {channel_id}")
+            continue
+
+        seen.add(channel_id)
+
+        # Add creator with source ranking
+        creator_id = await add_creator_with_source(
+            channel_id=channel_id,
+            source="wikipedia",
+            source_rank=position,
+        )
+
+        if not creator_id:
+            stats["failed"] += 1
+            continue
+
+        # Enqueue sync job
+        if await enqueue_creator_sync(creator_id):
+            stats["enqueued"] += 1
+            logger.info(f"✅ Enqueued: {channel_id} (rank #{position})")
+        else:
+            stats["failed"] += 1
+
+    return stats
+
+
+async def main():
+    """Main seeding workflow."""
+    load_dotenv()
     setup_logging()
 
     logger.info("Initializing Supabase...")
     client = init_supabase()
-
     if not client:
         logger.error("❌ Failed to initialize Supabase client")
         logger.error(
@@ -350,12 +244,13 @@ def main():
         )
         sys.exit(1)
 
-    # Build YouTube client for validation AND handle resolution
-    youtube = build_youtube_client()
+    # Initialize YouTube resolver
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
+        logger.warning("⚠️  YOUTUBE_API_KEY not set - handle resolution will be skipped")
 
-    if not youtube:
-        logger.warning("⚠️  YouTube API not available - will skip handle resolution")
-        logger.warning("   Only direct /channel/UCxxxxx URLs will be processed")
+    resolver = YouTubeResolver(api_key=api_key)
+    validator = ChannelIDValidator()
 
     logger.info("Fetching Wikipedia page...")
 
@@ -368,74 +263,37 @@ def main():
         response = requests.get(WIKI_URL, timeout=15, headers=headers)
         response.raise_for_status()
     except requests.RequestException as e:
-        logger.error(f"Error fetching page: {e}")
+        logger.error(f"Failed to fetch page: {e}")
         sys.exit(1)
 
-    html = response.text
-    logger.info(f"Page size: {len(html)} characters")
+    logger.info(f"Downloaded page: {len(response.text)} characters")
 
-    urls = extract_youtube_urls(html)
+    urls = extract_youtube_urls(response.text)
     logger.info(f"Found {len(urls)} YouTube URLs")
 
-    if len(urls) == 0:
-        logger.warning("No URLs found. This may indicate:")
-        logger.warning("  - Wikipedia page structure changed")
-        logger.warning("  - No YouTube links in the article")
-        logger.warning("  - Network/access issue")
+    if not urls:
+        logger.error("No URLs found - Wikipedia structure may have changed")
         sys.exit(1)
 
-    # Extract raw channel IDs (with handle resolution if API available)
-    seen = set()
-    enqueued = 0
-    skipped = 0
-    failed = 0
+    # Process creators
+    logger.info("Processing creators...")
+    stats = await process_creators(urls, validator, resolver)
 
-    for url in sorted(urls):
-        # Pass youtube client to enable handle resolution
-        channel_id = extract_raw_channel_id(url, youtube)
-
-        if not channel_id:
-            skipped += 1
-            continue
-
-        if channel_id in seen:
-            logger.debug(f"Skipping duplicate: {channel_id}")
-            continue
-
-        seen.add(channel_id)
-
-        # Optional: Validate against YouTube API
-        if youtube and not validate_channel_id(channel_id, youtube):
-            logger.warning(f"Channel validation failed: {channel_id}")
-            # Still try to add it - may have different API quota issues
-
-        # Step 1: Get or create creator
-        creator_id = get_or_create_creator(channel_id)
-        if not creator_id:
-            logger.warning(f"Failed to get/create creator: {channel_id}")
-            failed += 1
-            continue
-
-        # Step 2: Enqueue sync job
-        if enqueue_creator_sync(creator_id):
-            logger.info(f"✅ Enqueued: {channel_id}")
-            enqueued += 1
-        else:
-            logger.warning(f"Failed to enqueue: {channel_id}")
-            failed += 1
-
-    logger.info(f"\n✅ Successfully enqueued {enqueued} creators")
-    logger.info(f"⭐️  Skipped {skipped} non-resolvable URLs (YouTube API unavailable)")
-    if failed > 0:
-        logger.warning(f"❌ Failed to process {failed} creators")
-
-    # Summary
-    total_processed = enqueued + skipped + failed
-    success_rate = (enqueued / total_processed * 100) if total_processed > 0 else 0
-    logger.info(
-        f"\n📊 Success rate: {success_rate:.1f}% ({enqueued}/{total_processed})"
-    )
+    # Report results
+    total = sum(stats.values())
+    logger.info("\n" + "=" * 70)
+    logger.info("SEEDING COMPLETE")
+    logger.info("=" * 70)
+    logger.info(f"✅ Enqueued:   {stats['enqueued']}")
+    logger.info(f"⭐️  Skipped:   {stats['skipped']}")
+    logger.info(f"🔄 Duplicate: {stats['duplicate']}")
+    logger.info(f"❌ Failed:    {stats['failed']}")
+    logger.info(f"📊 Total:     {total}")
+    if total > 0:
+        success_rate = (stats["enqueued"] / total) * 100
+        logger.info(f"📈 Success:   {success_rate:.1f}%")
+    logger.info("=" * 70)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
