@@ -174,33 +174,42 @@ class SourceFetcher:
             Dict mapping channel_id -> {"source": ..., "rank": ...}
         """
         all_creators = {}
-        tasks = []
+        tasks = {}
 
+        # Build parallel tasks for all enabled sources
         if config.get(Source.WIKIPEDIA, SourceConfig(Source.WIKIPEDIA)).enabled:
-            tasks.append(("wikipedia", self.fetch_wikipedia()))
+            tasks["wikipedia"] = self.fetch_wikipedia()
 
         if config.get(
             Source.YOUTUBE_TRENDING, SourceConfig(Source.YOUTUBE_TRENDING)
         ).enabled:
-            tasks.append(("youtube_trending", self.fetch_youtube_trending()))
+            tasks["youtube_trending"] = self.fetch_youtube_trending()
 
         if config.get(Source.YOUTUBE_MUSIC, SourceConfig(Source.YOUTUBE_MUSIC)).enabled:
-            tasks.append(("youtube_music", self.fetch_youtube_music()))
+            tasks["youtube_music"] = self.fetch_youtube_music()
 
-        # Run all source fetches in parallel
+        # Execute all tasks concurrently
         if tasks:
-            for source_name, task in tasks:
+            results = await asyncio.gather(
+                *tasks.values(),
+                return_exceptions=True,
+            )
+
+            for source_name, result in zip(tasks.keys(), results):
+                if isinstance(result, Exception):
+                    logger.error(f"Error fetching {source_name}: {result}")
+                    continue
+
                 try:
-                    creators = await task
                     source = Source(source_name)
-                    for channel_id, rank in creators.items():
+                    for channel_id, rank in result.items():
                         if channel_id not in all_creators:
                             all_creators[channel_id] = {
                                 "source": source_name,
                                 "rank": rank,
                             }
                 except Exception as e:
-                    logger.error(f"Error fetching {source_name}: {e}")
+                    logger.error(f"Error processing results from {source_name}: {e}")
 
         return all_creators
 
