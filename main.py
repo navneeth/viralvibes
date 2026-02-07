@@ -156,6 +156,9 @@ def init_app_services(app):
 # Choose a theme color (blue, green, red, etc)
 hdrs = Theme.red.headers(apex_charts=True)
 
+# Add custom CSS and JS to headers
+hdrs += (Link(rel="stylesheet", href="/css/main.css"), Script(src="/js/index.js"))
+
 app, rt = fast_app(
     hdrs=hdrs,
     title="ViralVibes - YouTube Trends, Decoded",

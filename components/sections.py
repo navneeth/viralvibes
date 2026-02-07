@@ -1,4 +1,17 @@
-# routes/homepage.py
+# components/sections.py
+"""
+Reusable section components for ViralVibes homepage and pages.
+
+Contains:
+- Section wrappers (background + layout)
+- Hero section (with animated background)
+- Engagement slider (carousel)
+- Feature sections
+- How-it-works steps
+- FAQ section
+- Footer
+"""
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -21,7 +34,17 @@ from constants import (
 # Section Helpers
 # =============================================================================
 def section_wrapper(content, bg_color, xtra="", flex=True) -> Section:
-    """Wraps a section with background color, layout, and rounded corners."""
+    """Wraps a section with background color, layout, and rounded corners.
+
+    Args:
+        content: Section content
+        bg_color: Tailwind bg color (e.g., 'bg-red-500')
+        xtra: Extra CSS classes
+        flex: Whether to use flex layout
+
+    Returns:
+        Section element with styled wrapper
+    """
     return Section(
         content,
         cls=f"bg-{bg_color} {SECTION_BASE} {FLEX_COL if flex else ''} -mt-8 lg:-mt-16 items-center rounded-t-3xl lg:rounded-t-[2.5rem] relative {xtra}",
@@ -29,7 +52,18 @@ def section_wrapper(content, bg_color, xtra="", flex=True) -> Section:
 
 
 def section_header(mono_text, heading, subheading, max_width=32, center=True) -> Div:
-    """Reusable section header with mono label."""
+    """Reusable section header with mono label.
+
+    Args:
+        mono_text: Small label text (e.g., "SECTION 01")
+        heading: Main H2 heading
+        subheading: Description text
+        max_width: Max width for container (in rem)
+        center: Whether to center text
+
+    Returns:
+        Div with styled header
+    """
     pos = "items-center text-center" if center else "items-start text-start"
     return Div(
         P(mono_text, cls="mono-body text-opacity-60"),

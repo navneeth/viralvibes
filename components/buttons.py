@@ -18,14 +18,13 @@ def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> 
     }
     cls_key = kind_map.get(kind, "btn_full")
     base_cls = STYLES.get(cls_key, STYLES.get("btn_full", ""))
-    cls_name = kind_map.get(kind, "btn-full")
 
     icon_comp = UkIcon(icon, cls="mr-2") if icon else None
     content = Span(icon_comp, text) if icon_comp else text
 
     return Button(
         content,
-        cls=cls_name,
+        cls=base_cls,
         **kwargs,
     )
 
