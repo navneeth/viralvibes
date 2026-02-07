@@ -1,4 +1,14 @@
-# Standard library and typing
+# components/ui_components.py
+"""
+Advanced UI components for dashboard and analytics pages.
+
+Contains:
+- CachedResultsBanner - Shows cache status
+- AnalyticsDashboardSection - Full dashboard layout
+- PlaylistMetricsOverview - Metric cards grid
+- AnalyticsHeader - Dashboard header with playlist info
+"""
+
 import logging
 from typing import Dict, Optional
 
@@ -39,7 +49,14 @@ logger = logging.getLogger(__name__)
 
 
 def CachedResultsBanner(cached_at: str) -> Div:
-    """Display a banner indicating results are from cache."""
+    """Display a banner indicating results are from cache.
+
+    Args:
+        cached_at: When the cache was created (timestamp string)
+
+    Returns:
+        Div with cache status banner
+    """
     return styled_div(
         styled_div(
             UkIcon("check-circle", cls="text-green-500 mr-2", height=20, width=20),
@@ -369,7 +386,22 @@ def AnalyticsHeader(
     engagement_rate: Optional[float] = None,
     total_views: Optional[int] = None,
 ) -> Div:
-    """Create a professional header for the analytics dashboard with rich DB data."""
+    """Dashboard header for the analytics dashboard with playlist and channel info.
+    Args:
+        playlist_title: Name of the playlist
+        channel_name: Name of the channel
+        total_videos: Total videos in playlist
+        processed_videos: Videos successfully analyzed
+        playlist_thumbnail: URL to playlist thumbnail
+        channel_thumbnail: URL to channel thumbnail
+        channel_url: URL to channel
+        processed_date: When data was processed
+        engagement_rate: Average engagement rate
+        total_views: Total views across videos
+
+    Returns:
+        Div with styled header
+    """
     video_info = f"{total_videos} videos"
     if processed_videos < total_videos:
         missing = total_videos - processed_videos
@@ -512,6 +544,14 @@ def _safe_agg(df: pl.DataFrame, col: str, agg: str) -> int | float:
     """
     Return 0 (or 0.0) if the column does not exist or the aggregation fails.
     `agg` can be "sum", "mean", "max", "min".
+
+    Args:
+        df: Polars DataFrame
+        col: Column name
+        agg: Aggregation type ('sum', 'mean', 'max', 'min')
+
+    Returns:
+        Aggregated value or 0
     """
     if col not in df.columns:
         return 0
@@ -530,6 +570,13 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     Four (or six) instantly-useful metric cards.
     Works with the exact schema you posted **and** with the enriched
     columns that `youtube_transforms._enrich_dataframe` adds.
+
+    Args:
+        df: Polars DataFrame with video metrics
+        summary: Dict with summary statistics
+
+    Returns:
+        Div with metric cards grid
     """
 
     # ------------------------------------------------------------------
