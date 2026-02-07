@@ -33,9 +33,9 @@ from utils import format_number
 def benefit(title: str, content: str) -> Div:
     """Create a benefit card with styled content."""
     return styled_div(
-        H3(title, cls="text-white text-xl font-bold"),
-        P(content, cls="text-gray-200 text-base mt-4"),
-        cls=f"w-full p-6 {THEME['primary_bg']} rounded-2xl lg:h-[22rem] lg:w-[26rem]",
+        H3(title, cls="text-white heading-3"),
+        P(content, cls="text-gray-200 s-body mt-4"),
+        cls="card-benefit",
     )
 
 
@@ -45,7 +45,7 @@ def accordion(
     answer: str,
     question_cls: str = "",
     answer_cls: str = "",
-    container_cls: str = "",
+    container_cls: str = "bg-soft-blue rounded-2xl",
 ) -> Div:
     """Create a collapsible accordion component."""
     return Div(

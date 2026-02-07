@@ -9,7 +9,8 @@ from constants import STYLES
 
 
 def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> Button:
-    """Create a CTA using centralized STYLES (kind='full'|'refresh'|'secondary')."""
+    """Create a CTA using centralized CSS classes
+    from main.css (kind='full'|'refresh'|'secondary')."""
     kind_map = {
         "full": "btn_full",
         "refresh": "btn_refresh",
@@ -17,13 +18,14 @@ def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> 
     }
     cls_key = kind_map.get(kind, "btn_full")
     base_cls = STYLES.get(cls_key, STYLES.get("btn_full", ""))
+    cls_name = kind_map.get(kind, "btn-full")
 
     icon_comp = UkIcon(icon, cls="mr-2") if icon else None
     content = Span(icon_comp, text) if icon_comp else text
 
     return Button(
         content,
-        cls=base_cls,
+        cls=cls_name,
         **kwargs,
     )
 
