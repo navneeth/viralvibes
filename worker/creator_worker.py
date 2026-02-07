@@ -55,6 +55,7 @@ from db import (
     setup_logging,
     supabase_client,
 )
+from services.channel_utils import YouTubeResolver
 from services.youtube_service import YoutubePlaylistService
 
 # --- Load environment variables early ---
@@ -77,6 +78,7 @@ RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
 
 # --- Services ---
 yt_service = YoutubePlaylistService(backend="youtubeapi")
+youtube_resolver = None  # Initialized in init()
 
 # --- Graceful shutdown event ---
 stop_event = asyncio.Event()
@@ -111,20 +113,20 @@ async def init():
         else:
             logger.error("Supabase environment not configured. Worker cannot run.")
             raise SystemExit(1)
+
+        # Initialize YouTube resolver
+        api_key = os.getenv("YOUTUBE_API_KEY")
+        if not api_key:
+            logger.error("YOUTUBE_API_KEY not configured. Exiting.")
+            raise SystemExit(1)
+
+        global youtube_resolver
+        youtube_resolver = YouTubeResolver(api_key=api_key)
+        logger.info("YouTube resolver initialized for creator worker.")
+
     except Exception as e:
-        logger.error(f"Unexpected error during Supabase initialization: {str(e)}")
+        logger.error(f"Unexpected error during initialization: {str(e)}")
         raise SystemExit(1) from e
-
-
-def _build_youtube_client():
-    """Build YouTube API client."""
-    from googleapiclient.discovery import build
-
-    api_key = os.getenv("YOUTUBE_API_KEY")
-    if not api_key:
-        raise ValueError("YOUTUBE_API_KEY environment variable not set")
-
-    return build("youtube", "v3", developerKey=api_key)
 
 
 async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
@@ -267,15 +269,10 @@ async def handle_sync_job(job_id: int, creator_id: str, job_number: int = 0):
 
 async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
     """
-    Fetch complete channel data from YouTube API.
+    Fetch complete channel data from YouTube API using centralized resolver.
 
-    Returns dict with:
-    - channel_id
-    - subscriber_count
-    - view_count
-    - video_count
-    - channel_name
-    - channel_thumbnail
+    Returns dict with normalized channel statistics from YouTube API,
+    plus computed engagement and quality metrics (informational).
 
     Args:
         channel_id: YouTube channel ID
@@ -284,24 +281,27 @@ async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
         Dictionary with channel statistics
     """
     try:
-        # 1. Fetch channel statistics
-        channel_stats = await _fetch_channel_statistics(channel_id)
+        if not youtube_resolver:
+            raise Exception("YouTube resolver not initialized")
 
-        if not channel_stats:
-            raise Exception(f"Could not fetch channel stats for {channel_id}")
+        # Fetch normalized channel data from YouTube API
+        channel_data = await youtube_resolver.get_channel_data(channel_id)
 
-        subscriber_count = channel_stats["subscriber_count"]
-        view_count = channel_stats["view_count"]
-        video_count = channel_stats["video_count"]
-        channel_name = channel_stats.get("channel_name", "")
-        channel_thumbnail = channel_stats.get("channel_thumbnail")
+        if not channel_data:
+            raise Exception(f"Could not fetch channel data for {channel_id}")
+
+        subscriber_count = channel_data["current_subscribers"]
+        view_count = channel_data["current_view_count"]
+        video_count = channel_data["current_video_count"]
+        channel_name = channel_data.get("channel_name", "")
+        channel_thumbnail = channel_data.get("channel_thumbnail_url")
 
         logger.info(
             f"[Creator] {channel_id}: {subscriber_count:,} subscribers, "
             f"{view_count:,} views, {video_count:,} videos"
         )
 
-        # 2. TRY to compute engagement score (optional - but don't fail)
+        # TRY to compute engagement score (optional - but don't fail)
         try:
             engagement_score = await _compute_engagement_score(channel_id)
             logger.debug(
@@ -313,7 +313,7 @@ async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
             )
             engagement_score = 0.0
 
-        # 3. Compute quality grade (informational only - not stored)
+        # Compute quality grade (informational only - not stored)
         try:
             quality_grade = _compute_quality_grade(engagement_score, subscriber_count)
             logger.debug(f"[Creator] Computed quality grade: {quality_grade}")
@@ -338,52 +338,6 @@ async def _fetch_channel_data(channel_id: str) -> Dict[str, Any]:
         raise
 
 
-async def _fetch_channel_statistics(channel_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Fetch channel statistics from YouTube Data API v3.
-
-    Uses channels.list method with part=statistics,snippet.
-    Reference: https://developers.google.com/youtube/v3/docs/channels/list
-
-    Args:
-        channel_id: YouTube channel ID (e.g., "UCxxxxx")
-
-    Returns:
-        Dict with statistics fields, or None if channel not found
-    """
-    try:
-        youtube = _build_youtube_client()
-
-        # Call channels.list method
-        # https://developers.google.com/youtube/v3/docs/channels/list
-        request = youtube.channels().list(part="statistics,snippet", id=channel_id)
-        response = request.execute()
-
-        # Check if channel exists in response
-        if not response.get("items"):
-            logger.error(f"Channel not found: {channel_id}")
-            return None
-
-        channel = response["items"][0]
-        statistics = channel.get("statistics", {})
-        snippet = channel.get("snippet", {})
-
-        return {
-            "subscriber_count": int(statistics.get("subscriberCount", 0) or 0),
-            "view_count": int(statistics.get("viewCount", 0) or 0),
-            "video_count": int(statistics.get("videoCount", 0) or 0),
-            # Extract metadata
-            "channel_name": snippet.get("title", ""),
-            "channel_thumbnail": snippet.get("thumbnails", {})
-            .get("default", {})
-            .get("url"),
-        }
-
-    except Exception as e:
-        logger.exception(f"Error fetching channel statistics for {channel_id}: {e}")
-        return None
-
-
 async def _compute_engagement_score(channel_id: str) -> float:
     """
     Compute engagement score from recent videos (informational only).
@@ -406,7 +360,10 @@ async def _compute_engagement_score(channel_id: str) -> float:
         Engagement score as float percentage (0-100+)
     """
     try:
-        youtube = _build_youtube_client()
+        if not youtube_resolver:
+            raise Exception("YouTube resolver not initialized")
+
+        youtube = youtube_resolver._get_youtube_client()
 
         # Convert channel ID to uploads playlist ID
         # For a channel "UCxxxxx", the uploads playlist is "UUxxxxx"
