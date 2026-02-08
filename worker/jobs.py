@@ -1,11 +1,11 @@
 # worker/jobs.py
 import asyncio
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 import polars as pl
 
 from services.youtube_service import YoutubePlaylistService
-from utils import compute_dashboard_id  # ✅ ADD THIS IMPORT
+from utils import compute_dashboard_id
 
 # Instantiate service once
 yt_service = YoutubePlaylistService()
@@ -50,13 +50,10 @@ async def process_playlist(playlist_url: str) -> dict:
         else 0.0
     )
 
-    # ✅ FIX 1: Add missing required fields
     result = {
         # ✅ Core identifiers
-        "playlist_url": playlist_url,  # ✅ ADD: Authoritative identifier
-        "dashboard_id": compute_dashboard_id(
-            playlist_url
-        ),  # ✅ ADD: Computed hash for routing
+        "playlist_url": playlist_url,  # Authoritative identifier
+        "dashboard_id": compute_dashboard_id(playlist_url),  # Computed hash for routing
         # ✅ Playlist metadata
         "title": playlist_name,  # ✅ RENAME: 'playlist_name' → 'title' (matches DB schema)
         "channel_name": channel_name,  # ✅ ADD: Missing field
@@ -86,7 +83,9 @@ async def process_playlist(playlist_url: str) -> dict:
         ),  # ✅ ADD: DataFrame as JSON string
         "summary_stats": summary_stats,  # ✅ ADD: Keep original summary_stats dict
         # ✅ Denormalized counters (updated separately via dashboard_events)
-        "share_count": 0,  # ✅ ADD: Default to 0 (incremented by event tracking)
+        "share_count": 0,  # ✅ ADD: Default to 0 (incremented by event tracking),
+        "processed_on": datetime.utcnow().isoformat(),
+        "processed_date": date.today().isoformat(),
     }
 
     # ✅ DEBUG: Print available columns

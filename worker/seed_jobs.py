@@ -10,7 +10,9 @@ load_dotenv()
 supabase = init_supabase()
 
 for playlist in KNOWN_PLAYLISTS:
-    url = playlist["url"]
+    url = playlist.get("url")  # Safe
+    if not url:
+        continue
     job = {
         "playlist_url": url,
         "status": "pending",
