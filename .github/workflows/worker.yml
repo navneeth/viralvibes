@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run-worker:
@@ -20,7 +20,7 @@ jobs:
       USE_YTDLP: ${{ secrets.USE_YTDLP }}
       WORKER_POLL_INTERVAL: "10"
       WORKER_BATCH_SIZE: "3"
-      WORKER_MAX_RUNTIME: "300"  # 5 hours in minutes
+      WORKER_MAX_RUNTIME: "18000"  # 5 hours in seconds (300 * 60)
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
