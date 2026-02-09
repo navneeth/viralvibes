@@ -29,7 +29,7 @@ import signal
 import time
 import traceback
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -426,11 +426,16 @@ async def handle_sync_job(
         logger.debug(f"{job_tag} Updating database")
 
         update_payload = {
+            # Stats (updated every sync)
             "current_subscribers": channel_data["current_subscribers"],
             "current_view_count": channel_data["current_view_count"],
             "current_video_count": channel_data["current_video_count"],
+            # Metadata (may change over time)
+            "channel_name": channel_data.get("channel_name"),
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
-            "last_updated_at": datetime.utcnow().isoformat(),
+            "country_code": channel_data.get("country_code"),
+            # Timestamp (timezone-aware UTC)
+            "last_updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
@@ -479,7 +484,7 @@ async def handle_sync_job(
 
                 if retry_count < MAX_RETRY_ATTEMPTS:
                     backoff = RETRY_BACKOFF_BASE * (2**retry_count)
-                    retry_at = datetime.utcnow() + timedelta(seconds=backoff)
+                    retry_at = datetime.now(timezone.utc) + timedelta(seconds=backoff)
 
                     logger.info(
                         f"{job_tag} Scheduling retry {retry_count + 1}/{MAX_RETRY_ATTEMPTS} "
