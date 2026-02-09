@@ -1,6 +1,6 @@
 # worker/jobs.py
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import polars as pl
 
@@ -50,6 +50,9 @@ async def process_playlist(playlist_url: str) -> dict:
         else 0.0
     )
 
+    # Single UTC timestamp reference for consistency
+    now_utc = datetime.now(timezone.utc)
+
     result = {
         # ✅ Core identifiers
         "playlist_url": playlist_url,  # Authoritative identifier
@@ -84,8 +87,8 @@ async def process_playlist(playlist_url: str) -> dict:
         "summary_stats": summary_stats,  # ✅ ADD: Keep original summary_stats dict
         # ✅ Denormalized counters (updated separately via dashboard_events)
         "share_count": 0,  # ✅ ADD: Default to 0 (incremented by event tracking),
-        "processed_on": datetime.utcnow().isoformat(),
-        "processed_date": date.today().isoformat(),
+        "processed_on": now_utc.isoformat(),  # ✅ Timezone-aware UTC timestamp
+        "processed_date": now_utc.date().isoformat(),  # ✅ UTC date derived from same instant
     }
 
     # ✅ DEBUG: Print available columns
