@@ -11,7 +11,7 @@ import logging
 import os
 import random
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol
 
 import polars as pl
@@ -206,7 +206,9 @@ def get_cached_playlist_stats(
 
         # Optional same-day cache restriction
         if check_date:
-            query = query.eq("processed_date", date.today().isoformat())
+            query = query.eq(
+                "processed_date", datetime.now(timezone.utc).date().isoformat()
+            )
 
         response = query.order("processed_on", desc=True).limit(1).execute()
 
@@ -363,7 +365,7 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     stats_to_insert = {
         **stats,
         "user_id": user_id,
-        "processed_date": date.today().isoformat(),
+        "processed_date": datetime.now(timezone.utc).date().isoformat(),
         "df_json": df_json,
         "summary_stats": summary_stats_json,
         "dashboard_id": compute_dashboard_id(playlist_url),
@@ -1136,7 +1138,7 @@ def record_dashboard_event(
         payload = {
             "dashboard_id": dashboard_id,
             "event_type": event_type,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
         client.table("dashboard_events").insert(payload).execute()

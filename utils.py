@@ -461,7 +461,7 @@ def format_date_relative(date_str: str | None) -> str:
         # Parse datetime
         clean_date = date_str.replace("Z", "+00:00")
         dt = datetime.fromisoformat(clean_date)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Calculate difference
         diff = now - dt.replace(tzinfo=None)

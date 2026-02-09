@@ -360,6 +360,9 @@ class TestProcessPlaylist:
             "summary_stats",
             # Event counters
             "share_count",
+            # Timestamps (added by worker, have DB defaults)
+            "processed_on",
+            "processed_date",
         }
 
         # ✅ STRICT SCHEMA CHECK: Detect extra AND missing fields
@@ -470,6 +473,27 @@ class TestProcessPlaylist:
         assert (
             result["share_count"] == 0
         ), f"share_count must default to 0, got {result['share_count']}"
+
+        # ✅ Validate timestamp fields
+        assert isinstance(
+            result["processed_on"], str
+        ), f"processed_on must be ISO string, got {type(result['processed_on'])}"
+        assert isinstance(
+            result["processed_date"], str
+        ), f"processed_date must be ISO date string, got {type(result['processed_date'])}"
+
+        # ✅ Verify timestamp formats (ISO 8601)
+        try:
+            from datetime import datetime
+
+            datetime.fromisoformat(result["processed_on"].replace("Z", "+00:00"))
+        except ValueError as e:
+            pytest.fail(f"processed_on is not valid ISO format: {e}")
+
+        try:
+            datetime.fromisoformat(result["processed_date"])
+        except ValueError as e:
+            pytest.fail(f"processed_date is not valid ISO date format: {e}")
 
         print(f"✅ All field types validated")
 
