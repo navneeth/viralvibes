@@ -312,6 +312,53 @@ def _result_to_mapping(result) -> Dict[str, Any]:
         }
 
 
+def extract_unique_creators_from_dataframe(df: pl.DataFrame) -> list[dict]:
+    """
+    Extract unique video creators from playlist DataFrame.
+
+    Returns list of creator dicts with:
+    - channel_id (UCxxxxxx)
+    - channel_name
+    - channel_url (constructed)
+
+    Filters out null/invalid channel IDs.
+    """
+    if df is None or df.is_empty():
+        return []
+
+    # Check if required columns exist
+    if "UploaderChannelId" not in df.columns or "Uploader" not in df.columns:
+        logger.warning("DataFrame missing UploaderChannelId or Uploader columns")
+        return []
+
+    # Extract unique creators (filter out empty channel IDs)
+    unique_creators = (
+        df.filter(pl.col("UploaderChannelId") != "")
+        .filter(pl.col("UploaderChannelId").is_not_null())
+        .select(["UploaderChannelId", "Uploader"])
+        .unique()
+        .to_dicts()
+    )
+
+    # Format as creator records
+    creators = []
+    for row in unique_creators:
+        channel_id = row["UploaderChannelId"]
+        channel_name = row["Uploader"]
+
+        if channel_id and channel_name:
+            creators.append(
+                {
+                    "channel_id": channel_id,
+                    "channel_name": channel_name,
+                    "channel_url": f"https://www.youtube.com/channel/{channel_id}",
+                }
+            )
+
+    logger.info(f"Extracted {len(creators)} unique creators from playlist")
+    return creators
+
+
 async def handle_job(job: Dict[str, Any], is_retry: bool = False):
     """Process a single job dict."""
     global last_bot_challenge_time, consecutive_bot_challenges
@@ -560,14 +607,18 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             # Compute dashboard_id for logging (don't store in jobs table)
             dashboard_id = compute_dashboard_id(playlist_url)
 
-            # ✅ Seed creator from playlist metadata
+            # ✅ Seed creators from playlist
             try:
+                creators_seeded = 0
+                creators_failed = 0
+
+                # 1. Seed playlist owner (existing behavior)
                 channel_id = summary_stats.get("channel_id")
                 channel_url = summary_stats.get("channel_url")
 
                 if channel_id and channel_name:
                     logger.info(
-                        f"[Job {job_id}] Seeding creator: {channel_name} ({channel_id})"
+                        f"[Job {job_id}] Seeding playlist owner: {channel_name} ({channel_id})"
                     )
                     creator_uuid = get_or_create_creator_from_playlist(
                         channel_id=channel_id,
@@ -578,19 +629,64 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                         user_id=job.get("user_id"),
                     )
                     if creator_uuid:
+                        creators_seeded += 1
                         logger.info(
-                            f"[Job {job_id}] Creator seeded successfully: {creator_uuid}"
+                            f"[Job {job_id}] Playlist owner seeded: {creator_uuid}"
                         )
                     else:
-                        logger.warning(
-                            f"[Job {job_id}] Failed to seed creator {channel_name}"
-                        )
+                        creators_failed += 1
+
+                # 2. Seed individual video creators (NEW FEATURE)
+                video_creators = extract_unique_creators_from_dataframe(df)
+
+                if video_creators:
+                    logger.info(
+                        f"[Job {job_id}] Seeding {len(video_creators)} unique video creators"
+                    )
+
+                    for creator_data in video_creators:
+                        try:
+                            # Skip if same as playlist owner (already seeded)
+                            if creator_data["channel_id"] == channel_id:
+                                logger.debug(
+                                    f"[Job {job_id}] Skipping duplicate: "
+                                    f"{creator_data['channel_name']} (playlist owner)"
+                                )
+                                continue
+
+                            creator_uuid = get_or_create_creator_from_playlist(
+                                channel_id=creator_data["channel_id"],
+                                channel_name=creator_data["channel_name"],
+                                channel_url=creator_data["channel_url"],
+                                channel_thumbnail_url=None,  # Not available per video
+                                user_id=job.get("user_id"),
+                            )
+
+                            if creator_uuid:
+                                creators_seeded += 1
+                                logger.debug(
+                                    f"[Job {job_id}] Seeded: {creator_data['channel_name']} "
+                                    f"({creator_uuid})"
+                                )
+                            else:
+                                creators_failed += 1
+
+                        except Exception as e:
+                            creators_failed += 1
+                            logger.warning(
+                                f"[Job {job_id}] Failed to seed creator "
+                                f"{creator_data.get('channel_name', 'unknown')}: {e}"
+                            )
+
+                    logger.info(
+                        f"[Job {job_id}] Creator seeding complete: "
+                        f"{creators_seeded} seeded, {creators_failed} failed"
+                    )
                 else:
                     logger.debug(
-                        f"[Job {job_id}] Skipping creator seeding - missing required data "
-                        f"(channel_id={'present' if channel_id else 'missing'}, "
-                        f"channel_name={'present' if channel_name else 'missing'})"
+                        f"[Job {job_id}] No video creators to seed (empty playlist or missing data)"
                     )
+
             except Exception as e:
                 # Don't fail the job if creator seeding fails
                 logger.warning(
