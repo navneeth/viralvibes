@@ -11,7 +11,10 @@ diagrams/
 reports/
 
 # Local Dev / Testing
-.git/
+.git
+.github
+.gitignore
+.gitattributes
 .pytest_cache/
 **/__pycache__
 **/*.pyc
