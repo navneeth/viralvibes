@@ -92,8 +92,8 @@ class TestMultiCreatorSeeding:
 
         assert len(creators) == 0
 
-    def test_extract_unique_creators_missing_columns(self):
-        """Test DataFrame missing required columns."""
+    def test_extract_unique_creators_missing_both_columns(self):
+        """Test DataFrame missing both required columns."""
         df = pl.DataFrame(
             {
                 "id": ["video1", "video2"],
@@ -105,6 +105,38 @@ class TestMultiCreatorSeeding:
         creators = extract_unique_creators_from_dataframe(df)
 
         # Should return empty list gracefully
+        assert len(creators) == 0
+
+    def test_extract_unique_creators_missing_uploader_column(self):
+        """Test DataFrame missing Uploader column (but has UploaderChannelId)."""
+        df = pl.DataFrame(
+            {
+                "id": ["video1", "video2"],
+                "Title": ["Video 1", "Video 2"],
+                "UploaderChannelId": ["UC111", "UC222"],
+                # Missing Uploader column
+            }
+        )
+
+        creators = extract_unique_creators_from_dataframe(df)
+
+        # Should return empty list when either required column is missing
+        assert len(creators) == 0
+
+    def test_extract_unique_creators_missing_uploader_channel_id_column(self):
+        """Test DataFrame missing UploaderChannelId column (but has Uploader)."""
+        df = pl.DataFrame(
+            {
+                "id": ["video1", "video2"],
+                "Title": ["Video 1", "Video 2"],
+                "Uploader": ["Creator1", "Creator2"],
+                # Missing UploaderChannelId column
+            }
+        )
+
+        creators = extract_unique_creators_from_dataframe(df)
+
+        # Should return empty list when either required column is missing
         assert len(creators) == 0
 
     def test_extract_unique_creators_deduplication(self):
