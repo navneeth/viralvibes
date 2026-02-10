@@ -22,6 +22,7 @@ from constants import (
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
     CREATOR_UPDATE_INTERVAL_DAYS,
+    CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_WORKER_MAX_RETRIES,
     CREATOR_WORKER_RETRY_BASE,
     PLAYLIST_JOBS_TABLE,
@@ -1411,16 +1412,24 @@ def get_or_create_creator_from_playlist(
             creator_id = response.data[0]["id"]
             logger.info(f"Creator {channel_id} already exists (id={creator_id})")
 
-            # Opportunistic metadata refresh
+            # Opportunistic metadata refresh (update basic fields only)
+            # Note: Stats (country_code, video_count, subscribers) are updated by creator_worker
             try:
-                supabase_client.table(CREATOR_TABLE).update(
-                    {
-                        "channel_name": channel_name,
-                        "channel_url": channel_url,
-                        "channel_thumbnail_url": channel_thumbnail_url,
-                        "last_seen_at": datetime.utcnow().isoformat(),
-                    }
-                ).eq("id", creator_id).execute()
+                update_payload = {
+                    "channel_name": channel_name,
+                    "channel_url": channel_url,
+                    "last_seen_at": datetime.utcnow().isoformat(),
+                }
+                # Only update thumbnail if we have a new value (avoid overwriting with None)
+                if channel_thumbnail_url:
+                    update_payload["channel_thumbnail_url"] = channel_thumbnail_url
+
+                supabase_client.table(CREATOR_TABLE).update(update_payload).eq(
+                    "id", creator_id
+                ).execute()
+                logger.debug(
+                    f"Refreshed metadata for creator {channel_id} (last_seen updated)"
+                )
             except Exception as e:
                 logger.debug(f"Metadata refresh failed (non-critical): {e}")
 
@@ -1440,6 +1449,8 @@ def get_or_create_creator_from_playlist(
                     else None
                 )
                 should_queue = True
+                # Use shorter interval for rediscovered creators vs scheduled syncs
+                sync_threshold = CREATOR_REDISCOVERY_THRESHOLD_DAYS
 
                 if last_synced:
                     last_synced_dt = datetime.fromisoformat(
@@ -1448,12 +1459,16 @@ def get_or_create_creator_from_playlist(
                     days_since_sync = (
                         datetime.utcnow() - last_synced_dt.replace(tzinfo=None)
                     ).days
-                    should_queue = days_since_sync >= CREATOR_UPDATE_INTERVAL_DAYS
+                    should_queue = days_since_sync >= sync_threshold
 
                     if not should_queue:
                         logger.debug(
                             f"Skipping sync queue for {channel_id} - synced {days_since_sync} days ago "
-                            f"(threshold: {CREATOR_UPDATE_INTERVAL_DAYS} days)"
+                            f"(threshold: {sync_threshold} days)"
+                        )
+                    else:
+                        logger.info(
+                            f"Re-queuing {channel_id} for sync - last synced {days_since_sync} days ago"
                         )
 
                 if should_queue:
@@ -1475,6 +1490,11 @@ def get_or_create_creator_from_playlist(
             "channel_name": channel_name,
             "channel_url": channel_url,
             "channel_thumbnail_url": channel_thumbnail_url,
+            # Ensure these essential fields have default values
+            "current_subscribers": 0,
+            "current_view_count": 0,
+            "current_video_count": 0,
+            # Country code can be null initially (will be filled by sync worker)
         }
 
         insert_resp = (
@@ -1488,9 +1508,11 @@ def get_or_create_creator_from_playlist(
         creator_id = insert_resp.data[0]["id"]
         logger.info(f"Discovered new creator {channel_id} (id={creator_id})")
 
-        # 3️⃣ Queue for sync
+        # 3️⃣ Queue for immediate sync (high priority for new creators)
         if not queue_creator_sync(creator_id, source="discovered"):
             logger.warning(f"Failed to queue creator {creator_id} for sync")
+        else:
+            logger.debug(f"Queued creator {creator_id} for immediate sync")
 
         return creator_id
 
