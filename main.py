@@ -157,7 +157,11 @@ def init_app_services(app):
 hdrs = Theme.red.headers(apex_charts=True)
 
 # Add custom CSS and JS to headers
-hdrs += (Link(rel="stylesheet", href="/css/main.css"), Script(src="/js/index.js"))
+hdrs += (
+    Link(rel="stylesheet", href="/css/main.css"),
+    Script(src="/js/index.js"),
+    Script(src="/js/reveal.js"),
+)
 
 app, rt = fast_app(
     hdrs=hdrs,
