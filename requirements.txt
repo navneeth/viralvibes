@@ -8,7 +8,8 @@ supabase>=2.0.0
 
 # Server & async
 uvicorn>=0.30.1
-polars-lts-cpu
+#polars-lts-cpu
+polars>=1.0.0
 
 # Utilities
 tenacity
