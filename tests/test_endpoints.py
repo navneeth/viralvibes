@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
-import polars as pl
 import pytest
 from starlette.testclient import TestClient
 
