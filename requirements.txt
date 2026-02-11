@@ -13,6 +13,6 @@ polars-lts-cpu
 # Utilities
 tenacity
 requests
-isodate
+#isodate
 # introducing google-api-python-client causes vercel deployment issues due to size > 250 MB
 #google-api-python-client
