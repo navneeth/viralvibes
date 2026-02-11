@@ -15,6 +15,7 @@ from ui_components import (
     AnalyticsDashboardSection,
     AnalyticsHeader,
 )
+from utils import get_row_count
 from views.table import render_playlist_table
 
 
@@ -112,7 +113,7 @@ def render_full_dashboard(
                     playlist_title=playlist_name,
                     channel_name=channel_name,
                     total_videos=summary_stats.get("actual_playlist_count", 0),
-                    processed_videos=df.height,
+                    processed_videos=get_row_count(df),
                     playlist_thumbnail=(
                         cached_stats.get("playlist_thumbnail") if cached_stats else None
                     ),

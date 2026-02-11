@@ -69,7 +69,7 @@ from db import (
     upsert_playlist_stats,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
-from utils import compute_dashboard_id
+from utils import compute_dashboard_id, get_columns, sort_dataframe
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.my_dashboards import render_my_dashboards_page
@@ -422,8 +422,9 @@ def dashboard_page(
     cached_stats = data["cached_stats"]
 
     # 3. Sorting (identical to validate/full)
+    df_columns = get_columns(df)
     sortable_map = {
-        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
+        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns
     }
 
     # Validate sort parameter
@@ -435,10 +436,8 @@ def dashboard_page(
     valid_order = order if order in ("asc", "desc") else "desc"
 
     if valid_sort in sortable_map:
-        df = df.sort(
-            sortable_map[valid_sort],
-            descending=(valid_order == "desc"),
-        )
+        sort_col = sortable_map[valid_sort]
+        df = sort_dataframe(df, sort_col, descending=(valid_order == "desc"))
 
     def next_order(col):
         return "asc" if (col == valid_sort and valid_order == "desc") else "desc"
@@ -499,8 +498,9 @@ def validate_full(
         summary_stats = data["summary_stats"]
 
         # --- Normalize sort_by ---
+        df_columns = get_columns(df)
         sortable_map = {
-            h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
+            h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns
         }
         valid_sort = sort_by if sort_by in sortable_map else "Views"
         valid_order = order.lower() if order.lower() in ("asc", "desc") else "desc"
@@ -508,7 +508,7 @@ def validate_full(
         # --- Apply sorting ---
         if valid_sort in sortable_map:
             sort_col = sortable_map[valid_sort]
-            df = df.sort(sort_col, descending=(valid_order == "desc"))
+            df = sort_dataframe(df, sort_col, descending=(valid_order == "desc"))
 
         # --- Build next_order function ---
         def next_order(col):
@@ -564,10 +564,11 @@ def validate_full(
             # Map display header → actual column in DF (raw for sorting, formatted for display)
 
             # Build sortable_map: header → raw numeric column
+            df_columns = get_columns(df)
             sortable_map = {
                 h: get_sort_col(h)
                 for h in DISPLAY_HEADERS
-                if get_sort_col(h) in df.columns
+                if get_sort_col(h) in df_columns
             }
 
             # --- 6) Normalize sort_by ---
@@ -577,7 +578,7 @@ def validate_full(
             # --- 7) Apply sorting ---
             if valid_sort in sortable_map:
                 sort_col = sortable_map[valid_sort]
-                df = df.sort(sort_col, descending=(valid_order == "desc"))
+                df = sort_dataframe(df, sort_col, descending=(valid_order == "desc"))
 
             # --- 8) Build THEAD with working arrows ---
             def next_order(col):

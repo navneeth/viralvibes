@@ -2,12 +2,13 @@ import asyncio
 import functools
 import hashlib
 import html
+import json
 import logging
 import re
 from datetime import datetime, timezone
+from typing import Any
 from urllib.parse import quote
 
-import polars as pl
 from fasthtml.common import *
 
 from constants import TimeEstimates
@@ -144,37 +145,6 @@ def format_seconds(seconds: int) -> str:
         return "0s"
     m, s = divmod(seconds, 60)
     return f"{m}m {s}s" if m else f"{s}s"
-
-
-def process_numeric_column(series: "pl.Series") -> "pl.Series":
-    """Helper to convert formatted string numbers to floats.
-
-    Args:
-        series (pl.Series): A Polars Series containing numeric values or formatted strings
-
-    Returns:
-        pl.Series: A Polars Series with all values converted to float
-
-    Note:
-        Handles various number formats:
-        - Plain numbers (int/float)
-        - Numbers with B/M/K suffixes (e.g., 1.2B, 3.4M, 5.6K)
-        - Numbers with commas (e.g., 1,234,567)
-    """
-
-    def convert_to_number(value):
-        if isinstance(value, (int, float)):
-            return float(value)
-        value = str(value).upper()
-        if "B" in value:
-            return float(value.replace("B", "")) * 1_000_000_000
-        if "M" in value:
-            return float(value.replace("M", "")) * 1_000_000
-        if "K" in value:
-            return float(value.replace("K", "")) * 1_000
-        return float(value.replace(",", ""))
-
-    return series.map_elements(convert_to_number, return_dtype=pl.Float64)
 
 
 # --- Define helper for parsing formatted numbers into raw ints ---
@@ -483,3 +453,132 @@ def format_date_relative(date_str: str | None) -> str:
 
     except Exception:
         return "Unknown"
+
+
+# =============================================================================
+# DataFrame Abstraction Layer (Native Python - No Polars)
+# =============================================================================
+
+
+def deserialize_dataframe(df_json: str) -> list[dict[str, Any]]:
+    """Deserialize DataFrame from JSON string to list of dicts.
+
+    Args:
+        df_json: JSON string representation of DataFrame
+
+    Returns:
+        List of dictionaries, each representing a row
+    """
+    if not df_json:
+        return []
+    return json.loads(df_json)
+
+
+def get_row_count(data: list[dict]) -> int:
+    """Get number of rows in dataset."""
+    return len(data)
+
+
+def get_columns(data: list[dict]) -> list[str]:
+    """Get column names from dataset."""
+    return list(data[0].keys()) if data else []
+
+
+def has_column(data: list[dict], column: str) -> bool:
+    """Check if column exists in dataset."""
+    return column in data[0] if data else False
+
+
+def get_unique_count(data: list[dict], column: str) -> int:
+    """Count unique values in a column."""
+    if not data or column not in data[0]:
+        return 0
+    return len(set(row.get(column) for row in data if column in row))
+
+
+def find_extreme_indices(
+    data: list[dict], column: str
+) -> tuple[int | None, int | None]:
+    """Find indices of max and min values in a numeric column.
+
+    Args:
+        data: List of dictionaries
+        column: Column name to find extremes for
+
+    Returns:
+        Tuple of (max_index, min_index). Returns (None, None) if column not found.
+    """
+    if not data or column not in data[0]:
+        return (None, None)
+
+    try:
+        # Find max index
+        max_idx = max(enumerate(data), key=lambda x: float(x[1].get(column, 0) or 0))[0]
+        # Find min index
+        min_idx = min(enumerate(data), key=lambda x: float(x[1].get(column, 0) or 0))[0]
+        return (max_idx, min_idx)
+    except (ValueError, TypeError):
+        return (None, None)
+
+
+def create_empty_dataframe() -> list[dict]:
+    """Create an empty dataset."""
+    return []
+
+
+def sort_dataframe(
+    data: list[dict], column: str, descending: bool = False
+) -> list[dict]:
+    """Sort dataset by a column.
+
+    Args:
+        data: List of dictionaries
+        column: Column name to sort by
+        descending: If True, sort in descending order
+
+    Returns:
+        Sorted list of dictionaries
+    """
+    if not data or column not in data[0]:
+        return data
+
+    def get_sort_value(row):
+        val = row.get(column)
+        # Handle None values
+        if val is None:
+            return float("-inf") if not descending else float("inf")
+        # Try to convert to float for numeric sorting
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            # Fallback to string sorting
+            return str(val)
+
+    return sorted(data, key=get_sort_value, reverse=descending)
+
+
+# utils.py - Add DataFrame abstraction
+def deserialize_dataframe(df_json: str) -> list[dict]:
+    """Deserialize DataFrame from JSON string."""
+    return json.loads(df_json)
+
+
+def get_row_count(data: list[dict]) -> int:
+    return len(data)
+
+
+def get_columns(data: list[dict]) -> list[str]:
+    return list(data[0].keys()) if data else []
+
+
+def get_unique_count(data: list[dict], column: str) -> int:
+    return len(set(row.get(column) for row in data if column in row))
+
+
+def find_extreme_indices(data: list[dict], column: str) -> tuple[int, int]:
+    """Return (max_idx, min_idx) for a numeric column."""
+    if not data or column not in data[0]:
+        return (None, None)
+    max_idx = max(enumerate(data), key=lambda x: x[1].get(column, 0))[0]
+    min_idx = min(enumerate(data), key=lambda x: x[1].get(column, 0))[0]
+    return (max_idx, min_idx)
