@@ -8,7 +8,7 @@ supabase>=2.0.0
 
 # Server & async
 uvicorn>=0.30.1
-polars  # Note: polars-lts-cpu is just an alias for polars with CPU engine
+polars-lts-cpu  # Note: polars-lts-cpu is just an alias for polars with CPU engine
 
 # Utilities
 tenacity
