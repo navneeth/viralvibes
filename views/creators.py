@@ -95,6 +95,7 @@ def _render_hero(creator_count: int) -> Div:
             cls="grid grid-cols-3 gap-6 max-w-2xl mx-auto mb-8",
         ),
         cls="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 rounded-2xl border border-gray-200 p-8 mb-8 text-center",
+        data_reveal=True,
     )
 
 
