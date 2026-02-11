@@ -3,7 +3,7 @@ python-fasthtml>=0.12.39
 MonsterUI>=0.3.0
 
 # Database & storage
-sqlite_minutils==4.0.3
+#sqlite_minutils==4.0.3
 supabase>=2.0.0
 
 # Server & async
