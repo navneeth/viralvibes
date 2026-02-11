@@ -66,7 +66,7 @@ def load_dashboard_by_id(
 
     logger.info(
         f"Loaded dashboard {dashboard_id}: '{playlist_name}' "
-        f"({df.height} videos, user={user_id})"
+        f"({len(df)} videos, user={user_id})"
     )
 
     return {
@@ -118,8 +118,8 @@ def load_cached_or_stub(
         channel_thumbnail = cached.get("channel_thumbnail", "")
         summary_stats = cached["summary_stats"]
 
-        # use cached video_count if present; fall back to df.height; then preview meter_max
-        total = cached.get("video_count") or df.height or meter_max
+        # use cached video_count if present; fall back to len(df); then preview meter_max
+        total = cached.get("video_count") or len(df) or meter_max
         return {
             "cached": True,
             "df": df,
