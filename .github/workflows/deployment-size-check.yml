@@ -108,3 +108,21 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `## Deployment Size Report ${emoji}
+
+            **Status:** ${statusColor} ${status.toUpperCase()}
+
+            **Total Size:** ${humanSize} (${size} MB)
+            **Remaining Budget:** ${remaining} MB / 250 MB
+            **Python Version:** ${pythonVersion}
+            **Package Count:** ${packageCount}
+
+            ### Top 20 Largest Packages
+
+            \`\`\`
+            ${{ steps.packages.outputs.largest_packages }}
+            \`\`\`
+
+            ---
+            *Note: Vercel has a 250MB deployment size limit. Optimize dependencies if approaching this limit.*
+            `
+            });
