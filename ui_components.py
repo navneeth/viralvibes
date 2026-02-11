@@ -304,8 +304,11 @@ def AnalyticsDashboardSection(
                 cls="pb-16 mb-16 border-b-2 border-gray-100",
             )
             if (
-                "CategoryName" in df.columns
-                and df["CategoryName"].n_unique() > 1  # ✅ FIXED: Use column expression
+                (df and any("CategoryName" in row for row in df))
+                and len(
+                    set(row.get("CategoryName") for row in df if "CategoryName" in row)
+                )
+                > 1
             )
             else None  # Skip if <2 categories
         ),
@@ -540,39 +543,53 @@ def AnalyticsHeader(
 # ----------------------------------------------------------------------
 # Helper: safe numeric aggregation
 # ----------------------------------------------------------------------
-def _safe_agg(df: pl.DataFrame, col: str, agg: str) -> int | float:
+def _safe_agg(df: list[dict], col: str, agg: str) -> int | float:
     """
     Return 0 (or 0.0) if the column does not exist or the aggregation fails.
     `agg` can be "sum", "mean", "max", "min".
 
     Args:
-        df: Polars DataFrame
+        df: List of dictionaries with video metrics
         col: Column name
         agg: Aggregation type ('sum', 'mean', 'max', 'min')
 
     Returns:
         Aggregated value or 0
     """
-    if col not in df.columns:
+    if not df or not isinstance(df, list):
         return 0
+
+    # Check if column exists in any row
+    values = [row.get(col) for row in df if col in row and row.get(col) is not None]
+    if not values:
+        return 0
+
     try:
-        expr = getattr(pl.col(col), agg)()
-        return df.select(expr).item()
-    except Exception:
+        if agg == "sum":
+            return sum(values)
+        elif agg == "mean":
+            return sum(values) / len(values)
+        elif agg == "max":
+            return max(values)
+        elif agg == "min":
+            return min(values)
+        else:
+            return 0
+    except (TypeError, ValueError):
         return 0
 
 
 # ----------------------------------------------------------------------
 # Robust PlaylistMetricsOverview
 # ----------------------------------------------------------------------
-def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
+def PlaylistMetricsOverview(df: list[dict], summary: Dict) -> Div:
     """
     Four (or six) instantly-useful metric cards.
     Works with the exact schema you posted **and** with the enriched
     columns that `youtube_transforms._enrich_dataframe` adds.
 
     Args:
-        df: Polars DataFrame with video metrics
+        df: List of dictionaries with video metrics
         summary: Dict with summary statistics
 
     Returns:
@@ -582,8 +599,8 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     # ------------------------------------------------------------------
     # a) Basic counts from the summary dict (always present)
     # ------------------------------------------------------------------
-    total_videos = summary.get("actual_playlist_count", 0) or df.height
-    processed_videos = summary.get("processed_video_count", 0) or df.height
+    total_videos = summary.get("actual_playlist_count", 0) or len(df)
+    processed_videos = summary.get("processed_video_count", 0) or len(df)
     total_views = summary.get("total_views", 0)
 
     # ------------------------------------------------------------------
@@ -592,7 +609,8 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     avg_engagement = summary.get("avg_engagement", 0.0)
 
     # If the enriched columns are missing, compute them ourselves
-    if "Engagement Rate Raw" not in df.columns and total_videos:
+    has_engagement_raw = df and any("Engagement Rate Raw" in row for row in df)
+    if not has_engagement_raw and total_videos:
         # (likes + comments) / views
         likes = _safe_agg(df, "Likes", "sum")
         comments = _safe_agg(df, "Comments", "sum")
@@ -610,11 +628,13 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     # ------------------------------------------------------------------
     hd_ratio = 0.0
     caption_ratio = 0.0
-    if "Definition" in df.columns and total_videos:
-        hd = df.filter(pl.col("Definition") == "hd").height
+    has_definition = df and any("Definition" in row for row in df)
+    has_caption = df and any("Caption" in row for row in df)
+    if has_definition and total_videos:
+        hd = sum(1 for row in df if row.get("Definition") == "hd")
         hd_ratio = hd / total_videos
-    if "Caption" in df.columns and total_videos:
-        caps = df.filter(pl.col("Caption") is True).height
+    if has_caption and total_videos:
+        caps = sum(1 for row in df if row.get("Caption") is True)
         caption_ratio = caps / total_videos
 
     # ------------------------------------------------------------------
@@ -676,19 +696,31 @@ def PlaylistMetricsOverview(df: pl.DataFrame, summary: Dict) -> Div:
     # NEW: Category Emoji Breakdown (replaces Controversy)
     # ==================================================================
     category_breakdown = None
-    if "CategoryName" in df.columns and "Category Emoji" in df.columns:
+    has_category_name = df and any("CategoryName" in row for row in df)
+    has_category_emoji = df and any("Category Emoji" in row for row in df)
+    if has_category_name and has_category_emoji:
         try:
             # Group by category and count videos
-            category_data = (
-                df.group_by("CategoryName")
-                .agg(
-                    pl.count().alias("count"),
-                    pl.first("Category Emoji").alias("emoji"),  # Get emoji
-                )
-                .sort("count", descending=True)
-                .head(5)  # Top 5 categories only
-                .to_dicts()
-            )
+            category_dict = {}
+            for row in df:
+                if "CategoryName" in row and row["CategoryName"]:
+                    cat_name = row["CategoryName"]
+                    if cat_name not in category_dict:
+                        category_dict[cat_name] = {
+                            "count": 0,
+                            "emoji": row.get("Category Emoji", "📹"),
+                        }
+                    category_dict[cat_name]["count"] += 1
+
+            # Sort by count descending and take top 5
+            category_data = [
+                {"CategoryName": name, **data}
+                for name, data in sorted(
+                    category_dict.items(),
+                    key=lambda x: x[1]["count"],
+                    reverse=True,
+                )[:5]
+            ]
 
             if category_data:  # Only show if we have categories
                 category_items = []
