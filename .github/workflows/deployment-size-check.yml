@@ -38,7 +38,7 @@ jobs:
         run: |
           uv venv deployment_env
           source deployment_env/bin/activate
-          uv sync --no-dev
+          uv pip install -r requirements.txt
 
       - name: Calculate total deployment size
         id: size
