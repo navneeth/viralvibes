@@ -69,9 +69,12 @@ MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
 SYNC_TIMEOUT = int(os.getenv("CREATOR_WORKER_SYNC_TIMEOUT", "30"))  # Timeout per sync
+EMPTY_QUEUE_BACKOFF_BASE = int(
+    os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_BASE", "30")
+)  # Start at 30s when queue is empty
 EMPTY_QUEUE_BACKOFF_MAX = int(
     os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_MAX", "300")
-)  # 5 min max when queue is empty
+)  # Cap at 5 min
 
 
 class JobStatus(Enum):
@@ -578,8 +581,9 @@ async def process_creator_syncs():
             if not jobs:
                 empty_poll_count += 1
                 # Exponential backoff: 30s, 60s, 120s, 240s, 300s (max)
+                # Use fixed base (30s) independent of POLL_INTERVAL
                 backoff = min(
-                    POLL_INTERVAL * (2 ** (empty_poll_count - 1)),
+                    EMPTY_QUEUE_BACKOFF_BASE * (2 ** (empty_poll_count - 1)),
                     EMPTY_QUEUE_BACKOFF_MAX,
                 )
                 logger.debug(
