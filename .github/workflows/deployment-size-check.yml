@@ -73,9 +73,11 @@ jobs:
         run: |
           source deployment_env/bin/activate
 
-          echo "largest_packages<<EOF" >> $GITHUB_OUTPUT
-          du -sh deployment_env/lib/python*/site-packages/* | sort -hr | head -20
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "largest_packages<<EOF"
+            du -sh deployment_env/lib/python*/site-packages/* 2>/dev/null | sort -hr | head -20 || echo "No packages found"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Get package count and python version
         id: info
