@@ -1,0 +1,106 @@
+name: Deployment Size Check
+
+on:
+  pull_request:
+    paths:
+      - 'requirements.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/deployment-size-check.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'requirements.txt'
+      - 'pyproject.toml'
+
+jobs:
+  calculate-deployment-size:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          uv venv deployment_env
+          source deployment_env/bin/activate
+          uv sync --no-optional
+
+      - name: Calculate total deployment size
+        id: size
+        run: |
+          source deployment_env/bin/activate
+
+          # Get total size in MB
+          TOTAL_SIZE_MB=$(du -sm deployment_env/lib/python*/site-packages | cut -f1)
+          TOTAL_SIZE_HUMAN=$(du -sh deployment_env/lib/python*/site-packages | cut -f1)
+
+          echo "total_size_mb=$TOTAL_SIZE_MB" >> $GITHUB_OUTPUT
+          echo "total_size_human=$TOTAL_SIZE_HUMAN" >> $GITHUB_OUTPUT
+
+          # Calculate remaining budget (250MB limit)
+          REMAINING=$((250 - TOTAL_SIZE_MB))
+          echo "remaining_mb=$REMAINING" >> $GITHUB_OUTPUT
+
+          # Determine status
+          if [ $TOTAL_SIZE_MB -gt 250 ]; then
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "status_emoji=❌" >> $GITHUB_OUTPUT
+          elif [ $TOTAL_SIZE_MB -gt 200 ]; then
+            echo "status=warn" >> $GITHUB_OUTPUT
+            echo "status_emoji=⚠️" >> $GITHUB_OUTPUT
+          else
+            echo "status=pass" >> $GITHUB_OUTPUT
+            echo "status_emoji=✅" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get top 20 largest packages
+        id: packages
+        run: |
+          source deployment_env/bin/activate
+
+          echo "largest_packages<<EOF" >> $GITHUB_OUTPUT
+          du -sh deployment_env/lib/python*/site-packages/* | sort -hr | head -20
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Get package count and python version
+        id: info
+        run: |
+          source deployment_env/bin/activate
+
+          PACKAGE_COUNT=$(pip list --format=freeze | wc -l)
+          PYTHON_VERSION=$(python --version)
+
+          echo "package_count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
+          echo "python_version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR with size report
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const size = '${{ steps.size.outputs.total_size_mb }}';
+            const remaining = '${{ steps.size.outputs.remaining_mb }}';
+            const status = '${{ steps.size.outputs.status }}';
+            const emoji = '${{ steps.size.outputs.status_emoji }}';
+            const humanSize = '${{ steps.size.outputs.total_size_human }}';
+            const packageCount = '${{ steps.info.outputs.package_count }}';
+            const pythonVersion = '${{ steps.info.outputs.python_version }}';
+
+            const statusColor = status === 'fail' ? '🔴' : status === 'warn' ? '🟡' : '🟢';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Deployment Size Report ${emoji}
