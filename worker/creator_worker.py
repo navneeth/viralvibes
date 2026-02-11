@@ -69,6 +69,12 @@ MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
 SYNC_TIMEOUT = int(os.getenv("CREATOR_WORKER_SYNC_TIMEOUT", "30"))  # Timeout per sync
+EMPTY_QUEUE_BACKOFF_BASE = int(
+    os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_BASE", "30")
+)  # Start at 30s when queue is empty
+EMPTY_QUEUE_BACKOFF_MAX = int(
+    os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_MAX", "300")
+)  # Cap at 5 min
 
 
 class JobStatus(Enum):
@@ -434,8 +440,9 @@ async def handle_sync_job(
             "channel_name": channel_data.get("channel_name"),
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
             "country_code": channel_data.get("country_code"),
-            # Timestamp (timezone-aware UTC)
+            # Timestamps (timezone-aware UTC)
             "last_updated_at": datetime.now(timezone.utc).isoformat(),
+            "last_synced_at": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
@@ -522,6 +529,7 @@ async def process_creator_syncs():
 
     Features:
     - Non-blocking async processing
+    - Exponential backoff when queue is empty (reduces unnecessary DB queries)
     - Graceful shutdown on signal
     - Runtime limiting
     - Comprehensive metrics
@@ -530,10 +538,12 @@ async def process_creator_syncs():
     logger.info(
         f"Starting worker with config: "
         f"poll_interval={POLL_INTERVAL}s, batch_size={BATCH_SIZE}, "
-        f"max_runtime={MAX_RUNTIME}s, max_retries={MAX_RETRY_ATTEMPTS}"
+        f"max_runtime={MAX_RUNTIME}s, max_retries={MAX_RETRY_ATTEMPTS}, "
+        f"empty_backoff_max={EMPTY_QUEUE_BACKOFF_MAX}s"
     )
 
     start_time = time.time()
+    empty_poll_count = 0  # Track consecutive empty polls for backoff
 
     while not stop_event.is_set():
         elapsed = time.time() - start_time
@@ -569,9 +579,27 @@ async def process_creator_syncs():
             jobs = pending_jobs.data if pending_jobs.data else []
 
             if not jobs:
-                logger.debug(f"No pending jobs, waiting {POLL_INTERVAL}s")
-                await asyncio.sleep(POLL_INTERVAL)
+                empty_poll_count += 1
+                # Exponential backoff: 30s, 60s, 120s, 240s, 300s (max)
+                # Use fixed base (30s) independent of POLL_INTERVAL
+                backoff = min(
+                    EMPTY_QUEUE_BACKOFF_BASE * (2 ** (empty_poll_count - 1)),
+                    EMPTY_QUEUE_BACKOFF_MAX,
+                )
+                logger.debug(
+                    f"No pending jobs (consecutive empty polls: {empty_poll_count}), "
+                    f"waiting {backoff}s before next poll"
+                )
+                await asyncio.sleep(backoff)
                 continue
+
+            # Reset backoff when jobs found
+            if empty_poll_count > 0:
+                logger.info(
+                    f"Queue active again after {empty_poll_count} empty polls, "
+                    "resetting backoff"
+                )
+                empty_poll_count = 0
 
             logger.info(f"Processing {len(jobs)} pending job(s)")
 

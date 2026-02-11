@@ -11,9 +11,14 @@ diagrams/
 reports/
 
 # Local Dev / Testing
-tests/
+.git
+.github
+.gitignore
+.gitattributes
 .pytest_cache/
-#__pycache__/
+**/__pycache__
+**/*.pyc
+**/*.dist-info
 #venv/
 #.venv/
 
@@ -22,6 +27,7 @@ worker/
 run_worker.py
 cli.py
 generate_sitemap.py
+tests/
 
 # Sensitive/Large Data
 #*.txt

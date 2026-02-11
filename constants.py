@@ -220,7 +220,10 @@ CREATOR_SYNC_JOBS_TABLE = "creator_sync_jobs"
 # Update frequency (frugal)
 CREATOR_WORKER_BATCH_SIZE = 2  # Process at a time
 CREATOR_WORKER_POLL_INTERVAL = 300  # 5 minutes
-CREATOR_UPDATE_INTERVAL_DAYS = 30
+CREATOR_UPDATE_INTERVAL_DAYS = 30  # Scheduled background sync interval
+CREATOR_REDISCOVERY_THRESHOLD_DAYS = (
+    7  # Sync when rediscovered in playlists (fresher data)
+)
 CREATOR_WORKER_SYNC_TIMEOUT = 60
 CREATOR_WORKER_MAX_RETRIES = 3
 CREATOR_WORKER_RETRY_BASE = 3600  # 1 hour
