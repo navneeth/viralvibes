@@ -544,41 +544,18 @@ def sort_dataframe(
 
     def get_sort_value(row):
         val = row.get(column)
-        # Handle None values
-        if val is None:
-            return float("-inf") if not descending else float("inf")
+
+        # Handle None values - sort them to the end regardless of direction
+        if val is None or val == "":
+            return (True, False, "")
+
         # Try to convert to float for numeric sorting
         try:
-            return float(val)
+            numeric_val = float(val)
+            # Numeric values: (not_none=False, is_numeric=True, numeric_value)
+            return (False, True, numeric_val)
         except (ValueError, TypeError):
-            # Fallback to string sorting
-            return str(val)
+            # String values: (not_none=False, is_numeric=False, string_value)
+            return (False, False, str(val).lower())
 
     return sorted(data, key=get_sort_value, reverse=descending)
-
-
-# utils.py - Add DataFrame abstraction
-def deserialize_dataframe(df_json: str) -> list[dict]:
-    """Deserialize DataFrame from JSON string."""
-    return json.loads(df_json)
-
-
-def get_row_count(data: list[dict]) -> int:
-    return len(data)
-
-
-def get_columns(data: list[dict]) -> list[str]:
-    return list(data[0].keys()) if data else []
-
-
-def get_unique_count(data: list[dict], column: str) -> int:
-    return len(set(row.get(column) for row in data if column in row))
-
-
-def find_extreme_indices(data: list[dict], column: str) -> tuple[int, int]:
-    """Return (max_idx, min_idx) for a numeric column."""
-    if not data or column not in data[0]:
-        return (None, None)
-    max_idx = max(enumerate(data), key=lambda x: x[1].get(column, 0))[0]
-    min_idx = min(enumerate(data), key=lambda x: x[1].get(column, 0))[0]
-    return (max_idx, min_idx)

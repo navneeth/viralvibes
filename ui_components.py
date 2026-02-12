@@ -17,17 +17,17 @@ from fasthtml.common import *
 from monsterui.all import *
 
 # Local modules
-from charts import (
-    chart_category_performance,
-    chart_comments_engagement,
-    chart_duration_impact,
-    chart_engagement_breakdown,
-    chart_engagement_ranking,
-    chart_top_performers_radar,
-    chart_treemap_reach,
-    chart_views_ranking,
-    chart_views_vs_likes_enhanced,
-)
+# from charts import (
+#     chart_category_performance,
+#     chart_comments_engagement,
+#     chart_duration_impact,
+#     chart_engagement_breakdown,
+#     chart_engagement_ranking,
+#     chart_top_performers_radar,
+#     chart_treemap_reach,
+#     chart_views_ranking,
+#     chart_views_vs_likes_enhanced,
+# )
 from components import styled_div
 from components.buttons import (
     small_badge,
