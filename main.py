@@ -968,7 +968,7 @@ def creators(req, sess):
 
     # Render with navigation
     return Titled(
-        "Top Creators - ViralVibes",
+        "Top Creators - YouTube",
         Container(
             NavComponent(oauth, req, sess),
             page_content,
@@ -995,7 +995,7 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
 
     # Render page
     return Titled(
-        f"{user_name}'s Dashboards - ViralVibes",
+        f"{user_name}'s Dashboards - YouTube",
         Container(
             NavComponent(oauth, req, sess),
             render_my_dashboards_page(

@@ -29,7 +29,7 @@ def get_all_creators(
         limit: Maximum number of results
 
     Returns:
-        List of creator dicts with stats
+        List of creator dicts with stats and ranking position
     """
     if not supabase_client:
         logger.warning("Supabase client not available")
@@ -53,10 +53,7 @@ def get_all_creators(
             "views": ("current_view_count", True),
             "videos": ("current_video_count", True),
             "engagement": ("engagement_score", True),
-            "quality": (
-                "quality_grade",
-                True,
-            ),  # Descending: A+ → A → B+ → B → C (lexicographically reverse)
+            "quality": ("quality_grade", True),
             "recent": ("last_updated_at", True),
         }
 
@@ -70,6 +67,16 @@ def get_all_creators(
         response = query.execute()
 
         creators = response.data if response.data else []
+
+        # Add ranking position to each creator
+        for idx, creator in enumerate(creators, 1):
+            if isinstance(creator, dict):
+                creator["_rank"] = idx
+            else:
+                # For Supabase objects, we can't directly set attributes
+                # Convert to dict if needed
+                setattr(creator, "_rank", idx)
+
         logger.info(
             f"Retrieved {len(creators)} creators (search='{search}', sort={sort}, grade={grade_filter})"
         )
@@ -79,6 +86,67 @@ def get_all_creators(
     except Exception as e:
         logger.exception(f"Error fetching creators: {e}")
         return []
+
+
+def calculate_creator_stats(creators: list) -> dict:
+    """
+    Calculate aggregate statistics from creators list for hero section.
+
+    Args:
+        creators: List of creator dicts or Supabase objects
+
+    Returns:
+        Dict with aggregate stats (total_subscribers, total_views, avg_engagement, total_revenue)
+    """
+    if not creators:
+        return {
+            "total_subscribers": 0,
+            "total_views": 0,
+            "avg_engagement": 0.0,
+            "total_revenue": 0,
+        }
+
+    def get_value(obj, key, default=0):
+        """Safely get value from dict or Supabase object. Returns default if None."""
+        if isinstance(obj, dict):
+            value = obj.get(key, default)
+        else:
+            value = getattr(obj, key, default)
+
+        # If value is None, return default instead
+        return value if value is not None else default
+
+    try:
+        total_subscribers = sum(
+            get_value(c, "current_subscribers", 0) for c in creators
+        )
+        total_views = sum(get_value(c, "current_view_count", 0) for c in creators)
+
+        # Calculate average engagement
+        engagement_scores = [get_value(c, "engagement_score", 0) for c in creators]
+        avg_engagement = (
+            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
+        )
+
+        # Calculate total revenue (CPM: $4 per 1000 views)
+        total_revenue = sum(
+            (get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
+        )
+
+        return {
+            "total_subscribers": int(total_subscribers),
+            "total_views": int(total_views),
+            "avg_engagement": round(avg_engagement, 2),
+            "total_revenue": int(total_revenue),
+        }
+    except Exception as e:
+        logger.exception(f"Error calculating creator stats: {e}")
+        return {
+            "total_subscribers": 0,
+            "total_views": 0,
+            "avg_engagement": 0.0,
+            "total_revenue": 0,
+        }
 
 
 def creators_route(request):
@@ -107,10 +175,14 @@ def creators_route(request):
         limit=100,
     )
 
+    # Calculate aggregate stats for hero section
+    stats = calculate_creator_stats(creators)
+
     # Render page
     return render_creators_page(
         creators=creators,
         sort=sort,
         search=search,
         grade_filter=grade_filter,
+        stats=stats,
     )
