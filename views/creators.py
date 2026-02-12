@@ -274,7 +274,7 @@ def _render_creator_card(creator: dict) -> Card:
                 Img(
                     src=channel_thumbnail,
                     alt=channel_name,
-                    cls="w-16 h-16 rounded-xl object-cover border-2 border-white shadow-md hover:scale-105 transition-transform",
+                    cls="w-16 h-16 rounded-xl object-cover border-2 border-white shadow-md motion-safe:hover:scale-105 transition-transform",
                     onerror="this.src='/static/favicon.jpeg'",
                 ),
                 Div(
