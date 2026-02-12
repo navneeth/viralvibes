@@ -164,6 +164,7 @@ def get_user_friendly_error(error_text: str) -> dict:
             return {
                 "title": error_data["title"],
                 "message": error_data["message"],
+                "suggestions": error_data.get("suggestions", []),
                 "type": "warning",
             }
 
@@ -171,5 +172,10 @@ def get_user_friendly_error(error_text: str) -> dict:
     return {
         "title": "Analysis Failed",
         "message": error_text or "An unexpected error occurred. Please try again.",
+        "suggestions": [
+            "Try a different playlist",
+            "Check if the URL is correct",
+            "Wait a few minutes and try again",
+        ],
         "type": "error",
     }

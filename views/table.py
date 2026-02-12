@@ -9,7 +9,15 @@ from components import (
     thumbnail_cell,
     title_cell,
 )
-from utils import format_duration, format_number, format_percentage
+from utils import (
+    format_duration,
+    format_number,
+    format_percentage,
+    get_columns,
+    get_row_count,
+    get_unique_count,
+    has_column,
+)
 
 # Manually define the headers here instead of importing them
 COLUMNS = {
@@ -155,8 +163,9 @@ def render_playlist_table(
     # Map display header → actual column in DF (raw for sorting, formatted for display)
 
     # Build sortable_map: header → raw numeric column
+    df_columns = get_columns(df)
     sortable_map = {
-        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df.columns
+        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns
     }
 
     # --- THEAD ---
@@ -199,7 +208,7 @@ def render_playlist_table(
     # --- TBODY ---
     # --- Build tbody with CORRECT display columns ---
     rows = []
-    for row in df.iter_rows(named=True):
+    for row in df:
         cells = []
         for h in svc_headers:
             if h == "Thumbnail":
@@ -255,8 +264,8 @@ def render_playlist_table(
     # Build footer dynamically from DISPLAY_HEADERS to ensure sync with thead
     # Create a copy of summary_stats to avoid mutating the passed dict
     footer_stats = {**summary_stats}
-    if "CategoryName" in df.columns and df.height > 0:
-        footer_stats["category_count"] = df["CategoryName"].n_unique()
+    if has_column(df, "CategoryName") and get_row_count(df) > 0:
+        footer_stats["category_count"] = get_unique_count(df, "CategoryName")
     else:
         footer_stats["category_count"] = 0
 

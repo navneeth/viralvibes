@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol
 
-import polars as pl
 from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -230,7 +229,9 @@ def get_cached_playlist_stats(
 
             # Deserialize JSON fields
             try:
-                row["df"] = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
+                from utils import deserialize_dataframe
+
+                row["df"] = deserialize_dataframe(df_json)
             except Exception as e:
                 logger.error(
                     f"[Cache] Failed to deserialize DataFrame for {playlist_url}: {e}"

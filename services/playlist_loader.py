@@ -4,13 +4,12 @@ import io
 import logging
 from typing import Any, Dict, Optional
 
-import polars as pl
-
 from db import (
     get_cached_playlist_stats,
     get_dashboard_stats_by_id,
     upsert_playlist_stats,
 )
+from utils import create_empty_dataframe, deserialize_dataframe
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ def load_dashboard_by_id(
             logger.error(f"Dashboard {dashboard_id} has no df_json")
             return None
 
-        df = pl.read_json(io.BytesIO(df_json.encode("utf-8")))
+        df = deserialize_dataframe(df_json)
     except Exception as e:
         logger.error(
             f"Failed to deserialize DataFrame for dashboard {dashboard_id}: {e}"
@@ -67,7 +66,7 @@ def load_dashboard_by_id(
 
     logger.info(
         f"Loaded dashboard {dashboard_id}: '{playlist_name}' "
-        f"({df.height} videos, user={user_id})"
+        f"({len(df)} videos, user={user_id})"
     )
 
     return {
@@ -102,7 +101,7 @@ def load_cached_or_stub(
         logger.info(f"Using cached stats for playlist {playlist_url}")
 
         # reconstruct df other fields from cache row
-        df = pl.read_json(io.BytesIO(cached["df_json"].encode("utf-8")))
+        df = deserialize_dataframe(cached["df_json"])
         # TODO: Move this code to worker
         # if logger.isEnabledFor(logging.DEBUG):
         # logger.info("=" * 60)
@@ -119,8 +118,8 @@ def load_cached_or_stub(
         channel_thumbnail = cached.get("channel_thumbnail", "")
         summary_stats = cached["summary_stats"]
 
-        # use cached video_count if present; fall back to df.height; then preview meter_max
-        total = cached.get("video_count") or df.height or meter_max
+        # use cached video_count if present; fall back to len(df); then preview meter_max
+        total = cached.get("video_count") or len(df) or meter_max
         return {
             "cached": True,
             "df": df,
@@ -135,7 +134,7 @@ def load_cached_or_stub(
     # ----- original stub path (identical behavior) -----
     logger.warning("No cached stats found. Using stub values until worker is enabled.")
 
-    df = pl.DataFrame([])
+    df = create_empty_dataframe()
     playlist_name = "Unknown Playlist"
     channel_name = "Unknown Channel"
     channel_thumbnail = ""

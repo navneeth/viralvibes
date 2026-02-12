@@ -110,16 +110,20 @@ def job_progress_controller(playlist_url: str):
                 H3(error_info["title"], cls="text-lg font-bold mb-3"),
                 P(error_info["message"], cls="text-sm text-gray-700 mb-4"),
                 # Suggestions
-                Div(
-                    P("💡 Try:", cls="font-semibold text-sm mb-2"),
-                    Ul(
-                        *[
-                            Li(s, cls="text-xs text-gray-600")
-                            for s in error_info["suggestions"]
-                        ],
-                        cls="list-disc list-inside space-y-1",
-                    ),
-                    cls="bg-blue-50 p-3 rounded mb-4",
+                (
+                    Div(
+                        P("💡 Try:", cls="font-semibold text-sm mb-2"),
+                        Ul(
+                            *[
+                                Li(s, cls="text-xs text-gray-600")
+                                for s in error_info.get("suggestions", [])
+                            ],
+                            cls="list-disc list-inside space-y-1",
+                        ),
+                        cls="bg-blue-50 p-3 rounded mb-4",
+                    )
+                    if error_info.get("suggestions")
+                    else None
                 ),
                 # Actions
                 Div(

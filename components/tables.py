@@ -3,11 +3,11 @@
 import logging
 from typing import Any
 
-import polars as pl
 from fasthtml.common import *
 from monsterui.all import *
 
 from constants import FLEX_COL
+from utils import find_extreme_indices, get_columns, has_column
 from utils import format_duration, format_number
 
 logger = logging.getLogger(__name__)
@@ -435,55 +435,55 @@ def ExtremeComparisonRow(
 # Main section
 # Video Extremes Section (Hybrid: Elegant Data + Strong Visual Comparison)
 # -----------------------------------------------------------------------------
-def VideoExtremesSection(df: pl.DataFrame) -> Div:
+def VideoExtremesSection(df: list[dict[str, Any]]) -> Div:
     """
     Display paired video extremes using a comparison-first narrative.
     e.g most/least viewed, longest/shortest videos.
     """
-    if df is None or df.is_empty():
+    if df is None or len(df) == 0:
         return Div(P("No videos found in playlist.", cls="text-gray-500"))
 
     try:
         # ---------------------------------------------------------------------
-        # Compute extremes efficiently (single-pass Polars ops)
+        # Compute extremes efficiently (native Python)
         # ---------------------------------------------------------------------
         extremes = {}
 
-        if "Views" in df.columns:
+        if has_column(df, "Views"):
+            max_idx, min_idx = find_extreme_indices(df, "Views")
             extremes.update(
                 {
-                    "most_viewed": df.select(pl.col("Views").arg_max()).item(),
-                    "least_viewed": df.select(pl.col("Views").arg_min()).item(),
+                    "most_viewed": max_idx,
+                    "least_viewed": min_idx,
                 }
             )
 
-        if "Duration" in df.columns:
+        if has_column(df, "Duration"):
+            max_idx, min_idx = find_extreme_indices(df, "Duration")
             extremes.update(
                 {
-                    "longest": df.select(pl.col("Duration").arg_max()).item(),
-                    "shortest": df.select(pl.col("Duration").arg_min()).item(),
+                    "longest": max_idx,
+                    "shortest": min_idx,
                 }
             )
-        if "Comments" in df.columns:
+        if has_column(df, "Comments"):
+            max_idx, min_idx = find_extreme_indices(df, "Comments")
             extremes.update(
                 {
-                    "most_engaged": df.select(pl.col("Comments").arg_max()).item(),
-                    "least_engaged": df.select(pl.col("Comments").arg_min()).item(),
+                    "most_engaged": max_idx,
+                    "least_engaged": min_idx,
                 }
             )
-        if "Likes" in df.columns:
+        if has_column(df, "Likes"):
+            max_idx, min_idx = find_extreme_indices(df, "Likes")
             extremes.update(
                 {
-                    "most_liked": df.select(pl.col("Likes").arg_max()).item(),
-                    "least_liked": df.select(pl.col("Likes").arg_min()).item(),
+                    "most_liked": max_idx,
+                    "least_liked": min_idx,
                 }
             )
 
-        rows = {
-            key: df.row(idx, named=True)
-            for key, idx in extremes.items()
-            if idx is not None
-        }
+        rows = {key: df[idx] for key, idx in extremes.items() if idx is not None}
 
         # ---------------------------------------------------------------------
         # Build paired sections
