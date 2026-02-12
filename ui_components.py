@@ -10,10 +10,9 @@ Contains:
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 # Third-party libraries
-import polars as pl
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -69,30 +68,47 @@ def CachedResultsBanner(cached_at: str) -> Div:
 
 
 def AnalyticsDashboardSection(
-    df,
-    summary: Dict,
+    df: list[dict[str, Any]],
+    summary: Dict[str, Any],
     playlist_name: str,
     channel_name: str,
-    playlist_thumbnail: str = None,
-    channel_thumbnail: str = None,
-    channel_url: str = None,
+    playlist_thumbnail: Optional[str] = None,
+    channel_thumbnail: Optional[str] = None,
+    channel_url: Optional[str] = None,
     from_cache: bool = False,
-    cached_at: str = None,
-):
-    """Create an analytics dashboard section for a playlist with enhanced header."""
+    cached_at: Optional[str] = None,
+) -> Section:
+    """Create an analytics dashboard section for a playlist with enhanced header.
+
+    Args:
+        df: List of dictionaries, each representing a video with metrics
+        summary: Dictionary containing playlist-level summary statistics
+        playlist_name: Name of the playlist
+        channel_name: Name of the channel
+        playlist_thumbnail: Optional URL to playlist thumbnail image
+        channel_thumbnail: Optional URL to channel avatar image
+        channel_url: Optional URL to channel page
+        from_cache: Whether results are from cache (shows banner if True)
+        cached_at: Timestamp when cache was created (for display)
+
+    Returns:
+        Section element containing the complete analytics dashboard
+    """
     # Derive total / processed counts with a clear precedence to avoid empty/missing keys
-    # precedence: explicit summary keys -> common aliases -> df height -> 0
+    # precedence: explicit summary keys -> common aliases -> df length -> 0
     actual_playlist_count = (
         summary.get("actual_playlist_count")
         or summary.get("video_count")
         or summary.get("total_count")
-        or (df.height if (df is not None and hasattr(df, "height")) else 0)
+        or len(df)
+        if df
+        else 0
     )
 
     processed_count = (
         summary.get("processed_video_count")
         if summary.get("processed_video_count") is not None
-        else (df.height if (df is not None and hasattr(df, "height")) else 0)
+        else len(df) if df else 0
     )
 
     # Extract additional data from summary for enhanced header
@@ -140,8 +156,8 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-8",
             ),
             Grid(
-                chart_views_ranking(df, "views-ranking"),
-                chart_treemap_reach(df, "treemap-reach"),
+                # chart_views_ranking(df, "views-ranking"),
+                # chart_treemap_reach(df, "treemap-reach"),
                 cols="1 md:2",  # 1 col on mobile, 2 on desktop)
                 gap="6 md:8",  # RESPONSIVE GAP
                 cls="w-full",
@@ -160,8 +176,8 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_engagement_ranking(df, "engagement-ranking"),
-                chart_engagement_breakdown(df, "engagement-breakdown"),
+                # chart_engagement_ranking(df, "engagement-ranking"),
+                # chart_engagement_breakdown(df, "engagement-breakdown"),
                 cols="1 md:2",  # 1 col on mobile, 2 on desktop)
                 gap="6 md:8",  # RESPONSIVE GAP
                 cls="w-full",
@@ -192,8 +208,8 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_views_vs_likes_enhanced(df, "views-vs-likes"),
-                chart_comments_engagement(df, "comments-engagement"),
+                # chart_views_vs_likes_enhanced(df, "views-vs-likes"),
+                # chart_comments_engagement(df, "comments-engagement"),
                 cols="1 md:2",  # 1 col on mobile, 2 on desktop)
                 gap="6 md:10",  # RESPONSIVE GAP
                 cls="w-full",
@@ -213,7 +229,7 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_duration_impact(df, "duration-impact"),
+                # chart_duration_impact(df, "duration-impact"),
                 cols="1",
                 gap="8",
                 cls="w-full",
@@ -275,7 +291,7 @@ def AnalyticsDashboardSection(
                 cls="text-gray-500 mb-6",
             ),
             Grid(
-                chart_top_performers_radar(df, "top-radar", top_n=3),  # ← Top 3 videos
+                # chart_top_performers_radar(df, "top-radar", top_n=3),  # ← Top 3 videos
                 cols="1",
                 gap="8",
                 cls="w-full",
@@ -296,7 +312,7 @@ def AnalyticsDashboardSection(
                     cls="text-gray-500 mb-6",
                 ),
                 Grid(
-                    chart_category_performance(df, "category-performance"),
+                    # chart_category_performance(df, "category-performance"),
                     cols="1",
                     gap="8",
                     cls="w-full",
@@ -543,7 +559,7 @@ def AnalyticsHeader(
 # ----------------------------------------------------------------------
 # Helper: safe numeric aggregation
 # ----------------------------------------------------------------------
-def _safe_agg(df: list[dict], col: str, agg: str) -> int | float:
+def _safe_agg(df: list[dict[str, Any]], col: str, agg: str) -> int | float:
     """
     Return 0 (or 0.0) if the column does not exist or the aggregation fails.
     `agg` can be "sum", "mean", "max", "min".
@@ -582,7 +598,7 @@ def _safe_agg(df: list[dict], col: str, agg: str) -> int | float:
 # ----------------------------------------------------------------------
 # Robust PlaylistMetricsOverview
 # ----------------------------------------------------------------------
-def PlaylistMetricsOverview(df: list[dict], summary: Dict) -> Div:
+def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -> Div:
     """
     Four (or six) instantly-useful metric cards.
     Works with the exact schema you posted **and** with the enriched
