@@ -245,15 +245,15 @@ def _render_creator_card(creator: dict) -> Card:
         growth_rate = 0
     estimated_revenue = _estimate_monthly_revenue(current_views, views_change)
 
-    # Tier styling
+    # Tier styling - simplified to just grade
     tier_styles = {
-        "A+": ("bg-gradient-to-r from-yellow-400 to-orange-500 text-white", "👑 Elite"),
-        "A": ("bg-gradient-to-r from-green-400 to-emerald-500 text-white", "⭐ Star"),
-        "B+": ("bg-gradient-to-r from-blue-400 to-cyan-500 text-white", "📈 Rising"),
-        "B": ("bg-gradient-to-r from-purple-400 to-pink-500 text-white", "💎 Good"),
-        "C": ("bg-gradient-to-r from-gray-400 to-slate-500 text-white", "🔍 New"),
+        "A+": ("bg-gradient-to-r from-yellow-400 to-orange-500 text-white", "👑"),
+        "A": ("bg-gradient-to-r from-green-400 to-emerald-500 text-white", "⭐"),
+        "B+": ("bg-gradient-to-r from-blue-400 to-cyan-500 text-white", "📈"),
+        "B": ("bg-gradient-to-r from-purple-400 to-pink-500 text-white", "💎"),
+        "C": ("bg-gradient-to-r from-gray-400 to-slate-500 text-white", "📊"),
     }
-    tier_gradient, tier_label = tier_styles.get(quality_grade, tier_styles["C"])
+    tier_gradient, tier_emoji = tier_styles.get(quality_grade, tier_styles["C"])
 
     # Growth color indicator
     if growth_rate > 5:
@@ -268,33 +268,40 @@ def _render_creator_card(creator: dict) -> Card:
         growth_color = "text-gray-600"
 
     return Card(
-        # HEADER: Avatar + Name + Tier Badge
-        Div(
+        # HEADER: Clickable Avatar + Name + Tier Badge
+        A(
             Div(
                 Img(
                     src=channel_thumbnail,
                     alt=channel_name,
-                    cls="w-16 h-16 rounded-xl object-cover border-2 border-white shadow-md",
+                    cls="w-16 h-16 rounded-xl object-cover border-2 border-white shadow-md motion-safe:hover:scale-105 transition-transform",
                     onerror="this.src='/static/favicon.jpeg'",
                 ),
                 Div(
                     H3(
-                        channel_name, cls="text-lg font-bold text-gray-900 line-clamp-2"
+                        channel_name,
+                        cls="text-lg font-bold text-gray-900 line-clamp-2 group-hover:text-blue-600 transition-colors",
                     ),
-                    P(channel_id, cls="text-xs text-gray-500 font-mono truncate"),
+                    P(
+                        f"{format_number(current_subs)} subscribers • {format_number(current_videos)} videos",
+                        cls="text-xs text-gray-600 mt-1",
+                    ),
                     cls="flex-1 min-w-0",
                 ),
-                cls="flex gap-3 items-start mb-4",
+                Div(
+                    f"{tier_emoji} {quality_grade}",
+                    cls=f"{tier_gradient} px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap",
+                ),
+                cls="flex gap-3 items-start",
             ),
-            Div(
-                tier_label,
-                cls=f"{tier_gradient} px-3 py-2 rounded-lg text-sm font-bold text-center",
-            ),
-            cls="flex justify-between items-start pb-4 border-b border-gray-100",
+            href=channel_url,
+            target="_blank",
+            rel="noopener noreferrer",
+            cls="no-underline block pb-4 border-b border-gray-100 mb-4 group",
         ),
-        # TIER 1: PRIMARY METRICS (Large, colored backgrounds)
+        # TIER 1: Growth & Revenue (Most Important)
         Div(
-            # Subscribers
+            # Growth Rate
             Div(
                 P(
                     "Subscribers",
