@@ -18,10 +18,10 @@ from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from constants import (
+    CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
     CREATOR_UPDATE_INTERVAL_DAYS,
-    CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_WORKER_MAX_RETRIES,
     CREATOR_WORKER_RETRY_BASE,
     PLAYLIST_JOBS_TABLE,
@@ -691,18 +691,35 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        # Use creator_id as conflict field for idempotent job creation
-        # This ensures we don't create duplicate pending jobs for the same creator
-        success = upsert_row(
-            CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=["creator_id"]
+        # Check if there's already a pending job for this creator
+        # to avoid duplicate queuing (but allow retries with different statuses)
+        existing = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id")
+            .eq("creator_id", creator_id)
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
         )
 
-        if success:
+        if existing.data:
+            logger.debug(
+                f"Pending sync job already exists for creator {creator_id}, skipping duplicate"
+            )
+            return True  # Already queued, consider it a success
+
+        # Insert new job (simple insert, no upsert)
+        # creator_id is not unique in this table, so upsert doesn't apply
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+        )
+
+        if response.data:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
+            return True
         else:
             logger.error(f"Failed to queue creator {creator_id}")
-
-        return success
+            return False
 
     except Exception as e:
         logger.exception(f"Error queuing creator sync: {e}")
