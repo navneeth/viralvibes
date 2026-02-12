@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# SHARED HELPERS
+# ============================================================================
+
+
+def _get_value(obj, key, default=0):
+    """Safely get value from dict or Supabase object. Returns default if None."""
+    if isinstance(obj, dict):
+        value = obj.get(key, default)
+    else:
+        value = getattr(obj, key, default)
+    return value if value is not None else default
+
+
+# ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
 
@@ -58,29 +72,23 @@ def render_creators_page(
 
     # Use provided stats or calculate from creators
     if stats is None:
-
-        def get_value(obj, key, default=0):
-            """Safely get value from dict or object. Returns default if None."""
-            if isinstance(obj, dict):
-                value = obj.get(key, default)
-            else:
-                value = getattr(obj, key, default)
-            return value if value is not None else default
-
         stats = {
             "total_subscribers": sum(
-                get_value(c, "current_subscribers", 0) for c in creators
+                _get_value(c, "current_subscribers", 0) for c in creators
             ),
-            "total_views": sum(get_value(c, "current_view_count", 0) for c in creators),
+            "total_views": sum(
+                _get_value(c, "current_view_count", 0) for c in creators
+            ),
             "avg_engagement": (
-                sum(get_value(c, "engagement_score", 0) for c in creators)
+                sum(_get_value(c, "engagement_score", 0) for c in creators)
                 / len(creators)
                 if creators
                 else 0
             ),
             "total_revenue": int(
                 sum(
-                    (get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
+                    (_get_value(c, "current_view_count", 0) * 4) / 1000
+                    for c in creators
                 )
             ),
         }
@@ -101,62 +109,68 @@ def render_creators_page(
 
 
 def _render_hero(creator_count: int, stats: dict) -> Div:
-    """Hero section with real statistics."""
+    """Hero section with real statistics - statement design."""
     return Div(
-        H1(
-            "Creator Intelligence Platform",
-            cls="text-4xl font-bold text-center mb-2",
+        Div(
+            H1(
+                "Creator Intelligence",
+                cls="text-5xl font-bold text-gray-900 tracking-tight",
+            ),
+            P(
+                "Analytics for creators who want to grow.",
+                cls="text-lg text-gray-600 mt-2",
+            ),
+            cls="mb-8",
         ),
-        P(
-            "Analytics-first: Growth • Revenue • Engagement • Quality",
-            cls="text-center text-gray-600 mb-8",
-        ),
-        # Real stats grid
+        # Metric Strip - evenly spaced statement
         Div(
             Div(
-                P("Creators", cls="text-xs font-semibold text-gray-500 uppercase"),
-                H2(
-                    format_number(creator_count), cls="text-2xl font-bold text-gray-900"
+                P(
+                    "Creators Analyzed",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
-                cls="text-center py-3",
+                H2(
+                    format_number(creator_count),
+                    cls="text-4xl font-bold text-gray-900 mt-2",
+                ),
+                cls="text-center",
             ),
             Div(
                 P(
                     "Total Subscribers",
-                    cls="text-xs font-semibold text-gray-500 uppercase",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
                     format_number(stats.get("total_subscribers", 0)),
-                    cls="text-2xl font-bold text-blue-600",
+                    cls="text-4xl font-bold text-blue-600 mt-2",
                 ),
-                cls="text-center py-3",
+                cls="text-center",
             ),
             Div(
                 P(
                     "Avg Engagement",
-                    cls="text-xs font-semibold text-gray-500 uppercase",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
                     f"{stats.get('avg_engagement', 0):.1f}%",
-                    cls="text-2xl font-bold text-purple-600",
+                    cls="text-4xl font-bold text-emerald-600 mt-2",
                 ),
-                cls="text-center py-3",
+                cls="text-center",
             ),
             Div(
                 P(
                     "Est. Monthly Revenue",
-                    cls="text-xs font-semibold text-gray-500 uppercase",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
                     f"${format_number(stats.get('total_revenue', 0))}",
-                    cls="text-2xl font-bold text-green-600",
+                    cls="text-4xl font-bold text-amber-600 mt-2",
                 ),
-                cls="text-center py-3",
+                cls="text-center",
             ),
-            cls="grid grid-cols-4 gap-4 mb-8",
+            cls="grid grid-cols-4 gap-8 py-8 border-t border-b border-gray-200",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-6 mb-8",
-        data_reveal=True,
+        cls="bg-white rounded-lg border border-gray-200 p-8 mb-8",
     )
 
 
@@ -273,35 +287,25 @@ def _render_creator_card(creator: dict) -> Div:
     Updated · Analyze → (footer)
     """
 
-    def get_value(obj, key, default=0):
-        """Safely get value from dict or Supabase object. Returns default if None."""
-        if isinstance(obj, dict):
-            value = obj.get(key, default)
-        else:
-            value = getattr(obj, key, default)
-
-        # If value is None, return default instead
-        return value if value is not None else default
-
     # Extract all data
-    channel_id = get_value(creator, "channel_id", "N/A")
-    channel_name = get_value(creator, "channel_name", "Unknown")
+    channel_id = _get_value(creator, "channel_id", "N/A")
+    channel_name = _get_value(creator, "channel_name", "Unknown")
     channel_url = f"https://youtube.com/@{channel_id}"
-    quality_grade = get_value(creator, "quality_grade", "C")
-    rank = get_value(creator, "_rank", "—")
+    quality_grade = _get_value(creator, "quality_grade", "C")
+    rank = _get_value(creator, "_rank", "—")
     thumbnail_url = (
-        get_value(creator, "channel_thumbnail_url")
-        or get_value(creator, "thumbnail_url")
+        _get_value(creator, "channel_thumbnail_url")
+        or _get_value(creator, "thumbnail_url")
         or "https://via.placeholder.com/64x64?text=No+Image"
     )
 
     # Ensure all numeric fields are actually numeric
-    current_subs = int(get_value(creator, "current_subscribers", 0) or 0)
-    current_views = int(get_value(creator, "current_view_count", 0) or 0)
-    current_videos = int(get_value(creator, "current_video_count", 0) or 0)
-    subs_change = int(get_value(creator, "subscribers_change_30d", 0) or 0)
-    views_change = int(get_value(creator, "views_change_30d", 0) or 0)
-    engagement_score = float(get_value(creator, "engagement_score", 0) or 0)
+    current_subs = int(_get_value(creator, "current_subscribers", 0) or 0)
+    current_views = int(_get_value(creator, "current_view_count", 0) or 0)
+    current_videos = int(_get_value(creator, "current_video_count", 0) or 0)
+    subs_change = int(_get_value(creator, "subscribers_change_30d", 0) or 0)
+    views_change = int(_get_value(creator, "views_change_30d", 0) or 0)
+    engagement_score = float(_get_value(creator, "engagement_score", 0) or 0)
 
     # Calculations
     avg_views_per_video = (
@@ -309,9 +313,9 @@ def _render_creator_card(creator: dict) -> Div:
     )
     estimated_revenue = int((current_views * 4) / 1000)
     growth_rate = (subs_change / current_subs * 100) if current_subs > 0 else 0
-    last_updated = get_value(creator, "last_updated_at", "")
+    last_updated = _get_value(creator, "last_updated_at", "")
 
-    # Grade colors - muted/subtle
+    # Grade colors and interpretation - muted/subtle
     grade_colors = {
         "A+": "bg-purple-200 text-purple-900",
         "A": "bg-blue-200 text-blue-900",
@@ -319,7 +323,18 @@ def _render_creator_card(creator: dict) -> Div:
         "B": "bg-gray-200 text-gray-900",
         "C": "bg-gray-200 text-gray-700",
     }
+
+    # Grade interpretation (signal)
+    grade_signals = {
+        "A+": ("Elite Performer", "⭐"),
+        "A": ("Strong Creator", "✓"),
+        "B+": ("Rising Star", "📈"),
+        "B": ("Established", "●"),
+        "C": ("New Creator", "○"),
+    }
+
     grade_bg = grade_colors.get(quality_grade, "bg-gray-200 text-gray-700")
+    grade_signal, grade_icon = grade_signals.get(quality_grade, ("Unrated", "?"))
 
     # Growth direction indicator
     growth_trend = "↑" if growth_rate > 1 else ("↓" if growth_rate < -1 else "→")
@@ -328,6 +343,14 @@ def _render_creator_card(creator: dict) -> Div:
         if growth_rate > 1
         else ("text-red-600" if growth_rate < -1 else "text-gray-500")
     )
+
+    # Growth signal (interpretation) - MOVE THIS BEFORE return Div
+    if growth_rate > 2:
+        growth_signal = ("Growing", "↑", "bg-emerald-100 text-emerald-700")
+    elif growth_rate < -2:
+        growth_signal = ("Declining", "↓", "bg-red-100 text-red-700")
+    else:
+        growth_signal = ("Stable", "→", "bg-slate-100 text-slate-700")
 
     return Div(
         # Header: Thumbnail + Name + Grade
@@ -356,10 +379,18 @@ def _render_creator_card(creator: dict) -> Div:
                     ),
                     cls="flex-1",
                 ),
-                # Quality grade badge (top right)
-                Span(
-                    quality_grade,
-                    cls=f"px-2 py-1 rounded text-xs font-bold {grade_bg}",
+                # Quality grade badge (top right) with interpretation
+                Div(
+                    Div(
+                        P(grade_icon, cls="text-lg"),
+                        P(quality_grade, cls="text-xs font-bold"),
+                        cls="flex flex-col items-center",
+                    ),
+                    Div(
+                        P(grade_signal, cls="text-xs font-semibold text-right"),
+                        cls="text-right",
+                    ),
+                    cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
                 ),
                 cls="flex justify-between items-start gap-3 flex-1",
             ),
@@ -423,16 +454,22 @@ def _render_creator_card(creator: dict) -> Div:
             ),
             Div(
                 P("ENGAGEMENT", cls="text-xs font-semibold text-gray-600 uppercase"),
-                P(
-                    f"{engagement_score:.1f}%",
-                    cls="text-lg font-bold text-gray-900 mt-1",
+                Div(
+                    P(
+                        f"{engagement_score:.1f}%",
+                        cls="text-lg font-bold text-gray-900 mt-1",
+                    ),
+                    cls="flex items-end gap-2",
                 ),
-                P("on videos", cls="text-xs text-gray-500"),
+                P(
+                    "on videos" if engagement_score > 0 else "no engagement",
+                    cls="text-xs text-gray-500 mt-1",
+                ),
                 cls="bg-gray-50 rounded-lg p-3 text-center",
             ),
             Div(
                 P(
-                    "REVENUE ESTIMATE",
+                    "REVENUE",
                     cls="text-xs font-semibold text-green-700 uppercase font-bold",
                 ),
                 P(
@@ -448,11 +485,18 @@ def _render_creator_card(creator: dict) -> Div:
         Div(
             Div(
                 P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
-                P(
-                    f"{growth_trend} {growth_rate:+.1f}%",
-                    cls=f"text-sm font-bold {growth_color}",
+                Div(
+                    P(
+                        f"{growth_signal[1]} {growth_rate:+.1f}%",
+                        cls=f"text-sm font-bold text-gray-900",
+                    ),
+                    Span(
+                        growth_signal[0],
+                        cls=f"px-2 py-1 text-xs font-semibold rounded-full {growth_signal[2]}",
+                    ),
+                    cls="flex items-center gap-2",
                 ),
-                cls="flex justify-between items-center mb-2",
+                cls="flex justify-between items-center mb-3",
             ),
             # Simple growth bar
             Div(
@@ -488,13 +532,12 @@ def _render_creator_card(creator: dict) -> Div:
             ),
             cls="flex justify-between items-center pt-3 border-t border-gray-100 text-sm",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow duration-200",
+        cls="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer",
     )
 
 
 def _render_empty_state(search: str, grade_filter: str) -> Div:
     """Empty state when no creators found."""
-
     if search or grade_filter != "all":
         return Card(
             Div(
@@ -544,18 +587,9 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
 
 def _count_by_grade(creators: list[dict]) -> dict:
     """Count creators by quality grade for filter pills."""
-
-    def get_value(obj, key, default=None):
-        """Safely get value from dict or object. Returns default if None."""
-        if isinstance(obj, dict):
-            value = obj.get(key, default)
-        else:
-            value = getattr(obj, key, default)
-        return value if value is not None else default
-
     counts = {"all": len(creators), "A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0}
     for creator in creators:
-        grade = get_value(creator, "quality_grade", "C")
+        grade = _get_value(creator, "quality_grade", "C")
         if grade in counts:
             counts[grade] += 1
     return counts
