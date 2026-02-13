@@ -445,14 +445,16 @@ async def handle_sync_job(
             sync_error = "Zero subscribers and views - likely invalid channel_id or deleted channel"
             logger.warning(
                 f"{job_tag} Invalid stats detected: {channel_id} has 0 subs + 0 views. "
-                "Flagging for manual review or retry."
+                "Flagging for retry."
             )
         elif subs == 0 and views > 0:
-            # Possible but suspicious - new channel or API issue
+            # Suspicious data - could be new channel or API glitch, retry to confirm
+            is_invalid = True
             sync_status = "invalid"
             sync_error = "Zero subscribers but has views - suspicious data"
             logger.warning(
-                f"{job_tag} Suspicious stats: {channel_id} has 0 subs but {views:,} views"
+                f"{job_tag} Suspicious stats: {channel_id} has 0 subs but {views:,} views. "
+                "Flagging for retry."
             )
 
         # STAGE 4: Update database
