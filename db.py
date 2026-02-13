@@ -672,10 +672,16 @@ def queue_creator_sync(
     """
     Queue a creator for stats sync.
 
-    Checks for existing pending jobs before inserting to prevent duplicates.
-    This is not atomic, but given the low concurrency on creator discovery,
-    it's acceptable. Consider adding a unique partial index on
-    (creator_id) WHERE status='pending' for better guarantees.
+    Uses check-then-insert pattern to prevent duplicate pending jobs. This is
+    NOT atomic and has a race window between check and insert. For production,
+    add a unique partial index to guarantee uniqueness:
+
+        CREATE UNIQUE INDEX idx_creator_sync_jobs_pending_unique
+        ON creator_sync_jobs (creator_id)
+        WHERE status = 'pending';
+
+    With the index, concurrent enqueues will safely fail on constraint violation
+    instead of creating duplicates.
 
     Args:
         creator_id: Creator UUID from creators table
@@ -690,6 +696,7 @@ def queue_creator_sync(
 
     try:
         # Check if there's already a pending job for this creator
+        # NOTE: This is not atomic - see docstring for production hardening
         existing = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("id")
@@ -712,15 +719,17 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        # Insert without conflict resolution (no unique constraint exists)
-        success = upsert_row(CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=None)
+        # Plain insert (no upsert semantics - we checked for duplicates above)
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+        )
 
-        if success:
+        if response.data:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
+            return True
         else:
             logger.error(f"Failed to queue creator {creator_id}")
-
-        return success
+            return False
 
     except Exception as e:
         logger.exception(f"Error queuing creator sync: {e}")
