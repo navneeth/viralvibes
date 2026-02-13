@@ -939,6 +939,72 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
         return False
 
 
+def archive_permanently_failed_creators(max_retries: int = 3) -> int:
+    """
+    Archive creators that failed to sync after max retries.
+
+    Args:
+        max_retries: Retries before marking as archived (default 3)
+
+    Returns:
+        Number of creators archived
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return 0
+
+    try:
+        failed_response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("creator_id, retry_count")
+            .eq("status", "failed")
+            .gte("retry_count", max_retries)
+            .limit(100)
+            .execute()
+        )
+
+        failed_jobs = failed_response.data if failed_response.data else []
+        if not failed_jobs:
+            return 0
+
+        failed_creator_ids = set(job["creator_id"] for job in failed_jobs)
+        archived_count = 0
+
+        logger.info(
+            f"Found {len(failed_creator_ids)} creators with {max_retries}+ "
+            f"failed sync attempts - archiving..."
+        )
+
+        for creator_id in failed_creator_ids:
+            try:
+                result = (
+                    supabase_client.table(CREATOR_TABLE)
+                    .update(
+                        {
+                            "sync_status": "archived",
+                            "sync_error_message": f"Failed after {max_retries}+ retries",
+                            "archived_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("id", creator_id)
+                    .execute()
+                )
+
+                if result.data:
+                    archived_count += 1
+                    logger.info(f"✅ Archived creator: {creator_id}")
+            except Exception as e:
+                logger.error(f"Error archiving {creator_id}: {e}")
+
+        if archived_count > 0:
+            logger.warning(f"Archived {archived_count} permanently failed creators")
+
+        return archived_count
+    except Exception as e:
+        logger.exception(f"Error archiving failed creators: {e}")
+        return 0
+
+
 # =============================================================================
 # 📊 Creator Stats Management (NEW - Added for creator infrastructure)
 # =============================================================================

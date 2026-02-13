@@ -31,6 +31,35 @@ from utils import format_date_relative, format_number, safe_get_value
 logger = logging.getLogger(__name__)
 
 
+def _filter_valid_creators(creators: list[dict]) -> list[dict]:
+    """
+    Filter out creators with incomplete data.
+
+    Only shows creators that have:
+    - A channel_name (successfully resolved)
+    - At least 1 subscriber (data has been synced)
+
+    This prevents showing empty "Sync Pending" cards.
+    """
+
+    def get_val(obj, key, default=None):
+        if isinstance(obj, dict):
+            v = obj.get(key, default)
+        else:
+            v = getattr(obj, key, default)
+        return v if v is not None else default
+
+    valid = []
+    for creator in creators:
+        channel_name = get_val(creator, "channel_name")
+        subs = get_val(creator, "current_subscribers", 0)
+
+        if channel_name and subs > 0:
+            valid.append(creator)
+
+    return valid
+
+
 # ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
@@ -55,6 +84,7 @@ def render_creators_page(
     """
     # Count creators by grade for filter badges
     grade_counts = _count_by_grade(creators)
+    creators = _filter_valid_creators(creators)
 
     # Use provided stats or calculate from creators
     if stats is None:
