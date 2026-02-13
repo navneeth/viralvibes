@@ -319,6 +319,7 @@ async def process_creators(
         "skipped": 0,
         "failed": 0,
         "duplicate": 0,
+        "sync_jobs_queued": 0,
         "by_source": {},
     }
 
@@ -328,7 +329,11 @@ async def process_creators(
 
         # Add to source stats
         if source not in stats["by_source"]:
-            stats["by_source"][source] = {"enqueued": 0, "failed": 0}
+            stats["by_source"][source] = {
+                "enqueued": 0,
+                "failed": 0,
+                "sync_jobs_queued": 0,
+            }
 
         # Validate channel ID format
         if not validator.is_valid(channel_id):
@@ -349,13 +354,17 @@ async def process_creators(
             continue
 
         # Enqueue sync job
-        if await enqueue_creator_sync(creator_id):
+        sync_queued = await enqueue_creator_sync(creator_id)
+
+        if sync_queued:
             stats["enqueued"] += 1
+            stats["sync_jobs_queued"] += 1
             stats["by_source"][source]["enqueued"] += 1
             logger.info(f"✅ Enqueued: {channel_id} (source={source}, rank={rank})")
         else:
             stats["failed"] += 1
             stats["by_source"][source]["failed"] += 1
+            logger.error(f"Failed to queue sync for {channel_id}")
 
     return stats
 
