@@ -18,10 +18,10 @@ from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from constants import (
+    CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
     CREATOR_UPDATE_INTERVAL_DAYS,
-    CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_WORKER_MAX_RETRIES,
     CREATOR_WORKER_RETRY_BASE,
     PLAYLIST_JOBS_TABLE,
@@ -672,6 +672,10 @@ def queue_creator_sync(
     """
     Queue a creator for stats sync.
 
+    Uses upsert with conflict resolution to prevent race conditions and duplicate
+    pending jobs under concurrent load. Database should have a uniqueness constraint
+    on (creator_id, status) where status='pending' for this to work optimally.
+
     Args:
         creator_id: Creator UUID from creators table
         source: How it got queued ('discovered', 'manual', 'scheduled')
@@ -691,8 +695,9 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        # Use creator_id as conflict field for idempotent job creation
+        # Use upsert with creator_id as conflict field for idempotent job creation
         # This ensures we don't create duplicate pending jobs for the same creator
+        # even under concurrent load (atomic database operation)
         success = upsert_row(
             CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=["creator_id"]
         )

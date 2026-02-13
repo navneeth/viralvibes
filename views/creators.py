@@ -1,14 +1,22 @@
 """
-Creator Intelligence Dashboard - discover and explore top YouTube creators.
-Simplified version with tested patterns from MonsterUI examples
+Creator Intelligence Dashboard - Analytics-first design for YouTube creators
+Focused on what matters: Growth, Revenue, Engagement, Quality
 
-Key features:
-- Analytics-first design competing with SocialBlade
-- Reuses MonsterUI components (Grid, Card, Select, etc.)
-- 3-tier information hierarchy
-- Growth metrics inline + visual indicators
-- Revenue estimation prominent
-- Color-coded metrics for fast scanning
+Data collected by worker:
+- current_subscribers, current_view_count, current_video_count (from YouTube API)
+- engagement_score (calculated from recent video comments/likes)
+- quality_grade (A+/A/B+/B/C based on engagement + subscriber size)
+- country_code, channel_name, channel_thumbnail_url
+- last_updated_at, last_synced_at (for freshness indicator)
+- 30-day deltas (subscribers_change_30d, views_change_30d)
+
+Creator perspective (Jimmy Donaldson style):
+1. Growth trajectory (trending up/down?) - MOST IMPORTANT
+2. Revenue potential (monthly earnings)
+3. Engagement quality (audience size vs views ratio)
+4. Video consistency (how many videos, posting frequency)
+5. Ranking/position (competitive benchmark)
+6. Quality assessment (why are they ranked this way?)
 """
 
 import logging
@@ -18,7 +26,8 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import format_date_relative, format_number
+from routes.creators import calculate_creator_stats
+from utils import format_date_relative, format_number, safe_get_value
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +42,29 @@ def render_creators_page(
     sort: str = "subscribers",
     search: str = "",
     grade_filter: str = "all",
+    stats: dict | None = None,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
-    Competes with SocialBlade through superior UX and insights.
-
+    Optimized for what creators care about: growth, revenue, engagement.
     Args:
-        creators: List of creator dicts with stats
+        creators: List of creator dicts with stats and ranking
         sort: Sort criteria (subscribers, views, videos, engagement, quality)
         search: Search query for filtering by name
         grade_filter: Quality grade filter (all, A+, A, B+, B, C)
+        stats: Aggregate statistics dict from backend (calculated if None)
     """
     # Count creators by grade for filter badges
     grade_counts = _count_by_grade(creators)
 
+    # Delegate stats calculation to centralized backend helper
+    # This avoids duplicating aggregation logic between view and route
+    if stats is None:
+        stats = calculate_creator_stats(creators)
+
     return Container(
-        # Hero section with value prop
-        _render_hero(len(creators)),
+        # Hero section with real stats
+        _render_hero(len(creators), stats),
         # Filter controls (sticky bar)
         _render_filter_bar(search, sort, grade_filter, grade_counts),
         # Creators grid or empty state
@@ -62,40 +77,69 @@ def render_creators_page(
     )
 
 
-def _render_hero(creator_count: int) -> Div:
-    """Hero section with quick stats."""
+def _render_hero(creator_count: int, stats: dict) -> Div:
+    """Hero section with real statistics - statement design."""
     return Div(
-        H1(
-            "Creator Intelligence Platform",
-            cls="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 text-center",
+        Div(
+            H1(
+                "Creator Intelligence",
+                cls="text-5xl font-bold text-gray-900 tracking-tight",
+            ),
+            P(
+                "Analytics for creators who want to grow.",
+                cls="text-lg text-gray-600 mt-2",
+            ),
+            cls="mb-8",
         ),
-        P(
-            "Track growth, estimate earnings, discover rising creators",
-            cls="text-gray-600 text-center mt-2 mb-8",
-        ),
-        # Quick stats - using simple grid
+        # Metric Strip - evenly spaced statement
         Div(
             Div(
-                H2(
-                    format_number(creator_count), cls="text-3xl font-bold text-blue-600"
+                P(
+                    "Creators Analyzed",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
-                P("Creators Tracked", cls="text-sm text-gray-600 mt-1"),
+                H2(
+                    format_number(creator_count),
+                    cls="text-4xl font-bold text-gray-900 mt-2",
+                ),
                 cls="text-center",
             ),
             Div(
-                H2("Real-time", cls="text-3xl font-bold text-purple-600"),
-                P("Data", cls="text-sm text-gray-600 mt-1"),
+                P(
+                    "Total Subscribers",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                ),
+                H2(
+                    format_number(stats.get("total_subscribers", 0)),
+                    cls="text-4xl font-bold text-blue-600 mt-2",
+                ),
                 cls="text-center",
             ),
             Div(
-                H2("A.I. Ranked", cls="text-3xl font-bold text-pink-600"),
-                P("System", cls="text-sm text-gray-600 mt-1"),
+                P(
+                    "Avg Engagement",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                ),
+                H2(
+                    f"{stats.get('avg_engagement', 0):.1f}%",
+                    cls="text-4xl font-bold text-emerald-600 mt-2",
+                ),
                 cls="text-center",
             ),
-            cls="grid grid-cols-3 gap-6 max-w-2xl mx-auto mb-8",
+            Div(
+                P(
+                    "Est. Monthly Revenue",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                ),
+                H2(
+                    f"${format_number(stats.get('total_revenue', 0))}",
+                    cls="text-4xl font-bold text-amber-600 mt-2",
+                ),
+                cls="text-center",
+            ),
+            cls="grid grid-cols-4 gap-8 py-8 border-t border-b border-gray-200",
         ),
-        cls="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 rounded-2xl border border-gray-200 p-8 mb-8 text-center",
-        data_reveal=True,
+        cls="bg-white rounded-lg border border-gray-200 p-8 mb-8",
     )
 
 
@@ -145,19 +189,9 @@ def _render_filter_bar(
                 selected=(sort == "engagement"),
             ),
             Option("⭐ Quality Score", value="quality", selected=(sort == "quality")),
-            Option(
-                "📈 Fastest Growing",
-                value="growth_rate",
-                selected=(sort == "growth_rate"),
-            ),
-            Option(
-                "💰 Revenue Potential",
-                value="revenue_potential",
-                selected=(sort == "revenue_potential"),
-            ),
             Option("🆕 Recently Updated", value="recent", selected=(sort == "recent")),
             name="sort",
-            cls="h-10 px-4 rounded-lg border border-gray-300",
+            cls="h-10 px-4 rounded-lg border border-gray-300 font-medium",
             onchange="this.form.submit()",
         ),
         Input(type="hidden", name="search", value=search),
@@ -175,9 +209,9 @@ def _render_filter_bar(
                 cls=(
                     "px-4 py-2 rounded-lg transition-all inline-block no-underline text-sm font-medium "
                     + (
-                        "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                        "bg-blue-600 text-white shadow-md"
                         if grade_filter == val
-                        else "bg-white border border-gray-200 hover:border-gray-300 text-gray-700 hover:shadow-md"
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
                     )
                 ),
             )
@@ -190,7 +224,7 @@ def _render_filter_bar(
     return Div(
         Div(cls="flex gap-4 mb-4")(search_form, sort_form),
         grade_pills,
-        cls="sticky top-4 z-10 bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4",
+        cls="sticky top-4 z-10 bg-white/95 backdrop-blur-sm p-6 rounded-lg border border-gray-200 shadow-sm space-y-4",
     )
 
 
@@ -206,243 +240,277 @@ def _render_creators_grid(creators: list[dict]) -> Grid:
     )
 
 
-def _render_creator_card(creator: dict) -> Card:
+def _render_creator_card(creator: dict) -> Div:
     """
-    Creator card with 3-tier information hierarchy.
-    Tier 1: Subs + Views (large, colored)
-    Tier 2: Growth, Revenue, Engagement (medium)
-    Tier 3: Updated, Action (small, footer)
+    Creator card - clean, data-driven design.
+
+    Layout:
+    [Thumbnail + Rank] | [Name + Badge]
+    ────────────────────────────────────
+    SUBSCRIBERS | VIEWS (large 2-col metrics)
+    ────────────────────────────────────
+    AVG/VID | VIDEOS | ENGAGEMENT | REVENUE (small 4-col metrics)
+    ────────────────────────────────────
+    30-Day Trend bar
+    ────────────────────────────────────
+    Updated · Analyze → (footer)
     """
 
-    # Extract basic info
-    channel_id = creator.get("channel_id", "N/A")
-    channel_name = creator.get("channel_name", "Unknown")
-    channel_thumbnail = creator.get("channel_thumbnail_url", "/static/favicon.jpeg")
+    # Extract all data
+    channel_id = safe_get_value(creator, "channel_id", "N/A")
+    channel_name = safe_get_value(creator, "channel_name", "Unknown")
+    # Preserve existing channel_url if present, otherwise construct from channel_id
     channel_url = (
-        creator.get("channel_url") or f"https://youtube.com/channel/{channel_id}"
+        safe_get_value(creator, "channel_url")
+        or f"https://youtube.com/channel/{channel_id}"
     )
-    quality_grade = creator.get("quality_grade", "C")
-    last_updated = creator.get("last_updated", datetime.now())
+    quality_grade = safe_get_value(creator, "quality_grade", "C")
+    rank = safe_get_value(creator, "_rank", "—")
+    thumbnail_url = (
+        safe_get_value(creator, "channel_thumbnail_url")
+        or safe_get_value(creator, "thumbnail_url")
+        or "https://via.placeholder.com/64x64?text=No+Image"
+    )
 
-    # Extract metrics
-    current_subs = creator.get("current_subscribers", 0) or 0
-    current_views = creator.get("current_view_count", 0) or 0
-    current_videos = creator.get("current_video_count", 0) or 0
-    engagement_score = creator.get("engagement_score", 0) or 0
+    # Ensure all numeric fields are actually numeric
+    current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
+    current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
+    current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
+    subs_change = int(safe_get_value(creator, "subscribers_change_30d", 0) or 0)
+    views_change = int(safe_get_value(creator, "views_change_30d", 0) or 0)
+    engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
 
-    # Growth indicators
-    subs_change = creator.get("subscriber_change_30d", 0) or 0
-    views_change = creator.get("views_change_30d", 0) or 0
-
-    # Calculated metrics
+    # Calculations
     avg_views_per_video = (
-        current_views / max(1, current_videos) if current_videos > 0 else 0
+        int(current_views / current_videos) if current_videos > 0 else 0
     )
-    # Allow negative growth rates to show declining trends
-    if current_subs - subs_change > 0:
-        growth_rate = (subs_change / (current_subs - subs_change)) * 100
-    else:
-        growth_rate = 0
-    estimated_revenue = _estimate_monthly_revenue(current_views, views_change)
+    estimated_revenue = int((current_views * 4) / 1000)
+    growth_rate = (subs_change / current_subs * 100) if current_subs > 0 else 0
+    last_updated = safe_get_value(creator, "last_updated_at", "")
 
-    # Tier styling - simplified to just grade
-    tier_styles = {
-        "A+": ("bg-gradient-to-r from-yellow-400 to-orange-500 text-white", "👑"),
-        "A": ("bg-gradient-to-r from-green-400 to-emerald-500 text-white", "⭐"),
-        "B+": ("bg-gradient-to-r from-blue-400 to-cyan-500 text-white", "📈"),
-        "B": ("bg-gradient-to-r from-purple-400 to-pink-500 text-white", "💎"),
-        "C": ("bg-gradient-to-r from-gray-400 to-slate-500 text-white", "📊"),
+    # Grade colors and interpretation - muted/subtle
+    grade_colors = {
+        "A+": "bg-purple-200 text-purple-900",
+        "A": "bg-blue-200 text-blue-900",
+        "B+": "bg-cyan-200 text-cyan-900",
+        "B": "bg-gray-200 text-gray-900",
+        "C": "bg-gray-200 text-gray-700",
     }
-    tier_gradient, tier_emoji = tier_styles.get(quality_grade, tier_styles["C"])
 
-    # Growth color indicator
-    if growth_rate > 5:
-        growth_color = "text-green-600"
-    elif growth_rate > 2:
-        growth_color = "text-green-600"
-    elif growth_rate > 0:
-        growth_color = "text-yellow-600"
-    elif growth_rate < 0:
-        growth_color = "text-red-600"
+    # Grade interpretation (signal)
+    grade_signals = {
+        "A+": ("Elite Performer", "⭐"),
+        "A": ("Strong Creator", "✓"),
+        "B+": ("Rising Star", "📈"),
+        "B": ("Established", "●"),
+        "C": ("New Creator", "○"),
+    }
+
+    grade_bg = grade_colors.get(quality_grade, "bg-gray-200 text-gray-700")
+    grade_signal, grade_icon = grade_signals.get(quality_grade, ("Unrated", "?"))
+
+    # Growth direction indicator
+    growth_trend = "↑" if growth_rate > 1 else ("↓" if growth_rate < -1 else "→")
+    growth_color = (
+        "text-green-600"
+        if growth_rate > 1
+        else ("text-red-600" if growth_rate < -1 else "text-gray-500")
+    )
+
+    # Growth signal (interpretation) - MOVE THIS BEFORE return Div
+    if growth_rate > 2:
+        growth_signal = ("Growing", "↑", "bg-emerald-100 text-emerald-700")
+    elif growth_rate < -2:
+        growth_signal = ("Declining", "↓", "bg-red-100 text-red-700")
     else:
-        growth_color = "text-gray-600"
+        growth_signal = ("Stable", "→", "bg-slate-100 text-slate-700")
 
-    return Card(
-        # HEADER: Clickable Avatar + Name + Tier Badge
-        A(
+    return Div(
+        # Header: Thumbnail + Name + Grade
+        Div(
+            # Thumbnail with rank badge overlay
             Div(
                 Img(
-                    src=channel_thumbnail,
+                    src=thumbnail_url,
                     alt=channel_name,
-                    cls="w-16 h-16 rounded-xl object-cover border-2 border-white shadow-md motion-safe:hover:scale-105 transition-transform",
-                    onerror="this.src='/static/favicon.jpeg'",
+                    cls="w-16 h-16 rounded-lg object-cover",
                 ),
+                # Subtle rank badge
                 Div(
-                    H3(
-                        channel_name,
-                        cls="text-lg font-bold text-gray-900 line-clamp-2 group-hover:text-blue-600 transition-colors",
-                    ),
-                    P(
-                        f"{format_number(current_subs)} subscribers • {format_number(current_videos)} videos",
-                        cls="text-xs text-gray-600 mt-1",
-                    ),
-                    cls="flex-1 min-w-0",
+                    f"#{rank}",
+                    cls="absolute -top-2 -right-2 bg-gray-900 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center",
                 ),
-                Div(
-                    f"{tier_emoji} {quality_grade}",
-                    cls=f"{tier_gradient} px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap",
-                ),
-                cls="flex gap-3 items-start",
+                cls="relative",
             ),
-            href=channel_url,
-            target="_blank",
-            rel="noopener noreferrer",
-            cls="no-underline block pb-4 border-b border-gray-100 mb-4 group",
+            # Channel info
+            Div(
+                Div(
+                    H3(channel_name, cls="font-semibold text-gray-900 truncate mb-0.5"),
+                    P(
+                        f"{format_number(current_subs)} subscribers · {current_videos} videos",
+                        cls="text-xs text-gray-600",
+                    ),
+                    cls="flex-1",
+                ),
+                # Quality grade badge (top right) with interpretation
+                Div(
+                    Div(
+                        P(grade_icon, cls="text-lg"),
+                        P(quality_grade, cls="text-xs font-bold"),
+                        cls="flex flex-col items-center",
+                    ),
+                    Div(
+                        P(grade_signal, cls="text-xs font-semibold text-right"),
+                        cls="text-right",
+                    ),
+                    cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
+                ),
+                cls="flex justify-between items-start gap-3 flex-1",
+            ),
+            cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
         ),
-        # TIER 1: Growth & Revenue (Most Important)
+        # PRIMARY METRICS (2-column: Subs + Views)
         Div(
-            # Growth Rate
+            # Subscribers
             Div(
                 P(
-                    "Subscribers",
+                    "SUBSCRIBERS",
                     cls="text-xs font-semibold text-gray-600 uppercase tracking-wide",
                 ),
                 H2(
                     format_number(current_subs),
-                    cls="text-2xl font-bold text-blue-600 mt-1",
+                    cls="text-3xl font-bold text-blue-600 mt-1",
                 ),
                 P(
-                    (
-                        f"+{format_number(subs_change)} (30d)"
-                        if subs_change > 0
-                        else f"{format_number(subs_change)} (30d)"
-                    ),
-                    cls=f"text-xs font-medium {growth_color} mt-1",
+                    f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)",
+                    cls="text-xs text-gray-600 mt-1",
                 ),
-                cls="bg-blue-50 border border-blue-100 rounded-lg p-3",
+                cls="bg-blue-50 rounded-lg p-3 text-center",
             ),
             # Views
             Div(
                 P(
-                    "Views",
+                    "VIEWS",
                     cls="text-xs font-semibold text-gray-600 uppercase tracking-wide",
                 ),
                 H2(
                     format_number(current_views),
-                    cls="text-2xl font-bold text-purple-600 mt-1",
+                    cls="text-3xl font-bold text-purple-600 mt-1",
                 ),
                 P(
-                    (
-                        f"+{format_number(views_change)} (30d)"
-                        if views_change > 0
-                        else f"{format_number(views_change)} (30d)"
-                    ),
-                    cls="text-xs font-medium text-gray-600 mt-1",
+                    f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)",
+                    cls="text-xs text-gray-600 mt-1",
                 ),
-                cls="bg-purple-50 border border-purple-100 rounded-lg p-3",
+                cls="bg-purple-50 rounded-lg p-3 text-center",
             ),
             cls="grid grid-cols-2 gap-3 mb-4",
         ),
-        # TIER 2: SECONDARY METRICS (Quality indicators)
+        # SECONDARY METRICS (4-column)
         Div(
             Div(
+                P("AVG", cls="text-xs font-semibold text-gray-600 uppercase"),
                 P(
-                    "Avg Views/Video",
-                    cls="text-xs font-semibold text-gray-600 uppercase",
-                ),
-                P(
-                    format_number(int(avg_views_per_video)),
+                    f"{format_number(avg_views_per_video)}",
                     cls="text-lg font-bold text-gray-900 mt-1",
                 ),
-                cls="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center",
+                P("per video", cls="text-xs text-gray-500"),
+                cls="bg-gray-50 rounded-lg p-3 text-center",
             ),
             Div(
-                P("Videos", cls="text-xs font-semibold text-gray-600 uppercase"),
+                P("VIDEOS", cls="text-xs font-semibold text-gray-600 uppercase"),
                 P(
                     format_number(current_videos),
                     cls="text-lg font-bold text-gray-900 mt-1",
                 ),
-                cls="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center",
+                P("published", cls="text-xs text-gray-500"),
+                cls="bg-gray-50 rounded-lg p-3 text-center",
             ),
             Div(
-                P("Engagement", cls="text-xs font-semibold text-gray-600 uppercase"),
-                P(
-                    f"{engagement_score:.1f}%",
-                    cls="text-lg font-bold text-gray-900 mt-1",
+                P("ENGAGEMENT", cls="text-xs font-semibold text-gray-600 uppercase"),
+                Div(
+                    P(
+                        f"{engagement_score:.1f}%",
+                        cls="text-lg font-bold text-gray-900 mt-1",
+                    ),
+                    cls="flex items-end gap-2",
                 ),
-                cls="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center",
+                P(
+                    "on videos" if engagement_score > 0 else "no engagement",
+                    cls="text-xs text-gray-500 mt-1",
+                ),
+                cls="bg-gray-50 rounded-lg p-3 text-center",
             ),
             Div(
-                P("Revenue Est.", cls="text-xs font-semibold text-gray-600 uppercase"),
                 P(
-                    f"${format_number(int(estimated_revenue))}/mo",
+                    "REVENUE",
+                    cls="text-xs font-semibold text-green-700 uppercase font-bold",
+                ),
+                P(
+                    f"${format_number(estimated_revenue)}",
                     cls="text-lg font-bold text-green-600 mt-1",
                 ),
-                cls="bg-green-50 border border-green-200 rounded-lg p-3 text-center",
+                P("/month", cls="text-xs text-green-600"),
+                cls="bg-green-50 rounded-lg p-3 text-center",
             ),
             cls="grid grid-cols-4 gap-3 mb-4",
         ),
-        # Growth indicator bar
+        # GROWTH TREND
         Div(
             Div(
-                P("30-Day Trend", cls="text-xs font-semibold text-gray-600"),
-                P(
-                    (
-                        f"+{growth_rate:.1f}% growth"
-                        if growth_rate > 0
-                        else (
-                            f"{growth_rate:.1f}% decline"
-                            if growth_rate < 0
-                            else "Stable"
-                        )
+                P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
+                Div(
+                    P(
+                        f"{growth_signal[1]} {growth_rate:+.1f}%",
+                        cls=f"text-sm font-bold text-gray-900",
                     ),
-                    cls=f"text-xs font-bold {growth_color}",
+                    Span(
+                        growth_signal[0],
+                        cls=f"px-2 py-1 text-xs font-semibold rounded-full {growth_signal[2]}",
+                    ),
+                    cls="flex items-center gap-2",
                 ),
-                cls="flex justify-between items-center mb-2",
+                cls="flex justify-between items-center mb-3",
             ),
+            # Simple growth bar
             Div(
                 Div(
                     cls=(
-                        "h-1.5 bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500 rounded-full"
+                        "h-2 bg-green-500 rounded-full"
                         if growth_rate >= 0
-                        else "h-1.5 bg-gradient-to-r from-red-400 to-red-600 transition-all duration-500 rounded-full"
+                        else "h-2 bg-red-500 rounded-full"
                     ),
                     style=f"width: {min(100, max(0, abs(growth_rate) * 5))}%",
                 ),
-                cls="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden",
+                cls="w-full h-2 bg-gray-200 rounded-full overflow-hidden",
             ),
             cls=(
-                "bg-green-50 border border-green-100 rounded-lg p-3 mb-4"
+                "bg-green-50 rounded-lg p-3 mb-4"
                 if growth_rate >= 0
-                else "bg-red-50 border border-red-100 rounded-lg p-3 mb-4"
+                else "bg-red-50 rounded-lg p-3 mb-4"
             ),
         ),
-        # TIER 3: FOOTER (Metadata + Action)
+        # FOOTER: Timestamp + Action
         Div(
             Div(
-                UkIcon("clock", cls="w-3 h-3 text-gray-400"),
-                P(
-                    format_date_relative(last_updated),
-                    cls="text-xs text-gray-500 font-medium",
-                ),
-                cls="flex items-center gap-1.5",
+                Span("🕐", cls="mr-1.5"),
+                P(format_date_relative(last_updated), cls="text-xs text-gray-500"),
+                cls="flex items-center",
             ),
             A(
-                "Analyze →",
+                "View Channel →",
                 href=channel_url,
                 target="_blank",
                 rel="noopener noreferrer",
-                cls="text-xs font-bold text-blue-600 hover:text-blue-700 px-3 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 no-underline transition-colors inline-block",
+                cls="text-xs font-semibold text-blue-600 hover:text-blue-700 no-underline",
             ),
-            cls="flex justify-between items-center pt-4 border-t border-gray-100",
+            cls="flex justify-between items-center pt-3 border-t border-gray-100 text-sm",
         ),
-        cls="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-gray-300 transition-all duration-200",
+        cls="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer",
     )
 
 
 def _render_empty_state(search: str, grade_filter: str) -> Div:
     """Empty state when no creators found."""
-
     if search or grade_filter != "all":
         return Card(
             Div(
@@ -469,8 +537,7 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
                     cls="text-center text-2xl font-bold mb-2",
                 ),
                 P(
-                    "Analyze YouTube playlists to automatically discover and track creators. "
-                    "We'll build your creator database in real-time.",
+                    "Analyze YouTube playlists to automatically discover and track creators.",
                     cls="text-center text-gray-600 mb-6",
                 ),
                 Div(
@@ -482,7 +549,7 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
                 ),
                 cls="space-y-4 p-12",
             ),
-            cls="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 border-blue-200 max-w-md mx-auto",
+            cls="bg-white max-w-md mx-auto border border-gray-200",
         )
 
 
@@ -495,7 +562,7 @@ def _count_by_grade(creators: list[dict]) -> dict:
     """Count creators by quality grade for filter pills."""
     counts = {"all": len(creators), "A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0}
     for creator in creators:
-        grade = creator.get("quality_grade", "C")
+        grade = safe_get_value(creator, "quality_grade", "C")
         if grade in counts:
             counts[grade] += 1
     return counts
