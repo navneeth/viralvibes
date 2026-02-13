@@ -672,22 +672,46 @@ def queue_creator_sync(
     """
     Queue a creator for stats sync.
 
-    Uses upsert with conflict resolution to prevent race conditions and duplicate
-    pending jobs under concurrent load. Database should have a uniqueness constraint
-    on (creator_id, status) where status='pending' for this to work optimally.
+    Uses check-then-insert pattern to prevent duplicate pending jobs. This is
+    NOT atomic and has a race window between check and insert. For production,
+    add a unique partial index to guarantee uniqueness:
+
+        CREATE UNIQUE INDEX idx_creator_sync_jobs_pending_unique
+        ON creator_sync_jobs (creator_id)
+        WHERE status = 'pending';
+
+    With the index, concurrent enqueues will safely fail on constraint violation
+    instead of creating duplicates.
 
     Args:
         creator_id: Creator UUID from creators table
         source: How it got queued ('discovered', 'manual', 'scheduled')
 
     Returns:
-        True if queued successfully, False otherwise
+        True if queued successfully or already pending, False otherwise
     """
     if not supabase_client:
         logger.warning("Supabase client not available to queue creator sync")
         return False
 
     try:
+        # Check if there's already a pending job for this creator
+        # NOTE: This is not atomic - see docstring for production hardening
+        existing = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id")
+            .eq("creator_id", creator_id)
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            logger.debug(
+                f"Creator {creator_id} already has a pending sync job, skipping"
+            )
+            return True  # Already queued, consider this success
+
         payload = {
             "creator_id": creator_id,
             "status": "pending",
@@ -695,19 +719,17 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        # Use upsert with creator_id as conflict field for idempotent job creation
-        # This ensures we don't create duplicate pending jobs for the same creator
-        # even under concurrent load (atomic database operation)
-        success = upsert_row(
-            CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=["creator_id"]
+        # Plain insert (no upsert semantics - we checked for duplicates above)
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
         )
 
-        if success:
+        if response.data:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
+            return True
         else:
             logger.error(f"Failed to queue creator {creator_id}")
-
-        return success
+            return False
 
     except Exception as e:
         logger.exception(f"Error queuing creator sync: {e}")
