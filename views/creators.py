@@ -305,6 +305,39 @@ def _render_creator_card(creator: dict) -> Div:
     growth_rate = (subs_change / current_subs * 100) if current_subs > 0 else 0
     last_updated = safe_get_value(creator, "last_updated_at", "")
 
+    # Sync status tracking
+    sync_status = safe_get_value(creator, "sync_status", "pending")
+    sync_error = safe_get_value(creator, "sync_error_message", "")
+
+    # Sync status indicators (border colors and badges)
+    sync_indicators = {
+        "pending": {
+            "border": "border-l-4 border-amber-400",
+            "badge": ("⏳ Sync Pending", "bg-amber-100 text-amber-800"),
+            "tooltip": "Channel data not yet synced from YouTube",
+        },
+        "invalid": {
+            "border": "border-l-4 border-red-500",
+            "badge": ("⚠️ Invalid Data", "bg-red-100 text-red-800"),
+            "tooltip": sync_error or "Invalid channel data - will retry automatically",
+        },
+        "failed": {
+            "border": "border-l-4 border-orange-500",
+            "badge": ("❌ Sync Error", "bg-orange-100 text-orange-800"),
+            "tooltip": sync_error or "Sync failed - will retry automatically",
+        },
+        "synced": {
+            "border": "",  # No special border for normal state
+            "badge": None,  # No badge needed
+            "tooltip": None,
+        },
+    }
+
+    sync_indicator = sync_indicators.get(sync_status, sync_indicators["pending"])
+    card_border = sync_indicator["border"]
+    sync_badge_info = sync_indicator["badge"]
+    sync_tooltip = sync_indicator["tooltip"]
+
     # Grade colors and interpretation - muted/subtle
     grade_colors = {
         "A+": "bg-purple-200 text-purple-900",
@@ -343,6 +376,16 @@ def _render_creator_card(creator: dict) -> Div:
         growth_signal = ("Stable", "→", "bg-slate-100 text-slate-700")
 
     return Div(
+        # Sync status badge (if not synced)
+        (
+            Div(
+                sync_badge_info[0],
+                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[1]}",
+                title=sync_tooltip,
+            )
+            if sync_badge_info
+            else None
+        ),
         # Header: Thumbnail + Name + Grade
         Div(
             # Thumbnail with rank badge overlay
@@ -522,7 +565,7 @@ def _render_creator_card(creator: dict) -> Div:
             ),
             cls="flex justify-between items-center pt-3 border-t border-gray-100 text-sm",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer",
+        cls=f"bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer {card_border}",
     )
 
 

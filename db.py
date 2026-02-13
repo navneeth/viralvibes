@@ -665,6 +665,67 @@ def submit_playlist_job(
 # Manages the creator_sync_jobs queue for background processing
 
 
+def queue_invalid_creators_for_retry(hours_since_last_sync: int = 24) -> int:
+    """
+    Queue creators with invalid/failed sync status for retry.
+
+    This function finds creators marked as 'invalid' or 'failed' and queues
+    them for another sync attempt. Useful for automated cleanup of bad data.
+
+    Args:
+        hours_since_last_sync: Only retry if last sync was N hours ago (default 24)
+
+    Returns:
+        Number of creators queued for retry
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return 0
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        cutoff_time = datetime.now(timezone.utc) - timedelta(
+            hours=hours_since_last_sync
+        )
+
+        # Find creators needing retry
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
+            .in_("sync_status", ["invalid", "failed"])
+            .lt("last_synced_at", cutoff_time.isoformat())
+            .limit(100)  # Process in batches
+            .execute()
+        )
+
+        creators = response.data if response.data else []
+        queued_count = 0
+
+        for creator in creators:
+            creator_id = creator["id"]
+            status = creator["sync_status"]
+            error = creator.get("sync_error_message", "Unknown")
+
+            if queue_creator_sync(creator_id, source="auto_retry"):
+                queued_count += 1
+                logger.info(
+                    f"Queued {creator['channel_id']} for retry "
+                    f"(status={status}, error={error})"
+                )
+
+        if queued_count > 0:
+            logger.info(
+                f"Auto-retry: Queued {queued_count} creators with invalid/failed status"
+            )
+
+        return queued_count
+
+    except Exception as e:
+        logger.exception(f"Error queuing invalid creators for retry: {e}")
+        return 0
+
+
 def queue_creator_sync(
     creator_id: str,
     source: str = "scheduled",
