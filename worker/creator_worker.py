@@ -48,6 +48,7 @@ from db import (
     mark_creator_sync_completed,
     mark_creator_sync_failed,
     mark_creator_sync_processing,
+    queue_invalid_creators_for_retry,
     setup_logging,
     supabase_client,
 )
@@ -428,18 +429,47 @@ async def handle_sync_job(
             f"engagement={engagement:.2f}%, quality={quality}"
         )
 
+        # STAGE 3.5: Validate stats quality
+        subs = channel_data["current_subscribers"]
+        views = channel_data["current_view_count"]
+        videos = channel_data["current_video_count"]
+
+        # Detect invalid/suspicious data
+        is_invalid = False
+        sync_status = "synced"
+        sync_error = None
+
+        if subs == 0 and views == 0:
+            is_invalid = True
+            sync_status = "invalid"
+            sync_error = "Zero subscribers and views - likely invalid channel_id or deleted channel"
+            logger.warning(
+                f"{job_tag} Invalid stats detected: {channel_id} has 0 subs + 0 views. "
+                "Flagging for manual review or retry."
+            )
+        elif subs == 0 and views > 0:
+            # Possible but suspicious - new channel or API issue
+            sync_status = "invalid"
+            sync_error = "Zero subscribers but has views - suspicious data"
+            logger.warning(
+                f"{job_tag} Suspicious stats: {channel_id} has 0 subs but {views:,} views"
+            )
+
         # STAGE 4: Update database
-        logger.debug(f"{job_tag} Updating database")
+        logger.debug(f"{job_tag} Updating database (sync_status={sync_status})")
 
         update_payload = {
             # Stats (updated every sync)
-            "current_subscribers": channel_data["current_subscribers"],
-            "current_view_count": channel_data["current_view_count"],
-            "current_video_count": channel_data["current_video_count"],
+            "current_subscribers": subs,
+            "current_view_count": views,
+            "current_video_count": videos,
             # Metadata (may change over time)
             "channel_name": channel_data.get("channel_name"),
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
             "country_code": channel_data.get("country_code"),
+            # Sync status tracking
+            "sync_status": sync_status,
+            "sync_error_message": sync_error,
             # Timestamps (timezone-aware UTC)
             "last_updated_at": datetime.now(timezone.utc).isoformat(),
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
@@ -463,13 +493,22 @@ async def handle_sync_job(
             logger.error(f"{job_tag} Database update failed: {e}")
             raise Exception("Database update failed")
 
-        # STAGE 5: Mark as completed
-        logger.debug(f"{job_tag} Marking as completed")
-        mark_creator_sync_completed(job_id)
-
-        logger.info(f"{job_tag} ✅ Sync completed successfully")
-        metrics.syncs_processed += 1
-        return True
+        # STAGE 5: Mark job completion based on data quality
+        if is_invalid:
+            # Don't mark as completed - mark as failed so it retries
+            logger.warning(
+                f"{job_tag} Marking as FAILED due to invalid stats. "
+                "Will retry with exponential backoff."
+            )
+            mark_creator_sync_failed(job_id, sync_error or "Invalid stats")
+            metrics.syncs_failed += 1
+            return False
+        else:
+            logger.debug(f"{job_tag} Marking as completed")
+            mark_creator_sync_completed(job_id)
+            logger.info(f"{job_tag} ✅ Sync completed successfully")
+            metrics.syncs_processed += 1
+            return True
 
     except Exception as e:
         logger.exception(f"{job_tag} Sync failed: {e}")
@@ -544,6 +583,8 @@ async def process_creator_syncs():
 
     start_time = time.time()
     empty_poll_count = 0  # Track consecutive empty polls for backoff
+    last_retry_check = time.time()  # Track when we last queued invalid creators
+    RETRY_CHECK_INTERVAL = 3600  # Check for invalid creators every hour
 
     while not stop_event.is_set():
         elapsed = time.time() - start_time
@@ -552,6 +593,18 @@ async def process_creator_syncs():
         if remaining <= 0:
             logger.info(f"Max runtime ({MAX_RUNTIME}s) exceeded, exiting")
             break
+
+        # Periodic retry of invalid/failed creators (once per hour)
+        if time.time() - last_retry_check > RETRY_CHECK_INTERVAL:
+            logger.info("Running periodic check for invalid/failed creators...")
+            try:
+                retry_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
+                logger.info(
+                    f"Auto-retry check: Queued {retry_count} creators for retry"
+                )
+            except Exception as e:
+                logger.warning(f"Auto-retry check failed: {e}")
+            last_retry_check = time.time()
 
         logger.info(
             f"Worker progress: {int(elapsed / 60)}m elapsed, "
