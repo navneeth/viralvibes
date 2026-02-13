@@ -672,22 +672,39 @@ def queue_creator_sync(
     """
     Queue a creator for stats sync.
 
-    Uses upsert with conflict resolution to prevent race conditions and duplicate
-    pending jobs under concurrent load. Database should have a uniqueness constraint
-    on (creator_id, status) where status='pending' for this to work optimally.
+    Checks for existing pending jobs before inserting to prevent duplicates.
+    This is not atomic, but given the low concurrency on creator discovery,
+    it's acceptable. Consider adding a unique partial index on
+    (creator_id) WHERE status='pending' for better guarantees.
 
     Args:
         creator_id: Creator UUID from creators table
         source: How it got queued ('discovered', 'manual', 'scheduled')
 
     Returns:
-        True if queued successfully, False otherwise
+        True if queued successfully or already pending, False otherwise
     """
     if not supabase_client:
         logger.warning("Supabase client not available to queue creator sync")
         return False
 
     try:
+        # Check if there's already a pending job for this creator
+        existing = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id")
+            .eq("creator_id", creator_id)
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            logger.debug(
+                f"Creator {creator_id} already has a pending sync job, skipping"
+            )
+            return True  # Already queued, consider this success
+
         payload = {
             "creator_id": creator_id,
             "status": "pending",
@@ -695,12 +712,8 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        # Use upsert with creator_id as conflict field for idempotent job creation
-        # This ensures we don't create duplicate pending jobs for the same creator
-        # even under concurrent load (atomic database operation)
-        success = upsert_row(
-            CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=["creator_id"]
-        )
+        # Insert without conflict resolution (no unique constraint exists)
+        success = upsert_row(CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=None)
 
         if success:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
