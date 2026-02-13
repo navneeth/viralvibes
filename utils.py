@@ -16,6 +16,30 @@ from constants import TimeEstimates
 logger = logging.getLogger(__name__)
 
 
+def safe_get_value(obj, key: str, default=0):
+    """
+    Safely get value from dict or Supabase object. Returns default if None.
+
+    This helper works with both dict objects and Supabase response objects,
+    handling None values consistently across the codebase.
+
+    Args:
+        obj: Dictionary or object with attributes
+        key: Key/attribute name to retrieve
+        default: Default value to return if key is missing or value is None
+
+    Returns:
+        The value associated with the key, or default if missing/None
+    """
+    if isinstance(obj, dict):
+        value = obj.get(key, default)
+    else:
+        value = getattr(obj, key, default)
+
+    # If value is None, return default instead
+    return value if value is not None else default
+
+
 def calculate_engagement_rate(
     view_count: float, like_count: float, dislike_count: float
 ) -> float:

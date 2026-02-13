@@ -672,6 +672,10 @@ def queue_creator_sync(
     """
     Queue a creator for stats sync.
 
+    Uses upsert with conflict resolution to prevent race conditions and duplicate
+    pending jobs under concurrent load. Database should have a uniqueness constraint
+    on (creator_id, status) where status='pending' for this to work optimally.
+
     Args:
         creator_id: Creator UUID from creators table
         source: How it got queued ('discovered', 'manual', 'scheduled')
@@ -691,35 +695,19 @@ def queue_creator_sync(
             "job_type": "sync_stats",
         }
 
-        # Check if there's already a pending job for this creator
-        # to avoid duplicate queuing (but allow retries with different statuses)
-        existing = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id")
-            .eq("creator_id", creator_id)
-            .eq("status", "pending")
-            .limit(1)
-            .execute()
+        # Use upsert with creator_id as conflict field for idempotent job creation
+        # This ensures we don't create duplicate pending jobs for the same creator
+        # even under concurrent load (atomic database operation)
+        success = upsert_row(
+            CREATOR_SYNC_JOBS_TABLE, payload, conflict_fields=["creator_id"]
         )
 
-        if existing.data:
-            logger.debug(
-                f"Pending sync job already exists for creator {creator_id}, skipping duplicate"
-            )
-            return True  # Already queued, consider it a success
-
-        # Insert new job (simple insert, no upsert)
-        # creator_id is not unique in this table, so upsert doesn't apply
-        response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-        )
-
-        if response.data:
+        if success:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
-            return True
         else:
             logger.error(f"Failed to queue creator {creator_id}")
-            return False
+
+        return success
 
     except Exception as e:
         logger.exception(f"Error queuing creator sync: {e}")
