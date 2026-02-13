@@ -26,28 +26,9 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import (
-    calculate_creator_stats,
-    format_date_relative,
-    format_number,
-    safe_get_value,
-)
+from utils import format_date_relative, format_number, safe_get_value
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# SHARED HELPERS
-# ============================================================================
-
-
-def _get_value(obj, key, default=0):
-    """Safely get value from dict or Supabase object. Returns default if None."""
-    if isinstance(obj, dict):
-        value = obj.get(key, default)
-    else:
-        value = getattr(obj, key, default)
-    return value if value is not None else default
 
 
 # ============================================================================
@@ -79,20 +60,20 @@ def render_creators_page(
     if stats is None:
         stats = {
             "total_subscribers": sum(
-                _get_value(c, "current_subscribers", 0) for c in creators
+                safe_get_value(c, "current_subscribers", 0) for c in creators
             ),
             "total_views": sum(
-                _get_value(c, "current_view_count", 0) for c in creators
+                safe_get_value(c, "current_view_count", 0) for c in creators
             ),
             "avg_engagement": (
-                sum(_get_value(c, "engagement_score", 0) for c in creators)
+                sum(safe_get_value(c, "engagement_score", 0) for c in creators)
                 / len(creators)
                 if creators
                 else 0
             ),
             "total_revenue": int(
                 sum(
-                    (_get_value(c, "current_view_count", 0) * 4) / 1000
+                    (safe_get_value(c, "current_view_count", 0) * 4) / 1000
                     for c in creators
                 )
             ),
@@ -293,24 +274,28 @@ def _render_creator_card(creator: dict) -> Div:
     """
 
     # Extract all data
-    channel_id = _get_value(creator, "channel_id", "N/A")
-    channel_name = _get_value(creator, "channel_name", "Unknown")
-    channel_url = f"https://youtube.com/@{channel_id}"
-    quality_grade = _get_value(creator, "quality_grade", "C")
-    rank = _get_value(creator, "_rank", "—")
+    channel_id = safe_get_value(creator, "channel_id", "N/A")
+    channel_name = safe_get_value(creator, "channel_name", "Unknown")
+    # Preserve existing channel_url if present, otherwise construct from channel_id
+    channel_url = (
+        safe_get_value(creator, "channel_url")
+        or f"https://youtube.com/channel/{channel_id}"
+    )
+    quality_grade = safe_get_value(creator, "quality_grade", "C")
+    rank = safe_get_value(creator, "_rank", "—")
     thumbnail_url = (
-        _get_value(creator, "channel_thumbnail_url")
-        or _get_value(creator, "thumbnail_url")
+        safe_get_value(creator, "channel_thumbnail_url")
+        or safe_get_value(creator, "thumbnail_url")
         or "https://via.placeholder.com/64x64?text=No+Image"
     )
 
     # Ensure all numeric fields are actually numeric
-    current_subs = int(_get_value(creator, "current_subscribers", 0) or 0)
-    current_views = int(_get_value(creator, "current_view_count", 0) or 0)
-    current_videos = int(_get_value(creator, "current_video_count", 0) or 0)
-    subs_change = int(_get_value(creator, "subscribers_change_30d", 0) or 0)
-    views_change = int(_get_value(creator, "views_change_30d", 0) or 0)
-    engagement_score = float(_get_value(creator, "engagement_score", 0) or 0)
+    current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
+    current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
+    current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
+    subs_change = int(safe_get_value(creator, "subscribers_change_30d", 0) or 0)
+    views_change = int(safe_get_value(creator, "views_change_30d", 0) or 0)
+    engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
 
     # Calculations
     avg_views_per_video = (
@@ -318,7 +303,7 @@ def _render_creator_card(creator: dict) -> Div:
     )
     estimated_revenue = int((current_views * 4) / 1000)
     growth_rate = (subs_change / current_subs * 100) if current_subs > 0 else 0
-    last_updated = _get_value(creator, "last_updated_at", "")
+    last_updated = safe_get_value(creator, "last_updated_at", "")
 
     # Grade colors and interpretation - muted/subtle
     grade_colors = {
@@ -594,7 +579,7 @@ def _count_by_grade(creators: list[dict]) -> dict:
     """Count creators by quality grade for filter pills."""
     counts = {"all": len(creators), "A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0}
     for creator in creators:
-        grade = _get_value(creator, "quality_grade", "C")
+        grade = safe_get_value(creator, "quality_grade", "C")
         if grade in counts:
             counts[grade] += 1
     return counts
