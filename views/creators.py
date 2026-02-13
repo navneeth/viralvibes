@@ -26,7 +26,6 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
-from routes.creators import calculate_creator_stats
 from utils import format_date_relative, format_number, safe_get_value
 
 logger = logging.getLogger(__name__)
@@ -42,7 +41,7 @@ def render_creators_page(
     sort: str = "subscribers",
     search: str = "",
     grade_filter: str = "all",
-    stats: dict | None = None,
+    stats: dict = None,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -52,15 +51,33 @@ def render_creators_page(
         sort: Sort criteria (subscribers, views, videos, engagement, quality)
         search: Search query for filtering by name
         grade_filter: Quality grade filter (all, A+, A, B+, B, C)
-        stats: Aggregate statistics dict from backend (calculated if None)
+        stats: Aggregate statistics dict from backend
     """
     # Count creators by grade for filter badges
     grade_counts = _count_by_grade(creators)
 
-    # Delegate stats calculation to centralized backend helper
-    # This avoids duplicating aggregation logic between view and route
+    # Use provided stats or calculate from creators
     if stats is None:
-        stats = calculate_creator_stats(creators)
+        stats = {
+            "total_subscribers": sum(
+                safe_get_value(c, "current_subscribers", 0) for c in creators
+            ),
+            "total_views": sum(
+                safe_get_value(c, "current_view_count", 0) for c in creators
+            ),
+            "avg_engagement": (
+                sum(safe_get_value(c, "engagement_score", 0) for c in creators)
+                / len(creators)
+                if creators
+                else 0
+            ),
+            "total_revenue": int(
+                sum(
+                    (safe_get_value(c, "current_view_count", 0) * 4) / 1000
+                    for c in creators
+                )
+            ),
+        }
 
     return Container(
         # Hero section with real stats

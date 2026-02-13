@@ -8,7 +8,6 @@ from fasthtml.common import *
 
 from constants import CREATOR_TABLE
 from db import supabase_client
-from utils import safe_get_value
 from views.creators import render_creators_page
 
 logger = logging.getLogger(__name__)
@@ -70,7 +69,7 @@ def get_all_creators(
         creators = response.data if response.data else []
 
         # Add ranking position to each creator
-        # Note: Supabase returns dicts by default, so direct assignment works
+        # Supabase returns dicts by default, so direct assignment works
         for idx, creator in enumerate(creators, 1):
             creator["_rank"] = idx
 
@@ -103,21 +102,31 @@ def calculate_creator_stats(creators: list) -> dict:
             "total_revenue": 0,
         }
 
+    def get_value(obj, key, default=0):
+        """Safely get value from dict or Supabase object. Returns default if None."""
+        if isinstance(obj, dict):
+            value = obj.get(key, default)
+        else:
+            value = getattr(obj, key, default)
+
+        # If value is None, return default instead
+        return value if value is not None else default
+
     try:
         total_subscribers = sum(
-            safe_get_value(c, "current_subscribers", 0) for c in creators
+            get_value(c, "current_subscribers", 0) for c in creators
         )
-        total_views = sum(safe_get_value(c, "current_view_count", 0) for c in creators)
+        total_views = sum(get_value(c, "current_view_count", 0) for c in creators)
 
         # Calculate average engagement
-        engagement_scores = [safe_get_value(c, "engagement_score", 0) for c in creators]
+        engagement_scores = [get_value(c, "engagement_score", 0) for c in creators]
         avg_engagement = (
             sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
         )
 
         # Calculate total revenue (CPM: $4 per 1000 views)
         total_revenue = sum(
-            (safe_get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
+            (get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
         )
 
         return {
