@@ -1671,3 +1671,134 @@ def add_creator_manually(
     except Exception as e:
         logger.exception(f"Error adding creator manually: {e}")
         return None
+
+
+# =============================================================================
+# 📊 Creator Discovery & Listing (Frontend API)
+# =============================================================================
+
+
+def get_creators(
+    search: str = "",
+    sort: str = "subscribers",
+    grade_filter: str = "all",
+    limit: int = 100,
+) -> list[dict]:
+    """
+    Fetch creators for frontend display with filtering and sorting.
+
+    ALL heavy lifting (filtering, sorting) done by database for performance.
+    This is the ONLY function frontend routes should use for creator listing.
+
+    Args:
+        search: Filter by channel name (case-insensitive)
+        sort: Sort criteria (subscribers, views, videos, engagement, quality, recent)
+        grade_filter: Filter by quality grade (all, A+, A, B+, B, C)
+        limit: Maximum number of results
+
+    Returns:
+        List of creator dicts with ranking position added
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available")
+        return []
+
+    try:
+        # Validate and map sort field (DB does the sorting)
+        sort_map = {
+            "subscribers": ("current_subscribers", True),
+            "views": ("current_view_count", True),
+            "videos": ("current_video_count", True),
+            "engagement": ("engagement_score", True),
+            "quality": ("quality_grade", True),
+            "recent": ("last_updated_at", True),
+        }
+        sort_field, descending = sort_map.get(sort, ("current_subscribers", True))
+
+        # Build query
+        query = supabase_client.table(CREATOR_TABLE).select("*")
+
+        # Apply filters (DB does the filtering)
+        if search:
+            query = query.ilike("channel_name", f"%{search}%")
+
+        valid_grades = ["A+", "A", "B+", "B", "C"]
+        if grade_filter and grade_filter in valid_grades:
+            query = query.eq("quality_grade", grade_filter)
+
+        # Apply sorting and limit (DB does the work)
+        query = query.order(sort_field, desc=descending).limit(limit)
+
+        # Execute
+        response = query.execute()
+        creators = response.data if response.data else []
+
+        # Add ranking position (1-based index)
+        for idx, creator in enumerate(creators, 1):
+            creator["_rank"] = idx
+
+        logger.info(
+            f"Retrieved {len(creators)} creators "
+            f"(search='{search}', sort={sort}, grade={grade_filter})"
+        )
+
+        return creators
+
+    except Exception as e:
+        logger.exception(f"Error fetching creators: {e}")
+        return []
+
+
+def calculate_creator_stats(creators: list[dict]) -> dict:
+    """
+    Calculate aggregate statistics from creators list for hero section.
+
+    Args:
+        creators: List of creator dicts
+
+    Returns:
+        Dict with total_subscribers, total_views, avg_engagement, total_revenue
+    """
+    if not creators:
+        return {
+            "total_subscribers": 0,
+            "total_views": 0,
+            "avg_engagement": 0.0,
+            "total_revenue": 0,
+        }
+
+    try:
+        from utils import safe_get_value
+
+        # Sum totals
+        total_subscribers = sum(
+            safe_get_value(c, "current_subscribers", 0) for c in creators
+        )
+        total_views = sum(safe_get_value(c, "current_view_count", 0) for c in creators)
+
+        # Average engagement
+        engagement_scores = [safe_get_value(c, "engagement_score", 0) for c in creators]
+        avg_engagement = (
+            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
+        )
+
+        # Estimated revenue (CPM: $4 per 1000 views)
+        total_revenue = sum(
+            (safe_get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
+        )
+
+        return {
+            "total_subscribers": int(total_subscribers),
+            "total_views": int(total_views),
+            "avg_engagement": round(avg_engagement, 2),
+            "total_revenue": int(total_revenue),
+        }
+
+    except Exception as e:
+        logger.exception(f"Error calculating creator stats: {e}")
+        return {
+            "total_subscribers": 0,
+            "total_views": 0,
+            "avg_engagement": 0.0,
+            "total_revenue": 0,
+        }
