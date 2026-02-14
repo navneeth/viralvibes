@@ -1,6 +1,5 @@
 """
 YouTube API utilities and channel management service.
-
 Integrates:
 - Regex-based channel ID extraction/validation
 - Handle → channel ID resolution
@@ -9,11 +8,28 @@ Integrates:
 
 This module is the single source of truth for YouTube API interactions
 and channel ID validation across the codebase.
+
+This version extracts all available data from YouTube API that's useful
+for creator analytics:
+
+From YouTube API channels.list response:
+├─ snippet: title, description, customUrl, publishedAt, defaultLanguage, thumbnails
+├─ statistics: subscribers, views, videos, commentCount, hiddenSubscriberCount
+└─ brandingSettings: keywords, featuredChannels, country, bannerImage
+
+Available data NOT currently stored (for future features):
+├─ bannerImageUrl (for profile header)
+├─ keywords (creator-defined topics)
+├─ featuredChannelsUrls (related channels)
+├─ defaultLanguage (content language)
+├─ commentCount (on channel)
+└─ hiddenSubscriberCount (for approximate math)
 """
 
 import asyncio
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 from googleapiclient.discovery import build
@@ -86,13 +102,13 @@ class ChannelIDValidator:
 
 class YouTubeResolver:
     """
-    YouTube API client for channel data resolution and normalization.
+    YouTube API client for comprehensive channel data resolution.
 
     Provides unified interface for:
     - Resolving handles (@username, /user/, /c/) to channel IDs
-    - Fetching channel data from YouTube API
+    - Fetching comprehensive channel data from YouTube API
     - Normalizing API responses to internal schema
-    - Extracting country codes and verified status
+    - Extracting country, language, keywords, and other metadata
 
     Handles both sync and async operations gracefully.
     """
@@ -199,7 +215,7 @@ class YouTubeResolver:
 
     async def get_channel_data(self, channel_id: str) -> Optional[dict]:
         """
-        Fetch and normalize channel data from YouTube API.
+        Fetch and normalize comprehensive channel data from YouTube API.
 
         Args:
             channel_id: YouTube channel ID (UCxxxxxx)
@@ -215,7 +231,7 @@ class YouTubeResolver:
 
         try:
             request = youtube.channels().list(
-                part="id,snippet,statistics,brandingSettings",
+                part="id,snippet,statistics,brandingSettings,topicDetails",
                 id=channel_id,
             )
             response = await self._execute_async(request)
@@ -237,7 +253,7 @@ class YouTubeResolver:
         Normalize YouTube API channel response to internal schema.
 
         Maps YouTube API fields to our database columns and extracts
-        additional metadata (country_code, verified status).
+        comprehensive metadata (country, language, keywords, joined date, etc).
 
         Args:
             item: Channel item from YouTube API response
@@ -249,42 +265,181 @@ class YouTubeResolver:
         statistics = item.get("statistics", {})
         branding = item.get("brandingSettings", {})
         channel_branding = branding.get("channel", {})
+        topic_details = item.get("topicDetails", {})
+
+        # Extract keywords from description or branding
+        keywords = channel_branding.get("keywords", "")
+        if not keywords:
+            # Try to extract from description
+            description = snippet.get("description", "")
+            # Simple extraction: words after # or in first line
+            keywords = extract_keywords_from_description(description)
+
+        # Extract featured channels
+        featured_urls = channel_branding.get("featuredChannelsUrls", [])
+        featured_count = len(featured_urls) if featured_urls else 0
 
         return {
-            # Identity
+            # ═══════════════════════════════════════════════════════════
+            # IDENTITY (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
             "channel_id": item.get("id"),
             "channel_name": snippet.get("title"),
             "channel_description": snippet.get("description"),
             "channel_url": f"https://www.youtube.com/channel/{item.get('id')}",
-            # Thumbnail (high quality)
+            # ═══════════════════════════════════════════════════════════
+            # CUSTOM PRESENCE (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
+            "custom_url": snippet.get("customUrl"),  # NEW: @username or custom URL
+            "custom_url_available": snippet.get("customUrl")
+            is not None,  # Has verified custom URL
+            # ═══════════════════════════════════════════════════════════
+            # TIMESTAMPS (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
+            "published_at": snippet.get(
+                "publishedAt"
+            ),  # NEW: Channel creation date (ISO 8601)
+            "joined_at": snippet.get("publishedAt"),  # Alias for convenience
+            # ═══════════════════════════════════════════════════════════
+            # BRANDING / VISUAL (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
             "channel_thumbnail_url": snippet.get("thumbnails", {})
             .get("high", {})
             .get("url"),
-            # Statistics
+            "channel_thumbnail_default": snippet.get("thumbnails", {})
+            .get("default", {})
+            .get("url"),
+            "banner_image_url": branding.get("image", {}).get(
+                "bannerImageUrl"
+            ),  # NEW: Profile header image
+            # ═══════════════════════════════════════════════════════════
+            # STATISTICS (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
             "current_subscribers": int(statistics.get("subscriberCount", 0) or 0),
             "current_view_count": int(statistics.get("viewCount", 0) or 0),
             "current_video_count": int(statistics.get("videoCount", 0) or 0),
-            # Metadata
-            "country_code": channel_branding.get("country"),
+            "hidden_subscriber_count": statistics.get(
+                "hiddenSubscriberCount", False
+            ),  # NEW
+            # ═══════════════════════════════════════════════════════════
+            # METADATA (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
+            "country_code": channel_branding.get(
+                "country"
+            ),  # Already existed, enhanced
+            "country": channel_branding.get("country"),  # Alias
+            "default_language": snippet.get(
+                "defaultLanguage"
+            ),  # NEW: Content language (e.g., "en", "ja")
+            "keywords": keywords,  # NEW: Creator-defined topics
+            "keywords_raw": channel_branding.get(
+                "keywords", ""
+            ),  # NEW: Raw from branding
+            # ═══════════════════════════════════════════════════════════
+            # RELATIONSHIPS (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
+            "featured_channels_count": featured_count,  # NEW: Number of featured channels
+            "featured_channels_urls": featured_urls,  # NEW: List of featured channel URLs
+            "topic_categories": topic_details.get(
+                "topicCategories", []
+            ),  # NEW: Topic IDs
+            # ═══════════════════════════════════════════════════════════
+            # VERIFICATION (Stored in creators table)
+            # ═══════════════════════════════════════════════════════════
             "verified": snippet.get("customUrl") is not None,
+            "official": snippet.get("customUrl") is not None,  # Alias
+            # ═══════════════════════════════════════════════════════════
+            # COMPUTED / DERIVED
+            # ═══════════════════════════════════════════════════════════
+            "channel_age_days": calculate_channel_age(
+                snippet.get("publishedAt")
+            ),  # NEW: Days since creation
+            "monthly_uploads": estimate_monthly_uploads(
+                int(statistics.get("videoCount", 0) or 0),
+                snippet.get("publishedAt"),
+            ),  # NEW: Estimated videos/month
         }
 
-    @staticmethod
-    async def _execute_async(request):
-        """
-        Execute YouTube API request in async-friendly way.
 
-        The YouTube API library is synchronous, but we wrap it
-        to not block the event loop.
+def extract_keywords_from_description(description: str) -> str:
+    """
+    Extract keywords from channel description.
 
-        Args:
-            request: YouTube API request object
+    Looks for hashtags (#keyword) and extracts first line as fallback.
 
-        Returns:
-            API response dict
-        """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, request.execute)
+    Args:
+        description: Channel description text
+
+    Returns:
+        Keywords string (comma-separated)
+    """
+    if not description:
+        return ""
+
+    # Extract hashtags
+
+    hashtags = re.findall(r"#(\w+)", description)
+    if hashtags:
+        return ", ".join(hashtags[:5])  # First 5 hashtags
+
+    # Fallback: first line
+    first_line = description.split("\n")[0].strip()
+    if first_line and len(first_line) < 200:
+        return first_line
+
+    return ""
+
+
+def calculate_channel_age(published_at: Optional[str]) -> Optional[int]:
+    """
+    Calculate days since channel creation.
+
+    Args:
+        published_at: ISO 8601 datetime string
+
+    Returns:
+        Number of days since creation, or None if can't calculate
+    """
+    if not published_at:
+        return None
+
+    try:
+        # Parse ISO 8601 datetime
+        published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        delta = now - published
+        return delta.days
+    except Exception as e:
+        logger.warning(f"Could not calculate channel age: {e}")
+        return None
+
+
+def estimate_monthly_uploads(
+    video_count: int, published_at: Optional[str]
+) -> Optional[float]:
+    """
+    Estimate monthly video uploads.
+
+    Args:
+        video_count: Total number of videos
+        published_at: Channel creation date (ISO 8601)
+
+    Returns:
+        Estimated videos per month, or None if can't calculate
+    """
+    if not video_count or not published_at:
+        return None
+
+    channel_age_days = calculate_channel_age(published_at)
+    if not channel_age_days or channel_age_days < 1:
+        return None
+
+    try:
+        months = max(1, channel_age_days / 30.44)  # Average days per month
+        return round(video_count / months, 2)
+    except Exception as e:
+        logger.warning(f"Could not estimate monthly uploads: {e}")
+        return None
 
 
 async def ingest_creator(
@@ -296,7 +451,7 @@ async def ingest_creator(
     """
     Unified creator ingestion from channel_id or handle.
 
-    Resolves handle if needed, fetches canonical data from YouTube,
+    Resolves handle if needed, fetches comprehensive data from YouTube,
     and returns normalized creator data ready for database insertion.
 
     Args:
@@ -327,7 +482,7 @@ async def ingest_creator(
         logger.warning(f"[ingest_creator] Could not resolve: handle={handle}")
         return None
 
-    # Fetch canonical data from YouTube
+    # Fetch comprehensive data from YouTube
     logger.info(f"[ingest_creator] Fetching data for: {channel_id}")
     creator_data = await resolver.get_channel_data(channel_id)
 
@@ -335,5 +490,9 @@ async def ingest_creator(
         logger.warning(f"[ingest_creator] Failed to fetch: {channel_id}")
         return None
 
-    logger.info(f"[ingest_creator] ✅ Ingested: {creator_data['channel_id']}")
+    logger.info(
+        f"[ingest_creator] ✅ Ingested: {creator_data['channel_id']} "
+        f"({creator_data.get('country_code', 'Unknown')}, "
+        f"{creator_data.get('default_language', 'Unknown')})"
+    )
     return creator_data
