@@ -1858,7 +1858,7 @@ def get_creators(
         query = query.gt("current_subscribers", 0)
 
         # Apply sorting and limit (DB does the work)
-        query = query.order_by(sort_field, desc=descending).limit(limit)
+        query = query.order(sort_field, desc=descending).limit(limit)
 
         # Execute
         response = query.execute()

@@ -583,9 +583,92 @@ def _render_creator_card(creator: dict) -> Div:
                     ),
                     cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
                 ),
+                Div(
+                    # NEW: Channel age badge
+                    (
+                        lambda age_days: (
+                            Div(
+                                (
+                                    "👑 Veteran"
+                                    if age_days > 3650
+                                    else (
+                                        "🏆 Established"
+                                        if age_days > 1825
+                                        else (
+                                            "📈 Growing" if age_days > 365 else "🆕 New"
+                                        )
+                                    )
+                                ),
+                                cls="text-xs font-semibold px-2.5 py-1 rounded-md "
+                                "bg-purple-100 text-purple-700 whitespace-nowrap",
+                            )
+                            if age_days
+                            else None
+                        )
+                    )(safe_get_value(creator, "channel_age_days", None))
+                ),
                 cls="flex justify-between items-start gap-3 flex-1",
             ),
             cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
+        ),
+        # NEW: Creator metadata row (custom URL, language, keywords)
+        (
+            Div(
+                # Custom URL (@handle)
+                (
+                    Div(
+                        Span(
+                            f"@{safe_get_value(creator, 'custom_url', '')}",
+                            cls="text-sm font-semibold text-blue-600 truncate",
+                        ),
+                        cls="mb-2",
+                    )
+                    if safe_get_value(creator, "custom_url")
+                    else None
+                ),
+                # Language badge + Activity indicator
+                Div(
+                    # Language emoji + name
+                    (
+                        Span(
+                            f"{get_language_emoji(safe_get_value(creator, 'default_language'))} "
+                            f"{get_language_name(safe_get_value(creator, 'default_language'))}",
+                            cls="text-xs text-gray-600 font-medium",
+                        )
+                        if safe_get_value(creator, "default_language")
+                        else None
+                    ),
+                    # Upload activity badge (computed from monthly_uploads)
+                    (
+                        Span(
+                            get_activity_badge(
+                                safe_get_value(creator, "monthly_uploads")
+                            ),
+                            cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
+                        )
+                        if safe_get_value(creator, "monthly_uploads")
+                        else None
+                    ),
+                    cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
+                ),
+                # Keywords
+                (
+                    P(
+                        safe_get_value(creator, "keywords", ""),
+                        cls="text-xs text-gray-500 italic line-clamp-1",
+                    )
+                    if safe_get_value(creator, "keywords")
+                    else None
+                ),
+                cls="mb-3 pb-3 border-b border-gray-100 text-xs",
+            )
+            if (
+                safe_get_value(creator, "custom_url")
+                or safe_get_value(creator, "default_language")
+                or safe_get_value(creator, "keywords")
+                or safe_get_value(creator, "monthly_uploads")
+            )
+            else None
         ),
         # PRIMARY METRICS (2-column: Subs + Views)
         Div(
