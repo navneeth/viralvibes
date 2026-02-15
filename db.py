@@ -1748,52 +1748,117 @@ def get_creators(
     search: str = "",
     sort: str = "subscribers",
     grade_filter: str = "all",
+    language_filter: str = "all",
+    activity_filter: str = "all",
+    age_filter: str = "all",
     limit: int = 100,
 ) -> list[dict]:
     """
-    Fetch creators for frontend display with filtering and sorting.
+    Fetch creators for frontend display with comprehensive filtering and sorting.
 
     ALL heavy lifting (filtering, sorting) done by database for performance.
     This is the ONLY function frontend routes should use for creator listing.
 
     Args:
-        search: Filter by channel name (case-insensitive)
-        sort: Sort criteria (subscribers, views, videos, engagement, quality, recent)
+        search: Filter by channel name or @custom_url (case-insensitive)
+        sort: Sort criteria
+            - subscribers: Most subscribers (default)
+            - views: Most total views
+            - videos: Most video count
+            - engagement: Best engagement score
+            - quality: Best quality grade
+            - recent: Recently updated
+            - consistency: Most consistent uploads (monthly_uploads DESC)
+            - newest_channel: Newest channels (published_at DESC)
+            - oldest_channel: Oldest/veteran channels (published_at ASC)
         grade_filter: Filter by quality grade (all, A+, A, B+, B, C)
-        limit: Maximum number of results
+        language_filter: Filter by content language (all, en, ja, es, ko, zh, etc)
+        activity_filter: Filter by upload frequency
+            - all: All creators
+            - active: Very active (>5 videos/month)
+            - dormant: Dormant (<1 video/month)
+        age_filter: Filter by channel age
+            - all: All creators
+            - new: New channels (<1 year old)
+            - established: Established (1-10 years old)
+            - veteran: Veteran channels (10+ years old)
+        limit: Maximum number of results (default 100)
 
     Returns:
-        List of creator dicts with ranking position added
+        List of creator dicts with _rank position added (1-based index)
+
+    Examples:
+        # Get top 50 Japanese creators by consistency
+        creators = get_creators(language_filter="ja", sort="consistency", limit=50)
+
+        # Get active English creators
+        creators = get_creators(language_filter="en", activity_filter="active")
+
+        # Find new creators with good engagement
+        creators = get_creators(age_filter="new", sort="engagement")
     """
     if not supabase_client:
         logger.warning("Supabase client not available")
         return []
 
     try:
-        # Validate and map sort field (DB does the sorting)
+        # Build sort mapping (DB does the sorting based on this)
         sort_map = {
             "subscribers": ("current_subscribers", True),
             "views": ("current_view_count", True),
             "videos": ("current_video_count", True),
             "engagement": ("engagement_score", True),
-            "quality": ("quality_grade", True),
+            "quality": ("quality_grade", False),
             "recent": ("last_updated_at", True),
+            "consistency": ("monthly_uploads", True),
+            "newest_channel": ("published_at", True),
+            "oldest_channel": ("published_at", False),
         }
         sort_field, descending = sort_map.get(sort, ("current_subscribers", True))
 
-        # Build query
+        # Start query
         query = supabase_client.table(CREATOR_TABLE).select("*")
 
-        # Apply filters (DB does the filtering)
+        # Apply search filter (also search custom_url and keywords)
         if search:
-            query = query.ilike("channel_name", f"%{search}%")
+            query = query.or_(
+                f"channel_name.ilike.%{search}%,"
+                f"custom_url.ilike.%{search}%,"
+                f"keywords.ilike.%{search}%"
+            )
 
+        # Apply grade filter
         valid_grades = ["A+", "A", "B+", "B", "C"]
         if grade_filter and grade_filter in valid_grades:
             query = query.eq("quality_grade", grade_filter)
 
+        # Apply language filter
+        if language_filter and language_filter != "all":
+            query = query.eq("default_language", language_filter)
+
+        # Apply activity filter
+        if activity_filter and activity_filter != "all":
+            if activity_filter == "active":
+                query = query.gt("monthly_uploads", 5)  # > 5 videos/month
+            elif activity_filter == "dormant":
+                query = query.lt("monthly_uploads", 1)  # < 1 video/month
+
+        # Apply age filter (NEW)
+        if age_filter and age_filter != "all":
+            if age_filter == "new":
+                query = query.lt("channel_age_days", 365)  # < 1 year
+            elif age_filter == "established":
+                query = query.gte("channel_age_days", 365)  # >= 1 year
+                query = query.lt("channel_age_days", 3650)  # < 10 years
+            elif age_filter == "veteran":
+                query = query.gte("channel_age_days", 3650)  # >= 10 years
+
+        # Filter out incomplete creators (ensure data quality)
+        query = query.neq("channel_name", None)
+        query = query.gt("current_subscribers", 0)
+
         # Apply sorting and limit (DB does the work)
-        query = query.order(sort_field, desc=descending).limit(limit)
+        query = query.order_by(sort_field, desc=descending).limit(limit)
 
         # Execute
         response = query.execute()
@@ -1803,9 +1868,23 @@ def get_creators(
         for idx, creator in enumerate(creators, 1):
             creator["_rank"] = idx
 
+        # Log results
+        filters_applied = []
+        if search:
+            filters_applied.append(f"search='{search}'")
+        if grade_filter != "all":
+            filters_applied.append(f"grade={grade_filter}")
+        if language_filter != "all":
+            filters_applied.append(f"language={language_filter}")
+        if activity_filter != "all":
+            filters_applied.append(f"activity={activity_filter}")
+        if age_filter != "all":
+            filters_applied.append(f"age={age_filter}")
+
+        filters_str = ", ".join(filters_applied) if filters_applied else "none"
         logger.info(
             f"Retrieved {len(creators)} creators "
-            f"(search='{search}', sort={sort}, grade={grade_filter})"
+            f"(sort={sort}, filters=[{filters_str}], limit={limit})"
         )
 
         return creators
