@@ -460,15 +460,41 @@ async def handle_sync_job(
         # STAGE 4: Update database
         logger.debug(f"{job_tag} Updating database (sync_status={sync_status})")
 
+        # Build update payload with comprehensive creator data
         update_payload = {
-            # Stats (updated every sync)
-            "current_subscribers": subs,
-            "current_view_count": views,
-            "current_video_count": videos,
-            # Metadata (may change over time)
+            # Core statistics
+            "current_subscribers": channel_data["current_subscribers"],
+            "current_view_count": channel_data["current_view_count"],
+            "current_video_count": channel_data["current_video_count"],
+            # Identity
             "channel_name": channel_data.get("channel_name"),
+            "channel_description": channel_data.get("channel_description"),
+            # Custom presence (NEW)
+            "custom_url": channel_data.get("custom_url"),
+            "custom_url_available": channel_data.get("custom_url_available", False),
+            # Branding (NEW)
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
+            "channel_thumbnail_default": channel_data.get("channel_thumbnail_default"),
+            "banner_image_url": channel_data.get("banner_image_url"),
+            # Timestamps (NEW)
+            "published_at": channel_data.get("published_at"),
+            # Location & Language (NEW)
             "country_code": channel_data.get("country_code"),
+            "default_language": channel_data.get("default_language"),
+            # Metadata (NEW)
+            "keywords": channel_data.get("keywords"),
+            # Relationships (NEW)
+            "featured_channels_count": channel_data.get("featured_channels_count", 0),
+            "topic_categories": channel_data.get("topic_categories", []),
+            # Verification (NEW)
+            "official": channel_data.get("official", False),
+            # Computed metrics (NEW)
+            "channel_age_days": channel_data.get("channel_age_days"),
+            "monthly_uploads": channel_data.get("monthly_uploads"),
+            # Statistics (NEW - rarely available)
+            "hidden_subscriber_count": channel_data.get(
+                "hidden_subscriber_count", False
+            ),
             # Sync status tracking
             "sync_status": sync_status,
             "sync_error_message": sync_error,
