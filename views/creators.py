@@ -658,6 +658,65 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
     )
 
 
+def _build_metadata_section(
+    custom_url: str,
+    language: str,
+    keywords: str,
+    monthly_uploads: float,
+) -> Div | None:
+    """Build optional metadata section with custom URL, language, and keywords."""
+    from utils.creator_metrics import (
+        get_activity_badge,
+        get_language_emoji,
+        get_language_name,
+    )
+
+    if not (custom_url or language or keywords or monthly_uploads):
+        return None
+
+    return Div(
+        # Custom URL
+        (
+            Div(
+                Span(
+                    f"@{custom_url}",
+                    cls="text-sm font-semibold text-blue-600 truncate",
+                ),
+                cls="mb-2",
+            )
+            if custom_url
+            else None
+        ),
+        # Language + Activity
+        Div(
+            (
+                Span(
+                    f"{get_language_emoji(language)} {get_language_name(language)}",
+                    cls="text-xs text-gray-600 font-medium",
+                )
+                if language
+                else None
+            ),
+            (
+                Span(
+                    get_activity_badge(monthly_uploads),
+                    cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
+                )
+                if monthly_uploads
+                else None
+            ),
+            cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
+        ),
+        # Keywords
+        (
+            P(keywords, cls="text-xs text-gray-500 italic line-clamp-1")
+            if keywords
+            else None
+        ),
+        cls="mb-3 pb-3 border-b border-gray-100 text-xs",
+    )
+
+
 def _render_creator_card(creator: dict) -> Div:
     """
     Creator card - clean, data-driven design.
@@ -719,50 +778,8 @@ def _render_creator_card(creator: dict) -> Div:
     keywords = safe_get_value(creator, "keywords", "")
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 
-    metadata_section = (
-        Div(
-            # Custom URL
-            (
-                Div(
-                    Span(
-                        f"@{custom_url}",
-                        cls="text-sm font-semibold text-blue-600 truncate",
-                    ),
-                    cls="mb-2",
-                )
-                if custom_url
-                else None
-            ),
-            # Language + Activity
-            Div(
-                (
-                    Span(
-                        f"{get_language_emoji(language)} {get_language_name(language)}",
-                        cls="text-xs text-gray-600 font-medium",
-                    )
-                    if language
-                    else None
-                ),
-                (
-                    Span(
-                        get_activity_badge(monthly_uploads),
-                        cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
-                    )
-                    if monthly_uploads
-                    else None
-                ),
-                cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
-            ),
-            # Keywords
-            (
-                P(keywords, cls="text-xs text-gray-500 italic line-clamp-1")
-                if keywords
-                else None
-            ),
-            cls="mb-3 pb-3 border-b border-gray-100 text-xs",
-        )
-        if (custom_url or language or keywords or monthly_uploads)
-        else None
+    metadata_section = _build_metadata_section(
+        custom_url, language, keywords, monthly_uploads
     )
 
     # === COMPOSE CARD ===
@@ -866,74 +883,6 @@ def _count_by_grade(creators: list[dict]) -> dict:
     return counts
 
 
-def _estimate_monthly_revenue(current_views: int, views_30d: int = 0) -> float:
-    """
-    Estimate monthly revenue based on YouTube CPM model.
-
-    Uses a baseline CPM of $4 per 1000 views. If 30-day view data is available,
-    uses that for direct estimation. Otherwise, assumes current_views represents
-    lifetime views and extrapolates monthly average.
-
-    Args:
-        current_views: Lifetime or total view count
-        views_30d: Optional 30-day view count for direct calculation
-
-    Returns:
-        Estimated monthly revenue in USD
-    """
-    if views_30d > 0:
-        # Direct calculation from 30-day data
-        return (views_30d * 4) / 1000
-    else:
-        # Fallback: assume current_views is lifetime, extrapolate monthly average
-        # This is a rough estimate and should ideally use historical data
-        return (current_views * 4) / 1000 / 30 if current_views > 0 else 0
-
-
-def get_language_emoji(language_code: str) -> str:
-    """Get emoji for language code."""
-    language_emojis = {
-        "en": "🇺🇸",
-        "ja": "🇯🇵",
-        "es": "🇪🇸",
-        "ko": "🇰🇷",
-        "zh": "🇨🇳",
-        "ru": "🇷🇺",
-        "fr": "🇫🇷",
-        "de": "🇩🇪",
-        "pt": "🇵🇹",
-        "it": "🇮🇹",
-    }
-    return language_emojis.get(language_code, "🌍")
-
-
-def get_language_name(language_code: str) -> str:
-    """Get full language name from code."""
-    language_names = {
-        "en": "English",
-        "ja": "日本語",
-        "es": "Español",
-        "ko": "한국어",
-        "zh": "中文",
-        "ru": "Русский",
-        "fr": "Français",
-        "de": "Deutsch",
-        "pt": "Português",
-        "it": "Italiano",
-    }
-    return language_names.get(language_code, language_code)
-
-
-def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
-    """Get activity badge based on monthly uploads."""
-    if not monthly_uploads:
-        return None
-
-    if monthly_uploads > 10:
-        return "🔥 Very Active"
-    elif monthly_uploads > 5:
-        return "📈 Active"
-    elif monthly_uploads > 2:
-        return "📊 Regular"
-    else:
-        return "⚠️ Inactive"
+# NOTE: Helper functions moved to utils/creator_metrics.py for better organization
+# - get_language_emoji, get_language_name, get_activity_badge
+# - estimate_monthly_revenue (replaces _estimate_monthly_revenue)

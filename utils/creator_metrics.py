@@ -100,3 +100,52 @@ def get_sync_status_badge(sync_status: str) -> Optional[Tuple[str, str, str]]:
         "failed": ("❌", "Error", "bg-orange-100 text-orange-800"),
     }
     return badge_map.get(sync_status, None)
+
+
+def get_language_emoji(language_code: str) -> str:
+    """Get emoji flag for language code."""
+    language_emojis = {
+        "en": "🇺🇸",
+        "ja": "🇯🇵",
+        "es": "🇪🇸",
+        "ko": "🇰🇷",
+        "zh": "🇨🇳",
+        "ru": "🇷🇺",
+        "fr": "🇫🇷",
+        "de": "🇩🇪",
+        "pt": "🇵🇹",
+        "it": "🇮🇹",
+    }
+    return language_emojis.get(language_code, "🌍")
+
+
+def get_language_name(language_code: str) -> str:
+    """Get full language name from code."""
+    language_names = {
+        "en": "English",
+        "ja": "日本語",
+        "es": "Español",
+        "ko": "한국어",
+        "zh": "中文",
+        "ru": "Русский",
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt": "Português",
+        "it": "Italiano",
+    }
+    return language_names.get(language_code, language_code)
+
+
+def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
+    """Get activity badge based on monthly uploads."""
+    if not monthly_uploads:
+        return None
+
+    if monthly_uploads > 10:
+        return "🔥 Very Active"
+    elif monthly_uploads > 5:
+        return "📈 Active"
+    elif monthly_uploads > 2:
+        return "📊 Regular"
+    else:
+        return "⚠️ Inactive"
