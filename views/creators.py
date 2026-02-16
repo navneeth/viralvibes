@@ -789,7 +789,7 @@ def _render_creator_card(creator: dict) -> Div:
         # Sync status badge (if not synced)
         (
             Div(
-                sync_badge_info[0],
+                f"{sync_badge_info[0]} {sync_badge_info[1]}",
                 cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[2]}",
             )
             if sync_badge_info

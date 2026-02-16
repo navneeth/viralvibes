@@ -87,25 +87,30 @@ def sort_dataframe(
         descending: If True, sort in descending order
 
     Returns:
-        Sorted list of dictionaries
+        Sorted list of dictionaries (None values always at the end)
     """
     if not data or column not in data[0]:
         return data
 
+    # Separate None/empty values from real values
+    none_rows = [
+        row for row in data if row.get(column) is None or row.get(column) == ""
+    ]
+    value_rows = [
+        row for row in data if row.get(column) is not None and row.get(column) != ""
+    ]
+
+    # Sort only the rows with actual values
     def get_sort_value(row):
         val = row.get(column)
-
-        # Handle None values - sort them to the end regardless of direction
-        if val is None or val == "":
-            return (True, False, "")
-
-        # Try to convert to float for numeric sorting
         try:
-            numeric_val = float(val)
-            # Numeric values: (not_none=False, is_numeric=True, numeric_value)
-            return (False, True, numeric_val)
+            # Numeric values
+            return (True, float(val))
         except (ValueError, TypeError):
-            # String values: (not_none=False, is_numeric=False, string_value)
-            return (False, False, str(val).lower())
+            # String values
+            return (False, str(val).lower())
 
-    return sorted(data, key=get_sort_value, reverse=descending)
+    sorted_values = sorted(value_rows, key=get_sort_value, reverse=descending)
+
+    # Always append None values at the end, regardless of sort direction
+    return sorted_values + none_rows

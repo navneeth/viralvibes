@@ -2,7 +2,10 @@
 Date and time formatting utilities.
 """
 
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 def format_duration(seconds: int) -> str:
@@ -15,37 +18,33 @@ def format_duration(seconds: int) -> str:
     Returns:
         str: Formatted duration string in MM:SS or HH:MM:SS format.
     """
-    try:
-        # Convert to integer if float
-        if isinstance(seconds, float):
-            seconds = int(seconds)
+    # Convert to integer if float
+    if isinstance(seconds, float):
+        seconds = int(seconds)
 
-        # Validate input type
-        if not isinstance(seconds, int):
-            raise TypeError("Duration must be a number")
-
-        # Validate input value
-        if seconds < 0:
-            raise ValueError("Duration cannot be negative")
-
-        # Handle zero or None case
-        if not seconds:
-            return "00:00"
-
-        # Calculate time components
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        remaining_seconds = seconds % 60
-
-        # Format based on duration
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
-        return f"{minutes:02d}:{remaining_seconds:02d}"
-
-    except Exception as e:
-        # Log the error and return a safe default
-        print(f"Error formatting duration: {str(e)}")
+    # Validate input type
+    if not isinstance(seconds, int):
+        logger.warning(f"Invalid duration type: {type(seconds)}")
         return "00:00"
+
+    # Validate input value
+    if seconds < 0:
+        logger.warning(f"Negative duration: {seconds}")
+        return "00:00"
+
+    # Handle zero or None case
+    if not seconds:
+        return "00:00"
+
+    # Calculate time components
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    remaining_seconds = seconds % 60
+
+    # Format based on duration
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
+    return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
 def estimate_remaining_time(video_count: int, progress: float) -> tuple[int, str]:
@@ -192,13 +191,18 @@ def format_date_relative(date_str: str | None) -> str:
         return "Never updated"
 
     try:
-        # Parse datetime
+        # Parse datetime and ensure timezone-aware
         clean_date = date_str.replace("Z", "+00:00")
         dt = datetime.fromisoformat(clean_date)
+
+        # Ensure dt is timezone-aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
         now = datetime.now(timezone.utc)
 
-        # Calculate difference
-        diff = now - dt.replace(tzinfo=None)
+        # Calculate difference between two timezone-aware datetimes
+        diff = now - dt
 
         # Format based on age
         if diff.days == 0:
