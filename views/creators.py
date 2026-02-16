@@ -26,6 +26,15 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
+from utils.creator_metrics import (
+    calculate_avg_views_per_video,
+    calculate_growth_rate,
+    estimate_monthly_revenue,
+    format_channel_age,
+    get_grade_info,
+    get_growth_signal,
+    get_sync_status_badge,
+)
 from utils import format_date_relative, format_number, safe_get_value
 
 logger = logging.getLogger(__name__)
@@ -455,91 +464,34 @@ def _render_creator_card(creator: dict) -> Div:
     views_change = int(safe_get_value(creator, "views_change_30d", 0) or 0)
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
 
-    # Calculations
-    avg_views_per_video = (
-        int(current_views / current_videos) if current_videos > 0 else 0
-    )
-    estimated_revenue = int((current_views * 4) / 1000)
-    growth_rate = (subs_change / current_subs * 100) if current_subs > 0 else 0
+    # Calculations (using helper functions)
+    avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
+    estimated_revenue = estimate_monthly_revenue(current_views)
+    growth_rate = calculate_growth_rate(subs_change, current_subs)
     last_updated = safe_get_value(creator, "last_updated_at", "")
 
     # Sync status tracking
     sync_status = safe_get_value(creator, "sync_status", "pending")
     sync_error = safe_get_value(creator, "sync_error_message", "")
 
-    # Sync status indicators (border colors and badges)
-    sync_indicators = {
-        "pending": {
-            "border": "border-l-4 border-amber-400",
-            "badge": ("⏳ Sync Pending", "bg-amber-100 text-amber-800"),
-            "tooltip": "Channel data not yet synced from YouTube",
-        },
-        "invalid": {
-            "border": "border-l-4 border-red-500",
-            "badge": ("⚠️ Invalid Data", "bg-red-100 text-red-800"),
-            "tooltip": sync_error or "Invalid channel data - will retry automatically",
-        },
-        "failed": {
-            "border": "border-l-4 border-orange-500",
-            "badge": ("❌ Sync Error", "bg-orange-100 text-orange-800"),
-            "tooltip": sync_error or "Sync failed - will retry automatically",
-        },
-        "synced": {
-            "border": "",  # No special border for normal state
-            "badge": None,  # No badge needed
-            "tooltip": None,
-        },
-    }
-
-    sync_indicator = sync_indicators.get(sync_status, sync_indicators["pending"])
-    card_border = sync_indicator["border"]
-    sync_badge_info = sync_indicator["badge"]
-    sync_tooltip = sync_indicator["tooltip"]
-
-    # Grade colors and interpretation - muted/subtle
-    grade_colors = {
-        "A+": "bg-purple-200 text-purple-900",
-        "A": "bg-blue-200 text-blue-900",
-        "B+": "bg-cyan-200 text-cyan-900",
-        "B": "bg-gray-200 text-gray-900",
-        "C": "bg-gray-200 text-gray-700",
-    }
-
-    # Grade interpretation (signal)
-    grade_signals = {
-        "A+": ("Elite Performer", "⭐"),
-        "A": ("Strong Creator", "✓"),
-        "B+": ("Rising Star", "📈"),
-        "B": ("Established", "●"),
-        "C": ("New Creator", "○"),
-    }
-
-    grade_bg = grade_colors.get(quality_grade, "bg-gray-200 text-gray-700")
-    grade_signal, grade_icon = grade_signals.get(quality_grade, ("Unrated", "?"))
-
-    # Growth direction indicator
-    growth_trend = "↑" if growth_rate > 1 else ("↓" if growth_rate < -1 else "→")
-    growth_color = (
-        "text-green-600"
-        if growth_rate > 1
-        else ("text-red-600" if growth_rate < -1 else "text-gray-500")
+    # Get sync status badge (using helper)
+    sync_badge_info = get_sync_status_badge(sync_status)
+    card_border = (
+        f"border-l-4 border-{sync_status}-400" if sync_status != "synced" else ""
     )
 
-    # Growth signal (interpretation) - MOVE THIS BEFORE return Div
-    if growth_rate > 2:
-        growth_signal = ("Growing", "↑", "bg-emerald-100 text-emerald-700")
-    elif growth_rate < -2:
-        growth_signal = ("Declining", "↓", "bg-red-100 text-red-700")
-    else:
-        growth_signal = ("Stable", "→", "bg-slate-100 text-slate-700")
+    # Get grade info (using helper)
+    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
+
+    # Get growth signal (using helper)
+    growth_signal_text, growth_emoji, growth_style = get_growth_signal(growth_rate)
 
     return Div(
         # Sync status badge (if not synced)
         (
             Div(
                 sync_badge_info[0],
-                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[1]}",
-                title=sync_tooltip,
+                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[2]}",
             )
             if sync_badge_info
             else None
@@ -578,7 +530,7 @@ def _render_creator_card(creator: dict) -> Div:
                         cls="flex flex-col items-center",
                     ),
                     Div(
-                        P(grade_signal, cls="text-xs font-semibold text-right"),
+                        P(grade_label, cls="text-xs font-semibold text-right"),
                         cls="text-right",
                     ),
                     cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
@@ -761,12 +713,12 @@ def _render_creator_card(creator: dict) -> Div:
                 P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
                 Div(
                     P(
-                        f"{growth_signal[1]} {growth_rate:+.1f}%",
+                        f"{growth_emoji} {growth_rate:+.1f}%",
                         cls=f"text-sm font-bold text-gray-900",
                     ),
                     Span(
-                        growth_signal[0],
-                        cls=f"px-2 py-1 text-xs font-semibold rounded-full {growth_signal[2]}",
+                        growth_signal_text,
+                        cls=f"px-2 py-1 text-xs font-semibold rounded-full border {growth_style}",
                     ),
                     cls="flex items-center gap-2",
                 ),
