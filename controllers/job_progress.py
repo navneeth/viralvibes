@@ -1,5 +1,6 @@
 # controllers/job_progress.py
 
+import json
 import logging
 from dataclasses import dataclass
 from urllib.parse import quote_plus
@@ -28,6 +29,36 @@ from views.job_progress import render_job_progress_view
 from views.job_progress_state import JobProgressViewState
 
 logger = logging.getLogger(__name__)
+
+
+def is_retryable_network_error(error: str) -> bool:
+    """
+    Determine if an error is a network-related error that might succeed on retry.
+
+    Uses the same error patterns as get_user_friendly_error to keep behavior
+    consistent with error message display.
+
+    Args:
+        error: Error message string
+
+    Returns:
+        True if this is a network error worth retrying
+    """
+    if not error:
+        return False
+
+    error_lower = error.lower()
+
+    # Network-related patterns that align with error mappings
+    retryable_patterns = [
+        "network error during metadata",
+        "network",
+        "ssl",
+        "timeout",
+        "connection",
+    ]
+
+    return any(pattern in error_lower for pattern in retryable_patterns)
 
 
 def job_progress_controller(playlist_url: str):
@@ -108,7 +139,7 @@ def job_progress_controller(playlist_url: str):
         logger.error(f"❌ Job failed for {playlist_url}: {error}")
 
         # Check if this is a network error that might succeed with retry
-        is_network_error = "network error" in error.lower() or "ssl" in error.lower()
+        is_network_error = is_retryable_network_error(error)
         can_retry = retry_count < MAX_RETRY_ATTEMPTS
 
         return Div(
@@ -147,7 +178,7 @@ def job_progress_controller(playlist_url: str):
                             "🔄 Retry Now",
                             cls=ButtonT.primary,
                             hx_post="/submit-job",
-                            hx_vals=f'{{"playlist_url": "{playlist_url}"}}',
+                            hx_vals=json.dumps({"playlist_url": playlist_url}),
                             hx_target="#preview-box",
                             hx_swap="outerHTML",
                         )
