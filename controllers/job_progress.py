@@ -103,12 +103,28 @@ def job_progress_controller(playlist_url: str):
     if status == JobStatus.FAILED:
         error = job_data.get("error", "Unknown error")
         error_info = get_user_friendly_error(error)
+        retry_count = job_data.get("retry_count", 0)
+        max_retries = 3  # Should match worker.py MAX_RETRY_ATTEMPTS
 
         logger.error(f"❌ Job failed for {playlist_url}: {error}")
+
+        # Check if this is a network error that might succeed with retry
+        is_network_error = "network error" in error.lower() or "ssl" in error.lower()
+        can_retry = retry_count < max_retries
+
         return Div(
             Alert(
                 H3(error_info["title"], cls="text-lg font-bold mb-3"),
                 P(error_info["message"], cls="text-sm text-gray-700 mb-4"),
+                # Show retry count for network errors
+                (
+                    P(
+                        f"Attempt {retry_count + 1} of {max_retries}",
+                        cls="text-xs text-gray-500 mb-2",
+                    )
+                    if is_network_error and retry_count > 0
+                    else None
+                ),
                 # Suggestions
                 (
                     Div(
@@ -127,9 +143,20 @@ def job_progress_controller(playlist_url: str):
                 ),
                 # Actions
                 Div(
-                    A(
-                        Button("Try Again", cls=ButtonT.primary),
-                        href="/#analyze-section",
+                    (
+                        Button(
+                            "🔄 Retry Now",
+                            cls=ButtonT.primary,
+                            hx_post="/submit-job",
+                            hx_vals=f'{{"playlist_url": "{playlist_url}"}}',
+                            hx_target="#preview-box",
+                            hx_swap="outerHTML",
+                        )
+                        if can_retry and is_network_error
+                        else A(
+                            Button("Try Again", cls=ButtonT.primary),
+                            href="/#analyze-section",
+                        )
                     ),
                     A(
                         Button("Go Home", cls=ButtonT.secondary),
@@ -165,12 +192,14 @@ def job_progress_controller(playlist_url: str):
     # SHOW PROGRESS UI (processing/pending/queued)
     # ========================================================
     preview_info = get_playlist_preview_info(playlist_url) or {}
+    retry_count = job_data.get("retry_count", 0)
 
     return render_job_progress_ui(
         playlist_url=playlist_url,
         status=status,
         progress=progress,
         preview_info=preview_info,
+        retry_count=retry_count,
     )
 
 
@@ -179,6 +208,7 @@ def render_job_progress_ui(
     status: str | None,
     progress: float,
     preview_info: dict,
+    retry_count: int = 0,
 ):
     """
     Render the progress UI with preview data.
@@ -188,6 +218,7 @@ def render_job_progress_ui(
     - Progress bar
     - Status message
     - Estimated time remaining
+    - Retry indicator if applicable
     """
     # Extract preview fields
     title = preview_info.get("title", "YouTube Playlist")
@@ -213,6 +244,15 @@ def render_job_progress_ui(
     }
     status_message = status_messages.get(status, "Preparing analysis...")
 
+    # ✅ Show retry info if retrying
+    retry_badge = None
+    if retry_count > 0:
+        retry_badge = Div(
+            Span("🔄", cls="text-lg"),
+            Span(f"Retry {retry_count}/3", cls="text-xs text-gray-600 ml-1"),
+            cls="flex items-center gap-1 px-2 py-1 bg-amber-100 border border-amber-300 rounded-full text-amber-800",
+        )
+
     return Div(
         # Header
         Div(
@@ -225,9 +265,14 @@ def render_job_progress_ui(
             Div(
                 H2(title, cls="text-2xl font-bold text-gray-900"),
                 P(channel, cls="text-sm text-gray-600"),
-                Span(
-                    "Analysis in Progress",
-                    cls="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800",
+                Div(
+                    Span(
+                        "Analysis in Progress",
+                        cls="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800",
+                    ),
+                    # Show retry badge if retrying
+                    retry_badge if retry_badge else None,
+                    cls="flex gap-2 mt-2 items-center",
                 ),
             ),
             cls="flex gap-4 mb-6 items-start",
