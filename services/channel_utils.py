@@ -132,6 +132,11 @@ class YouTubeResolver:
             self._youtube_client = build("youtube", "v3", developerKey=self.api_key)
         return self._youtube_client
 
+    async def _execute_async(self, request):
+        """Execute YouTube API request asynchronously."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, request.execute)
+
     def validate_channel_id(self, channel_id: str) -> bool:
         """
         Fast format validation using regex (no API call).
