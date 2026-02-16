@@ -9,7 +9,7 @@ from monsterui.all import *
 
 from components.errors import get_user_friendly_error
 from components.processing_tips import get_tip_for_progress
-from constants import JobStatus
+from constants import JobStatus, MAX_RETRY_ATTEMPTS
 from db import (
     get_estimated_stats,
     get_job_progress,
@@ -104,13 +104,12 @@ def job_progress_controller(playlist_url: str):
         error = job_data.get("error", "Unknown error")
         error_info = get_user_friendly_error(error)
         retry_count = job_data.get("retry_count", 0)
-        max_retries = 3  # Should match worker.py MAX_RETRY_ATTEMPTS
 
         logger.error(f"❌ Job failed for {playlist_url}: {error}")
 
         # Check if this is a network error that might succeed with retry
         is_network_error = "network error" in error.lower() or "ssl" in error.lower()
-        can_retry = retry_count < max_retries
+        can_retry = retry_count < MAX_RETRY_ATTEMPTS
 
         return Div(
             Alert(
@@ -119,7 +118,7 @@ def job_progress_controller(playlist_url: str):
                 # Show retry count for network errors
                 (
                     P(
-                        f"Attempt {retry_count + 1} of {max_retries}",
+                        f"Attempt {retry_count + 1} of {MAX_RETRY_ATTEMPTS}",
                         cls="text-xs text-gray-500 mb-2",
                     )
                     if is_network_error and retry_count > 0
@@ -200,6 +199,7 @@ def job_progress_controller(playlist_url: str):
         progress=progress,
         preview_info=preview_info,
         retry_count=retry_count,
+        max_retries=MAX_RETRY_ATTEMPTS,
     )
 
 
@@ -209,6 +209,7 @@ def render_job_progress_ui(
     progress: float,
     preview_info: dict,
     retry_count: int = 0,
+    max_retries: int = 3,
 ):
     """
     Render the progress UI with preview data.
@@ -219,6 +220,14 @@ def render_job_progress_ui(
     - Status message
     - Estimated time remaining
     - Retry indicator if applicable
+
+    Args:
+        playlist_url: YouTube playlist URL
+        status: Current job status
+        progress: Progress percentage (0-100)
+        preview_info: Playlist metadata (title, thumbnail, etc)
+        retry_count: Current retry attempt count
+        max_retries: Maximum retry attempts allowed
     """
     # Extract preview fields
     title = preview_info.get("title", "YouTube Playlist")
@@ -247,10 +256,18 @@ def render_job_progress_ui(
     # ✅ Show retry info if retrying
     retry_badge = None
     if retry_count > 0:
+        # Clamp retry_count for safety (shouldn't exceed max_retries but defensive)
+        display_retry = min(retry_count, max_retries)
         retry_badge = Div(
             Span("🔄", cls="text-lg"),
-            Span(f"Retry {retry_count}/3", cls="text-xs text-gray-600 ml-1"),
-            cls="flex items-center gap-1 px-2 py-1 bg-amber-100 border border-amber-300 rounded-full text-amber-800",
+            Span(
+                f"Retry {display_retry}/{max_retries}",
+                cls="text-xs text-gray-600 ml-1",
+            ),
+            cls=(
+                "flex items-center gap-1 px-2 py-1 bg-amber-100 "
+                "border border-amber-300 rounded-full text-amber-800"
+            ),
         )
 
     return Div(
