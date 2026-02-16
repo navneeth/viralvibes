@@ -267,12 +267,17 @@ class YouTubeResolver:
         channel_branding = branding.get("channel", {})
         topic_details = item.get("topicDetails", {})
 
-        # Extract keywords from description or branding
-        keywords = channel_branding.get("keywords", "")
+        # Extract and normalize keywords from branding
+        # YouTube API may return keywords as list or string
+        raw_keywords = channel_branding.get("keywords") or []
+        if isinstance(raw_keywords, list):
+            keywords = ", ".join(raw_keywords)
+        else:
+            keywords = raw_keywords or ""
+
+        # Fall back to extraction from description if no keywords
         if not keywords:
-            # Try to extract from description
             description = snippet.get("description", "")
-            # Simple extraction: words after # or in first line
             keywords = extract_keywords_from_description(description)
 
         # Extract featured channels
