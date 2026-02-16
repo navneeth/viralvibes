@@ -19,6 +19,8 @@ Creator perspective (Jimmy Donaldson style):
 6. Quality assessment (why are they ranked this way?)
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from urllib.parse import urlencode
