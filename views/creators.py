@@ -19,6 +19,8 @@ Creator perspective (Jimmy Donaldson style):
 6. Quality assessment (why are they ranked this way?)
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from urllib.parse import urlencode
@@ -26,6 +28,15 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
+from utils.creator_metrics import (
+    calculate_avg_views_per_video,
+    calculate_growth_rate,
+    estimate_monthly_revenue,
+    format_channel_age,
+    get_grade_info,
+    get_growth_signal,
+    get_sync_status_badge,
+)
 from utils import format_date_relative, format_number, safe_get_value
 
 logger = logging.getLogger(__name__)
@@ -415,6 +426,299 @@ def _render_creators_grid(creators: list[dict]) -> Grid:
     )
 
 
+# =============================================================================
+# CREATOR CARD SECTION BUILDERS
+# =============================================================================
+
+
+def _build_card_header(
+    thumbnail_url: str,
+    channel_name: str,
+    current_subs: int,
+    current_videos: int,
+    rank: str,
+    grade_icon: str,
+    grade_label: str,
+    grade_bg: str,
+    quality_grade: str,
+    channel_age_days: int,
+) -> Div:
+    """Build card header section with avatar, name, rank, and grade badges."""
+    return Div(
+        # Thumbnail with rank badge overlay
+        Div(
+            Img(
+                src=thumbnail_url,
+                alt=channel_name,
+                cls="w-16 h-16 rounded-lg object-cover",
+            ),
+            # Rank badge
+            Div(
+                f"#{rank}",
+                cls="absolute -top-2 -right-2 bg-gray-900 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center",
+            ),
+            cls="relative",
+        ),
+        # Channel info
+        Div(
+            Div(
+                H3(channel_name, cls="font-semibold text-gray-900 truncate mb-0.5"),
+                P(
+                    f"{format_number(current_subs)} subscribers · {current_videos} videos",
+                    cls="text-xs text-gray-600",
+                ),
+                cls="flex-1",
+            ),
+            # Quality grade badge
+            Div(
+                Div(
+                    P(grade_icon, cls="text-lg"),
+                    P(quality_grade, cls="text-xs font-bold"),
+                    cls="flex flex-col items-center",
+                ),
+                Div(
+                    P(grade_label, cls="text-xs font-semibold text-right"),
+                    cls="text-right",
+                ),
+                cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
+            ),
+            # Channel age badge
+            (
+                Div(
+                    (
+                        "👑 Veteran"
+                        if channel_age_days > 3650
+                        else (
+                            "🏆 Established"
+                            if channel_age_days > 1825
+                            else ("📈 Growing" if channel_age_days > 365 else "🆕 New")
+                        )
+                    ),
+                    cls="text-xs font-semibold px-2.5 py-1 rounded-md "
+                    "bg-purple-100 text-purple-700 whitespace-nowrap",
+                )
+                if channel_age_days
+                else None
+            ),
+            cls="flex justify-between items-start gap-3 flex-1",
+        ),
+        cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
+    )
+
+
+def _build_primary_metrics(
+    current_subs: int, subs_change: int, current_views: int, views_change: int
+) -> Div:
+    """Build primary metrics section (subscribers and views)."""
+    return Div(
+        # Subscribers
+        Div(
+            P(
+                "SUBSCRIBERS",
+                cls="text-xs font-semibold text-gray-600 uppercase tracking-wide",
+            ),
+            H2(
+                format_number(current_subs),
+                cls="text-3xl font-bold text-blue-600 mt-1",
+            ),
+            P(
+                f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)",
+                cls="text-xs text-gray-600 mt-1",
+            ),
+            cls="bg-blue-50 rounded-lg p-3 text-center",
+        ),
+        # Views
+        Div(
+            P(
+                "VIEWS",
+                cls="text-xs font-semibold text-gray-600 uppercase tracking-wide",
+            ),
+            H2(
+                format_number(current_views),
+                cls="text-3xl font-bold text-purple-600 mt-1",
+            ),
+            P(
+                f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)",
+                cls="text-xs text-gray-600 mt-1",
+            ),
+            cls="bg-purple-50 rounded-lg p-3 text-center",
+        ),
+        cls="grid grid-cols-2 gap-3 mb-4",
+    )
+
+
+def _build_performance_metrics(
+    avg_views_per_video: int,
+    current_videos: int,
+    engagement_score: float,
+    estimated_revenue: int,
+) -> Div:
+    """Build performance metrics grid (4-column)."""
+    return Div(
+        Div(
+            P("AVG", cls="text-xs font-semibold text-gray-600 uppercase"),
+            P(
+                f"{format_number(avg_views_per_video)}",
+                cls="text-lg font-bold text-gray-900 mt-1",
+            ),
+            P("per video", cls="text-xs text-gray-500"),
+            cls="bg-gray-50 rounded-lg p-3 text-center",
+        ),
+        Div(
+            P("VIDEOS", cls="text-xs font-semibold text-gray-600 uppercase"),
+            P(
+                format_number(current_videos),
+                cls="text-lg font-bold text-gray-900 mt-1",
+            ),
+            P("published", cls="text-xs text-gray-500"),
+            cls="bg-gray-50 rounded-lg p-3 text-center",
+        ),
+        Div(
+            P("ENGAGEMENT", cls="text-xs font-semibold text-gray-600 uppercase"),
+            P(
+                f"{engagement_score:.1f}%",
+                cls="text-lg font-bold text-gray-900 mt-1",
+            ),
+            P(
+                "on videos" if engagement_score > 0 else "no engagement",
+                cls="text-xs text-gray-500 mt-1",
+            ),
+            cls="bg-gray-50 rounded-lg p-3 text-center",
+        ),
+        Div(
+            P(
+                "REVENUE",
+                cls="text-xs font-semibold text-green-700 uppercase font-bold",
+            ),
+            P(
+                f"${format_number(estimated_revenue)}",
+                cls="text-lg font-bold text-green-600 mt-1",
+            ),
+            P("/month", cls="text-xs text-green-600"),
+            cls="bg-green-50 rounded-lg p-3 text-center",
+        ),
+        cls="grid grid-cols-4 gap-3 mb-4",
+    )
+
+
+def _build_growth_trend(
+    growth_rate: float, growth_signal_text: str, growth_emoji: str, growth_style: str
+) -> Div:
+    """Build growth trend indicator section."""
+    return Div(
+        Div(
+            P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
+            Div(
+                P(
+                    f"{growth_emoji} {growth_rate:+.1f}%",
+                    cls=f"text-sm font-bold text-gray-900",
+                ),
+                Span(
+                    growth_signal_text,
+                    cls=f"px-2 py-1 text-xs font-semibold rounded-full border {growth_style}",
+                ),
+                cls="flex items-center gap-2",
+            ),
+            cls="flex justify-between items-center mb-3",
+        ),
+        # Growth bar
+        Div(
+            Div(
+                cls=(
+                    "h-2 bg-green-500 rounded-full"
+                    if growth_rate >= 0
+                    else "h-2 bg-red-500 rounded-full"
+                ),
+                style=f"width: {min(100, max(0, abs(growth_rate) * 5))}%",
+            ),
+            cls="w-full h-2 bg-gray-200 rounded-full overflow-hidden",
+        ),
+        cls=(
+            "bg-green-50 rounded-lg p-3 mb-4"
+            if growth_rate >= 0
+            else "bg-red-50 rounded-lg p-3 mb-4"
+        ),
+    )
+
+
+def _build_card_footer(last_updated: str, channel_url: str) -> Div:
+    """Build card footer with timestamp and CTA link."""
+    return Div(
+        Div(
+            Span("🕐", cls="mr-1.5"),
+            P(format_date_relative(last_updated), cls="text-xs text-gray-500"),
+            cls="flex items-center",
+        ),
+        A(
+            "View Channel →",
+            href=channel_url,
+            target="_blank",
+            rel="noopener noreferrer",
+            cls="text-xs font-semibold text-blue-600 hover:text-blue-700 no-underline",
+        ),
+        cls="flex justify-between items-center pt-3 border-t border-gray-100 text-sm",
+    )
+
+
+def _build_metadata_section(
+    custom_url: str,
+    language: str,
+    keywords: str,
+    monthly_uploads: float,
+) -> Div | None:
+    """Build optional metadata section with custom URL, language, and keywords."""
+    from utils.creator_metrics import (
+        get_activity_badge,
+        get_language_emoji,
+        get_language_name,
+    )
+
+    if not (custom_url or language or keywords or monthly_uploads):
+        return None
+
+    return Div(
+        # Custom URL
+        (
+            Div(
+                Span(
+                    f"@{custom_url}",
+                    cls="text-sm font-semibold text-blue-600 truncate",
+                ),
+                cls="mb-2",
+            )
+            if custom_url
+            else None
+        ),
+        # Language + Activity
+        Div(
+            (
+                Span(
+                    f"{get_language_emoji(language)} {get_language_name(language)}",
+                    cls="text-xs text-gray-600 font-medium",
+                )
+                if language
+                else None
+            ),
+            (
+                Span(
+                    get_activity_badge(monthly_uploads),
+                    cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
+                )
+                if monthly_uploads
+                else None
+            ),
+            cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
+        ),
+        # Keywords
+        (
+            P(keywords, cls="text-xs text-gray-500 italic line-clamp-1")
+            if keywords
+            else None
+        ),
+        cls="mb-3 pb-3 border-b border-gray-100 text-xs",
+    )
+
+
 def _render_creator_card(creator: dict) -> Div:
     """
     Creator card - clean, data-driven design.
@@ -446,366 +750,78 @@ def _render_creator_card(creator: dict) -> Div:
         or safe_get_value(creator, "thumbnail_url")
         or "https://via.placeholder.com/64x64?text=No+Image"
     )
+    channel_age_days = safe_get_value(creator, "channel_age_days", 0)
 
-    # Ensure all numeric fields are actually numeric
+    # Numeric fields
     current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
     current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
     subs_change = int(safe_get_value(creator, "subscribers_change_30d", 0) or 0)
     views_change = int(safe_get_value(creator, "views_change_30d", 0) or 0)
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
-
-    # Calculations
-    avg_views_per_video = (
-        int(current_views / current_videos) if current_videos > 0 else 0
-    )
-    estimated_revenue = int((current_views * 4) / 1000)
-    growth_rate = (subs_change / current_subs * 100) if current_subs > 0 else 0
     last_updated = safe_get_value(creator, "last_updated_at", "")
 
-    # Sync status tracking
+    # === CALCULATIONS ===
+    avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
+    estimated_revenue = estimate_monthly_revenue(current_views)
+    growth_rate = calculate_growth_rate(subs_change, current_subs)
+
+    # === STATUS & STYLING ===
     sync_status = safe_get_value(creator, "sync_status", "pending")
-    sync_error = safe_get_value(creator, "sync_error_message", "")
+    sync_badge_info = get_sync_status_badge(sync_status)
+    card_border = f"border-l-4 border-amber-400" if sync_status != "synced" else ""
 
-    # Sync status indicators (border colors and badges)
-    sync_indicators = {
-        "pending": {
-            "border": "border-l-4 border-amber-400",
-            "badge": ("⏳ Sync Pending", "bg-amber-100 text-amber-800"),
-            "tooltip": "Channel data not yet synced from YouTube",
-        },
-        "invalid": {
-            "border": "border-l-4 border-red-500",
-            "badge": ("⚠️ Invalid Data", "bg-red-100 text-red-800"),
-            "tooltip": sync_error or "Invalid channel data - will retry automatically",
-        },
-        "failed": {
-            "border": "border-l-4 border-orange-500",
-            "badge": ("❌ Sync Error", "bg-orange-100 text-orange-800"),
-            "tooltip": sync_error or "Sync failed - will retry automatically",
-        },
-        "synced": {
-            "border": "",  # No special border for normal state
-            "badge": None,  # No badge needed
-            "tooltip": None,
-        },
-    }
+    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
+    growth_signal_text, growth_emoji, growth_style = get_growth_signal(growth_rate)
 
-    sync_indicator = sync_indicators.get(sync_status, sync_indicators["pending"])
-    card_border = sync_indicator["border"]
-    sync_badge_info = sync_indicator["badge"]
-    sync_tooltip = sync_indicator["tooltip"]
+    # === METADATA SECTION (optional) ===
+    custom_url = safe_get_value(creator, "custom_url", "")
+    language = safe_get_value(creator, "default_language", "")
+    keywords = safe_get_value(creator, "keywords", "")
+    monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 
-    # Grade colors and interpretation - muted/subtle
-    grade_colors = {
-        "A+": "bg-purple-200 text-purple-900",
-        "A": "bg-blue-200 text-blue-900",
-        "B+": "bg-cyan-200 text-cyan-900",
-        "B": "bg-gray-200 text-gray-900",
-        "C": "bg-gray-200 text-gray-700",
-    }
-
-    # Grade interpretation (signal)
-    grade_signals = {
-        "A+": ("Elite Performer", "⭐"),
-        "A": ("Strong Creator", "✓"),
-        "B+": ("Rising Star", "📈"),
-        "B": ("Established", "●"),
-        "C": ("New Creator", "○"),
-    }
-
-    grade_bg = grade_colors.get(quality_grade, "bg-gray-200 text-gray-700")
-    grade_signal, grade_icon = grade_signals.get(quality_grade, ("Unrated", "?"))
-
-    # Growth direction indicator
-    growth_trend = "↑" if growth_rate > 1 else ("↓" if growth_rate < -1 else "→")
-    growth_color = (
-        "text-green-600"
-        if growth_rate > 1
-        else ("text-red-600" if growth_rate < -1 else "text-gray-500")
+    metadata_section = _build_metadata_section(
+        custom_url, language, keywords, monthly_uploads
     )
 
-    # Growth signal (interpretation) - MOVE THIS BEFORE return Div
-    if growth_rate > 2:
-        growth_signal = ("Growing", "↑", "bg-emerald-100 text-emerald-700")
-    elif growth_rate < -2:
-        growth_signal = ("Declining", "↓", "bg-red-100 text-red-700")
-    else:
-        growth_signal = ("Stable", "→", "bg-slate-100 text-slate-700")
-
+    # === COMPOSE CARD ===
     return Div(
         # Sync status badge (if not synced)
         (
             Div(
-                sync_badge_info[0],
-                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[1]}",
-                title=sync_tooltip,
+                f"{sync_badge_info[0]} {sync_badge_info[1]}",
+                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[2]}",
             )
             if sync_badge_info
             else None
         ),
-        # Header: Thumbnail + Name + Grade
-        Div(
-            # Thumbnail with rank badge overlay
-            Div(
-                Img(
-                    src=thumbnail_url,
-                    alt=channel_name,
-                    cls="w-16 h-16 rounded-lg object-cover",
-                ),
-                # Subtle rank badge
-                Div(
-                    f"#{rank}",
-                    cls="absolute -top-2 -right-2 bg-gray-900 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center",
-                ),
-                cls="relative",
-            ),
-            # Channel info
-            Div(
-                Div(
-                    H3(channel_name, cls="font-semibold text-gray-900 truncate mb-0.5"),
-                    P(
-                        f"{format_number(current_subs)} subscribers · {current_videos} videos",
-                        cls="text-xs text-gray-600",
-                    ),
-                    cls="flex-1",
-                ),
-                # Quality grade badge (top right) with interpretation
-                Div(
-                    Div(
-                        P(grade_icon, cls="text-lg"),
-                        P(quality_grade, cls="text-xs font-bold"),
-                        cls="flex flex-col items-center",
-                    ),
-                    Div(
-                        P(grade_signal, cls="text-xs font-semibold text-right"),
-                        cls="text-right",
-                    ),
-                    cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
-                ),
-                Div(
-                    # NEW: Channel age badge
-                    (
-                        lambda age_days: (
-                            Div(
-                                (
-                                    "👑 Veteran"
-                                    if age_days > 3650
-                                    else (
-                                        "🏆 Established"
-                                        if age_days > 1825
-                                        else (
-                                            "📈 Growing" if age_days > 365 else "🆕 New"
-                                        )
-                                    )
-                                ),
-                                cls="text-xs font-semibold px-2.5 py-1 rounded-md "
-                                "bg-purple-100 text-purple-700 whitespace-nowrap",
-                            )
-                            if age_days
-                            else None
-                        )
-                    )(safe_get_value(creator, "channel_age_days", None))
-                ),
-                cls="flex justify-between items-start gap-3 flex-1",
-            ),
-            cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
+        # Header section
+        _build_card_header(
+            thumbnail_url,
+            channel_name,
+            current_subs,
+            current_videos,
+            rank,
+            grade_icon,
+            grade_label,
+            grade_bg,
+            quality_grade,
+            channel_age_days,
         ),
-        # NEW: Creator metadata row (custom URL, language, keywords)
-        (
-            Div(
-                # Custom URL (@handle)
-                (
-                    Div(
-                        Span(
-                            f"@{safe_get_value(creator, 'custom_url', '')}",
-                            cls="text-sm font-semibold text-blue-600 truncate",
-                        ),
-                        cls="mb-2",
-                    )
-                    if safe_get_value(creator, "custom_url")
-                    else None
-                ),
-                # Language badge + Activity indicator
-                Div(
-                    # Language emoji + name
-                    (
-                        Span(
-                            f"{get_language_emoji(safe_get_value(creator, 'default_language'))} "
-                            f"{get_language_name(safe_get_value(creator, 'default_language'))}",
-                            cls="text-xs text-gray-600 font-medium",
-                        )
-                        if safe_get_value(creator, "default_language")
-                        else None
-                    ),
-                    # Upload activity badge (computed from monthly_uploads)
-                    (
-                        Span(
-                            get_activity_badge(
-                                safe_get_value(creator, "monthly_uploads")
-                            ),
-                            cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
-                        )
-                        if safe_get_value(creator, "monthly_uploads")
-                        else None
-                    ),
-                    cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
-                ),
-                # Keywords
-                (
-                    P(
-                        safe_get_value(creator, "keywords", ""),
-                        cls="text-xs text-gray-500 italic line-clamp-1",
-                    )
-                    if safe_get_value(creator, "keywords")
-                    else None
-                ),
-                cls="mb-3 pb-3 border-b border-gray-100 text-xs",
-            )
-            if (
-                safe_get_value(creator, "custom_url")
-                or safe_get_value(creator, "default_language")
-                or safe_get_value(creator, "keywords")
-                or safe_get_value(creator, "monthly_uploads")
-            )
-            else None
+        # Metadata (optional)
+        metadata_section,
+        # Primary metrics
+        _build_primary_metrics(current_subs, subs_change, current_views, views_change),
+        # Performance metrics
+        _build_performance_metrics(
+            avg_views_per_video, current_videos, engagement_score, estimated_revenue
         ),
-        # PRIMARY METRICS (2-column: Subs + Views)
-        Div(
-            # Subscribers
-            Div(
-                P(
-                    "SUBSCRIBERS",
-                    cls="text-xs font-semibold text-gray-600 uppercase tracking-wide",
-                ),
-                H2(
-                    format_number(current_subs),
-                    cls="text-3xl font-bold text-blue-600 mt-1",
-                ),
-                P(
-                    f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)",
-                    cls="text-xs text-gray-600 mt-1",
-                ),
-                cls="bg-blue-50 rounded-lg p-3 text-center",
-            ),
-            # Views
-            Div(
-                P(
-                    "VIEWS",
-                    cls="text-xs font-semibold text-gray-600 uppercase tracking-wide",
-                ),
-                H2(
-                    format_number(current_views),
-                    cls="text-3xl font-bold text-purple-600 mt-1",
-                ),
-                P(
-                    f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)",
-                    cls="text-xs text-gray-600 mt-1",
-                ),
-                cls="bg-purple-50 rounded-lg p-3 text-center",
-            ),
-            cls="grid grid-cols-2 gap-3 mb-4",
+        # Growth trend
+        _build_growth_trend(
+            growth_rate, growth_signal_text, growth_emoji, growth_style
         ),
-        # SECONDARY METRICS (4-column)
-        Div(
-            Div(
-                P("AVG", cls="text-xs font-semibold text-gray-600 uppercase"),
-                P(
-                    f"{format_number(avg_views_per_video)}",
-                    cls="text-lg font-bold text-gray-900 mt-1",
-                ),
-                P("per video", cls="text-xs text-gray-500"),
-                cls="bg-gray-50 rounded-lg p-3 text-center",
-            ),
-            Div(
-                P("VIDEOS", cls="text-xs font-semibold text-gray-600 uppercase"),
-                P(
-                    format_number(current_videos),
-                    cls="text-lg font-bold text-gray-900 mt-1",
-                ),
-                P("published", cls="text-xs text-gray-500"),
-                cls="bg-gray-50 rounded-lg p-3 text-center",
-            ),
-            Div(
-                P("ENGAGEMENT", cls="text-xs font-semibold text-gray-600 uppercase"),
-                Div(
-                    P(
-                        f"{engagement_score:.1f}%",
-                        cls="text-lg font-bold text-gray-900 mt-1",
-                    ),
-                    cls="flex items-end gap-2",
-                ),
-                P(
-                    "on videos" if engagement_score > 0 else "no engagement",
-                    cls="text-xs text-gray-500 mt-1",
-                ),
-                cls="bg-gray-50 rounded-lg p-3 text-center",
-            ),
-            Div(
-                P(
-                    "REVENUE",
-                    cls="text-xs font-semibold text-green-700 uppercase font-bold",
-                ),
-                P(
-                    f"${format_number(estimated_revenue)}",
-                    cls="text-lg font-bold text-green-600 mt-1",
-                ),
-                P("/month", cls="text-xs text-green-600"),
-                cls="bg-green-50 rounded-lg p-3 text-center",
-            ),
-            cls="grid grid-cols-4 gap-3 mb-4",
-        ),
-        # GROWTH TREND
-        Div(
-            Div(
-                P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
-                Div(
-                    P(
-                        f"{growth_signal[1]} {growth_rate:+.1f}%",
-                        cls=f"text-sm font-bold text-gray-900",
-                    ),
-                    Span(
-                        growth_signal[0],
-                        cls=f"px-2 py-1 text-xs font-semibold rounded-full {growth_signal[2]}",
-                    ),
-                    cls="flex items-center gap-2",
-                ),
-                cls="flex justify-between items-center mb-3",
-            ),
-            # Simple growth bar
-            Div(
-                Div(
-                    cls=(
-                        "h-2 bg-green-500 rounded-full"
-                        if growth_rate >= 0
-                        else "h-2 bg-red-500 rounded-full"
-                    ),
-                    style=f"width: {min(100, max(0, abs(growth_rate) * 5))}%",
-                ),
-                cls="w-full h-2 bg-gray-200 rounded-full overflow-hidden",
-            ),
-            cls=(
-                "bg-green-50 rounded-lg p-3 mb-4"
-                if growth_rate >= 0
-                else "bg-red-50 rounded-lg p-3 mb-4"
-            ),
-        ),
-        # FOOTER: Timestamp + Action
-        Div(
-            Div(
-                Span("🕐", cls="mr-1.5"),
-                P(format_date_relative(last_updated), cls="text-xs text-gray-500"),
-                cls="flex items-center",
-            ),
-            A(
-                "View Channel →",
-                href=channel_url,
-                target="_blank",
-                rel="noopener noreferrer",
-                cls="text-xs font-semibold text-blue-600 hover:text-blue-700 no-underline",
-            ),
-            cls="flex justify-between items-center pt-3 border-t border-gray-100 text-sm",
-        ),
+        # Footer
+        _build_card_footer(last_updated, channel_url),
         cls=f"bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer {card_border}",
     )
 
@@ -869,74 +885,6 @@ def _count_by_grade(creators: list[dict]) -> dict:
     return counts
 
 
-def _estimate_monthly_revenue(current_views: int, views_30d: int = 0) -> float:
-    """
-    Estimate monthly revenue based on YouTube CPM model.
-
-    Uses a baseline CPM of $4 per 1000 views. If 30-day view data is available,
-    uses that for direct estimation. Otherwise, assumes current_views represents
-    lifetime views and extrapolates monthly average.
-
-    Args:
-        current_views: Lifetime or total view count
-        views_30d: Optional 30-day view count for direct calculation
-
-    Returns:
-        Estimated monthly revenue in USD
-    """
-    if views_30d > 0:
-        # Direct calculation from 30-day data
-        return (views_30d * 4) / 1000
-    else:
-        # Fallback: assume current_views is lifetime, extrapolate monthly average
-        # This is a rough estimate and should ideally use historical data
-        return (current_views * 4) / 1000 / 30 if current_views > 0 else 0
-
-
-def get_language_emoji(language_code: str) -> str:
-    """Get emoji for language code."""
-    language_emojis = {
-        "en": "🇺🇸",
-        "ja": "🇯🇵",
-        "es": "🇪🇸",
-        "ko": "🇰🇷",
-        "zh": "🇨🇳",
-        "ru": "🇷🇺",
-        "fr": "🇫🇷",
-        "de": "🇩🇪",
-        "pt": "🇵🇹",
-        "it": "🇮🇹",
-    }
-    return language_emojis.get(language_code, "🌍")
-
-
-def get_language_name(language_code: str) -> str:
-    """Get full language name from code."""
-    language_names = {
-        "en": "English",
-        "ja": "日本語",
-        "es": "Español",
-        "ko": "한국어",
-        "zh": "中文",
-        "ru": "Русский",
-        "fr": "Français",
-        "de": "Deutsch",
-        "pt": "Português",
-        "it": "Italiano",
-    }
-    return language_names.get(language_code, language_code)
-
-
-def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
-    """Get activity badge based on monthly uploads."""
-    if not monthly_uploads:
-        return None
-
-    if monthly_uploads > 10:
-        return "🔥 Very Active"
-    elif monthly_uploads > 5:
-        return "📈 Active"
-    elif monthly_uploads > 2:
-        return "📊 Regular"
-    else:
-        return "⚠️ Inactive"
+# NOTE: Helper functions moved to utils/creator_metrics.py for better organization
+# - get_language_emoji, get_language_name, get_activity_badge
+# - estimate_monthly_revenue (replaces _estimate_monthly_revenue)
