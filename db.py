@@ -1821,10 +1821,18 @@ def get_creators(
 
         # Apply search filter (also search custom_url and keywords)
         if search:
+            # ✅ SECURITY: Escape wildcards in search input
+            escaped_search = (
+                search.replace("\\", "\\\\")  # Escape backslash first
+                .replace("%", "\\%")  # Escape percent (any chars)
+                .replace("_", "\\_")  # Escape underscore (single char)
+            )
+            search_pattern = f"%{escaped_search}%"
+
             query = query.or_(
-                f"channel_name.ilike.%{search}%,"
-                f"custom_url.ilike.%{search}%,"
-                f"keywords.ilike.%{search}%"
+                f"channel_name.ilike.{search_pattern},"
+                f"custom_url.ilike.{search_pattern},"
+                f"keywords.ilike.{search_pattern}"
             )
 
         # Apply grade filter
