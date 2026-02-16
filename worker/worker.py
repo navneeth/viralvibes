@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional
 import polars as pl
 from dotenv import load_dotenv
 
-from constants import PLAYLIST_JOBS_TABLE
+from constants import PLAYLIST_JOBS_TABLE, MAX_RETRY_ATTEMPTS
 from db import (
     get_latest_playlist_job,
     get_or_create_creator_from_playlist,
@@ -59,7 +59,6 @@ MAX_REQUEST_DELAY = float(os.getenv("MAX_REQUEST_DELAY", "3.0"))
 BOT_CHALLENGE_BACKOFF = int(os.getenv("BOT_CHALLENGE_BACKOFF", "180"))  # 3 min
 
 # --- Retry configuration ---
-MAX_RETRY_ATTEMPTS = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
 RETRY_BACKOFF_BASE = int(os.getenv("RETRY_BACKOFF_BASE", "300"))  # 5 minutes
 FAILED_JOB_RETRY_AGE = int(os.getenv("FAILED_JOB_RETRY_AGE", "3600"))  # 1 hour
 

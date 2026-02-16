@@ -1198,7 +1198,7 @@ def get_job_progress(playlist_url: str) -> Dict[str, Any]:
     try:
         response = (
             supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .select("id, status, progress, started_at, error")
+            .select("id, status, progress, started_at, error, retry_count")
             .eq("playlist_url", playlist_url)
             .order("created_at", desc=True)
             .limit(1)
@@ -1213,6 +1213,9 @@ def get_job_progress(playlist_url: str) -> Dict[str, Any]:
 
         # ✅ Normalize field names
         job["job_id"] = job.pop("id", None)
+
+        # ✅ Include retry_count
+        job["retry_count"] = job.get("retry_count", 0)
 
         # ✅ Ensure progress is float and clamped to [0.0, 1.0]
         raw_progress = job.get("progress")

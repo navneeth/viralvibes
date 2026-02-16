@@ -1,5 +1,6 @@
 # controllers/job_progress.py
 
+import json
 import logging
 from dataclasses import dataclass
 from urllib.parse import quote_plus
@@ -9,7 +10,7 @@ from monsterui.all import *
 
 from components.errors import get_user_friendly_error
 from components.processing_tips import get_tip_for_progress
-from constants import JobStatus
+from constants import JobStatus, MAX_RETRY_ATTEMPTS
 from db import (
     get_estimated_stats,
     get_job_progress,
@@ -28,6 +29,36 @@ from views.job_progress import render_job_progress_view
 from views.job_progress_state import JobProgressViewState
 
 logger = logging.getLogger(__name__)
+
+
+def is_retryable_network_error(error: str) -> bool:
+    """
+    Determine if an error is a network-related error that might succeed on retry.
+
+    Uses the same error patterns as get_user_friendly_error to keep behavior
+    consistent with error message display.
+
+    Args:
+        error: Error message string
+
+    Returns:
+        True if this is a network error worth retrying
+    """
+    if not error:
+        return False
+
+    error_lower = error.lower()
+
+    # Network-related patterns that align with error mappings
+    retryable_patterns = [
+        "network error during metadata",
+        "network",
+        "ssl",
+        "timeout",
+        "connection",
+    ]
+
+    return any(pattern in error_lower for pattern in retryable_patterns)
 
 
 def job_progress_controller(playlist_url: str):
@@ -103,12 +134,27 @@ def job_progress_controller(playlist_url: str):
     if status == JobStatus.FAILED:
         error = job_data.get("error", "Unknown error")
         error_info = get_user_friendly_error(error)
+        retry_count = job_data.get("retry_count", 0)
 
         logger.error(f"❌ Job failed for {playlist_url}: {error}")
+
+        # Check if this is a network error that might succeed with retry
+        is_network_error = is_retryable_network_error(error)
+        can_retry = retry_count < MAX_RETRY_ATTEMPTS
+
         return Div(
             Alert(
                 H3(error_info["title"], cls="text-lg font-bold mb-3"),
                 P(error_info["message"], cls="text-sm text-gray-700 mb-4"),
+                # Show retry count for network errors
+                (
+                    P(
+                        f"Attempt {retry_count + 1} of {MAX_RETRY_ATTEMPTS}",
+                        cls="text-xs text-gray-500 mb-2",
+                    )
+                    if is_network_error and retry_count > 0
+                    else None
+                ),
                 # Suggestions
                 (
                     Div(
@@ -127,9 +173,20 @@ def job_progress_controller(playlist_url: str):
                 ),
                 # Actions
                 Div(
-                    A(
-                        Button("Try Again", cls=ButtonT.primary),
-                        href="/#analyze-section",
+                    (
+                        Button(
+                            "🔄 Retry Now",
+                            cls=ButtonT.primary,
+                            hx_post="/submit-job",
+                            hx_vals=json.dumps({"playlist_url": playlist_url}),
+                            hx_target="#preview-box",
+                            hx_swap="outerHTML",
+                        )
+                        if can_retry and is_network_error
+                        else A(
+                            Button("Try Again", cls=ButtonT.primary),
+                            href="/#analyze-section",
+                        )
                     ),
                     A(
                         Button("Go Home", cls=ButtonT.secondary),
@@ -165,12 +222,15 @@ def job_progress_controller(playlist_url: str):
     # SHOW PROGRESS UI (processing/pending/queued)
     # ========================================================
     preview_info = get_playlist_preview_info(playlist_url) or {}
+    retry_count = job_data.get("retry_count", 0)
 
     return render_job_progress_ui(
         playlist_url=playlist_url,
         status=status,
         progress=progress,
         preview_info=preview_info,
+        retry_count=retry_count,
+        max_retries=MAX_RETRY_ATTEMPTS,
     )
 
 
@@ -179,6 +239,8 @@ def render_job_progress_ui(
     status: str | None,
     progress: float,
     preview_info: dict,
+    retry_count: int = 0,
+    max_retries: int = 3,
 ):
     """
     Render the progress UI with preview data.
@@ -188,6 +250,15 @@ def render_job_progress_ui(
     - Progress bar
     - Status message
     - Estimated time remaining
+    - Retry indicator if applicable
+
+    Args:
+        playlist_url: YouTube playlist URL
+        status: Current job status
+        progress: Progress percentage (0-100)
+        preview_info: Playlist metadata (title, thumbnail, etc)
+        retry_count: Current retry attempt count
+        max_retries: Maximum retry attempts allowed
     """
     # Extract preview fields
     title = preview_info.get("title", "YouTube Playlist")
@@ -213,6 +284,23 @@ def render_job_progress_ui(
     }
     status_message = status_messages.get(status, "Preparing analysis...")
 
+    # ✅ Show retry info if retrying
+    retry_badge = None
+    if retry_count > 0:
+        # Clamp retry_count for safety (shouldn't exceed max_retries but defensive)
+        display_retry = min(retry_count, max_retries)
+        retry_badge = Div(
+            Span("🔄", cls="text-lg"),
+            Span(
+                f"Retry {display_retry}/{max_retries}",
+                cls="text-xs text-gray-600 ml-1",
+            ),
+            cls=(
+                "flex items-center gap-1 px-2 py-1 bg-amber-100 "
+                "border border-amber-300 rounded-full text-amber-800"
+            ),
+        )
+
     return Div(
         # Header
         Div(
@@ -225,9 +313,14 @@ def render_job_progress_ui(
             Div(
                 H2(title, cls="text-2xl font-bold text-gray-900"),
                 P(channel, cls="text-sm text-gray-600"),
-                Span(
-                    "Analysis in Progress",
-                    cls="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800",
+                Div(
+                    Span(
+                        "Analysis in Progress",
+                        cls="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800",
+                    ),
+                    # Show retry badge if retrying
+                    retry_badge if retry_badge else None,
+                    cls="flex gap-2 mt-2 items-center",
                 ),
             ),
             cls="flex gap-4 mb-6 items-start",

@@ -104,6 +104,15 @@ def get_user_friendly_error(error_text: str) -> dict:
     error_lower = (error_text or "").lower()
 
     error_mappings = {
+        "network error during metadata": {
+            "title": "YouTube Connection Interrupted",
+            "message": "Lost connection while fetching playlist information. YouTube's servers may be experiencing issues or rate limiting our requests.",
+            "suggestions": [
+                "Wait 2-3 minutes and click 'Retry Now' below",
+                "Try a smaller playlist if this persists",
+                "Check YouTube's service status",
+            ],
+        },
         "network": {
             "title": "Network Connection Issue",
             "message": "We had trouble connecting to YouTube. This might be a temporary network issue or YouTube rate limiting.",

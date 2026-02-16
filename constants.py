@@ -4,6 +4,12 @@ Centralized configuration for UI components, styling, and feature data.
 """
 
 from fasthtml.components import Path, Svg
+import os
+
+# =============================================================================
+# WORKER CONFIGURATION
+# =============================================================================
+MAX_RETRY_ATTEMPTS = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
 
 # =============================================================================
 # ASSET PATHS
