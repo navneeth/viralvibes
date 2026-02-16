@@ -70,6 +70,9 @@ def render_creators_page(
     sort: str = "subscribers",
     search: str = "",
     grade_filter: str = "all",
+    language_filter: str = "all",
+    activity_filter: str = "all",
+    age_filter: str = "all",
     stats: dict = None,
 ) -> Div:
     """
@@ -113,7 +116,15 @@ def render_creators_page(
         # Hero section with real stats
         _render_hero(len(creators), stats),
         # Filter controls (sticky bar)
-        _render_filter_bar(search, sort, grade_filter, grade_counts),
+        _render_filter_bar(
+            search=search,
+            sort=sort,
+            grade_filter=grade_filter,
+            language_filter=language_filter,
+            activity_filter=activity_filter,
+            age_filter=age_filter,
+            grade_counts=grade_counts,
+        ),
         # Creators grid or empty state
         (
             _render_creators_grid(creators)
@@ -191,18 +202,15 @@ def _render_hero(creator_count: int, stats: dict) -> Div:
 
 
 def _render_filter_bar(
-    search: str, sort: str, grade_filter: str, grade_counts: dict
+    search: str,
+    sort: str,
+    grade_filter: str,
+    grade_counts: dict,
+    language_filter: str = "all",
+    activity_filter: str = "all",
+    age_filter: str = "all",
 ) -> Div:
     """Sticky filter bar with search, sort, grade pills."""
-
-    grade_options = [
-        ("all", "All", "🎯"),
-        ("A+", "Elite", "👑"),
-        ("A", "Star", "⭐"),
-        ("B+", "Rising", "📈"),
-        ("B", "Good", "💎"),
-        ("C", "New", "🔍"),
-    ]
 
     # Search form
     search_form = Form(
@@ -216,33 +224,51 @@ def _render_filter_bar(
         ),
         Input(type="hidden", name="sort", value=sort),
         Input(type="hidden", name="grade", value=grade_filter),
+        Input(type="hidden", name="language", value=language_filter),
+        Input(type="hidden", name="activity", value=activity_filter),
+        Input(type="hidden", name="age", value=age_filter),
         method="GET",
         action="/creators",
         cls="flex-1",
     )
 
+    # Sort dropdown options with emojis for visual appeal
+    sort_options = [
+        ("subscribers", "📊 Most Subscribers"),
+        ("views", "👀 Most Views"),
+        ("engagement", "🔥 Best Engagement"),
+        ("quality", "⭐ Quality Score"),
+        ("recent", "🆕 Recently Updated"),
+        ("consistency", "📈 Most Consistent"),  # NEW
+        ("newest_channel", "🎉 Newest Channels"),  # NEW
+        ("oldest_channel", "👑 Oldest Channels"),  # NEW
+    ]
+    # Grade pills with counts and emojis
+    grade_options = [
+        ("all", "All", "🎯"),
+        ("A+", "Elite", "👑"),
+        ("A", "Star", "⭐"),
+        ("B+", "Rising", "📈"),
+        ("B", "Good", "💎"),
+        ("C", "New", "🔍"),
+    ]
+
     # Sort select
     sort_form = Form(
         Select(
-            Option(
-                "📊 Most Subscribers",
-                value="subscribers",
-                selected=(sort == "subscribers"),
-            ),
-            Option("👀 Most Views", value="views", selected=(sort == "views")),
-            Option(
-                "🔥 Best Engagement",
-                value="engagement",
-                selected=(sort == "engagement"),
-            ),
-            Option("⭐ Quality Score", value="quality", selected=(sort == "quality")),
-            Option("🆕 Recently Updated", value="recent", selected=(sort == "recent")),
+            *[
+                Option(label, value=val, selected=(sort == val))
+                for val, label in sort_options
+            ],
             name="sort",
             cls="h-10 px-4 rounded-lg border border-gray-300 font-medium",
             onchange="this.form.submit()",
         ),
         Input(type="hidden", name="search", value=search),
         Input(type="hidden", name="grade", value=grade_filter),
+        Input(type="hidden", name="language", value=language_filter),
+        Input(type="hidden", name="activity", value=activity_filter),
+        Input(type="hidden", name="age", value=age_filter),
         method="GET",
         action="/creators",
     )
@@ -252,7 +278,7 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label} ({grade_counts.get(val, 0)})",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val})}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter})}",
                 cls=(
                     "px-4 py-2 rounded-lg transition-all inline-block no-underline text-sm font-medium "
                     + (
@@ -267,11 +293,113 @@ def _render_filter_bar(
         cls="flex gap-2 flex-wrap",
     )
 
-    # Container
+    # Language filter pills
+    language_options = [
+        ("all", "All Languages", "🌍"),
+        ("en", "English", "🇺🇸"),
+        ("ja", "日本語", "🇯🇵"),
+        ("es", "Español", "🇪🇸"),
+        ("ko", "한국어", "🇰🇷"),
+        ("zh", "中文", "🇨🇳"),
+    ]
+
+    language_pills = Div(
+        P("Language:", cls="text-sm font-semibold text-gray-700 mb-2"),
+        Div(
+            *[
+                A(
+                    f"{emoji} {label}",
+                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter})}",
+                    cls=(
+                        "px-3 py-1.5 rounded-lg transition-all inline-block no-underline text-sm font-medium "
+                        + (
+                            "bg-blue-100 text-blue-700 border border-blue-300"
+                            if language_filter == val
+                            else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        )
+                    ),
+                )
+                for val, label, emoji in language_options
+            ],
+            cls="flex gap-2 flex-wrap",
+        ),
+        cls="mb-4",
+    )
+
+    # Activity filter pills
+    activity_options = [
+        ("all", "All Activity", "📊"),
+        ("active", "Very Active (>5/mo)", "🔥"),
+        ("dormant", "Dormant (<1/mo)", "⚠️"),
+    ]
+
+    activity_pills = Div(
+        P("Activity:", cls="text-sm font-semibold text-gray-700 mb-2"),
+        Div(
+            *[
+                A(
+                    f"{emoji} {label}",
+                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter})}",
+                    cls=(
+                        "px-3 py-1.5 rounded-lg transition-all inline-block no-underline text-sm font-medium "
+                        + (
+                            "bg-green-100 text-green-700 border border-green-300"
+                            if activity_filter == val
+                            else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        )
+                    ),
+                )
+                for val, label, emoji in activity_options
+            ],
+            cls="flex gap-2 flex-wrap",
+        ),
+        cls="mb-4",
+    )
+
+    # Channel age filter pills
+    age_options = [
+        ("all", "All Ages", "📅"),
+        ("new", "New (<1 year)", "🆕"),
+        ("established", "Established (1-10 yr)", "🏆"),
+        ("veteran", "Veteran (10+ yr)", "👑"),
+    ]
+
+    age_pills = Div(
+        P("Channel Age:", cls="text-sm font-semibold text-gray-700 mb-2"),
+        Div(
+            *[
+                A(
+                    f"{emoji} {label}",
+                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val})}",
+                    cls=(
+                        "px-3 py-1.5 rounded-lg transition-all inline-block no-underline text-sm font-medium "
+                        + (
+                            "bg-purple-100 text-purple-700 border border-purple-300"
+                            if age_filter == val
+                            else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        )
+                    ),
+                )
+                for val, label, emoji in age_options
+            ],
+            cls="flex gap-2 flex-wrap",
+        ),
+        cls="mb-4",
+    )
+
+    # Container for all filters with sticky positioning
     return Div(
-        Div(cls="flex gap-4 mb-4")(search_form, sort_form),
-        grade_pills,
-        cls="sticky top-4 z-10 bg-white/95 backdrop-blur-sm p-6 rounded-lg border border-gray-200 shadow-sm space-y-4",
+        search_form,
+        sort_form,
+        Div(
+            P("Quality:", cls="text-sm font-semibold text-gray-700 mb-2"),
+            grade_pills,
+            cls="mb-4",
+        ),
+        language_pills,
+        activity_pills,
+        age_pills,
+        cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-10 space-y-4",
     )
 
 
@@ -455,9 +583,92 @@ def _render_creator_card(creator: dict) -> Div:
                     ),
                     cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
                 ),
+                Div(
+                    # NEW: Channel age badge
+                    (
+                        lambda age_days: (
+                            Div(
+                                (
+                                    "👑 Veteran"
+                                    if age_days > 3650
+                                    else (
+                                        "🏆 Established"
+                                        if age_days > 1825
+                                        else (
+                                            "📈 Growing" if age_days > 365 else "🆕 New"
+                                        )
+                                    )
+                                ),
+                                cls="text-xs font-semibold px-2.5 py-1 rounded-md "
+                                "bg-purple-100 text-purple-700 whitespace-nowrap",
+                            )
+                            if age_days
+                            else None
+                        )
+                    )(safe_get_value(creator, "channel_age_days", None))
+                ),
                 cls="flex justify-between items-start gap-3 flex-1",
             ),
             cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
+        ),
+        # NEW: Creator metadata row (custom URL, language, keywords)
+        (
+            Div(
+                # Custom URL (@handle)
+                (
+                    Div(
+                        Span(
+                            f"@{safe_get_value(creator, 'custom_url', '')}",
+                            cls="text-sm font-semibold text-blue-600 truncate",
+                        ),
+                        cls="mb-2",
+                    )
+                    if safe_get_value(creator, "custom_url")
+                    else None
+                ),
+                # Language badge + Activity indicator
+                Div(
+                    # Language emoji + name
+                    (
+                        Span(
+                            f"{get_language_emoji(safe_get_value(creator, 'default_language'))} "
+                            f"{get_language_name(safe_get_value(creator, 'default_language'))}",
+                            cls="text-xs text-gray-600 font-medium",
+                        )
+                        if safe_get_value(creator, "default_language")
+                        else None
+                    ),
+                    # Upload activity badge (computed from monthly_uploads)
+                    (
+                        Span(
+                            get_activity_badge(
+                                safe_get_value(creator, "monthly_uploads")
+                            ),
+                            cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
+                        )
+                        if safe_get_value(creator, "monthly_uploads")
+                        else None
+                    ),
+                    cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
+                ),
+                # Keywords
+                (
+                    P(
+                        safe_get_value(creator, "keywords", ""),
+                        cls="text-xs text-gray-500 italic line-clamp-1",
+                    )
+                    if safe_get_value(creator, "keywords")
+                    else None
+                ),
+                cls="mb-3 pb-3 border-b border-gray-100 text-xs",
+            )
+            if (
+                safe_get_value(creator, "custom_url")
+                or safe_get_value(creator, "default_language")
+                or safe_get_value(creator, "keywords")
+                or safe_get_value(creator, "monthly_uploads")
+            )
+            else None
         ),
         # PRIMARY METRICS (2-column: Subs + Views)
         Div(
@@ -680,3 +891,52 @@ def _estimate_monthly_revenue(current_views: int, views_30d: int = 0) -> float:
         # Fallback: assume current_views is lifetime, extrapolate monthly average
         # This is a rough estimate and should ideally use historical data
         return (current_views * 4) / 1000 / 30 if current_views > 0 else 0
+
+
+def get_language_emoji(language_code: str) -> str:
+    """Get emoji for language code."""
+    language_emojis = {
+        "en": "🇺🇸",
+        "ja": "🇯🇵",
+        "es": "🇪🇸",
+        "ko": "🇰🇷",
+        "zh": "🇨🇳",
+        "ru": "🇷🇺",
+        "fr": "🇫🇷",
+        "de": "🇩🇪",
+        "pt": "🇵🇹",
+        "it": "🇮🇹",
+    }
+    return language_emojis.get(language_code, "🌍")
+
+
+def get_language_name(language_code: str) -> str:
+    """Get full language name from code."""
+    language_names = {
+        "en": "English",
+        "ja": "日本語",
+        "es": "Español",
+        "ko": "한국어",
+        "zh": "中文",
+        "ru": "Русский",
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt": "Português",
+        "it": "Italiano",
+    }
+    return language_names.get(language_code, language_code)
+
+
+def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
+    """Get activity badge based on monthly uploads."""
+    if not monthly_uploads:
+        return None
+
+    if monthly_uploads > 10:
+        return "🔥 Very Active"
+    elif monthly_uploads > 5:
+        return "📈 Active"
+    elif monthly_uploads > 2:
+        return "📊 Regular"
+    else:
+        return "⚠️ Inactive"
