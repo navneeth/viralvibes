@@ -611,8 +611,8 @@ async def process_creator_syncs():
 
     start_time = time.time()
     empty_poll_count = 0  # Track consecutive empty polls for backoff
-    last_retry_check = time.time()  # Track when we last queued invalid creators
-    RETRY_CHECK_INTERVAL = 3600  # Check for invalid creators every hour
+    last_retry_check = 0  # Track when we last queued invalid creators (start at 0 to trigger immediately)
+    RETRY_CHECK_INTERVAL = 1800  # Check for invalid creators every 30 minutes (runs twice in 1 hour window)
 
     while not stop_event.is_set():
         elapsed = time.time() - start_time
@@ -622,16 +622,17 @@ async def process_creator_syncs():
             logger.info(f"Max runtime ({MAX_RUNTIME}s) exceeded, exiting")
             break
 
-        # Periodic retry of invalid/failed creators (once per hour)
+        # Periodic check to queue creators needing sync (runs at startup + every 30 min)
         if time.time() - last_retry_check > RETRY_CHECK_INTERVAL:
-            logger.info("Running periodic check for invalid/failed creators...")
+            logger.info("Running periodic check to queue creators for sync...")
             try:
+                # Queue creators with invalid stats or no recent sync (within 24 hours)
                 retry_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
                 logger.info(
-                    f"Auto-retry check: Queued {retry_count} creators for retry"
+                    f"✅ Auto-queue check: Queued {retry_count} creator(s) for sync"
                 )
             except Exception as e:
-                logger.warning(f"Auto-retry check failed: {e}")
+                logger.error(f"❌ Auto-queue check failed: {e}")
             last_retry_check = time.time()
 
         logger.info(
