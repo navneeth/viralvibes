@@ -132,9 +132,10 @@ class SourceFetcher:
                         logger.warning(f"Could not find channel name in row: {row}")
                         continue
 
-                    # Resolve channel name to channel ID
+                    # Resolve channel name to channel ID using YouTubeResolver
+                    # Uses search API to find channel by name
                     logger.debug(f"Resolving: {channel_name}")
-                    channel_id = await self.resolver.resolve_channel_name_to_id(
+                    channel_id = await self.resolver.resolve_handle_to_channel_id(
                         channel_name
                     )
 
