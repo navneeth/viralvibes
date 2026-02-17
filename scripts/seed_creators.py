@@ -2,6 +2,7 @@
 Seed creator discovery from multiple sources.
 
 Supports:
+- CSV: Local list of channels (youtubers.csv or specified path)
 - Wikipedia: Most-subscribed YouTube channels
 - YouTube Trending: Global and regional trending channels
 - YouTube Music: Top music channels
@@ -9,6 +10,7 @@ Supports:
 - Custom sources via configuration
 
 Updated with:
+- CSV source integration (NEW)
 - Multiple source integration (parallel fetching)
 - Rate limiting (respect API quotas)
 - Better error handling & recovery
@@ -18,6 +20,7 @@ Updated with:
 """
 
 import asyncio
+import csv
 import logging
 import os
 import sys
@@ -46,6 +49,7 @@ logger = logging.getLogger(__name__)
 class Source(Enum):
     """Creator source enumeration."""
 
+    CSV = "csv"  # NEW
     WIKIPEDIA = "wikipedia"
     YOUTUBE_TRENDING = "youtube_trending"
     YOUTUBE_MUSIC = "youtube_music"
@@ -62,6 +66,7 @@ class SourceConfig:
     weight: int = 1  # For ranking prioritization
     max_results: int = 100
     timeout_seconds: int = 30
+    csv_path: Optional[str] = None  # NEW: Path to CSV file
 
 
 class SourceFetcher:
@@ -73,6 +78,89 @@ class SourceFetcher:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
         }
+
+    async def fetch_csv(self, csv_path: str) -> Dict[str, int]:
+        """
+        Fetch creators from a CSV file.
+
+        Expected CSV format:
+        - Column "Channel Name" (or similar) with creator names
+        - Rank column for ordering (optional)
+        - Other metadata columns
+
+        Returns:
+            Dict mapping channel_id -> source_rank
+        """
+        if not csv_path or not Path(csv_path).exists():
+            logger.error(f"CSV file not found: {csv_path}")
+            return {}
+
+        logger.info(f"📄 Reading CSV from: {csv_path}")
+        creators = {}
+        position = 1
+
+        try:
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+
+                if not reader.fieldnames:
+                    logger.error("CSV file is empty or invalid")
+                    return {}
+
+                logger.debug(f"CSV columns: {reader.fieldnames}")
+
+                for row in reader:
+                    # Skip empty rows
+                    if not row or not any(row.values()):
+                        continue
+
+                    # Try to find channel name in common column names
+                    channel_name = None
+                    for col in [
+                        "Channel Name",
+                        "channel_name",
+                        "Name",
+                        "name",
+                        "Creator",
+                        "creator",
+                    ]:
+                        if col in row and row[col]:
+                            channel_name = row[col].strip()
+                            break
+
+                    if not channel_name:
+                        logger.warning(f"Could not find channel name in row: {row}")
+                        continue
+
+                    # Resolve channel name to channel ID using YouTubeResolver
+                    # Uses search API to find channel by name
+                    logger.debug(f"Resolving: {channel_name}")
+                    channel_id = await self.resolver.resolve_handle_to_channel_id(
+                        channel_name
+                    )
+
+                    if not channel_id:
+                        logger.warning(
+                            f"Could not resolve channel name: {channel_name}"
+                        )
+                        continue
+
+                    if channel_id not in creators:
+                        creators[channel_id] = position
+                        logger.debug(
+                            f"✓ Resolved: {channel_name} → {channel_id} (rank {position})"
+                        )
+                        position += 1
+
+        except csv.Error as e:
+            logger.error(f"CSV parsing error: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error reading CSV: {e}")
+            return {}
+
+        logger.info(f"✅ CSV: Found and resolved {len(creators)} creators")
+        return creators
 
     async def fetch_wikipedia(self) -> Dict[str, int]:
         """
@@ -134,7 +222,7 @@ class SourceFetcher:
         """
         # This would require YouTube API access to /videos with chart=mostPopular
         # For now, return empty to avoid API quota issues
-        logger.info("⏭️  YouTube Trending: Skipped (requires API implementation)")
+        logger.info("⭐️  YouTube Trending: Skipped (requires API implementation)")
         return {}
 
     async def fetch_youtube_music(self) -> Dict[str, int]:
@@ -177,6 +265,10 @@ class SourceFetcher:
         tasks = {}
 
         # Build parallel tasks for all enabled sources
+        csv_config = config.get(Source.CSV, SourceConfig(Source.CSV))
+        if csv_config.enabled and csv_config.csv_path:
+            tasks["csv"] = self.fetch_csv(csv_config.csv_path)
+
         if config.get(Source.WIKIPEDIA, SourceConfig(Source.WIKIPEDIA)).enabled:
             tasks["wikipedia"] = self.fetch_wikipedia()
 
@@ -216,7 +308,7 @@ class SourceFetcher:
 
 async def add_creator_with_source(
     channel_id: str,
-    source: str = "wikipedia",
+    source: str = "csv",
     source_rank: Optional[int] = None,
 ) -> Optional[str]:
     """
@@ -224,7 +316,7 @@ async def add_creator_with_source(
 
     Args:
         channel_id: YouTube channel ID (UCxxxxxx)
-        source: Where creator came from (wikipedia, youtube_trending, etc.)
+        source: Where creator came from (csv, wikipedia, youtube_trending, etc.)
         source_rank: Position in source ranking
 
     Returns:
@@ -386,32 +478,60 @@ async def main():
     # Initialize YouTube resolver
     api_key = os.getenv("YOUTUBE_API_KEY")
     if not api_key:
-        logger.warning("⚠️  YOUTUBE_API_KEY not set - handle resolution will be skipped")
+        logger.warning(
+            "⚠️  YOUTUBE_API_KEY not set - channel name resolution will be skipped"
+        )
 
     resolver = YouTubeResolver(api_key=api_key)
     validator = ChannelIDValidator()
 
-    # Configure sources
+    # Determine CSV path (NEW)
+    csv_path = None
+    if len(sys.argv) > 1:
+        # CSV path passed as command-line argument
+        csv_path = sys.argv[1]
+    else:
+        # Try common default locations
+        for default_path in ["youtubers.csv", "./youtubers.csv", "data/youtubers.csv"]:
+            if Path(default_path).exists():
+                csv_path = default_path
+                break
+
+    # Configure sources (UPDATED)
     source_config = {
+        Source.CSV: SourceConfig(  # NEW
+            source=Source.CSV,
+            enabled=csv_path is not None,
+            weight=10,  # Highest priority
+            max_results=500,
+            csv_path=csv_path,
+        ),
         Source.WIKIPEDIA: SourceConfig(
             source=Source.WIKIPEDIA,
             enabled=True,
-            weight=10,
+            weight=5,
             max_results=200,
         ),
         Source.YOUTUBE_TRENDING: SourceConfig(
             source=Source.YOUTUBE_TRENDING,
             enabled=False,  # Requires API quota
-            weight=5,
+            weight=3,
             max_results=50,
         ),
         Source.YOUTUBE_MUSIC: SourceConfig(
             source=Source.YOUTUBE_MUSIC,
             enabled=False,  # Requires implementation
-            weight=3,
+            weight=2,
             max_results=50,
         ),
     }
+
+    # Show what's enabled (NEW)
+    enabled_sources = [s.name for s, c in source_config.items() if c.enabled]
+    logger.info(f"Enabled sources: {', '.join(enabled_sources)}")
+
+    if csv_path:
+        logger.info(f"CSV path: {csv_path}")
 
     # Fetch from all sources
     logger.info("Fetching from all sources...")
