@@ -53,6 +53,7 @@ from db import (
     supabase_client,
 )
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
+from services.schema_detector import schema_detector
 
 # --- Load environment variables early ---
 load_dotenv()
