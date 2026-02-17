@@ -28,6 +28,7 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
+from utils import format_date_relative, format_number, safe_get_value
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
@@ -37,7 +38,6 @@ from utils.creator_metrics import (
     get_growth_signal,
     get_sync_status_badge,
 )
-from utils import format_date_relative, format_number, safe_get_value
 
 logger = logging.getLogger(__name__)
 
@@ -221,14 +221,25 @@ def _render_filter_bar(
     activity_filter: str = "all",
     age_filter: str = "all",
 ) -> Div:
-    """Sticky filter bar with search, sort, grade pills."""
+    """
+    Clean horizontal card-based filter bar.
 
-    # Search form
+    Shows search + sort on top line, then 4 filter cards below.
+    All filters visible at once, no accordion clicks needed.
+
+    Space: ~150px, all filters visible
+    Clicks: 0 (vs 1-4 with accordion)
+    Design: Modern, card-based, professional
+    """
+
+    # ═══════════════════════════════════════════════════════════════
+    # 1. SEARCH FORM
+    # ═══════════════════════════════════════════════════════════════
     search_form = Form(
         Input(
             type="search",
             name="search",
-            placeholder="Search creators...",
+            placeholder="Search creators by name or @handle...",
             value=search,
             cls="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100",
             autofocus=bool(search),
@@ -243,37 +254,33 @@ def _render_filter_bar(
         cls="flex-1",
     )
 
-    # Sort dropdown options with emojis for visual appeal
+    # ═══════════════════════════════════════════════════════════════
+    # 2. SORT DROPDOWN
+    # ═══════════════════════════════════════════════════════════════
     sort_options = [
         ("subscribers", "📊 Most Subscribers"),
         ("views", "👀 Most Views"),
         ("engagement", "🔥 Best Engagement"),
         ("quality", "⭐ Quality Score"),
         ("recent", "🆕 Recently Updated"),
-        ("consistency", "📈 Most Consistent"),  # NEW
-        ("newest_channel", "🎉 Newest Channels"),  # NEW
-        ("oldest_channel", "👑 Oldest Channels"),  # NEW
-    ]
-    # Grade pills with counts and emojis
-    grade_options = [
-        ("all", "All", "🎯"),
-        ("A+", "Elite", "👑"),
-        ("A", "Star", "⭐"),
-        ("B+", "Rising", "📈"),
-        ("B", "Good", "💎"),
-        ("C", "New", "🔍"),
+        ("consistency", "📈 Most Consistent"),
+        ("newest_channel", "🎉 Newest Channels"),
+        ("oldest_channel", "👑 Oldest Channels"),
     ]
 
-    # Sort select
     sort_form = Form(
-        Select(
-            *[
-                Option(label, value=val, selected=(sort == val))
-                for val, label in sort_options
-            ],
-            name="sort",
-            cls="h-10 px-4 rounded-lg border border-gray-300 font-medium",
-            onchange="this.form.submit()",
+        Div(
+            Label("Sort:", cls="text-sm font-semibold text-gray-700 whitespace-nowrap"),
+            Select(
+                *[
+                    Option(label, value=val, selected=(sort == val))
+                    for val, label in sort_options
+                ],
+                name="sort",
+                cls="h-10 px-3 rounded-lg border border-gray-300 font-medium",
+                onchange="this.form.submit()",
+            ),
+            cls="flex gap-2 items-center flex-1",
         ),
         Input(type="hidden", name="search", value=search),
         Input(type="hidden", name="grade", value=grade_filter),
@@ -284,16 +291,27 @@ def _render_filter_bar(
         action="/creators",
     )
 
-    # Grade pills
+    # ═══════════════════════════════════════════════════════════════
+    # 3. QUALITY GRADE PILLS
+    # ═══════════════════════════════════════════════════════════════
+    grade_options = [
+        ("all", "All", "🎯"),
+        ("A+", "Elite", "👑"),
+        ("A", "Star", "⭐"),
+        ("B+", "Rising", "📈"),
+        ("B", "Good", "💎"),
+        ("C", "New", "🔍"),
+    ]
+
     grade_pills = Div(
         *[
             A(
-                f"{emoji} {label} ({grade_counts.get(val, 0)})",
+                f"{emoji} {label}",
                 href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter})}",
                 cls=(
-                    "px-4 py-2 rounded-lg transition-all inline-block no-underline text-sm font-medium "
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
-                        "bg-blue-600 text-white shadow-md"
+                        "bg-blue-600 text-white shadow-sm"
                         if grade_filter == val
                         else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
                     )
@@ -301,116 +319,165 @@ def _render_filter_bar(
             )
             for val, label, emoji in grade_options
         ],
-        cls="flex gap-2 flex-wrap",
+        cls="flex gap-1.5 flex-wrap",
     )
 
-    # Language filter pills
+    # ═══════════════════════════════════════════════════════════════
+    # 4. LANGUAGE FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
     language_options = [
-        ("all", "All Languages", "🌍"),
+        ("all", "All", "🌍"),
         ("en", "English", "🇺🇸"),
         ("ja", "日本語", "🇯🇵"),
         ("es", "Español", "🇪🇸"),
-        ("ko", "한국어", "🇰🇷"),
-        ("zh", "中文", "🇨🇳"),
+        ("ko", "Korean", "🇰🇷"),
+        ("zh", "Chinese", "🇨🇳"),
     ]
 
     language_pills = Div(
-        P("Language:", cls="text-sm font-semibold text-gray-700 mb-2"),
-        Div(
-            *[
-                A(
-                    f"{emoji} {label}",
-                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter})}",
-                    cls=(
-                        "px-3 py-1.5 rounded-lg transition-all inline-block no-underline text-sm font-medium "
-                        + (
-                            "bg-blue-100 text-blue-700 border border-blue-300"
-                            if language_filter == val
-                            else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
-                        )
-                    ),
-                )
-                for val, label, emoji in language_options
-            ],
-            cls="flex gap-2 flex-wrap",
-        ),
-        cls="mb-4",
+        *[
+            A(
+                f"{emoji} {label}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter})}",
+                cls=(
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    + (
+                        "bg-blue-100 text-blue-700 border border-blue-300"
+                        if language_filter == val
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                    )
+                ),
+            )
+            for val, label, emoji in language_options
+        ],
+        cls="flex gap-1.5 flex-wrap",
     )
 
-    # Activity filter pills
+    # ═══════════════════════════════════════════════════════════════
+    # 5. ACTIVITY FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
     activity_options = [
-        ("all", "All Activity", "📊"),
-        ("active", "Very Active (>5/mo)", "🔥"),
+        ("all", "All", "📊"),
+        ("active", "Active (>5/mo)", "🔥"),
         ("dormant", "Dormant (<1/mo)", "⚠️"),
     ]
 
     activity_pills = Div(
-        P("Activity:", cls="text-sm font-semibold text-gray-700 mb-2"),
-        Div(
-            *[
-                A(
-                    f"{emoji} {label}",
-                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter})}",
-                    cls=(
-                        "px-3 py-1.5 rounded-lg transition-all inline-block no-underline text-sm font-medium "
-                        + (
-                            "bg-green-100 text-green-700 border border-green-300"
-                            if activity_filter == val
-                            else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
-                        )
-                    ),
-                )
-                for val, label, emoji in activity_options
-            ],
-            cls="flex gap-2 flex-wrap",
-        ),
-        cls="mb-4",
+        *[
+            A(
+                f"{emoji} {label}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter})}",
+                cls=(
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    + (
+                        "bg-green-100 text-green-700 border border-green-300"
+                        if activity_filter == val
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                    )
+                ),
+            )
+            for val, label, emoji in activity_options
+        ],
+        cls="flex gap-1.5 flex-wrap",
     )
 
-    # Channel age filter pills
+    # ═══════════════════════════════════════════════════════════════
+    # 6. CHANNEL AGE FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
     age_options = [
-        ("all", "All Ages", "📅"),
-        ("new", "New (<1 year)", "🆕"),
-        ("established", "Established (1-10 yr)", "🏆"),
-        ("veteran", "Veteran (10+ yr)", "👑"),
+        ("all", "All", "📅"),
+        ("new", "0–1 yr", "🆕"),
+        ("established", "1–10 yrs", "🏆"),
+        ("veteran", "10+ yrs", "👑"),
     ]
 
     age_pills = Div(
-        P("Channel Age:", cls="text-sm font-semibold text-gray-700 mb-2"),
-        Div(
-            *[
-                A(
-                    f"{emoji} {label}",
-                    href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val})}",
-                    cls=(
-                        "px-3 py-1.5 rounded-lg transition-all inline-block no-underline text-sm font-medium "
-                        + (
-                            "bg-purple-100 text-purple-700 border border-purple-300"
-                            if age_filter == val
-                            else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
-                        )
-                    ),
-                )
-                for val, label, emoji in age_options
-            ],
-            cls="flex gap-2 flex-wrap",
-        ),
-        cls="mb-4",
+        *[
+            A(
+                f"{emoji} {label}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val})}",
+                cls=(
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    + (
+                        "bg-purple-100 text-purple-700 border border-purple-300"
+                        if age_filter == val
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                    )
+                ),
+            )
+            for val, label, emoji in age_options
+        ],
+        cls="flex gap-1.5 flex-wrap",
     )
 
-    # Container for all filters with sticky positioning
-    return Div(
-        search_form,
-        sort_form,
+    # ═══════════════════════════════════════════════════════════════
+    # 7. BUILD FILTER CARDS
+    # ═══════════════════════════════════════════════════════════════
+
+    # Quality card
+    quality_card = Div(
         Div(
-            P("Quality:", cls="text-sm font-semibold text-gray-700 mb-2"),
+            P("Quality", cls="text-sm font-bold text-gray-900 mb-2"),
             grade_pills,
-            cls="mb-4",
+            cls="space-y-1.5",
         ),
-        language_pills,
-        activity_pills,
-        age_pills,
-        cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-10 space-y-4",
+        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+    )
+
+    # Language card
+    language_card = Div(
+        Div(
+            P("Language", cls="text-sm font-bold text-gray-900 mb-2"),
+            language_pills,
+            cls="space-y-1.5",
+        ),
+        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+    )
+
+    # Activity card
+    activity_card = Div(
+        Div(
+            P("Activity", cls="text-sm font-bold text-gray-900 mb-2"),
+            activity_pills,
+            cls="space-y-1.5",
+        ),
+        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+    )
+
+    # Age card
+    age_card = Div(
+        Div(
+            P("Channel Age", cls="text-sm font-bold text-gray-900 mb-2"),
+            age_pills,
+            cls="space-y-1.5",
+        ),
+        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 8. RETURN COMPLETE FILTER BAR
+    # ═══════════════════════════════════════════════════════════════
+    return Div(
+        # Top row: Search + Sort
+        Div(
+            search_form,
+            sort_form,
+            cls="flex gap-3 mb-4",
+        ),
+        # Filter cards grid
+        Grid(
+            quality_card,
+            language_card,
+            activity_card,
+            age_card,
+            cols_xl=4,
+            cols_lg=4,
+            cols_md=2,
+            cols_sm=1,
+            gap=3,
+            cls="",
+        ),
+        cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-10",
     )
 
 
