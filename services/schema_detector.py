@@ -7,12 +7,13 @@ Allows worker to gracefully handle schema changes without failures.
 Features:
 - Schema caching (detects once, uses cached result)
 - Intelligent fallback (writes only available columns)
-- Clear logging (helpful error messages)
+- Clear logging (helpful error messages, no spam)
 - Auto-generated SQL (suggests missing columns)
+- Smart column tracking (only logs newly missing columns)
 """
 
 import logging
-from typing import Set, Optional, Dict, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,12 @@ class SchemaDetector:
     """
     Detects available columns in database tables.
 
+    Tracks schema state to avoid repeated logging of known missing columns.
+    Intelligently infers SQL types for missing columns.
+
     Usage:
         detector = SchemaDetector()
-        await detector.detect_schema(supabase_client)
+        detector.detect_schema_sync(supabase_client)
         payload, missing = detector.filter_payload(full_payload)
         if missing:
             detector.log_schema_mismatch(missing)
@@ -130,7 +134,8 @@ class SchemaDetector:
         """
         Log missing columns with helpful guidance.
 
-        Generates SQL migration commands and explains what happened.
+        Only logs newly discovered missing columns to avoid log spam.
+        Generates SQL migration commands for new missing columns.
 
         Args:
             missing_fields: Dict of fields that couldn't be written
@@ -139,20 +144,28 @@ class SchemaDetector:
         if not missing_fields:
             return
 
-        missing_cols = list(missing_fields.keys())
+        # Only log newly discovered missing columns to avoid noisy, repeated logs
+        missing_cols = set(missing_fields.keys())
+        new_cols = missing_cols - self.missing_columns
         self.missing_columns.update(missing_cols)
 
+        # If there are no newly missing columns, skip logging and SQL suggestions
+        if not new_cols:
+            return
+
+        # Log only newly discovered missing columns
+        new_cols_sorted = sorted(new_cols)
         logger.warning(
-            f"⚠️  SCHEMA MISMATCH: {len(missing_cols)} field(s) not in '{table_name}' table"
+            f"⚠️  SCHEMA MISMATCH: {len(new_cols_sorted)} field(s) not in '{table_name}' table"
         )
-        logger.warning(f"   Missing columns: {', '.join(missing_cols)}")
+        logger.warning(f"   Missing columns: {', '.join(new_cols_sorted)}")
         logger.warning("   → These fields will be skipped, sync will continue")
         logger.warning("")
         logger.warning("   To enable these features, run this SQL migration:")
         logger.warning("")
 
-        # Generate helpful SQL
-        for col in missing_cols:
+        # Generate helpful SQL (only for newly discovered columns)
+        for col in new_cols_sorted:
             sql_type = self._infer_column_type(col)
             logger.warning(
                 f"   ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col} {sql_type};"
@@ -167,7 +180,18 @@ class SchemaDetector:
 
     @staticmethod
     def _infer_column_type(column_name: str) -> str:
-        """Infer SQL type from column name."""
+        """
+        Infer SQL type from column name.
+
+        Uses position-aware heuristics to avoid false positives.
+        E.g., only matches timestamps if column ends with '_at', not just contains 'at'.
+
+        Args:
+            column_name: Name of the column
+
+        Returns:
+            SQL type name (INT, TEXT, TIMESTAMP, BOOLEAN, FLOAT, JSONB)
+        """
         col_lower = column_name.lower()
 
         # Count columns
@@ -186,8 +210,10 @@ class SchemaDetector:
         if "url" in col_lower or "uri" in col_lower:
             return "TEXT"
 
-        # Timestamp columns
-        if "timestamp" in col_lower or "date" in col_lower or "at" in col_lower:
+        # Timestamp columns - use position-aware matching to avoid false positives
+        # Only match if column ends with "_at" (created_at, updated_at, etc.)
+        # or contains "timestamp" or "date"
+        if col_lower.endswith("_at") or "timestamp" in col_lower or "date" in col_lower:
             return "TIMESTAMP"
 
         # Boolean columns
