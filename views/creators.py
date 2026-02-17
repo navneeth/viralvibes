@@ -411,72 +411,215 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 7. BUILD FILTER CARDS
+    # 7. BUILD SLIDE-UP FILTER MODAL WITH ACCORDION
     # ═══════════════════════════════════════════════════════════════
 
-    # Quality card
-    quality_card = Div(
-        Div(
-            P("Quality", cls="text-sm font-bold text-gray-900 mb-2"),
-            grade_pills,
-            cls="space-y-1.5",
-        ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+    # Count active filters for badge
+    active_filters = sum(
+        [
+            grade_filter != "all",
+            language_filter != "all",
+            activity_filter != "all",
+            age_filter != "all",
+        ]
     )
 
-    # Language card
-    language_card = Div(
+    # Modal content with accordion sections
+    filter_modal_content = Div(
+        # Modal header
         Div(
-            P("Language", cls="text-sm font-bold text-gray-900 mb-2"),
-            language_pills,
-            cls="space-y-1.5",
+            Div(
+                H3("Filters", cls="text-xl font-bold text-gray-900"),
+                P(
+                    (
+                        f"{active_filters} active"
+                        if active_filters
+                        else "No filters active"
+                    ),
+                    cls="text-sm text-gray-500 mt-1",
+                ),
+                cls="flex-1",
+            ),
+            Button(
+                "✕",
+                cls="text-2xl text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100",
+                onclick="document.getElementById('filter-modal').classList.add('hidden')",
+            ),
+            cls="flex items-start justify-between mb-6 pb-4 border-b border-gray-200",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+        # Accordion sections
+        Div(
+            # Quality section
+            Details(
+                Summary(
+                    Div(
+                        "🎯 Quality Grade",
+                        Span(
+                            f"{grade_filter}" if grade_filter != "all" else "",
+                            cls=(
+                                "ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                if grade_filter != "all"
+                                else "hidden"
+                            ),
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    cls="font-semibold text-gray-900 cursor-pointer py-3 flex items-center justify-between hover:text-blue-600 transition-colors",
+                ),
+                Div(
+                    grade_pills,
+                    cls="pb-4 pt-2",
+                ),
+                cls="border-b border-gray-200",
+                open=True,  # Open by default
+            ),
+            # Language section
+            Details(
+                Summary(
+                    Div(
+                        "🌍 Language",
+                        Span(
+                            (
+                                f"{language_filter.upper()}"
+                                if language_filter != "all"
+                                else ""
+                            ),
+                            cls=(
+                                "ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                if language_filter != "all"
+                                else "hidden"
+                            ),
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    cls="font-semibold text-gray-900 cursor-pointer py-3 flex items-center justify-between hover:text-blue-600 transition-colors",
+                ),
+                Div(
+                    language_pills,
+                    cls="pb-4 pt-2",
+                ),
+                cls="border-b border-gray-200",
+            ),
+            # Activity section
+            Details(
+                Summary(
+                    Div(
+                        "📊 Activity Level",
+                        Span(
+                            (
+                                f"{activity_filter.title()}"
+                                if activity_filter != "all"
+                                else ""
+                            ),
+                            cls=(
+                                "ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                if activity_filter != "all"
+                                else "hidden"
+                            ),
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    cls="font-semibold text-gray-900 cursor-pointer py-3 flex items-center justify-between hover:text-blue-600 transition-colors",
+                ),
+                Div(
+                    activity_pills,
+                    cls="pb-4 pt-2",
+                ),
+                cls="border-b border-gray-200",
+            ),
+            # Age section
+            Details(
+                Summary(
+                    Div(
+                        "📅 Channel Age",
+                        Span(
+                            (
+                                f"{dict(age_options)[age_filter]}"
+                                if age_filter != "all"
+                                else ""
+                            ),
+                            cls=(
+                                "ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                if age_filter != "all"
+                                else "hidden"
+                            ),
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    cls="font-semibold text-gray-900 cursor-pointer py-3 flex items-center justify-between hover:text-blue-600 transition-colors",
+                ),
+                Div(
+                    age_pills,
+                    cls="pb-4 pt-2",
+                ),
+                cls="border-b border-gray-200",
+            ),
+            cls="space-y-0 overflow-y-auto max-h-[60vh]",
+        ),
+        # Modal footer with reset button
+        (
+            Div(
+                A(
+                    Button(
+                        "🔄 Reset All Filters",
+                        cls="w-full py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-semibold transition-colors",
+                    ),
+                    href=f"/creators?sort={sort}&search={search}",
+                ),
+                cls="mt-6 pt-4 border-t border-gray-200",
+            )
+            if active_filters > 0
+            else None
+        ),
+        cls="bg-white rounded-t-3xl p-6 max-w-2xl mx-auto relative",
     )
 
-    # Activity card
-    activity_card = Div(
+    # Slide-up modal (hidden by default)
+    filter_modal = Div(
+        # Backdrop
         Div(
-            P("Activity", cls="text-sm font-bold text-gray-900 mb-2"),
-            activity_pills,
-            cls="space-y-1.5",
+            cls="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm",
+            onclick="document.getElementById('filter-modal').classList.add('hidden')",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+        # Modal container
+        Div(
+            filter_modal_content,
+            cls="fixed bottom-0 left-0 right-0 transform transition-transform duration-300 ease-out",
+        ),
+        id="filter-modal",
+        cls="hidden fixed inset-0 z-50",
     )
 
-    # Age card
-    age_card = Div(
-        Div(
-            P("Channel Age", cls="text-sm font-bold text-gray-900 mb-2"),
-            age_pills,
-            cls="space-y-1.5",
+    # Floating filter button
+    filter_button = Button(
+        Span("🔍", cls="text-xl"),
+        Span("Filters", cls="font-semibold"),
+        (
+            Span(
+                f"{active_filters}",
+                cls="ml-2 px-2 py-0.5 bg-white text-blue-600 text-xs rounded-full font-bold",
+            )
+            if active_filters > 0
+            else None
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+        cls="fixed bottom-6 right-6 flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-2xl hover:shadow-3xl transition-all duration-200 hover:scale-105 z-40 font-medium",
+        onclick="document.getElementById('filter-modal').classList.remove('hidden')",
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 8. RETURN COMPLETE FILTER BAR
+    # 8. RETURN COMPACT TOP BAR + MODAL
     # ═══════════════════════════════════════════════════════════════
     return Div(
-        # Top row: Search + Sort
+        # Compact top bar: Search + Sort only
         Div(
             search_form,
             sort_form,
-            cls="flex gap-3 mb-4",
+            cls="flex gap-3",
         ),
-        # Filter cards grid
-        Grid(
-            quality_card,
-            language_card,
-            activity_card,
-            age_card,
-            cols_xl=4,
-            cols_lg=4,
-            cols_md=2,
-            cols_sm=1,
-            gap=3,
-            cls="",
-        ),
+        # Hidden modal
+        filter_modal,
+        # Floating button
+        filter_button,
         cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-10",
     )
 
