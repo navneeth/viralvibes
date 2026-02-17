@@ -155,6 +155,23 @@ async def init():
             raise SystemExit(1)
         supabase_client = client
         logger.info("✅ Supabase initialized")
+
+        # Detect database schema on startup (cached for subsequent calls)
+        detected_columns = schema_detector.detect_schema_sync(
+            supabase_client, table_name=CREATOR_TABLE
+        )
+        status = schema_detector.get_status()
+        logger.info(
+            f"📊 Database schema: {status['total_columns']} columns detected in '{CREATOR_TABLE}'"
+        )
+
+        # Log any missing optional columns
+        if status["missing_count"] > 0:
+            logger.warning(
+                f"⚠️  {status['missing_count']} optional columns not in database "
+                "(worker will skip these fields)"
+            )
+
     except Exception as e:
         logger.error(f"❌ Supabase initialization failed: {e}")
         raise SystemExit(1)
@@ -458,11 +475,12 @@ async def handle_sync_job(
                 "Flagging for retry."
             )
 
-        # STAGE 4: Update database
-        logger.debug(f"{job_tag} Updating database (sync_status={sync_status})")
+        # ═══════════════════════════════════════════════════════════
+        # STAGE 4: BUILD FULL PAYLOAD (all desired fields)
+        # ═══════════════════════════════════════════════════════════
+        logger.debug(f"{job_tag} Building update payload (sync_status={sync_status})")
 
-        # Build update payload with comprehensive creator data
-        update_payload = {
+        full_payload = {
             # Core statistics
             "current_subscribers": channel_data["current_subscribers"],
             "current_view_count": channel_data["current_view_count"],
@@ -470,33 +488,34 @@ async def handle_sync_job(
             # Identity
             "channel_name": channel_data.get("channel_name"),
             "channel_description": channel_data.get("channel_description"),
-            # Custom presence (NEW)
+            # Custom presence
             "custom_url": channel_data.get("custom_url"),
             "custom_url_available": channel_data.get("custom_url_available", False),
-            # Branding (NEW)
+            # Branding
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
             "channel_thumbnail_default": channel_data.get("channel_thumbnail_default"),
             "banner_image_url": channel_data.get("banner_image_url"),
-            # Timestamps (NEW)
+            # Timestamps
             "published_at": channel_data.get("published_at"),
-            # Location & Language (NEW)
+            # Location & Language
             "country_code": channel_data.get("country_code"),
             "default_language": channel_data.get("default_language"),
-            # Metadata (NEW)
+            # Metadata
             "keywords": channel_data.get("keywords"),
-            # Relationships (NEW)
+            # Relationships
             "featured_channels_count": channel_data.get("featured_channels_count", 0),
+            "featured_channels_urls": channel_data.get("featured_channels_urls"),
             "topic_categories": channel_data.get("topic_categories", []),
-            # Verification (NEW)
+            # Verification
             "official": channel_data.get("official", False),
-            # Computed metrics (NEW)
+            # Computed metrics
             "channel_age_days": channel_data.get("channel_age_days"),
             "monthly_uploads": channel_data.get("monthly_uploads"),
-            # Statistics (NEW - rarely available)
+            # Statistics
             "hidden_subscriber_count": channel_data.get(
                 "hidden_subscriber_count", False
             ),
-            # Sync status tracking
+            # Sync tracking
             "sync_status": sync_status,
             "sync_error_message": sync_error,
             # Timestamps (timezone-aware UTC)
@@ -504,6 +523,25 @@ async def handle_sync_job(
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
         }
 
+        # ═══════════════════════════════════════════════════════════
+        # FILTER TO AVAILABLE COLUMNS (graceful degradation)
+        # ═══════════════════════════════════════════════════════════
+        update_payload, missing_fields = schema_detector.filter_payload(full_payload)
+
+        # Log if columns missing (helpful for user)
+        if missing_fields:
+            schema_detector.log_schema_mismatch(
+                missing_fields, table_name=CREATOR_TABLE
+            )
+            logger.info(
+                f"{job_tag} Graceful fallback: "
+                f"Syncing {len(update_payload)} available fields, "
+                f"skipping {len(missing_fields)} unavailable columns"
+            )
+
+        # ═══════════════════════════════════════════════════════════
+        # UPDATE DATABASE (with fallback to minimal fields)
+        # ═══════════════════════════════════════════════════════════
         try:
             result = (
                 supabase_client.table(CREATOR_TABLE)
@@ -515,12 +553,51 @@ async def handle_sync_job(
             if not result.data:
                 logger.warning(f"{job_tag} Update returned no data")
 
-            logger.info(f"{job_tag} Successfully updated creator stats")
+            logger.info(
+                f"{job_tag} ✅ Database updated successfully "
+                f"({len(update_payload)} fields)"
+            )
 
-        except Exception as e:
+        except Exception as update_error:
+            # FALLBACK: Try with minimal core fields
             metrics.db_errors += 1
-            logger.error(f"{job_tag} Database update failed: {e}")
-            raise Exception("Database update failed")
+            logger.warning(f"{job_tag} ⚠️  Full update failed: {update_error}")
+            logger.info(f"{job_tag} → Attempting fallback with minimal core fields...")
+
+            # Minimal payload - should always work
+            minimal_payload = {
+                "current_subscribers": full_payload.get("current_subscribers", 0),
+                "current_view_count": full_payload.get("current_view_count", 0),
+                "current_video_count": full_payload.get("current_video_count", 0),
+                "channel_name": full_payload.get("channel_name"),
+                "country_code": full_payload.get("country_code"),
+                "sync_status": "synced_partial",
+                "sync_error_message": "Schema mismatch - synced with basic fields only",
+                "last_updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            try:
+                result = (
+                    supabase_client.table(CREATOR_TABLE)
+                    .update(minimal_payload)
+                    .eq("id", creator_id)
+                    .execute()
+                )
+
+                logger.info(
+                    f"{job_tag} ✅ Fallback successful! "
+                    f"Synced core stats (subscribers, views, videos)"
+                )
+
+            except Exception as fallback_error:
+                # Even fallback failed - log and re-raise
+                logger.error(f"{job_tag} ❌ Both update attempts failed:")
+                logger.error(f"   Primary error: {update_error}")
+                logger.error(f"   Fallback error: {fallback_error}")
+                raise Exception(
+                    f"Database update completely failed after fallback. "
+                    f"Check schema and permissions."
+                )
 
         # STAGE 5: Mark job completion based on data quality
         if is_invalid:
