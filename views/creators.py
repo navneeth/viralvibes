@@ -540,7 +540,6 @@ def _build_card_header(
             Div(
                 Div(
                     P(grade_icon, cls="text-lg"),
-                    P(quality_grade, cls="text-xs font-bold"),
                     cls="flex flex-col items-center",
                 ),
                 Div(
@@ -748,7 +747,7 @@ def _build_metadata_section(
         (
             Div(
                 Span(
-                    f"@{custom_url}",
+                    f"@{custom_url.lstrip('@')}",
                     cls="text-sm font-semibold text-blue-600 truncate",
                 ),
                 cls="mb-2",
