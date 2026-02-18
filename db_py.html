@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for db.py: 14.51%</title>
+    <title>Coverage for db.py: 14.54%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_9ff733b0.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>db.py</b>:
-            <span class="pc_cov">14.51%</span>
+            <span class="pc_cov">14.54%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,9 +55,9 @@
             </div>
         </aside>
         <h2>
-            <span class="text">727 statements &nbsp;</span>
+            <span class="text">725 statements &nbsp;</span>
             <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">124<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">603<span class="text"> missing</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">601<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">12<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="main_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-02-18 08:11 +0000
+            created at 2026-02-18 08:52 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1992,56 +1992,46 @@
     <p class="run"><span class="n"><a id="t1908" href="#t1908">1908</a></span><span class="t"><span class="key">def</span> <span class="nam">calculate_creator_stats</span><span class="op">(</span><span class="nam">creators</span><span class="op">:</span> <span class="nam">list</span><span class="op">[</span><span class="nam">dict</span><span class="op">]</span><span class="op">)</span> <span class="op">-></span> <span class="nam">dict</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1909" href="#t1909">1909</a></span><span class="t">    <span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1910" href="#t1910">1910</a></span><span class="t"><span class="str">    Calculate aggregate statistics from creators list for hero section.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1911" href="#t1911">1911</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1912" href="#t1912">1912</a></span><span class="t"><span class="str">    Args:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1913" href="#t1913">1913</a></span><span class="t"><span class="str">        creators: List of creator dicts</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1914" href="#t1914">1914</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1915" href="#t1915">1915</a></span><span class="t"><span class="str">    Returns:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1916" href="#t1916">1916</a></span><span class="t"><span class="str">        Dict with total_subscribers, total_views, avg_engagement, total_revenue</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1917" href="#t1917">1917</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1918" href="#t1918">1918</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">creators</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1919" href="#t1919">1919</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1920" href="#t1920">1920</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1921" href="#t1921">1921</a></span><span class="t">            <span class="str">"total_views"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1922" href="#t1922">1922</a></span><span class="t">            <span class="str">"avg_engagement"</span><span class="op">:</span> <span class="num">0.0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1923" href="#t1923">1923</a></span><span class="t">            <span class="str">"total_revenue"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1911" href="#t1911">1911</a></span><span class="t"><span class="str">    Only returns real data from database - no estimates or derived metrics.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1912" href="#t1912">1912</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1913" href="#t1913">1913</a></span><span class="t"><span class="str">    Args:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1914" href="#t1914">1914</a></span><span class="t"><span class="str">        creators: List of creator dicts</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1915" href="#t1915">1915</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1916" href="#t1916">1916</a></span><span class="t"><span class="str">    Returns:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1917" href="#t1917">1917</a></span><span class="t"><span class="str">        Dict with total_subscribers, total_views, total_videos</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1918" href="#t1918">1918</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1919" href="#t1919">1919</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">creators</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1920" href="#t1920">1920</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1921" href="#t1921">1921</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1922" href="#t1922">1922</a></span><span class="t">            <span class="str">"total_views"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1923" href="#t1923">1923</a></span><span class="t">            <span class="str">"total_videos"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1924" href="#t1924">1924</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1925" href="#t1925">1925</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1926" href="#t1926">1926</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1927" href="#t1927">1927</a></span><span class="t">        <span class="key">from</span> <span class="nam">utils</span> <span class="key">import</span> <span class="nam">safe_get_value</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1928" href="#t1928">1928</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1929" href="#t1929">1929</a></span><span class="t">        <span class="com"># Sum totals</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1929" href="#t1929">1929</a></span><span class="t">        <span class="com"># Sum real database values only</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1930" href="#t1930">1930</a></span><span class="t">        <span class="nam">total_subscribers</span> <span class="op">=</span> <span class="nam">sum</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1931" href="#t1931">1931</a></span><span class="t">            <span class="nam">safe_get_value</span><span class="op">(</span><span class="nam">c</span><span class="op">,</span> <span class="str">"current_subscribers"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span> <span class="key">for</span> <span class="nam">c</span> <span class="key">in</span> <span class="nam">creators</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1932" href="#t1932">1932</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1933" href="#t1933">1933</a></span><span class="t">        <span class="nam">total_views</span> <span class="op">=</span> <span class="nam">sum</span><span class="op">(</span><span class="nam">safe_get_value</span><span class="op">(</span><span class="nam">c</span><span class="op">,</span> <span class="str">"current_view_count"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span> <span class="key">for</span> <span class="nam">c</span> <span class="key">in</span> <span class="nam">creators</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1934" href="#t1934">1934</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1935" href="#t1935">1935</a></span><span class="t">        <span class="com"># Average engagement</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1936" href="#t1936">1936</a></span><span class="t">        <span class="nam">engagement_scores</span> <span class="op">=</span> <span class="op">[</span><span class="nam">safe_get_value</span><span class="op">(</span><span class="nam">c</span><span class="op">,</span> <span class="str">"engagement_score"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span> <span class="key">for</span> <span class="nam">c</span> <span class="key">in</span> <span class="nam">creators</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1937" href="#t1937">1937</a></span><span class="t">        <span class="nam">avg_engagement</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1938" href="#t1938">1938</a></span><span class="t">            <span class="nam">sum</span><span class="op">(</span><span class="nam">engagement_scores</span><span class="op">)</span> <span class="op">/</span> <span class="nam">len</span><span class="op">(</span><span class="nam">engagement_scores</span><span class="op">)</span> <span class="key">if</span> <span class="nam">engagement_scores</span> <span class="key">else</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1939" href="#t1939">1939</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1940" href="#t1940">1940</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1941" href="#t1941">1941</a></span><span class="t">        <span class="com"># Estimated revenue (CPM: $4 per 1000 views)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1942" href="#t1942">1942</a></span><span class="t">        <span class="nam">total_revenue</span> <span class="op">=</span> <span class="nam">sum</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1943" href="#t1943">1943</a></span><span class="t">            <span class="op">(</span><span class="nam">safe_get_value</span><span class="op">(</span><span class="nam">c</span><span class="op">,</span> <span class="str">"current_view_count"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span> <span class="op">*</span> <span class="num">4</span><span class="op">)</span> <span class="op">/</span> <span class="num">1000</span> <span class="key">for</span> <span class="nam">c</span> <span class="key">in</span> <span class="nam">creators</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1944" href="#t1944">1944</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1945" href="#t1945">1945</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1934" href="#t1934">1934</a></span><span class="t">        <span class="nam">total_videos</span> <span class="op">=</span> <span class="nam">sum</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1935" href="#t1935">1935</a></span><span class="t">            <span class="nam">safe_get_value</span><span class="op">(</span><span class="nam">c</span><span class="op">,</span> <span class="str">"current_video_count"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span> <span class="key">for</span> <span class="nam">c</span> <span class="key">in</span> <span class="nam">creators</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1936" href="#t1936">1936</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1937" href="#t1937">1937</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1938" href="#t1938">1938</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1939" href="#t1939">1939</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">total_subscribers</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1940" href="#t1940">1940</a></span><span class="t">            <span class="str">"total_views"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">total_views</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1941" href="#t1941">1941</a></span><span class="t">            <span class="str">"total_videos"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">total_videos</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1942" href="#t1942">1942</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1943" href="#t1943">1943</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1944" href="#t1944">1944</a></span><span class="t">    <span class="key">except</span> <span class="nam">Exception</span> <span class="key">as</span> <span class="nam">e</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1945" href="#t1945">1945</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span><span class="str">f"Error calculating creator stats: {e}"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1946" href="#t1946">1946</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1947" href="#t1947">1947</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">total_subscribers</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1948" href="#t1948">1948</a></span><span class="t">            <span class="str">"total_views"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">total_views</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1949" href="#t1949">1949</a></span><span class="t">            <span class="str">"avg_engagement"</span><span class="op">:</span> <span class="nam">round</span><span class="op">(</span><span class="nam">avg_engagement</span><span class="op">,</span> <span class="num">2</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1950" href="#t1950">1950</a></span><span class="t">            <span class="str">"total_revenue"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">total_revenue</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1951" href="#t1951">1951</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1952" href="#t1952">1952</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1953" href="#t1953">1953</a></span><span class="t">    <span class="key">except</span> <span class="nam">Exception</span> <span class="key">as</span> <span class="nam">e</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1954" href="#t1954">1954</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span><span class="str">f"Error calculating creator stats: {e}"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1955" href="#t1955">1955</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1956" href="#t1956">1956</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1957" href="#t1957">1957</a></span><span class="t">            <span class="str">"total_views"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1958" href="#t1958">1958</a></span><span class="t">            <span class="str">"avg_engagement"</span><span class="op">:</span> <span class="num">0.0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1959" href="#t1959">1959</a></span><span class="t">            <span class="str">"total_revenue"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1960" href="#t1960">1960</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1947" href="#t1947">1947</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1948" href="#t1948">1948</a></span><span class="t">            <span class="str">"total_views"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1949" href="#t1949">1949</a></span><span class="t">            <span class="str">"total_videos"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1950" href="#t1950">1950</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -2051,7 +2041,7 @@
             <a class="nav" href="main_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-02-18 08:11 +0000
+            created at 2026-02-18 08:52 +0000
         </p>
     </div>
 </footer>
