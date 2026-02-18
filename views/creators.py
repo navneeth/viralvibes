@@ -424,22 +424,23 @@ def _render_filter_bar(
         # Icon and text
         Div(
             # Filter icon (using emoji for consistency)
-            Span("🔍", cls="text-xl"),
-            Span("Filters", cls="text-sm font-semibold"),
+            Span("🔍", cls="text-xl md:text-2xl"),
+            Span("Filters", cls="text-xs md:text-sm font-semibold hidden sm:inline"),
             cls="flex items-center gap-2",
         ),
         # Active count badge (only show if filters are active)
         (
             Span(
                 str(active_filters),
-                cls="absolute -top-1.5 -right-1.5 bg-purple-600 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center",
+                cls="absolute -top-1 -right-1 md:-top-1.5 md:-right-1.5 bg-red-500 text-white text-[10px] md:text-xs font-bold w-4 h-4 md:w-5 md:h-5 rounded-full flex items-center justify-center",
             )
             if active_filters > 0
             else None
         ),
         href="#filter-modal",
         uk_toggle=True,
-        cls="fixed bottom-6 right-6 z-40 bg-purple-600 hover:bg-purple-700 text-white rounded-full px-5 py-3.5 shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105 no-underline relative",
+        cls="fixed bottom-4 right-4 md:bottom-6 md:right-6 lg:bottom-8 lg:right-8 z-[999] bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white rounded-full px-4 py-3 md:px-5 md:py-3.5 shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105 active:scale-95 no-underline",
+        style="will-change: transform; -webkit-tap-highlight-color: transparent;",
     )
 
     # ═══════════════════════════════════════════════════════════════
