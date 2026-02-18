@@ -479,7 +479,7 @@ def _render_filter_bar(
             Div(
                 H3("Filter Creators", cls="text-xl font-bold text-gray-900 mb-1"),
                 P(
-                    f"{len(creators)} creators available",
+                    f"{grade_counts.get('all', 0)} creators available",
                     cls="text-sm text-gray-600",
                 ),
                 cls="flex-1",
