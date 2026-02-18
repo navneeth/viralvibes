@@ -414,12 +414,7 @@ def _render_filter_bar(
     # 7. COUNT ACTIVE FILTERS
     # ═══════════════════════════════════════════════════════════════
     active_filters = sum(
-        [
-            grade_filter != "all",
-            language_filter != "all",
-            activity_filter != "all",
-            age_filter != "all",
-        ]
+        f != "all" for f in (grade_filter, language_filter, activity_filter, age_filter)
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -451,6 +446,22 @@ def _render_filter_bar(
     # 9. BUILD FILTER MODAL WITH ACCORDION
     # ═══════════════════════════════════════════════════════════════
 
+    # Helper to create accordion item with active indicator
+    def make_filter_item(label: str, filter_val: str, pills):
+        return AccordionItem(
+            Div(
+                Span(label, cls="font-semibold text-gray-900"),
+                (
+                    Span("●", cls="text-purple-600 text-xs")
+                    if filter_val != "all"
+                    else None
+                ),
+                cls="flex items-center gap-2",
+            ),
+            pills,
+            open=(filter_val != "all"),
+        )
+
     # Reset filters link
     reset_link = (
         A(
@@ -463,111 +474,39 @@ def _render_filter_bar(
     )
 
     filter_modal = Div(
-        # Modal backdrop
+        # Header
         Div(
-            cls="uk-modal-dialog uk-modal-body uk-margin-auto-vertical bg-white rounded-t-3xl md:rounded-2xl max-h-[85vh] overflow-y-auto"
-        ),
-        # Modal content
-        Div(
-            # Header
             Div(
-                Div(
-                    H3("Filter Creators", cls="text-xl font-bold text-gray-900 mb-1"),
-                    P(
-                        f"{len(creators)} creators available",
-                        cls="text-sm text-gray-600",
-                    ),
-                    cls="flex-1",
+                H3("Filter Creators", cls="text-xl font-bold text-gray-900 mb-1"),
+                P(
+                    f"{len(creators)} creators available",
+                    cls="text-sm text-gray-600",
                 ),
-                # Close button
-                Button(
-                    Span("✕", cls="text-xl"),
-                    cls="uk-modal-close-default p-2 hover:bg-gray-100 rounded-lg transition-colors",
-                    type_="button",
-                ),
-                # Reset link
-                reset_link,
-                cls="flex items-start justify-between mb-6 pb-4 border-b border-gray-100",
+                cls="flex-1",
             ),
-            # Accordion with filters
-            Accordion(
-                # Quality filter
-                AccordionItem(
-                    Div(
-                        Span("Quality Grade", cls="font-semibold text-gray-900"),
-                        (
-                            Span(
-                                "●",
-                                cls="text-purple-600 text-xs",
-                            )
-                            if grade_filter != "all"
-                            else None
-                        ),
-                        cls="flex items-center gap-2",
-                    ),
-                    grade_pills,
-                    open=(grade_filter != "all"),
-                ),
-                # Language filter
-                AccordionItem(
-                    Div(
-                        Span("Language", cls="font-semibold text-gray-900"),
-                        (
-                            Span(
-                                "●",
-                                cls="text-purple-600 text-xs",
-                            )
-                            if language_filter != "all"
-                            else None
-                        ),
-                        cls="flex items-center gap-2",
-                    ),
-                    language_pills,
-                    open=(language_filter != "all"),
-                ),
-                # Activity filter
-                AccordionItem(
-                    Div(
-                        Span("Activity Level", cls="font-semibold text-gray-900"),
-                        (
-                            Span(
-                                "●",
-                                cls="text-purple-600 text-xs",
-                            )
-                            if activity_filter != "all"
-                            else None
-                        ),
-                        cls="flex items-center gap-2",
-                    ),
-                    activity_pills,
-                    open=(activity_filter != "all"),
-                ),
-                # Channel age filter
-                AccordionItem(
-                    Div(
-                        Span("Channel Age", cls="font-semibold text-gray-900"),
-                        (
-                            Span(
-                                "●",
-                                cls="text-purple-600 text-xs",
-                            )
-                            if age_filter != "all"
-                            else None
-                        ),
-                        cls="flex items-center gap-2",
-                    ),
-                    age_pills,
-                    open=(age_filter != "all"),
-                ),
-                multiple=True,
-                collapsible=True,
-                cls="space-y-2",
+            # Close button
+            Button(
+                Span("✕", cls="text-xl"),
+                cls="uk-modal-close-default p-2 hover:bg-gray-100 rounded-lg transition-colors",
+                type_="button",
             ),
-            cls="uk-modal-dialog uk-modal-body bg-white rounded-t-3xl md:rounded-2xl p-6",
+            # Reset link
+            reset_link,
+            cls="flex items-start justify-between mb-6 pb-4 border-b border-gray-100",
         ),
+        # Accordion with filters
+        Accordion(
+            make_filter_item("Quality Grade", grade_filter, grade_pills),
+            make_filter_item("Language", language_filter, language_pills),
+            make_filter_item("Activity Level", activity_filter, activity_pills),
+            make_filter_item("Channel Age", age_filter, age_pills),
+            multiple=True,
+            collapsible=True,
+            cls="space-y-2",
+        ),
+        cls="uk-modal-dialog uk-modal-body bg-white rounded-t-3xl md:rounded-2xl p-6 max-h-[85vh] overflow-y-auto",
         id="filter-modal",
-        cls="uk-modal uk-flex-top",
-        uk_modal="bg-close: false; esc-close: true; stack: true;",
+        uk_modal="container: #filter-modal; bg-close: false; esc-close: true; stack: true;",
     )
 
     # ═══════════════════════════════════════════════════════════════
