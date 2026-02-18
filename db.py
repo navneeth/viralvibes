@@ -1908,46 +1908,37 @@ def get_creators(
 def calculate_creator_stats(creators: list[dict]) -> dict:
     """
     Calculate aggregate statistics from creators list for hero section.
+    Only returns real data from database - no estimates or derived metrics.
 
     Args:
         creators: List of creator dicts
 
     Returns:
-        Dict with total_subscribers, total_views, avg_engagement, total_revenue
+        Dict with total_subscribers, total_views, total_videos
     """
     if not creators:
         return {
             "total_subscribers": 0,
             "total_views": 0,
-            "avg_engagement": 0.0,
-            "total_revenue": 0,
+            "total_videos": 0,
         }
 
     try:
         from utils import safe_get_value
 
-        # Sum totals
+        # Sum real database values only
         total_subscribers = sum(
             safe_get_value(c, "current_subscribers", 0) for c in creators
         )
         total_views = sum(safe_get_value(c, "current_view_count", 0) for c in creators)
-
-        # Average engagement
-        engagement_scores = [safe_get_value(c, "engagement_score", 0) for c in creators]
-        avg_engagement = (
-            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
-        )
-
-        # Estimated revenue (CPM: $4 per 1000 views)
-        total_revenue = sum(
-            (safe_get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
+        total_videos = sum(
+            safe_get_value(c, "current_video_count", 0) for c in creators
         )
 
         return {
             "total_subscribers": int(total_subscribers),
             "total_views": int(total_views),
-            "avg_engagement": round(avg_engagement, 2),
-            "total_revenue": int(total_revenue),
+            "total_videos": int(total_videos),
         }
 
     except Exception as e:
@@ -1955,6 +1946,5 @@ def calculate_creator_stats(creators: list[dict]) -> dict:
         return {
             "total_subscribers": 0,
             "total_views": 0,
-            "avg_engagement": 0.0,
-            "total_revenue": 0,
+            "total_videos": 0,
         }
