@@ -411,73 +411,180 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 7. BUILD FILTER CARDS
+    # 7. COUNT ACTIVE FILTERS
     # ═══════════════════════════════════════════════════════════════
-
-    # Quality card
-    quality_card = Div(
-        Div(
-            P("Quality", cls="text-sm font-bold text-gray-900 mb-2"),
-            grade_pills,
-            cls="space-y-1.5",
-        ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
-    )
-
-    # Language card
-    language_card = Div(
-        Div(
-            P("Language", cls="text-sm font-bold text-gray-900 mb-2"),
-            language_pills,
-            cls="space-y-1.5",
-        ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
-    )
-
-    # Activity card
-    activity_card = Div(
-        Div(
-            P("Activity", cls="text-sm font-bold text-gray-900 mb-2"),
-            activity_pills,
-            cls="space-y-1.5",
-        ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
-    )
-
-    # Age card
-    age_card = Div(
-        Div(
-            P("Channel Age", cls="text-sm font-bold text-gray-900 mb-2"),
-            age_pills,
-            cls="space-y-1.5",
-        ),
-        cls="bg-white rounded-lg border border-gray-200 p-3 hover:shadow-md transition-shadow",
+    active_filters = sum(
+        [
+            grade_filter != "all",
+            language_filter != "all",
+            activity_filter != "all",
+            age_filter != "all",
+        ]
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 8. RETURN COMPLETE FILTER BAR
+    # 8. BUILD FLOATING FILTER BUTTON
+    # ═══════════════════════════════════════════════════════════════
+    filter_button = A(
+        # Icon and text
+        Div(
+            # Filter icon (using emoji for consistency)
+            Span("🔍", cls="text-xl"),
+            Span("Filters", cls="text-sm font-semibold"),
+            cls="flex items-center gap-2",
+        ),
+        # Active count badge (only show if filters are active)
+        (
+            Span(
+                str(active_filters),
+                cls="absolute -top-1.5 -right-1.5 bg-purple-600 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center",
+            )
+            if active_filters > 0
+            else None
+        ),
+        href="#filter-modal",
+        uk_toggle=True,
+        cls="fixed bottom-6 right-6 z-40 bg-purple-600 hover:bg-purple-700 text-white rounded-full px-5 py-3.5 shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105 no-underline",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 9. BUILD FILTER MODAL WITH ACCORDION
+    # ═══════════════════════════════════════════════════════════════
+
+    # Reset filters link
+    reset_link = (
+        A(
+            "Reset All Filters",
+            href=f"/creators?{urlencode({'sort': sort, 'search': search})}",
+            cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
+        )
+        if active_filters > 0
+        else None
+    )
+
+    filter_modal = Div(
+        # Modal backdrop
+        Div(
+            cls="uk-modal-dialog uk-modal-body uk-margin-auto-vertical bg-white rounded-t-3xl md:rounded-2xl max-h-[85vh] overflow-y-auto"
+        ),
+        # Modal content
+        Div(
+            # Header
+            Div(
+                Div(
+                    H3("Filter Creators", cls="text-xl font-bold text-gray-900 mb-1"),
+                    P(
+                        f"{len(creators)} creators available",
+                        cls="text-sm text-gray-600",
+                    ),
+                    cls="flex-1",
+                ),
+                # Close button
+                Button(
+                    Span("✕", cls="text-xl"),
+                    cls="uk-modal-close-default p-2 hover:bg-gray-100 rounded-lg transition-colors",
+                    type_="button",
+                ),
+                # Reset link
+                reset_link,
+                cls="flex items-start justify-between mb-6 pb-4 border-b border-gray-100",
+            ),
+            # Accordion with filters
+            Accordion(
+                # Quality filter
+                AccordionItem(
+                    Div(
+                        Span("Quality Grade", cls="font-semibold text-gray-900"),
+                        (
+                            Span(
+                                "●",
+                                cls="text-purple-600 text-xs",
+                            )
+                            if grade_filter != "all"
+                            else None
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    grade_pills,
+                    open=(grade_filter != "all"),
+                ),
+                # Language filter
+                AccordionItem(
+                    Div(
+                        Span("Language", cls="font-semibold text-gray-900"),
+                        (
+                            Span(
+                                "●",
+                                cls="text-purple-600 text-xs",
+                            )
+                            if language_filter != "all"
+                            else None
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    language_pills,
+                    open=(language_filter != "all"),
+                ),
+                # Activity filter
+                AccordionItem(
+                    Div(
+                        Span("Activity Level", cls="font-semibold text-gray-900"),
+                        (
+                            Span(
+                                "●",
+                                cls="text-purple-600 text-xs",
+                            )
+                            if activity_filter != "all"
+                            else None
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    activity_pills,
+                    open=(activity_filter != "all"),
+                ),
+                # Channel age filter
+                AccordionItem(
+                    Div(
+                        Span("Channel Age", cls="font-semibold text-gray-900"),
+                        (
+                            Span(
+                                "●",
+                                cls="text-purple-600 text-xs",
+                            )
+                            if age_filter != "all"
+                            else None
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    age_pills,
+                    open=(age_filter != "all"),
+                ),
+                multiple=True,
+                collapsible=True,
+                cls="space-y-2",
+            ),
+            cls="uk-modal-dialog uk-modal-body bg-white rounded-t-3xl md:rounded-2xl p-6",
+        ),
+        id="filter-modal",
+        cls="uk-modal uk-flex-top",
+        uk_modal="bg-close: false; esc-close: true; stack: true;",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 10. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
     # ═══════════════════════════════════════════════════════════════
     return Div(
-        # Top row: Search + Sort
+        # Compact top bar: Search + Sort only
         Div(
             search_form,
             sort_form,
-            cls="flex gap-3 mb-4",
+            cls="flex gap-3",
         ),
-        # Filter cards grid
-        Grid(
-            quality_card,
-            language_card,
-            activity_card,
-            age_card,
-            cols_xl=4,
-            cols_lg=4,
-            cols_md=2,
-            cols_sm=1,
-            gap=3,
-            cls="",
-        ),
-        cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-10",
+        # Floating filter button (fixed position)
+        filter_button,
+        # Filter modal (hidden until toggled)
+        filter_modal,
+        cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-30",
     )
 
 
