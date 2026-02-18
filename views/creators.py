@@ -160,7 +160,7 @@ def _render_hero(creator_count: int, stats: dict) -> Div:
             ),
             cls="mb-8",
         ),
-        # Metric Strip - evenly spaced statement
+        # Metric Strip - real data only, no estimates
         Div(
             Div(
                 P(
@@ -186,29 +186,37 @@ def _render_hero(creator_count: int, stats: dict) -> Div:
             ),
             Div(
                 P(
-                    "Avg Engagement",
+                    "Total Videos",
                     cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
-                    f"{stats.get('avg_engagement', 0):.1f}%",
-                    cls="text-4xl font-bold text-emerald-600 mt-2",
+                    format_number(stats.get("total_videos", 0)),
+                    cls="text-4xl font-bold text-purple-600 mt-2",
+                ),
+                P(
+                    "Content library",
+                    cls="text-xs text-gray-600 mt-1",
                 ),
                 cls="text-center",
             ),
             Div(
                 P(
-                    "Est. Monthly Revenue",
+                    "Total Views",
                     cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
-                    f"${format_number(stats.get('total_revenue', 0))}",
-                    cls="text-4xl font-bold text-amber-600 mt-2",
+                    format_number(stats.get("total_views", 0)),
+                    cls="text-4xl font-bold text-emerald-600 mt-2",
+                ),
+                P(
+                    "Lifetime views",
+                    cls="text-xs text-gray-600 mt-1",
                 ),
                 cls="text-center",
             ),
-            cls="grid grid-cols-4 gap-8 py-8 border-t border-b border-gray-200",
+            cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-gray-200",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-8 mb-8",
+        cls="bg-white rounded-lg border border-gray-200 p-6 md:p-8 mb-8",
     )
 
 
