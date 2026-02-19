@@ -623,24 +623,6 @@ def _build_card_header(
                 ),
                 cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
             ),
-            # Channel age badge
-            (
-                Div(
-                    (
-                        "👑 Veteran"
-                        if channel_age_days > 3650
-                        else (
-                            "🏆 Established"
-                            if channel_age_days > 1825
-                            else ("📈 Growing" if channel_age_days > 365 else "🆕 New")
-                        )
-                    ),
-                    cls="text-xs font-semibold px-2.5 py-1 rounded-md "
-                    "bg-purple-100 text-purple-700 whitespace-nowrap",
-                )
-                if channel_age_days
-                else None
-            ),
             cls="flex justify-between items-start gap-3 flex-1",
         ),
         cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
@@ -694,10 +676,10 @@ def _build_performance_metrics(
     engagement_score: float,
     estimated_revenue: int,
 ) -> Div:
-    """Build performance metrics grid (4-column)."""
+    """Build performance metrics grid (3-column, removed unreliable engagement)."""
     return Div(
         Div(
-            P("AVG", cls="text-xs font-semibold text-gray-600 uppercase"),
+            P("AVG VIEWS", cls="text-xs font-semibold text-gray-600 uppercase"),
             P(
                 f"{format_number(avg_views_per_video)}",
                 cls="text-lg font-bold text-gray-900 mt-1",
@@ -715,30 +697,18 @@ def _build_performance_metrics(
             cls="bg-gray-50 rounded-lg p-3 text-center",
         ),
         Div(
-            P("ENGAGEMENT", cls="text-xs font-semibold text-gray-600 uppercase"),
             P(
-                f"{engagement_score:.1f}%",
-                cls="text-lg font-bold text-gray-900 mt-1",
-            ),
-            P(
-                "on videos" if engagement_score > 0 else "no engagement",
-                cls="text-xs text-gray-500 mt-1",
-            ),
-            cls="bg-gray-50 rounded-lg p-3 text-center",
-        ),
-        Div(
-            P(
-                "REVENUE",
+                "EST. REVENUE",
                 cls="text-xs font-semibold text-green-700 uppercase font-bold",
             ),
             P(
                 f"${format_number(estimated_revenue)}",
                 cls="text-lg font-bold text-green-600 mt-1",
             ),
-            P("/month", cls="text-xs text-green-600"),
+            P("/month est.", cls="text-xs text-green-600"),
             cls="bg-green-50 rounded-lg p-3 text-center",
         ),
-        cls="grid grid-cols-4 gap-3 mb-4",
+        cls="grid grid-cols-3 gap-3 mb-4",
     )
 
 
@@ -806,15 +776,16 @@ def _build_metadata_section(
     language: str,
     keywords: str,
     monthly_uploads: float,
+    channel_age_days: int = 0,
 ) -> Div | None:
-    """Build optional metadata section with custom URL, language, and keywords."""
+    """Build optional metadata section with custom URL, language, keywords, and channel age."""
     from utils.creator_metrics import (
         get_activity_badge,
         get_language_emoji,
         get_language_name,
     )
 
-    if not (custom_url or language or keywords or monthly_uploads):
+    if not (custom_url or language or keywords or monthly_uploads or channel_age_days):
         return None
 
     return Div(
@@ -830,7 +801,7 @@ def _build_metadata_section(
             if custom_url
             else None
         ),
-        # Language + Activity
+        # Language, activity, and channel age
         Div(
             (
                 Span(
@@ -846,6 +817,26 @@ def _build_metadata_section(
                     cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
                 )
                 if monthly_uploads
+                else None
+            ),
+            (
+                Span(
+                    (
+                        "👑 Veteran (10+ yrs)"
+                        if channel_age_days > 3650
+                        else (
+                            "🏆 Established (5+ yrs)"
+                            if channel_age_days > 1825
+                            else (
+                                "📈 Growing (1+ yr)"
+                                if channel_age_days > 365
+                                else "🆕 New (<1 yr)"
+                            )
+                        )
+                    ),
+                    cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
+                )
+                if channel_age_days
                 else None
             ),
             cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
@@ -922,7 +913,7 @@ def _render_creator_card(creator: dict) -> Div:
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 
     metadata_section = _build_metadata_section(
-        custom_url, language, keywords, monthly_uploads
+        custom_url, language, keywords, monthly_uploads, channel_age_days
     )
 
     # === COMPOSE CARD ===
