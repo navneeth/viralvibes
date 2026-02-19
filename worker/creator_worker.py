@@ -54,6 +54,7 @@ from db import (
 )
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
 from services.schema_detector import schema_detector
+from services.youtube_config import get_creator_worker_api_key
 
 # --- Load environment variables early ---
 load_dotenv()
@@ -176,17 +177,14 @@ async def init():
         logger.error(f"❌ Supabase initialization failed: {e}")
         raise SystemExit(1)
 
-    # Validate YouTube API
-    api_key = os.getenv("YOUTUBE_API_KEY")
-    if not api_key:
-        logger.error("❌ YOUTUBE_API_KEY not configured")
-        raise SystemExit(1)
-
+    # Validate YouTube API for creator worker
     try:
+        api_key = get_creator_worker_api_key()
         youtube_resolver = YouTubeResolver(api_key=api_key)
-        logger.info("✅ YouTube resolver initialized")
+        logger.info("✅ YouTube resolver initialized for creator worker")
+
     except Exception as e:
-        logger.error(f"❌ YouTube resolver initialization failed: {e}")
+        logger.error(f"❌ YouTube API key initialization failed: {e}")
         raise SystemExit(1)
 
     # Initialize metrics
