@@ -44,6 +44,7 @@ from utils.creator_metrics import (
     get_grade_info,
     get_growth_signal,
     get_language_emoji,
+    get_language_name,
     get_sync_status_badge,
 )
 
@@ -806,7 +807,7 @@ def _build_info_strip(
         icons.append(
             Span(
                 get_language_emoji(language),
-                title=f"Language: {language}",
+                title=f"Language: {get_language_name(language)}",
                 cls="text-lg",
             )
         )

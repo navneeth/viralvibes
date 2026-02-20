@@ -531,16 +531,29 @@ async def handle_sync_job(
             schema_detector.log_schema_mismatch(
                 missing_fields, table_name=CREATOR_TABLE
             )
-            logger.info(
-                f"{job_tag} Graceful fallback: "
+            logger.warning(
+                f"{job_tag} ⚠️  Schema mismatch detected: "
                 f"Syncing {len(update_payload)} available fields, "
                 f"skipping {len(missing_fields)} unavailable columns"
+            )
+            logger.debug(
+                f"{job_tag} Missing columns: {', '.join(sorted(missing_fields.keys()))}"
+            )
+            # Mark as partial sync so it gets re-queued
+            update_payload["sync_status"] = "synced_partial"
+            update_payload["sync_error_message"] = (
+                f"Partial sync: {len(missing_fields)} columns not available in database. "
+                "Run migrations to add missing columns."
             )
 
         # ═══════════════════════════════════════════════════════════
         # UPDATE DATABASE (with fallback to minimal fields)
         # ═══════════════════════════════════════════════════════════
         try:
+            logger.debug(
+                f"{job_tag} Updating fields: {', '.join(sorted(update_payload.keys()))}"
+            )
+
             result = (
                 supabase_client.table(CREATOR_TABLE)
                 .update(update_payload)
@@ -551,9 +564,10 @@ async def handle_sync_job(
             if not result.data:
                 logger.warning(f"{job_tag} Update returned no data")
 
+            sync_status_result = update_payload.get("sync_status", "synced")
             logger.info(
                 f"{job_tag} ✅ Database updated successfully "
-                f"({len(update_payload)} fields)"
+                f"({len(update_payload)} fields, status={sync_status_result})"
             )
 
         except Exception as update_error:
@@ -688,7 +702,9 @@ async def process_creator_syncs():
     start_time = time.time()
     empty_poll_count = 0  # Track consecutive empty polls for backoff
     last_retry_check = 0  # Track when we last queued invalid creators (start at 0 to trigger immediately)
+    last_extended_check = 0  # Track extended refresh checks
     RETRY_CHECK_INTERVAL = 1800  # Check for invalid creators every 30 minutes (runs twice in 1 hour window)
+    EXTENDED_CHECK_INTERVAL = 10800  # Extended refresh every 3 hours
 
     while not stop_event.is_set():
         elapsed = time.time() - start_time
@@ -702,14 +718,32 @@ async def process_creator_syncs():
         if time.time() - last_retry_check > RETRY_CHECK_INTERVAL:
             logger.info("Running periodic check to queue creators for sync...")
             try:
-                # Queue creators with invalid stats or no recent sync (within 24 hours)
-                retry_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
+                # Queue creators with invalid/failed/partial sync or old data
+                # First pass: Invalid/failed/partial status (higher priority)
+                retry_count = queue_invalid_creators_for_retry(
+                    hours_since_last_sync=24, force_resync_all=False
+                )
                 logger.info(
                     f"✅ Auto-queue check: Queued {retry_count} creator(s) for sync"
                 )
             except Exception as e:
                 logger.error(f"❌ Auto-queue check failed: {e}")
             last_retry_check = time.time()
+
+        # Extended check: Every 3 hours, also queue old 'synced' creators to refresh all fields
+        # (catches schema updates where new columns were added)
+        if time.time() - last_extended_check > EXTENDED_CHECK_INTERVAL:
+            logger.info("Running extended check to refresh all old syncs...")
+            try:
+                resync_count = queue_invalid_creators_for_retry(
+                    hours_since_last_sync=168, force_resync_all=True  # 1 week old
+                )
+                logger.info(
+                    f"✅ Extended refresh: Queued {resync_count} old sync(s) for refresh"
+                )
+            except Exception as e:
+                logger.error(f"❌ Extended refresh failed: {e}")
+            last_extended_check = time.time()
 
         logger.info(
             f"Worker progress: {int(elapsed / 60)}m elapsed, "
