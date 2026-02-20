@@ -36,10 +36,15 @@ from utils.creator_metrics import (
     calculate_growth_rate,
     estimate_monthly_revenue,
     format_channel_age,
+    get_activity_emoji,
+    get_activity_title,
+    get_age_emoji,
+    get_age_title,
+    get_country_flag,
     get_grade_info,
     get_growth_signal,
-    get_sync_status_badge,
     get_language_emoji,
+    get_sync_status_badge,
 )
 
 logger = logging.getLogger(__name__)
@@ -782,44 +787,19 @@ def _build_info_strip(
     custom_url: str = "",
 ) -> Div | None:
     """Build clean emoji/icon strip showing key channel info."""
-
-    # Channel age emoji (simple, no text)
-    if channel_age_days > 3650:
-        age_emoji = "👑"  # Veteran
-    elif channel_age_days > 1825:
-        age_emoji = "🏆"  # Established
-    elif channel_age_days > 365:
-        age_emoji = "📈"  # Growing
-    else:
-        age_emoji = "🆕"  # New
-
-    # Activity emoji based on monthly uploads
-    if monthly_uploads > 5:
-        activity_emoji = "🔥"  # Active
-    elif monthly_uploads > 1:
-        activity_emoji = "✅"  # Regular
-    elif monthly_uploads > 0:
-        activity_emoji = "📅"  # Occasional
-    else:
-        activity_emoji = "⏸️"  # Dormant
-
     # Build icon list
     icons = []
 
-    # Country flag using flag package
-    if country_code:
-        try:
-            country_flag = flag.flag(country_code.upper())
-            icons.append(
-                Span(
-                    country_flag,
-                    title=f"Country: {country_code.upper()}",
-                    cls="text-lg",
-                )
+    # Country flag
+    country_flag = get_country_flag(country_code)
+    if country_flag:
+        icons.append(
+            Span(
+                country_flag,
+                title=f"Country: {country_code.upper()}",
+                cls="text-lg",
             )
-        except (ValueError, KeyError):
-            # Invalid country code, skip
-            pass
+        )
 
     # Language
     if language:
@@ -833,34 +813,20 @@ def _build_info_strip(
 
     # Channel age
     if channel_age_days:
-        age_title = (
-            "10+ years"
-            if channel_age_days > 3650
-            else (
-                "5+ years"
-                if channel_age_days > 1825
-                else "1+ year" if channel_age_days > 365 else "<1 year"
-            )
-        )
         icons.append(
             Span(
-                age_emoji,
-                title=f"Channel age: {age_title}",
+                get_age_emoji(channel_age_days),
+                title=f"Channel age: {get_age_title(channel_age_days)}",
                 cls="text-lg",
             )
         )
 
     # Activity level
     if monthly_uploads:
-        activity_title = (
-            "Very active (>5/mo)"
-            if monthly_uploads > 5
-            else "Active (1-5/mo)" if monthly_uploads > 1 else "Occasional (<1/mo)"
-        )
         icons.append(
             Span(
-                activity_emoji,
-                title=f"Activity: {activity_title}",
+                get_activity_emoji(monthly_uploads),
+                title=f"Activity: {get_activity_title(monthly_uploads)}",
                 cls="text-lg",
             )
         )
