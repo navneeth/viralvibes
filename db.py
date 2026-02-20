@@ -12,6 +12,7 @@ import os
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+
 from typing import Any, Dict, List, Optional, Protocol
 
 from supabase import Client, create_client
@@ -688,7 +689,6 @@ def queue_invalid_creators_for_retry(
         return 0
 
     try:
-        from datetime import datetime, timedelta, timezone
 
         cutoff_time = datetime.now(timezone.utc) - timedelta(
             hours=hours_since_last_sync
@@ -699,21 +699,47 @@ def queue_invalid_creators_for_retry(
         # - 'failed': Sync errors
         # - 'synced_partial': Missing columns, partial data
         # - 'synced': (optional) Force refresh all data
-        statuses_to_retry = ["invalid", "failed", "synced_partial"]
-        if force_resync_all:
-            statuses_to_retry.append("synced")
+        cutoff_iso = cutoff_time.isoformat()
 
-        # Find creators needing retry
-        response = (
+        # Query 1: creators that previously failed and whose last sync is old enough
+        failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
-            .in_("sync_status", statuses_to_retry)
-            .lt("last_synced_at", cutoff_time.isoformat())
-            .limit(100)  # Process in batches
+            .in_("sync_status", ["invalid", "failed", "synced_partial"])
+            .not_.is_("last_synced_at", "null")  # ← only rows where value exists
+            .lt("last_synced_at", cutoff_iso)
+            .limit(100)
             .execute()
         )
 
-        creators = response.data if response.data else []
+        # Query 2: creators that have NEVER been synced (last_synced_at IS NULL)
+        # These were being silently excluded by the original .lt() filter.
+        # Also include NULL sync_status (creators inserted without a status).
+        never_synced_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
+            .is_("last_synced_at", "null")
+            .limit(100)
+            .execute()
+        )
+
+        creators = (failed_resp.data or []) + (never_synced_resp.data or [])
+
+        # Deduplicate by id (shouldn't overlap, but be safe)
+        seen_ids = set()
+        unique_creators = []
+        for c in creators:
+            if c["id"] not in seen_ids:
+                seen_ids.add(c["id"])
+                unique_creators.append(c)
+        creators = unique_creators
+
+        logger.info(
+            f"[queue_invalid_creators_for_retry] "
+            f"Found {len(failed_resp.data or [])} failed/invalid + "
+            f"{len(never_synced_resp.data or [])} never-synced creators"
+        )
+
         queued_count = 0
 
         for creator in creators:
