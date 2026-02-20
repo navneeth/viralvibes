@@ -141,11 +141,73 @@ def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
     if not monthly_uploads:
         return None
 
-    if monthly_uploads > 10:
+    # Use same thresholds as emoji/title for consistency
+    if monthly_uploads > 5:
         return "🔥 Very Active"
-    elif monthly_uploads > 5:
-        return "📈 Active"
-    elif monthly_uploads > 2:
-        return "📊 Regular"
+    elif monthly_uploads >= 1:
+        return "✅ Active"
+    elif monthly_uploads > 0:
+        return "📅 Occasional"
     else:
-        return "⚠️ Inactive"
+        return "⏸️ Dormant"
+
+
+def get_age_emoji(channel_age_days: int) -> str:
+    """Get emoji for channel age."""
+    if channel_age_days > 3650:  # 10+ years
+        return "👑"  # Veteran
+    elif channel_age_days > 1825:  # 5+ years
+        return "🏆"  # Established
+    elif channel_age_days > 365:  # 1+ year
+        return "📈"  # Growing
+    else:
+        return "🆕"  # New
+
+
+def get_age_title(channel_age_days: int) -> str:
+    """Get title text for channel age."""
+    if channel_age_days > 3650:
+        return "10+ years"
+    elif channel_age_days > 1825:
+        return "5+ years"
+    elif channel_age_days > 365:
+        return "1+ year"
+    else:
+        return "<1 year"
+
+
+def get_activity_emoji(monthly_uploads: float) -> str:
+    """Get emoji for channel activity level."""
+    if monthly_uploads > 5:
+        return "🔥"  # Very active
+    elif monthly_uploads >= 1:
+        return "✅"  # Active
+    elif monthly_uploads > 0:
+        return "📅"  # Occasional
+    else:
+        return "⏸️"  # Dormant
+
+
+def get_activity_title(monthly_uploads: float) -> str:
+    """Get title text for channel activity level."""
+    if monthly_uploads > 5:
+        return "Very active (>5/mo)"
+    elif monthly_uploads >= 1:
+        return "Active (1-5/mo)"
+    elif monthly_uploads > 0:
+        return "Occasional (<1/mo)"
+    else:
+        return "Dormant (0/mo)"
+
+
+def get_country_flag(country_code: str) -> Optional[str]:
+    """Get country flag emoji from country code using emoji-country-flag package."""
+    if not country_code:
+        return None
+
+    try:
+        import flag
+
+        return flag.flag(country_code.upper())
+    except (ValueError, KeyError, ImportError):
+        return None
