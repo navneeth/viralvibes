@@ -141,14 +141,15 @@ def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
     if not monthly_uploads:
         return None
 
-    if monthly_uploads > 10:
+    # Use same thresholds as emoji/title for consistency
+    if monthly_uploads > 5:
         return "🔥 Very Active"
-    elif monthly_uploads > 5:
-        return "📈 Active"
-    elif monthly_uploads > 2:
-        return "📊 Regular"
-    else:
+    elif monthly_uploads >= 1:
+        return "✅ Active"
+    elif monthly_uploads > 0:
         return "📅 Occasional"
+    else:
+        return "⏸️ Dormant"
 
 
 def get_age_emoji(channel_age_days: int) -> str:
@@ -179,8 +180,8 @@ def get_activity_emoji(monthly_uploads: float) -> str:
     """Get emoji for channel activity level."""
     if monthly_uploads > 5:
         return "🔥"  # Very active
-    elif monthly_uploads > 1:
-        return "✅"  # Regular
+    elif monthly_uploads >= 1:
+        return "✅"  # Active
     elif monthly_uploads > 0:
         return "📅"  # Occasional
     else:
@@ -191,10 +192,12 @@ def get_activity_title(monthly_uploads: float) -> str:
     """Get title text for channel activity level."""
     if monthly_uploads > 5:
         return "Very active (>5/mo)"
-    elif monthly_uploads > 1:
+    elif monthly_uploads >= 1:
         return "Active (1-5/mo)"
-    else:
+    elif monthly_uploads > 0:
         return "Occasional (<1/mo)"
+    else:
+        return "Dormant (0/mo)"
 
 
 def get_country_flag(country_code: str) -> Optional[str]:

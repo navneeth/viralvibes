@@ -665,15 +665,20 @@ def submit_playlist_job(
 # Manages the creator_sync_jobs queue for background processing
 
 
-def queue_invalid_creators_for_retry(hours_since_last_sync: int = 24) -> int:
+def queue_invalid_creators_for_retry(
+    hours_since_last_sync: int = 24, force_resync_all: bool = False
+) -> int:
     """
-    Queue creators with invalid/failed sync status for retry.
+    Queue creators with invalid/failed/partial sync status for retry.
 
-    This function finds creators marked as 'invalid' or 'failed' and queues
-    them for another sync attempt. Useful for automated cleanup of bad data.
+    This function finds creators marked as 'invalid', 'failed', or 'synced_partial'
+    and queues them for another sync attempt. When force_resync_all=True, it will
+    also queue creators with 'synced' status to refresh all fields (useful after
+    schema updates).
 
     Args:
         hours_since_last_sync: Only retry if last sync was N hours ago (default 24)
+        force_resync_all: If True, also queue creators with 'synced' status (default False)
 
     Returns:
         Number of creators queued for retry
@@ -689,11 +694,20 @@ def queue_invalid_creators_for_retry(hours_since_last_sync: int = 24) -> int:
             hours=hours_since_last_sync
         )
 
+        # Statuses to retry:
+        # - 'invalid': Zero subs/views, likely bad channel_id
+        # - 'failed': Sync errors
+        # - 'synced_partial': Missing columns, partial data
+        # - 'synced': (optional) Force refresh all data
+        statuses_to_retry = ["invalid", "failed", "synced_partial"]
+        if force_resync_all:
+            statuses_to_retry.append("synced")
+
         # Find creators needing retry
         response = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
-            .in_("sync_status", ["invalid", "failed"])
+            .in_("sync_status", statuses_to_retry)
             .lt("last_synced_at", cutoff_time.isoformat())
             .limit(100)  # Process in batches
             .execute()
