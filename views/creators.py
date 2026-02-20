@@ -771,83 +771,129 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
     )
 
 
-def _build_metadata_section(
-    custom_url: str,
+def _build_info_strip(
     language: str,
-    keywords: str,
+    country_code: str,
+    channel_age_days: int,
     monthly_uploads: float,
-    channel_age_days: int = 0,
+    custom_url: str = "",
 ) -> Div | None:
-    """Build optional metadata section with custom URL, language, keywords, and channel age."""
-    from utils.creator_metrics import (
-        get_activity_badge,
-        get_language_emoji,
-        get_language_name,
-    )
+    """Build clean emoji/icon strip showing key channel info."""
+    from utils.creator_metrics import get_language_emoji
 
-    if not (custom_url or language or keywords or monthly_uploads or channel_age_days):
+    # Country emoji mapping
+    country_flags = {
+        "US": "🇺🇸",
+        "GB": "🇬🇧",
+        "CA": "🇨🇦",
+        "AU": "🇦🇺",
+        "IN": "🇮🇳",
+        "JP": "🇯🇵",
+        "KR": "🇰🇷",
+        "CN": "🇨🇳",
+        "ES": "🇪🇸",
+        "MX": "🇲🇽",
+        "BR": "🇧🇷",
+        "FR": "🇫🇷",
+        "DE": "🇩🇪",
+        "IT": "🇮🇹",
+        "RU": "🇷🇺",
+        "PH": "🇵🇭",
+    }
+
+    # Channel age emoji (simple, no text)
+    if channel_age_days > 3650:
+        age_emoji = "👑"  # Veteran
+    elif channel_age_days > 1825:
+        age_emoji = "🏆"  # Established
+    elif channel_age_days > 365:
+        age_emoji = "📈"  # Growing
+    else:
+        age_emoji = "🆕"  # New
+
+    # Activity emoji based on monthly uploads
+    if monthly_uploads > 5:
+        activity_emoji = "🔥"  # Active
+    elif monthly_uploads > 1:
+        activity_emoji = "✅"  # Regular
+    elif monthly_uploads > 0:
+        activity_emoji = "📅"  # Occasional
+    else:
+        activity_emoji = "⏸️"  # Dormant
+
+    # Build icon list
+    icons = []
+
+    # Country
+    if country_code and country_code.upper() in country_flags:
+        icons.append(
+            Span(
+                country_flags[country_code.upper()],
+                title=f"Country: {country_code.upper()}",
+                cls="text-lg",
+            )
+        )
+
+    # Language
+    if language:
+        icons.append(
+            Span(
+                get_language_emoji(language),
+                title=f"Language: {language}",
+                cls="text-lg",
+            )
+        )
+
+    # Channel age
+    if channel_age_days:
+        age_title = (
+            "10+ years"
+            if channel_age_days > 3650
+            else (
+                "5+ years"
+                if channel_age_days > 1825
+                else "1+ year" if channel_age_days > 365 else "<1 year"
+            )
+        )
+        icons.append(
+            Span(
+                age_emoji,
+                title=f"Channel age: {age_title}",
+                cls="text-lg",
+            )
+        )
+
+    # Activity level
+    if monthly_uploads:
+        activity_title = (
+            "Very active (>5/mo)"
+            if monthly_uploads > 5
+            else "Active (1-5/mo)" if monthly_uploads > 1 else "Occasional (<1/mo)"
+        )
+        icons.append(
+            Span(
+                activity_emoji,
+                title=f"Activity: {activity_title}",
+                cls="text-lg",
+            )
+        )
+
+    # Custom URL badge (if available)
+    if custom_url:
+        icons.append(
+            Span(
+                "✔️",
+                title=f"Custom URL: @{custom_url.lstrip('@')}",
+                cls="text-lg",
+            )
+        )
+
+    if not icons:
         return None
 
     return Div(
-        # Custom URL
-        (
-            Div(
-                Span(
-                    f"@{custom_url.lstrip('@')}",
-                    cls="text-sm font-semibold text-blue-600 truncate",
-                ),
-                cls="mb-2",
-            )
-            if custom_url
-            else None
-        ),
-        # Language, activity, and channel age
-        Div(
-            (
-                Span(
-                    f"{get_language_emoji(language)} {get_language_name(language)}",
-                    cls="text-xs text-gray-600 font-medium",
-                )
-                if language
-                else None
-            ),
-            (
-                Span(
-                    get_activity_badge(monthly_uploads),
-                    cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
-                )
-                if monthly_uploads
-                else None
-            ),
-            (
-                Span(
-                    (
-                        "👑 Veteran (10+ yrs)"
-                        if channel_age_days > 3650
-                        else (
-                            "🏆 Established (5+ yrs)"
-                            if channel_age_days > 1825
-                            else (
-                                "📈 Growing (1+ yr)"
-                                if channel_age_days > 365
-                                else "🆕 New (<1 yr)"
-                            )
-                        )
-                    ),
-                    cls="text-xs text-gray-600 font-medium ml-2 pl-2 border-l border-gray-300",
-                )
-                if channel_age_days
-                else None
-            ),
-            cls="flex items-center gap-2 text-xs text-gray-600 mb-2",
-        ),
-        # Keywords
-        (
-            P(keywords, cls="text-xs text-gray-500 italic line-clamp-1")
-            if keywords
-            else None
-        ),
-        cls="mb-3 pb-3 border-b border-gray-100 text-xs",
+        *icons,
+        cls="flex items-center justify-center gap-3 py-2 bg-gray-50 rounded-lg",
     )
 
 
@@ -906,14 +952,14 @@ def _render_creator_card(creator: dict) -> Div:
     grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
     growth_signal_text, growth_emoji, growth_style = get_growth_signal(growth_rate)
 
-    # === METADATA SECTION (optional) ===
+    # === INFO STRIP DATA ===
     custom_url = safe_get_value(creator, "custom_url", "")
     language = safe_get_value(creator, "default_language", "")
-    keywords = safe_get_value(creator, "keywords", "")
+    country_code = safe_get_value(creator, "country_code", "")
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 
-    metadata_section = _build_metadata_section(
-        custom_url, language, keywords, monthly_uploads, channel_age_days
+    info_strip = _build_info_strip(
+        language, country_code, channel_age_days, monthly_uploads, custom_url
     )
 
     # === COMPOSE CARD ===
@@ -940,8 +986,6 @@ def _render_creator_card(creator: dict) -> Div:
             quality_grade,
             channel_age_days,
         ),
-        # Metadata (optional)
-        metadata_section,
         # Primary metrics
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
         # Performance metrics
@@ -952,6 +996,8 @@ def _render_creator_card(creator: dict) -> Div:
         _build_growth_trend(
             growth_rate, growth_signal_text, growth_emoji, growth_style
         ),
+        # Info strip at bottom (clean emoji display)
+        info_strip,
         # Footer
         _build_card_footer(last_updated, channel_url),
         cls=f"bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer {card_border}",
