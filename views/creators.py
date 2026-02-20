@@ -25,6 +25,8 @@ import logging
 from datetime import datetime
 from urllib.parse import urlencode
 
+import flag
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -37,6 +39,7 @@ from utils.creator_metrics import (
     get_grade_info,
     get_growth_signal,
     get_sync_status_badge,
+    get_language_emoji,
 )
 
 logger = logging.getLogger(__name__)
@@ -779,27 +782,6 @@ def _build_info_strip(
     custom_url: str = "",
 ) -> Div | None:
     """Build clean emoji/icon strip showing key channel info."""
-    from utils.creator_metrics import get_language_emoji
-
-    # Country emoji mapping
-    country_flags = {
-        "US": "🇺🇸",
-        "GB": "🇬🇧",
-        "CA": "🇨🇦",
-        "AU": "🇦🇺",
-        "IN": "🇮🇳",
-        "JP": "🇯🇵",
-        "KR": "🇰🇷",
-        "CN": "🇨🇳",
-        "ES": "🇪🇸",
-        "MX": "🇲🇽",
-        "BR": "🇧🇷",
-        "FR": "🇫🇷",
-        "DE": "🇩🇪",
-        "IT": "🇮🇹",
-        "RU": "🇷🇺",
-        "PH": "🇵🇭",
-    }
 
     # Channel age emoji (simple, no text)
     if channel_age_days > 3650:
@@ -824,15 +806,20 @@ def _build_info_strip(
     # Build icon list
     icons = []
 
-    # Country
-    if country_code and country_code.upper() in country_flags:
-        icons.append(
-            Span(
-                country_flags[country_code.upper()],
-                title=f"Country: {country_code.upper()}",
-                cls="text-lg",
+    # Country flag using flag package
+    if country_code:
+        try:
+            country_flag = flag.flag(country_code.upper())
+            icons.append(
+                Span(
+                    country_flag,
+                    title=f"Country: {country_code.upper()}",
+                    cls="text-lg",
+                )
             )
-        )
+        except (ValueError, KeyError):
+            # Invalid country code, skip
+            pass
 
     # Language
     if language:
@@ -957,6 +944,7 @@ def _render_creator_card(creator: dict) -> Div:
     language = safe_get_value(creator, "default_language", "")
     country_code = safe_get_value(creator, "country_code", "")
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
+    keywords = safe_get_value(creator, "keywords", "")
 
     info_strip = _build_info_strip(
         language, country_code, channel_age_days, monthly_uploads, custom_url
@@ -995,6 +983,18 @@ def _render_creator_card(creator: dict) -> Div:
         # Growth trend
         _build_growth_trend(
             growth_rate, growth_signal_text, growth_emoji, growth_style
+        ),
+        # Keywords (if available)
+        (
+            Div(
+                P(
+                    keywords,
+                    cls="text-xs text-gray-500 italic line-clamp-1 text-center",
+                ),
+                cls="mb-2",
+            )
+            if keywords
+            else None
         ),
         # Info strip at bottom (clean emoji display)
         info_strip,
