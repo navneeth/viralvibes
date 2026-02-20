@@ -92,45 +92,6 @@ def faq_item(question: str, answer: str, id: int) -> Div:
 # =============================================================================
 # Main Cards
 # =============================================================================
-# def HeaderCard() -> Card:
-#     """Simplified, flat header card for ViralVibes — no nested components."""
-#     return CardTitle(
-#         Div(
-#             # Text content (left)
-#             Div(
-#                 H1(
-#                     "Welcome to ViralVibes",
-#                     cls=STYLES["hero_title"] + " text-blue-700 mb-4",
-#                 ),
-#                 P(
-#                     "Decode YouTube virality. Instantly.",
-#                     cls="text-xl text-gray-700 mb-3",
-#                 ),
-#                 P(
-#                     "Analyze any YouTube playlist to uncover engagement trends, viral patterns, and creator insights — instantly.",
-#                     cls="text-base text-gray-500 max-w-lg",
-#                 ),
-#                 Button(
-#                     UkIcon("chart-bar", cls="mr-2"),
-#                     "Start Analyzing",
-#                     onclick="document.querySelector('#analyze-section').scrollIntoView({behavior:'smooth'})",
-#                     cls="mt-6 " + STYLES["cta_primary"],
-#                 ),
-#                 cls="flex-1",
-#             ),
-#             # Image (right)
-#             Img(
-#                 src="/static/thumbnail.png",
-#                 alt="YouTube Analytics Dashboard Preview",
-#                 cls="flex-1 w-64 md:w-80 lg:w-96 " + STYLES["card_thumbnail"],
-#                 loading="lazy",
-#             ),
-#             # Overall container
-#             cls="flex flex-col md:flex-row gap-10 items-center justify-between",
-#         ),
-#         cls=THEME["card_base"],
-#         uk_scrollspy="cls: uk-animation-slide-bottom-small",
-#     )
 
 """
 HeaderCard Redesign — ViralVibes
@@ -407,7 +368,7 @@ def HeaderCard() -> Div:
                         # GIF placeholder
                         Div(
                             Img(
-                                src="/static/dashboard-preview.gif",
+                                src="/static/dashboard-preview.png",
                                 alt="Dashboard preview",
                                 style="display:block; width:100%; height:auto; border-radius:0.55rem;",
                             ),
@@ -419,7 +380,7 @@ def HeaderCard() -> Div:
                                     style="color:rgba(239,68,68,0.6)",
                                 ),
                                 Span(
-                                    "dashboard-preview.gif",
+                                    "dashboard-preview.png",
                                     style="font-family:'Geist Mono',monospace; font-size:0.62rem; letter-spacing:0.06em; color:rgba(239,68,68,0.5); text-transform:uppercase;",
                                 ),
                                 style=(
