@@ -326,7 +326,7 @@ def _queue_unsynced_creators(batch_size: int = 100) -> int:
 
         creators = response.data or []
         if not creators:
-            logger.info("  No unsynced creators found (last_synced_at IS NULL)")
+            logger.debug("  No unsynced creators found (last_synced_at IS NULL)")
             return 0
 
         logger.info(
@@ -388,7 +388,7 @@ def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
 
         creators = response.data or []
         if not creators:
-            logger.info(
+            logger.debug(
                 f"  No stale creators found (last synced > {days_since_last_sync} days ago)"
             )
             return 0
@@ -474,7 +474,7 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
                 f"({len(fresh_jobs)} fresh, {len(retry_jobs)} retry-ready)"
             )
         else:
-            logger.info("  No pending jobs ready for processing right now")
+            logger.debug("  No pending jobs ready for processing right now")
 
         return all_jobs
 
@@ -978,6 +978,7 @@ async def process_creator_syncs():
     empty_poll_count = 0  # Track consecutive empty polls for backoff
     last_periodic_check = 0  # triggers immediately on first loop
     last_extended_refresh = 0  # triggers immediately on first loop
+    last_reported_metrics = (0, 0, 0)  # (processed, failed, retried) at last INFO log
     PERIODIC_CHECK_INTERVAL = 1800  # queue invalid/failed creators every 30 min
     EXTENDED_REFRESH_INTERVAL = 3600  # refresh stale synced creators every 60 min
 
@@ -994,22 +995,25 @@ async def process_creator_syncs():
             logger.info("─" * 50)
             logger.info("⏰ PERIODIC CHECK: Queuing creators that need sync...")
 
-            # BUG FIX 1: queue_invalid_creators_for_retry only catches
-            # sync_status IN (invalid,failed) WHERE last_synced_at IS NOT NULL.
-            # Creators with last_synced_at=NULL (never synced) are silently skipped.
+            # Retry: creators with sync_status IN (invalid, failed) AND
+            # last_synced_at IS NOT NULL (previously synced, now stale/broken).
+            # PostgREST's .lt() already excludes NULLs, so these two functions
+            # target strictly disjoint sets — never-synced creators are NOT
+            # picked up here.
             invalid_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
             logger.info(
                 f"  queue_invalid_creators_for_retry: {invalid_count} queued "
-                f"(invalid/failed with last_synced_at < 24h ago)"
+                f"(invalid/failed, previously synced, last_synced_at < 24h ago)"
             )
 
-            # BUG FIX 2: explicitly bootstrap creators that have NEVER been synced
+            # Bootstrap: creators with last_synced_at IS NULL — never processed.
+            # Exclusively handled here; disjoint from the retry query above.
             unsynced_count = _queue_unsynced_creators(batch_size=100)
 
             total_queued = invalid_count + unsynced_count
             logger.info(
                 f"✅ Periodic check complete: {total_queued} total creators queued "
-                f"({invalid_count} retry, {unsynced_count} first-time)"
+                f"({invalid_count} retry, {unsynced_count} first-time/never-synced)"
             )
             last_periodic_check = time.time()
 
@@ -1021,8 +1025,13 @@ async def process_creator_syncs():
             logger.info(f"✅ Extended refresh: {stale_count} stale creator(s) queued")
             last_extended_refresh = time.time()
 
-        # ── Progress report ────────────────────────────────────────────────────
-        logger.info(
+        # ── Progress report — only at INFO when metrics have changed ──────────
+        current_metrics = (
+            metrics.syncs_processed,
+            metrics.syncs_failed,
+            metrics.syncs_retried,
+        )
+        progress_msg = (
             f"── Worker status | "
             f"{int(elapsed / 60)}m elapsed, {int(remaining / 60)}m remaining | "
             f"Processed: {metrics.syncs_processed}, "
@@ -1033,9 +1042,14 @@ async def process_creator_syncs():
             f"Timeouts: {metrics.timeout_errors} | "
             f"Success rate: {metrics.success_rate():.1f}%"
         )
+        if current_metrics != last_reported_metrics:
+            logger.info(progress_msg)
+            last_reported_metrics = current_metrics
+        else:
+            logger.debug(progress_msg)
 
         try:
-            # ── Fetch pending jobs (BUG FIX 3: respects retry_at) ─────────────
+            # ── Fetch pending jobs (respects retry_at) ────────────────────────
             jobs = _fetch_pending_jobs(BATCH_SIZE)
 
             if not jobs:
@@ -1044,8 +1058,10 @@ async def process_creator_syncs():
                     EMPTY_QUEUE_BACKOFF_BASE * (2 ** (empty_poll_count - 1)),
                     EMPTY_QUEUE_BACKOFF_MAX,
                 )
-                # BUG FIX 4: this was logger.debug — invisible in INFO mode
-                logger.info(
+                # Log at INFO on the first empty poll so it's visible; subsequent
+                # ones are DEBUG to avoid flooding logs during long idle periods.
+                log = logger.info if empty_poll_count == 1 else logger.debug
+                log(
                     f"Queue empty (consecutive empty polls: {empty_poll_count}) | "
                     f"Sleeping {backoff}s before next poll"
                 )
