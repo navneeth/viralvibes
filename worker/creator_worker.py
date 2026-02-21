@@ -48,6 +48,7 @@ from db import (
     mark_creator_sync_completed,
     mark_creator_sync_failed,
     mark_creator_sync_processing,
+    queue_creator_sync,
     queue_invalid_creators_for_retry,
     setup_logging,
     supabase_client,
@@ -136,82 +137,358 @@ signal.signal(signal.SIGINT, handle_shutdown_signal)
 signal.signal(signal.SIGTERM, handle_shutdown_signal)
 
 
-async def init():
-    """Initialize services and validate configuration."""
-    global youtube_resolver, supabase_client
+# =============================================================================
+# 🔍 DB Diagnostics — run at startup to show actual state
+# =============================================================================
 
-    logger.info("Initializing worker services...")
 
-    # Validate Supabase
-    url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    if not url or not key:
-        logger.error("❌ Supabase URL or Key not configured")
-        raise SystemExit(1)
+def _diagnose_creator_db_state() -> None:
+    """
+    Log a breakdown of the creators table sync state at startup.
+
+    This is the first thing that should run to understand why the worker
+    may be doing nothing. It answers:
+      - How many creators exist total?
+      - How many have never been synced (last_synced_at IS NULL)?
+      - How many have zero subscribers (unpopulated)?
+      - What sync_status values are present, and how many each?
+      - How many pending jobs are in creator_sync_jobs right now?
+    """
+    if not supabase_client:
+        logger.warning("⚠️  Cannot diagnose DB state: Supabase client not available")
+        return
+
+    logger.info("=" * 60)
+    logger.info("🔍 CREATOR DB STATE DIAGNOSIS")
+    logger.info("=" * 60)
 
     try:
-        client = init_supabase()
-        if not client:
-            logger.error("❌ Failed to initialize Supabase client")
-            raise SystemExit(1)
-        supabase_client = client
-        logger.info("✅ Supabase initialized")
-
-        # Detect database schema on startup (cached for subsequent calls)
-        detected_columns = schema_detector.detect_schema_sync(
-            supabase_client, table_name=CREATOR_TABLE
+        # Total creator count
+        total_resp = (
+            supabase_client.table(CREATOR_TABLE).select("id", count="exact").execute()
         )
-        status = schema_detector.get_status()
+        total = (
+            total_resp.count
+            if total_resp.count is not None
+            else len(total_resp.data or [])
+        )
+        logger.info(f"  Total creators in DB: {total:,}")
+
+    except Exception as e:
+        logger.error(f"  ❌ Could not count creators: {e}")
+        total = 0
+
+    try:
+        # Never synced (last_synced_at IS NULL)
+        # BUG NOTE: PostgREST .lt() silently excludes NULL rows — this is the
+        # primary reason queue_invalid_creators_for_retry queues 0 creators.
+        never_synced_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id", count="exact")
+            .is_("last_synced_at", "null")
+            .execute()
+        )
+        never_synced = (
+            never_synced_resp.count
+            if never_synced_resp.count is not None
+            else len(never_synced_resp.data or [])
+        )
         logger.info(
-            f"📊 Database schema: {status['total_columns']} columns detected in '{CREATOR_TABLE}'"
+            f"  Never synced (last_synced_at IS NULL): {never_synced:,}"
+            + (
+                " ⚠️  These are INVISIBLE to queue_invalid_creators_for_retry!"
+                if never_synced > 0
+                else ""
+            )
+        )
+    except Exception as e:
+        logger.error(f"  ❌ Could not count never-synced creators: {e}")
+        never_synced = 0
+
+    try:
+        # Zero stats (likely never populated)
+        zero_stats_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id", count="exact")
+            .eq("current_subscribers", 0)
+            .eq("current_view_count", 0)
+            .execute()
+        )
+        zero_stats = (
+            zero_stats_resp.count
+            if zero_stats_resp.count is not None
+            else len(zero_stats_resp.data or [])
+        )
+        logger.info(f"  Zero subscribers + zero views (unpopulated): {zero_stats:,}")
+    except Exception as e:
+        logger.error(f"  ❌ Could not count zero-stat creators: {e}")
+        zero_stats = 0
+
+    try:
+        # Breakdown by sync_status (including NULL)
+        # Fetch a small sample to infer statuses — Supabase doesn't expose GROUP BY
+        sample_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("sync_status")
+            .limit(1000)
+            .execute()
+        )
+        status_counts: Dict[str, int] = {}
+        for row in sample_resp.data or []:
+            s = row.get("sync_status") or "NULL"
+            status_counts[s] = status_counts.get(s, 0) + 1
+
+        logger.info("  sync_status breakdown (sample of up to 1000 rows):")
+        for status, count in sorted(status_counts.items()):
+            flag = ""
+            if status == "NULL":
+                flag = (
+                    " ⚠️  NULL status — NOT caught by queue_invalid_creators_for_retry"
+                )
+            elif status in ("invalid", "failed"):
+                flag = " → eligible for retry (if last_synced_at is not NULL)"
+            elif status == "synced":
+                flag = " → healthy"
+            logger.info(f"    {status}: {count:,}{flag}")
+
+    except Exception as e:
+        logger.error(f"  ❌ Could not get sync_status breakdown: {e}")
+
+    try:
+        # Pending jobs count
+        jobs_resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id,status", count="exact")
+            .eq("status", "pending")
+            .execute()
+        )
+        pending_jobs = (
+            jobs_resp.count
+            if jobs_resp.count is not None
+            else len(jobs_resp.data or [])
+        )
+        logger.info(
+            f"  Pending jobs in creator_sync_jobs: {pending_jobs:,}"
+            + (
+                "\n  ✅ Jobs exist — worker should process them on next poll"
+                if pending_jobs > 0
+                else "\n  ⚠️  No pending jobs — worker will idle until jobs are created"
+            )
+        )
+    except Exception as e:
+        logger.error(f"  ❌ Could not count pending jobs: {e}")
+
+    logger.info("=" * 60)
+
+    # Actionable summary
+    if never_synced > 0 or zero_stats > 0:
+        logger.warning(
+            f"⚠️  ACTION NEEDED: {never_synced:,} creators have never been synced. "
+            f"Use _queue_unsynced_creators() to bootstrap them. "
+            f"See bug note in queue_invalid_creators_for_retry."
         )
 
-        # Log any missing optional columns
-        if status["missing_count"] > 0:
-            logger.warning(
-                f"⚠️  {status['missing_count']} optional columns not in database "
-                "(worker will skip these fields)"
-            )
 
-    except Exception as e:
-        logger.error(f"❌ Supabase initialization failed: {e}")
-        raise SystemExit(1)
+# =============================================================================
+# 🔧 Bug fix: queue creators that have NEVER been synced
+# =============================================================================
 
-    # Validate YouTube API for creator worker
+
+def _queue_unsynced_creators(batch_size: int = 100) -> int:
+    """
+    Queue creators that have never been synced (last_synced_at IS NULL).
+
+    BUG FIX: queue_invalid_creators_for_retry uses .lt("last_synced_at", cutoff)
+    which in PostgREST silently excludes NULL values. This means creators
+    inserted via get_or_create_creator_from_playlist with last_synced_at=NULL
+    are never queued for their first sync.
+
+    This function fills that gap by explicitly targeting the NULL case.
+
+    Args:
+        batch_size: How many to queue per call (default 100)
+
+    Returns:
+        Number of creators newly queued
+    """
+    if not supabase_client:
+        return 0
+
     try:
-        api_key = get_creator_worker_api_key()
-        youtube_resolver = YouTubeResolver(api_key=api_key)
-        logger.info("✅ YouTube resolver initialized for creator worker")
+        # Find creators with null last_synced_at that aren't already pending
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id,channel_id,sync_status")
+            .is_("last_synced_at", "null")
+            .limit(batch_size)
+            .execute()
+        )
+
+        creators = response.data or []
+        if not creators:
+            logger.debug("  No unsynced creators found (last_synced_at IS NULL)")
+            return 0
+
+        logger.info(
+            f"  Found {len(creators)} creators with last_synced_at=NULL — queuing for first sync"
+        )
+
+        queued = 0
+        skipped = 0
+        for creator in creators:
+            creator_id = creator["id"]
+            channel_id = creator.get("channel_id", "?")
+            if queue_creator_sync(creator_id, source="bootstrap_unsynced"):
+                queued += 1
+                logger.debug(
+                    f"    Queued {channel_id} (id={creator_id}) for first sync"
+                )
+            else:
+                skipped += 1  # Already pending or error
+
+        logger.info(
+            f"  Bootstrap result: {queued} queued, {skipped} skipped (already pending)"
+        )
+        return queued
 
     except Exception as e:
-        logger.error(f"❌ YouTube API key initialization failed: {e}")
-        raise SystemExit(1)
+        logger.error(f"  ❌ _queue_unsynced_creators failed: {e}")
+        return 0
 
-    # Initialize metrics
-    metrics.start_time = time.time()
-    logger.info("✅ Worker initialization complete")
+
+def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
+    """
+    Queue creators that haven't been synced in N days (for periodic refresh).
+
+    Unlike queue_invalid_creators_for_retry, this targets 'synced' creators
+    to keep data fresh. Runs less frequently (weekly by default).
+
+    Args:
+        days_since_last_sync: Re-sync creators older than this many days
+
+    Returns:
+        Number of creators queued
+    """
+    if not supabase_client:
+        return 0
+
+    try:
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=days_since_last_sync)
+        ).isoformat()
+
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id,channel_id,sync_status,last_synced_at")
+            .in_("sync_status", ["synced", "synced_partial", "invalid", "failed"])
+            .lt("last_synced_at", cutoff)
+            .limit(100)
+            .execute()
+        )
+
+        creators = response.data or []
+        if not creators:
+            logger.debug(
+                f"  No stale creators found (last synced > {days_since_last_sync} days ago)"
+            )
+            return 0
+
+        logger.info(
+            f"  Found {len(creators)} stale creators "
+            f"(not synced in {days_since_last_sync}+ days) — queuing for refresh"
+        )
+
+        queued = 0
+        for creator in creators:
+            if queue_creator_sync(creator["id"], source="scheduled_refresh"):
+                queued += 1
+        logger.info(f"  Scheduled refresh: {queued} creators queued")
+        return queued
+
+    except Exception as e:
+        logger.error(f"  ❌ _queue_creators_for_extended_refresh failed: {e}")
+        return 0
+
+
+# =============================================================================
+# 🔧 Fixed pending jobs query (respects retry_at)
+# =============================================================================
+
+
+def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
+    """
+    Fetch pending jobs that are ready to be processed.
+
+    BUG FIX: The original query fetched all status=pending rows regardless
+    of retry_at. Jobs that failed and are waiting for their backoff window
+    would be picked up immediately. Now we only fetch jobs where:
+      - status = 'pending'
+      - AND (retry_at IS NULL OR retry_at <= now())
+
+    PostgREST doesn't support OR across columns in a single filter, so we
+    do two queries and merge — or we rely on the DB having retry_at=NULL
+    for fresh jobs (which it does, since retry_at is only set on failure).
+
+    Actually the simplest correct fix: add .or_() to handle both cases.
+    """
+    if not supabase_client:
+        return []
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    try:
+        # Jobs with no retry_at scheduled (fresh or first attempt)
+        fresh_resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id,creator_id,source,retry_count")
+            .eq("status", JobStatus.PENDING.value)
+            .is_("retry_at", "null")
+            .order("created_at", desc=False)
+            .limit(batch_size)
+            .execute()
+        )
+
+        fresh_jobs = fresh_resp.data or []
+
+        # Jobs where retry_at has passed (backoff window expired)
+        if len(fresh_jobs) < batch_size:
+            retry_resp = (
+                supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                .select("id,creator_id,source,retry_count")
+                .eq("status", JobStatus.PENDING.value)
+                .not_.is_("retry_at", "null")
+                .lte("retry_at", now_iso)
+                .order("retry_at", desc=False)
+                .limit(batch_size - len(fresh_jobs))
+                .execute()
+            )
+            retry_jobs = retry_resp.data or []
+        else:
+            retry_jobs = []
+
+        all_jobs = fresh_jobs + retry_jobs
+
+        if all_jobs:
+            logger.info(
+                f"  Pending jobs ready: {len(all_jobs)} total "
+                f"({len(fresh_jobs)} fresh, {len(retry_jobs)} retry-ready)"
+            )
+        else:
+            logger.debug("  No pending jobs ready for processing right now")
+
+        return all_jobs
+
+    except Exception as e:
+        logger.error(f"  ❌ Failed to fetch pending jobs: {e}")
+        return []
+
+
+# =============================================================================
+# YouTube API helpers (unchanged logic, better logging)
+# =============================================================================
 
 
 async def _fetch_channel_data(channel_id: str) -> Dict:
-    """
-    Fetch and normalize channel data from YouTube API.
-
-    Uses YouTubeResolver which provides:
-    - Format validation
-    - Proper schema normalization
-    - Error handling
-    - Caching (via API layer)
-
-    Args:
-        channel_id: YouTube channel ID
-
-    Returns:
-        Normalized channel data dict
-
-    Raises:
-        ValueError: Invalid channel ID format
-        Exception: API errors or network issues
-    """
     if not youtube_resolver:
         raise RuntimeError("YouTube resolver not initialized")
 
@@ -219,7 +496,7 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
     if not channel_validator.is_valid(channel_id):
         raise ValueError(f"Invalid channel ID format: {channel_id}")
 
-    logger.debug(f"Fetching channel data for {channel_id}")
+    logger.debug(f"  Calling YouTube API for channel {channel_id}...")
 
     try:
         # Get normalized data from YouTubeResolver
@@ -228,23 +505,24 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         )
 
         if not channel_data:
-            raise Exception(f"No data returned from YouTube API")
+            raise Exception("No data returned from YouTube API")
 
+        subs = channel_data.get("current_subscribers", 0)
+        views = channel_data.get("current_view_count", 0)
+        videos = channel_data.get("current_video_count", 0)
         logger.info(
-            f"[Channel] {channel_id}: "
-            f"{channel_data['current_subscribers']:,} subscribers, "
-            f"{channel_data['current_view_count']:,} views, "
-            f"{channel_data['current_video_count']:,} videos"
+            f"  YouTube API response for {channel_id}: "
+            f"subs={subs:,}, views={views:,}, videos={videos:,}"
         )
 
         return channel_data
 
     except asyncio.TimeoutError:
         metrics.timeout_errors += 1
-        raise Exception(f"API timeout fetching {channel_id}")
+        raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s for {channel_id}")
     except Exception as e:
         metrics.api_errors += 1
-        logger.error(f"Failed to fetch {channel_id}: {e}")
+        logger.error(f"  YouTube API error for {channel_id}: {e}")
         raise
 
 
@@ -293,7 +571,9 @@ async def _calculate_engagement_score(channel_id: str) -> float:
                     timeout=5,  # Short timeout for optional data
                 )
             except Exception as e:
-                logger.debug(f"Could not fetch playlist {channel_id}: {e}")
+                logger.debug(
+                    f"  Could not fetch uploads playlist for {channel_id}: {e}"
+                )
                 return 0.0
 
             items = playlist_response.get("items", [])
@@ -309,17 +589,14 @@ async def _calculate_engagement_score(channel_id: str) -> float:
                         None,
                         lambda: (
                             youtube.videos()
-                            .list(
-                                part="statistics",
-                                id=",".join(video_ids),
-                            )
+                            .list(part="statistics", id=",".join(video_ids))
                             .execute()
                         ),
                     ),
                     timeout=5,
                 )
             except Exception as e:
-                logger.debug(f"Could not fetch video stats: {e}")
+                logger.debug(f"  Could not fetch video stats for {channel_id}: {e}")
                 return 0.0
 
             # Calculate engagement
@@ -365,10 +642,16 @@ def _compute_quality_grade(engagement: float, subscribers: int) -> str:
         return "C"
 
 
+# =============================================================================
+# Job handler
+# =============================================================================
+
+
 async def handle_sync_job(
     job_id: int,
     creator_id: str,
     job_number: int = 0,
+    retry_count: int = 0,
 ) -> bool:
     """
     Handle a single creator sync job with comprehensive error handling.
@@ -391,14 +674,14 @@ async def handle_sync_job(
     job_tag = f"[Job {job_number}:{job_id}]"
 
     try:
-        logger.info(f"{job_tag} Starting sync for creator {creator_id}")
+        logger.info(
+            f"{job_tag} ─── Starting sync | creator={creator_id} | retry_count={retry_count}"
+        )
 
         if not supabase_client:
             raise RuntimeError("Supabase client not initialized")
 
         # STAGE 1: Fetch creator metadata
-        logger.debug(f"{job_tag} Fetching creator metadata")
-
         creator_response = (
             supabase_client.table(CREATOR_TABLE)
             .select("channel_id,channel_name")
@@ -407,50 +690,46 @@ async def handle_sync_job(
         )
 
         if not creator_response.data:
-            raise ValueError(f"Creator not found: {creator_id}")
+            raise ValueError(f"Creator not found in DB: {creator_id}")
 
         creator = creator_response.data[0]
         channel_id = creator.get("channel_id")
+        channel_name = creator.get("channel_name", "unknown")
 
         if not channel_id:
-            raise ValueError(f"Creator has no channel_id: {creator_id}")
+            raise ValueError(f"Creator {creator_id} has no channel_id set")
 
-        logger.info(f"{job_tag} Found creator {channel_id}")
+        logger.info(f"{job_tag} Creator: {channel_name} ({channel_id})")
 
         # STAGE 2: Mark as processing
-        logger.debug(f"{job_tag} Marking as processing")
         mark_creator_sync_processing(job_id)
+        logger.debug(f"{job_tag} Marked as processing")
 
-        # STAGE 3: Fetch channel data (with timeout)
-        logger.debug(f"{job_tag} Fetching channel data from YouTube")
-
+        # STAGE 3: Fetch channel data
+        logger.info(f"{job_tag} Fetching data from YouTube API...")
         try:
             channel_data = await asyncio.wait_for(
                 _fetch_channel_data(channel_id), timeout=SYNC_TIMEOUT
             )
         except asyncio.TimeoutError:
-            logger.error(f"{job_tag} Sync timeout after {SYNC_TIMEOUT}s")
-            raise Exception("Sync timeout")
+            raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s")
 
-        # Optional: Calculate engagement (doesn't fail sync if it fails)
-        logger.debug(f"{job_tag} Calculating engagement score")
+        # STAGE 3.5: Engagement score (optional)
         engagement = await _calculate_engagement_score(channel_id)
         quality = _compute_quality_grade(
             engagement, channel_data["current_subscribers"]
         )
 
-        logger.info(
-            f"{job_tag} Retrieved stats: subs={channel_data['current_subscribers']:,}, "
-            f"views={channel_data['current_view_count']:,}, "
-            f"engagement={engagement:.2f}%, quality={quality}"
-        )
-
-        # STAGE 3.5: Validate stats quality
         subs = channel_data["current_subscribers"]
         views = channel_data["current_view_count"]
         videos = channel_data["current_video_count"]
 
-        # Detect invalid/suspicious data
+        logger.info(
+            f"{job_tag} Stats: subs={subs:,}, views={views:,}, videos={videos:,}, "
+            f"engagement={engagement:.2f}%, quality={quality}"
+        )
+
+        # STAGE 3.5: Validate stats quality
         is_invalid = False
         sync_status = "synced"
         sync_error = None
@@ -458,102 +737,64 @@ async def handle_sync_job(
         if subs == 0 and views == 0:
             is_invalid = True
             sync_status = "invalid"
-            sync_error = "Zero subscribers and views - likely invalid channel_id or deleted channel"
+            sync_error = "Zero subs + zero views — likely invalid/deleted channel"
             logger.warning(
-                f"{job_tag} Invalid stats detected: {channel_id} has 0 subs + 0 views. "
-                "Flagging for retry."
+                f"{job_tag} ⚠️  Invalid stats: {channel_id} has 0 subs AND 0 views. "
+                "Flagging for retry. (Could be deleted channel or bad channel_id)"
             )
         elif subs == 0 and views > 0:
-            # Suspicious data - could be new channel or API glitch, retry to confirm
             is_invalid = True
             sync_status = "invalid"
-            sync_error = "Zero subscribers but has views - suspicious data"
+            sync_error = "Zero subscribers but has views — suspicious, will retry"
             logger.warning(
-                f"{job_tag} Suspicious stats: {channel_id} has 0 subs but {views:,} views. "
-                "Flagging for retry."
+                f"{job_tag} ⚠️  Suspicious stats: {channel_id} has 0 subs but {views:,} views"
             )
 
-        # ═══════════════════════════════════════════════════════════
-        # STAGE 4: BUILD FULL PAYLOAD (all desired fields)
-        # ═══════════════════════════════════════════════════════════
-        logger.debug(f"{job_tag} Building update payload (sync_status={sync_status})")
-
+        # STAGE 4: Build full update payload
         full_payload = {
-            # Core statistics
-            "current_subscribers": channel_data["current_subscribers"],
-            "current_view_count": channel_data["current_view_count"],
-            "current_video_count": channel_data["current_video_count"],
-            # Identity
+            "current_subscribers": subs,
+            "current_view_count": views,
+            "current_video_count": videos,
             "channel_name": channel_data.get("channel_name"),
             "channel_description": channel_data.get("channel_description"),
-            # Custom presence
             "custom_url": channel_data.get("custom_url"),
             "custom_url_available": channel_data.get("custom_url_available", False),
-            # Branding
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
             "channel_thumbnail_default": channel_data.get("channel_thumbnail_default"),
             "banner_image_url": channel_data.get("banner_image_url"),
-            # Timestamps
             "published_at": channel_data.get("published_at"),
-            # Location & Language
             "country_code": channel_data.get("country_code"),
             "default_language": channel_data.get("default_language"),
-            # Metadata
             "keywords": channel_data.get("keywords"),
-            # Relationships
             "featured_channels_count": channel_data.get("featured_channels_count", 0),
             "featured_channels_urls": channel_data.get("featured_channels_urls"),
             "topic_categories": channel_data.get("topic_categories", []),
-            # Verification
             "official": channel_data.get("official", False),
-            # Computed metrics
             "channel_age_days": channel_data.get("channel_age_days"),
             "monthly_uploads": channel_data.get("monthly_uploads"),
-            # Statistics
             "hidden_subscriber_count": channel_data.get(
                 "hidden_subscriber_count", False
             ),
-            # Sync tracking
             "sync_status": sync_status,
             "sync_error_message": sync_error,
-            # Timestamps (timezone-aware UTC)
             "last_updated_at": datetime.now(timezone.utc).isoformat(),
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        # ═══════════════════════════════════════════════════════════
-        # FILTER TO AVAILABLE COLUMNS (graceful degradation)
-        # ═══════════════════════════════════════════════════════════
+        # Filter to available schema columns
         update_payload, missing_fields = schema_detector.filter_payload(full_payload)
 
-        # Log if columns missing (helpful for user)
         if missing_fields:
             schema_detector.log_schema_mismatch(
                 missing_fields, table_name=CREATOR_TABLE
             )
-            logger.warning(
-                f"{job_tag} ⚠️  Schema mismatch detected: "
-                f"Syncing {len(update_payload)} available fields, "
-                f"skipping {len(missing_fields)} unavailable columns"
-            )
-            logger.debug(
-                f"{job_tag} Missing columns: {', '.join(sorted(missing_fields.keys()))}"
-            )
-            # Mark as partial sync so it gets re-queued
-            update_payload["sync_status"] = "synced_partial"
-            update_payload["sync_error_message"] = (
-                f"Partial sync: {len(missing_fields)} columns not available in database. "
-                "Run migrations to add missing columns."
+            logger.info(
+                f"{job_tag} Schema filter: writing {len(update_payload)} fields, "
+                f"skipping {len(missing_fields)} unavailable columns: {missing_fields}"
             )
 
-        # ═══════════════════════════════════════════════════════════
-        # UPDATE DATABASE (with fallback to minimal fields)
-        # ═══════════════════════════════════════════════════════════
+        # STAGE 4: Write to DB
         try:
-            logger.debug(
-                f"{job_tag} Updating fields: {', '.join(sorted(update_payload.keys()))}"
-            )
-
             result = (
                 supabase_client.table(CREATOR_TABLE)
                 .update(update_payload)
@@ -562,75 +803,60 @@ async def handle_sync_job(
             )
 
             if not result.data:
-                logger.warning(f"{job_tag} Update returned no data")
-
-            sync_status_result = update_payload.get("sync_status", "synced")
-            logger.info(
-                f"{job_tag} ✅ Database updated successfully "
-                f"({len(update_payload)} fields, status={sync_status_result})"
-            )
+                logger.warning(
+                    f"{job_tag} ⚠️  DB update returned no rows. "
+                    "Check that creator_id exists and RLS allows updates."
+                )
+            else:
+                logger.info(
+                    f"{job_tag} ✅ DB updated ({len(update_payload)} fields written)"
+                )
 
         except Exception as update_error:
             # FALLBACK: Try with minimal core fields
             metrics.db_errors += 1
             logger.warning(f"{job_tag} ⚠️  Full update failed: {update_error}")
-            logger.info(f"{job_tag} → Attempting fallback with minimal core fields...")
+            logger.info(f"{job_tag} Attempting fallback with minimal core fields...")
 
-            # Minimal payload - should always work
             minimal_payload = {
-                "current_subscribers": full_payload.get("current_subscribers", 0),
-                "current_view_count": full_payload.get("current_view_count", 0),
-                "current_video_count": full_payload.get("current_video_count", 0),
+                "current_subscribers": subs,
+                "current_view_count": views,
+                "current_video_count": videos,
                 "channel_name": full_payload.get("channel_name"),
                 "country_code": full_payload.get("country_code"),
                 "sync_status": "synced_partial",
-                "sync_error_message": "Schema mismatch - synced with basic fields only",
+                "sync_error_message": "Schema mismatch — synced with basic fields only",
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
             }
 
             try:
-                result = (
-                    supabase_client.table(CREATOR_TABLE)
-                    .update(minimal_payload)
-                    .eq("id", creator_id)
-                    .execute()
-                )
-
-                logger.info(
-                    f"{job_tag} ✅ Fallback successful! "
-                    f"Synced core stats (subscribers, views, videos)"
-                )
-
+                supabase_client.table(CREATOR_TABLE).update(minimal_payload).eq(
+                    "id", creator_id
+                ).execute()
+                logger.info(f"{job_tag} ✅ Fallback write succeeded (core stats only)")
             except Exception as fallback_error:
-                # Even fallback failed - log and re-raise
-                logger.error(f"{job_tag} ❌ Both update attempts failed:")
-                logger.error(f"   Primary error: {update_error}")
+                logger.error(f"{job_tag} ❌ Both full and fallback updates failed:")
+                logger.error(f"   Full error:     {update_error}")
                 logger.error(f"   Fallback error: {fallback_error}")
-                raise Exception(
-                    f"Database update completely failed after fallback. "
-                    f"Check schema and permissions."
-                )
+                raise Exception("DB update completely failed after fallback")
 
-        # STAGE 5: Mark job completion based on data quality
+        # STAGE 5: Mark job done
         if is_invalid:
-            # Don't mark as completed - mark as failed so it retries
             logger.warning(
-                f"{job_tag} Marking as FAILED due to invalid stats. "
-                "Will retry with exponential backoff."
+                f"{job_tag} Marking job as FAILED (invalid stats) — "
+                "will retry with exponential backoff"
             )
             mark_creator_sync_failed(job_id, sync_error or "Invalid stats")
             metrics.syncs_failed += 1
             return False
         else:
-            logger.debug(f"{job_tag} Marking as completed")
             mark_creator_sync_completed(job_id)
-            logger.info(f"{job_tag} ✅ Sync completed successfully")
+            logger.info(f"{job_tag} ✅ Sync COMPLETED successfully for {channel_id}")
             metrics.syncs_processed += 1
             return True
 
     except Exception as e:
-        logger.exception(f"{job_tag} Sync failed: {e}")
-        logger.debug(f"{job_tag} Traceback: {traceback.format_exc()}")
+        logger.exception(f"{job_tag} ❌ Sync FAILED: {e}")
 
         metrics.syncs_failed += 1
 
@@ -644,32 +870,29 @@ async def handle_sync_job(
             )
 
             if retry_response.data:
-                retry_count = retry_response.data[0].get("retry_count", 0) or 0
+                current_retries = retry_response.data[0].get("retry_count", 0) or 0
 
-                if retry_count < MAX_RETRY_ATTEMPTS:
-                    backoff = RETRY_BACKOFF_BASE * (2**retry_count)
+                if current_retries < MAX_RETRY_ATTEMPTS:
+                    backoff = RETRY_BACKOFF_BASE * (2**current_retries)
                     retry_at = datetime.now(timezone.utc) + timedelta(seconds=backoff)
-
                     logger.info(
-                        f"{job_tag} Scheduling retry {retry_count + 1}/{MAX_RETRY_ATTEMPTS} "
-                        f"in {backoff}s"
+                        f"{job_tag} Scheduling retry "
+                        f"{current_retries + 1}/{MAX_RETRY_ATTEMPTS} "
+                        f"in {backoff}s (at {retry_at.isoformat()})"
                     )
-
                     supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
                         {
                             "status": JobStatus.PENDING.value,
-                            "retry_count": retry_count + 1,
+                            "retry_count": current_retries + 1,
                             "retry_at": retry_at.isoformat(),
                             "error_message": str(e),
                         }
                     ).eq("id", job_id).execute()
-
                     metrics.syncs_retried += 1
-
                 else:
                     logger.error(
-                        f"{job_tag} Max retries ({MAX_RETRY_ATTEMPTS}) exceeded, "
-                        "marking as failed"
+                        f"{job_tag} Max retries ({MAX_RETRY_ATTEMPTS}) exhausted "
+                        "— marking as permanently failed"
                     )
                     mark_creator_sync_failed(job_id, str(e))
 
@@ -680,20 +903,72 @@ async def handle_sync_job(
         return False
 
 
-async def process_creator_syncs():
-    """
-    Main worker loop: continuously poll and process creator sync jobs.
+# =============================================================================
+# Init
+# =============================================================================
 
-    Features:
-    - Non-blocking async processing
-    - Exponential backoff when queue is empty (reduces unnecessary DB queries)
-    - Graceful shutdown on signal
-    - Runtime limiting
-    - Comprehensive metrics
-    - Proper error recovery
-    """
+
+async def init():
+    global youtube_resolver, supabase_client
+
+    logger.info("Initializing worker services...")
+
+    url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    if not url or not key:
+        logger.error(
+            "❌ NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY not set"
+        )
+        raise SystemExit(1)
+
+    try:
+        client = init_supabase()
+        if not client:
+            logger.error("❌ Supabase client init returned None")
+            raise SystemExit(1)
+        supabase_client = client
+        logger.info("✅ Supabase initialized")
+
+        detected_columns = schema_detector.detect_schema_sync(
+            supabase_client, table_name=CREATOR_TABLE
+        )
+        status = schema_detector.get_status()
+        logger.info(
+            f"📊 DB schema: {status['total_columns']} columns in '{CREATOR_TABLE}'"
+        )
+        if status["missing_count"] > 0:
+            logger.warning(
+                f"⚠️  {status['missing_count']} optional columns not in DB "
+                "(will be skipped in payloads)"
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Supabase initialization failed: {e}")
+        raise SystemExit(1)
+
+    try:
+        api_key = get_creator_worker_api_key()
+        youtube_resolver = YouTubeResolver(api_key=api_key)
+        logger.info("✅ YouTube resolver initialized")
+    except Exception as e:
+        logger.error(f"❌ YouTube API key initialization failed: {e}")
+        raise SystemExit(1)
+
+    metrics.start_time = time.time()
+    logger.info("✅ Worker initialization complete")
+
+    # Run DB diagnosis immediately so we know the actual state
+    _diagnose_creator_db_state()
+
+
+# =============================================================================
+# Main worker loop
+# =============================================================================
+
+
+async def process_creator_syncs():
     logger.info(
-        f"Starting worker with config: "
+        f"Starting worker loop | "
         f"poll_interval={POLL_INTERVAL}s, batch_size={BATCH_SIZE}, "
         f"max_runtime={MAX_RUNTIME}s, max_retries={MAX_RETRY_ATTEMPTS}, "
         f"empty_backoff_max={EMPTY_QUEUE_BACKOFF_MAX}s"
@@ -701,126 +976,142 @@ async def process_creator_syncs():
 
     start_time = time.time()
     empty_poll_count = 0  # Track consecutive empty polls for backoff
-    last_retry_check = 0  # Track when we last queued invalid creators (start at 0 to trigger immediately)
-    last_extended_check = 0  # Track extended refresh checks
-    RETRY_CHECK_INTERVAL = 1800  # Check for invalid creators every 30 minutes (runs twice in 1 hour window)
-    EXTENDED_CHECK_INTERVAL = 10800  # Extended refresh every 3 hours
+    last_periodic_check = 0  # triggers immediately on first loop
+    last_extended_refresh = 0  # triggers immediately on first loop
+    last_reported_metrics = (0, 0, 0)  # (processed, failed, retried) at last INFO log
+    PERIODIC_CHECK_INTERVAL = 1800  # queue invalid/failed creators every 30 min
+    EXTENDED_REFRESH_INTERVAL = 3600  # refresh stale synced creators every 60 min
 
     while not stop_event.is_set():
         elapsed = time.time() - start_time
         remaining = MAX_RUNTIME - elapsed
 
         if remaining <= 0:
-            logger.info(f"Max runtime ({MAX_RUNTIME}s) exceeded, exiting")
+            logger.info(f"Max runtime ({MAX_RUNTIME}s) exceeded — exiting")
             break
 
-        # Periodic check to queue creators needing sync (runs at startup + every 30 min)
-        if time.time() - last_retry_check > RETRY_CHECK_INTERVAL:
-            logger.info("Running periodic check to queue creators for sync...")
-            try:
-                # Queue creators with invalid/failed/partial sync or old data
-                # First pass: Invalid/failed/partial status (higher priority)
-                retry_count = queue_invalid_creators_for_retry(
-                    hours_since_last_sync=24, force_resync_all=False
-                )
-                logger.info(
-                    f"✅ Auto-queue check: Queued {retry_count} creator(s) for sync"
-                )
-            except Exception as e:
-                logger.error(f"❌ Auto-queue check failed: {e}")
-            last_retry_check = time.time()
+        # ── Periodic: queue invalid/failed + never-synced creators ────────────
+        if time.time() - last_periodic_check > PERIODIC_CHECK_INTERVAL:
+            logger.info("─" * 50)
+            logger.info("⏰ PERIODIC CHECK: Queuing creators that need sync...")
 
-        # Extended check: Every 3 hours, also queue old 'synced' creators to refresh all fields
-        # (catches schema updates where new columns were added)
-        if time.time() - last_extended_check > EXTENDED_CHECK_INTERVAL:
-            logger.info("Running extended check to refresh all old syncs...")
-            try:
-                resync_count = queue_invalid_creators_for_retry(
-                    hours_since_last_sync=168, force_resync_all=True  # 1 week old
-                )
-                logger.info(
-                    f"✅ Extended refresh: Queued {resync_count} old sync(s) for refresh"
-                )
-            except Exception as e:
-                logger.error(f"❌ Extended refresh failed: {e}")
-            last_extended_check = time.time()
+            # Retry: creators with sync_status IN (invalid, failed) AND
+            # last_synced_at IS NOT NULL (previously synced, now stale/broken).
+            # PostgREST's .lt() already excludes NULLs, so these two functions
+            # target strictly disjoint sets — never-synced creators are NOT
+            # picked up here.
+            invalid_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
+            logger.info(
+                f"  queue_invalid_creators_for_retry: {invalid_count} queued "
+                f"(invalid/failed, previously synced, last_synced_at < 24h ago)"
+            )
 
-        logger.info(
-            f"Worker progress: {int(elapsed / 60)}m elapsed, "
-            f"{int(remaining / 60)}m remaining | "
+            # Bootstrap: creators with last_synced_at IS NULL — never processed.
+            # Exclusively handled here; disjoint from the retry query above.
+            unsynced_count = _queue_unsynced_creators(batch_size=100)
+
+            total_queued = invalid_count + unsynced_count
+            logger.info(
+                f"✅ Periodic check complete: {total_queued} total creators queued "
+                f"({invalid_count} retry, {unsynced_count} first-time/never-synced)"
+            )
+            last_periodic_check = time.time()
+
+        # ── Extended: refresh stale but healthy syncs ──────────────────────────
+        if time.time() - last_extended_refresh > EXTENDED_REFRESH_INTERVAL:
+            logger.info("─" * 50)
+            logger.info("⏰ EXTENDED REFRESH: Queuing stale synced creators...")
+            stale_count = _queue_creators_for_extended_refresh(days_since_last_sync=7)
+            logger.info(f"✅ Extended refresh: {stale_count} stale creator(s) queued")
+            last_extended_refresh = time.time()
+
+        # ── Progress report — only at INFO when metrics have changed ──────────
+        current_metrics = (
+            metrics.syncs_processed,
+            metrics.syncs_failed,
+            metrics.syncs_retried,
+        )
+        progress_msg = (
+            f"── Worker status | "
+            f"{int(elapsed / 60)}m elapsed, {int(remaining / 60)}m remaining | "
             f"Processed: {metrics.syncs_processed}, "
             f"Failed: {metrics.syncs_failed}, "
             f"Retried: {metrics.syncs_retried} | "
+            f"API errors: {metrics.api_errors}, "
+            f"DB errors: {metrics.db_errors}, "
+            f"Timeouts: {metrics.timeout_errors} | "
             f"Success rate: {metrics.success_rate():.1f}%"
         )
+        if current_metrics != last_reported_metrics:
+            logger.info(progress_msg)
+            last_reported_metrics = current_metrics
+        else:
+            logger.debug(progress_msg)
 
         try:
-            # Fetch pending jobs (including retried jobs where retry_at has passed)
-            # Query: status=pending AND (retry_at IS NULL OR retry_at <= now)
-            now = datetime.utcnow().isoformat()
-
-            pending_jobs = (
-                supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-                .select("id,creator_id")
-                .eq("status", JobStatus.PENDING.value)
-                .order("created_at", desc=False)
-                .limit(BATCH_SIZE)
-                .execute()
-            )
-
-            jobs = pending_jobs.data if pending_jobs.data else []
+            # ── Fetch pending jobs (respects retry_at) ────────────────────────
+            jobs = _fetch_pending_jobs(BATCH_SIZE)
 
             if not jobs:
                 empty_poll_count += 1
-                # Exponential backoff: 30s, 60s, 120s, 240s, 300s (max)
-                # Use fixed base (30s) independent of POLL_INTERVAL
                 backoff = min(
                     EMPTY_QUEUE_BACKOFF_BASE * (2 ** (empty_poll_count - 1)),
                     EMPTY_QUEUE_BACKOFF_MAX,
                 )
-                logger.debug(
-                    f"No pending jobs (consecutive empty polls: {empty_poll_count}), "
-                    f"waiting {backoff}s before next poll"
+                # Log at INFO on the first empty poll so it's visible; subsequent
+                # ones are DEBUG to avoid flooding logs during long idle periods.
+                log = logger.info if empty_poll_count == 1 else logger.debug
+                log(
+                    f"Queue empty (consecutive empty polls: {empty_poll_count}) | "
+                    f"Sleeping {backoff}s before next poll"
                 )
                 await asyncio.sleep(backoff)
                 continue
 
-            # Reset backoff when jobs found
             if empty_poll_count > 0:
                 logger.info(
-                    f"Queue active again after {empty_poll_count} empty polls, "
+                    f"Queue is active again after {empty_poll_count} empty polls — "
                     "resetting backoff"
                 )
                 empty_poll_count = 0
 
-            logger.info(f"Processing {len(jobs)} pending job(s)")
+            logger.info(f"Processing {len(jobs)} pending job(s)...")
 
-            # Process jobs concurrently (respecting batch size)
-            tasks = []
-            for job_number, job in enumerate(jobs, 1):
-                task = handle_sync_job(
+            tasks = [
+                handle_sync_job(
                     job_id=job["id"],
                     creator_id=job["creator_id"],
-                    job_number=job_number,
+                    job_number=i,
+                    retry_count=job.get("retry_count", 0),
                 )
-                tasks.append(task)
+                for i, job in enumerate(jobs, 1)
+            ]
 
-            # Wait for all jobs with a timeout
-            await asyncio.wait_for(
+            results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
                 timeout=BATCH_SIZE * SYNC_TIMEOUT + 10,
             )
 
-            logger.debug(f"Batch complete, waiting {POLL_INTERVAL}s")
+            successes = sum(1 for r in results if r is True)
+            failures = sum(1 for r in results if r is False or isinstance(r, Exception))
+            logger.info(
+                f"Batch done: {successes}/{len(jobs)} succeeded, {failures} failed"
+            )
+
             await asyncio.sleep(POLL_INTERVAL)
 
         except asyncio.TimeoutError:
-            logger.warning("Batch processing timeout, continuing")
+            logger.warning("⚠️  Batch processing timed out — continuing to next poll")
             await asyncio.sleep(POLL_INTERVAL)
 
         except Exception as e:
-            logger.exception(f"Error in worker loop: {e}")
+            logger.exception(f"❌ Error in worker loop: {e}")
             await asyncio.sleep(POLL_INTERVAL)
+
+
+# =============================================================================
+# Entry point
+# =============================================================================
 
 
 async def main():
