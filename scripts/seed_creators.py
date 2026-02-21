@@ -68,8 +68,10 @@ class DiscoveredCreator:
 
 @dataclass
 class SeedStats:
-    inserted: int = 0
-    already_existed: int = 0
+    # Counts both new inserts and pre-existing rows that were found in DB.
+    # upsert_creator does not distinguish new vs existing in its return type,
+    # so we don't track them separately to avoid misleading "0 already existed" output.
+    upserted: int = 0
     failed: int = 0
     quota_skipped: int = 0  # name-only rows skipped to preserve quota
     unresolvable: int = 0  # genuinely could not resolve
@@ -78,20 +80,19 @@ class SeedStats:
     skipped_names: List[str] = field(default_factory=list)
 
     def total_attempted(self) -> int:
-        return self.inserted + self.already_existed + self.failed
+        return self.upserted + self.failed
 
     def summary(self) -> str:
         lines = [
             "─" * 60,
             "SEEDING COMPLETE",
             "─" * 60,
-            f"  Inserted (new):      {self.inserted}",
-            f"  Already in DB:       {self.already_existed}",
-            f"  Sync jobs queued:    {self.sync_jobs_queued}",
-            f"  Failed (DB errors):  {self.failed}",
-            f"  Unresolvable:        {self.unresolvable}",
-            f"  Quota-skipped:       {self.quota_skipped}",
-            f"  API units used:      {self.quota_units_used}",
+            f"  Upserted (new+existing): {self.upserted}",
+            f"  Sync jobs queued:        {self.sync_jobs_queued}",
+            f"  Failed (DB errors):      {self.failed}",
+            f"  Unresolvable:            {self.unresolvable}",
+            f"  Quota-skipped:           {self.quota_skipped}",
+            f"  API units used:          {self.quota_units_used}",
         ]
         if self.skipped_names:
             lines += [
@@ -394,6 +395,12 @@ async def upsert_creator(
 
     Returns the creator UUID, or None on failure.
     """
+    if dry_run:
+        logger.info(
+            f"  [dry-run] Would insert: {creator.channel_id} ({creator.channel_name})"
+        )
+        return f"dry-run-{creator.channel_id}"
+
     if not db.supabase_client:
         logger.error("Supabase client not available")
         return None
@@ -409,12 +416,6 @@ async def upsert_creator(
         )
         if existing.data:
             return existing.data[0]["id"]  # Already in DB
-
-        if dry_run:
-            logger.info(
-                f"  [dry-run] Would insert: {creator.channel_id} ({creator.channel_name})"
-            )
-            return f"dry-run-{creator.channel_id}"
 
         payload = {
             "channel_id": creator.channel_id,
@@ -458,15 +459,8 @@ async def seed_creators(
             stats.failed += 1
             continue
 
-        # Detect whether this was a pre-existing row or a new insert
-        # upsert_creator returns the existing id immediately on conflict,
-        # so we can distinguish by checking if it came back without a DB write.
-        # The simplest heuristic: if we got back an ID without dry-run writing,
-        # check whether the row was already there (it returns early from existing check).
-        # To keep things simple: we treat "got an id" as success and let queue_creator_sync
-        # handle deduplication of the sync job.
-        if dry_run or creator_id.startswith("dry-run-"):
-            stats.inserted += 1
+        if creator_id.startswith("dry-run-"):
+            stats.upserted += 1
             continue
 
         # Queue sync job via the canonical db function (includes dedup)
@@ -474,7 +468,7 @@ async def seed_creators(
         if queued:
             stats.sync_jobs_queued += 1
 
-        stats.inserted += 1
+        stats.upserted += 1
         logger.info(
             f"  ✅ {creator.channel_id} | {creator.channel_name or '?'} "
             f"| source={creator.source} rank={creator.source_rank}"
