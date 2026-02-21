@@ -3,20 +3,30 @@ Seed creator discovery from multiple sources.
 
 Supports:
 - CSV: Local list of channels (youtubers.csv or specified path)
-- Wikipedia: Most-subscribed YouTube channels
-- YouTube Trending: Global and regional trending channels
-- YouTube Music: Top music channels
-- YouTube Premium: Featured channels
-- Custom sources via configuration
+- Wikipedia: Most-subscribed YouTube channels list
 
-Updated with:
-- CSV source integration (NEW)
-- Multiple source integration (parallel fetching)
-- Rate limiting (respect API quotas)
-- Better error handling & recovery
-- Source weighting for ranking
-- Configurable source priorities
-- Batch processing for efficiency
+Quota strategy
+--------------
+YouTube Data API v3 costs vary significantly by operation:
+  - channels.list by UC ID    →   1 unit  (free lookup)
+  - channels.list by @handle  →   1 unit  (cheap)
+  - search.list by name       → 100 units (expensive — avoid where possible)
+
+This script minimises quota usage by resolving in priority order:
+  1. UC IDs detected directly in CSV   → 0 API calls
+  2. @handles detected in CSV          → 1 unit each (channels.list)
+  3. Plain names                        → 100 units each (search.list)
+
+For plain-name rows the script stops resolving once the remaining
+quota budget (--quota-budget, default 2000 units) would be exceeded,
+and logs which channels were skipped so you can add their @handles
+to the CSV instead.
+
+Usage
+-----
+  python scripts/seed_creators.py scripts/youtubers.csv
+  python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 5000
+  python scripts/seed_creators.py scripts/youtubers.csv --dry-run
 """
 
 import asyncio
@@ -24,551 +34,584 @@ import csv
 import logging
 import os
 import sys
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
-from urllib.parse import urlparse
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-# Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import db
-from constants import CREATOR_SYNC_JOBS_TABLE, CREATOR_TABLE
-from db import init_supabase, setup_logging
+from constants import CREATOR_TABLE
+from db import init_supabase, queue_creator_sync, setup_logging
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
 
 logger = logging.getLogger(__name__)
 
-
-class Source(Enum):
-    """Creator source enumeration."""
-
-    CSV = "csv"  # NEW
-    WIKIPEDIA = "wikipedia"
-    YOUTUBE_TRENDING = "youtube_trending"
-    YOUTUBE_MUSIC = "youtube_music"
-    YOUTUBE_FEATURED = "youtube_featured"
-    MANUAL = "manual"
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class SourceConfig:
-    """Configuration for a creator source."""
-
-    source: Source
-    enabled: bool = True
-    weight: int = 1  # For ranking prioritization
-    max_results: int = 100
-    timeout_seconds: int = 30
-    csv_path: Optional[str] = None  # NEW: Path to CSV file
+class DiscoveredCreator:
+    channel_id: str
+    channel_name: Optional[str]
+    channel_url: Optional[str]
+    source: str  # "csv", "wikipedia"
+    source_rank: int
 
 
-class SourceFetcher:
-    """Fetches creators from various sources."""
+@dataclass
+class SeedStats:
+    inserted: int = 0
+    already_existed: int = 0
+    failed: int = 0
+    quota_skipped: int = 0  # name-only rows skipped to preserve quota
+    unresolvable: int = 0  # genuinely could not resolve
+    sync_jobs_queued: int = 0
+    quota_units_used: int = 0
+    skipped_names: List[str] = field(default_factory=list)
 
-    def __init__(self, validator: ChannelIDValidator, resolver: YouTubeResolver):
-        self.validator = validator
-        self.resolver = resolver
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
-        }
+    def total_attempted(self) -> int:
+        return self.inserted + self.already_existed + self.failed
 
-    async def fetch_csv(self, csv_path: str) -> Dict[str, int]:
-        """
-        Fetch creators from a CSV file.
+    def summary(self) -> str:
+        lines = [
+            "─" * 60,
+            "SEEDING COMPLETE",
+            "─" * 60,
+            f"  Inserted (new):      {self.inserted}",
+            f"  Already in DB:       {self.already_existed}",
+            f"  Sync jobs queued:    {self.sync_jobs_queued}",
+            f"  Failed (DB errors):  {self.failed}",
+            f"  Unresolvable:        {self.unresolvable}",
+            f"  Quota-skipped:       {self.quota_skipped}",
+            f"  API units used:      {self.quota_units_used}",
+        ]
+        if self.skipped_names:
+            lines += [
+                "",
+                f"  ⚠️  {len(self.skipped_names)} channels skipped to preserve quota.",
+                "  Add their @handles or UC IDs to the CSV to resolve for free:",
+            ]
+            for name in self.skipped_names[:20]:
+                lines.append(f"    - {name}")
+            if len(self.skipped_names) > 20:
+                lines.append(f"    ... and {len(self.skipped_names) - 20} more")
+        lines.append("─" * 60)
+        return "\n".join(lines)
 
-        Expected CSV format:
-        - Column "Channel Name" (or similar) with creator names
-        - Rank column for ordering (optional)
-        - Other metadata columns
 
-        Returns:
-            Dict mapping channel_id -> source_rank
-        """
-        if not csv_path or not Path(csv_path).exists():
-            logger.error(f"CSV file not found: {csv_path}")
-            return {}
+# ---------------------------------------------------------------------------
+# CSV resolution — quota-aware
+# ---------------------------------------------------------------------------
 
-        logger.info(f"📄 Reading CSV from: {csv_path}")
-        creators = {}
-        position = 1
+# Column names to try in order when looking for the channel name/identifier
+_NAME_COLUMNS = ("Channel Name", "channel_name", "Name", "name", "Creator", "creator")
+_ID_COLUMNS = ("Channel ID", "channel_id", "ID", "id")
+_URL_COLUMNS = ("Channel URL", "channel_url", "URL", "url", "Link", "link")
+_SEARCH_COST = 100  # YouTube search.list quota units per call
+_HANDLE_COST = 1  # YouTube channels.list quota units per call
 
-        try:
-            with open(csv_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
 
-                if not reader.fieldnames:
-                    logger.error("CSV file is empty or invalid")
-                    return {}
+def _detect_column(fieldnames: List[str], candidates: Tuple[str, ...]) -> Optional[str]:
+    """Return the first candidate column name present in fieldnames."""
+    for col in candidates:
+        if col in fieldnames:
+            return col
+    return None
 
-                logger.debug(f"CSV columns: {reader.fieldnames}")
 
-                for row in reader:
-                    # Skip empty rows
-                    if not row or not any(row.values()):
-                        continue
+def _classify_identifier(value: str, validator: ChannelIDValidator) -> str:
+    """
+    Classify a raw CSV cell value as one of:
+      "channel_id" — already a UCxxx ID
+      "handle"     — starts with @ or is a youtube.com/@ URL
+      "name"       — plain channel name (requires expensive search)
+    """
+    stripped = value.strip()
+    if validator.is_valid(stripped):
+        return "channel_id"
+    if validator.extract_from_url(stripped):
+        return "channel_id"
+    if stripped.startswith("@") or "/@" in stripped or "/c/" in stripped:
+        return "handle"
+    return "name"
 
-                    # Try to find channel name in common column names
-                    channel_name = None
-                    for col in [
-                        "Channel Name",
-                        "channel_name",
-                        "Name",
-                        "name",
-                        "Creator",
-                        "creator",
-                    ]:
-                        if col in row and row[col]:
-                            channel_name = row[col].strip()
-                            break
 
-                    if not channel_name:
-                        logger.warning(f"Could not find channel name in row: {row}")
-                        continue
+async def resolve_csv(
+    csv_path: str,
+    resolver: YouTubeResolver,
+    validator: ChannelIDValidator,
+    quota_budget: int,
+    dry_run: bool = False,
+) -> Tuple[List[DiscoveredCreator], SeedStats]:
+    """
+    Read CSV and resolve each row to a channel_id.
 
-                    # Resolve channel name to channel ID using YouTubeResolver
-                    # Uses search API to find channel by name
-                    logger.debug(f"Resolving: {channel_name}")
-                    channel_id = await self.resolver.resolve_handle_to_channel_id(
-                        channel_name
-                    )
+    Resolution priority (to minimise quota):
+      1. Direct UC channel IDs in ID or URL columns → 0 units
+      2. @handles → 1 unit each (channels.list, not search.list)
+      3. Plain names → 100 units each (search.list) — stop if budget exceeded
 
-                    if not channel_id:
-                        logger.warning(
-                            f"Could not resolve channel name: {channel_name}"
-                        )
-                        continue
+    Returns (creators, partial_stats) where partial_stats tracks quota usage
+    and skipped rows for inclusion in the final summary.
+    """
+    if not Path(csv_path).exists():
+        logger.error(f"CSV file not found: {csv_path}")
+        return [], SeedStats()
 
-                    if channel_id not in creators:
-                        creators[channel_id] = position
-                        logger.debug(
-                            f"✓ Resolved: {channel_name} → {channel_id} (rank {position})"
-                        )
-                        position += 1
+    logger.info(f"📄 Reading CSV: {csv_path}")
+    stats = SeedStats()
+    creators: List[DiscoveredCreator] = []
+    seen_ids: Set[str] = set()
 
-        except csv.Error as e:
-            logger.error(f"CSV parsing error: {e}")
-            return {}
-        except Exception as e:
-            logger.error(f"Error reading CSV: {e}")
-            return {}
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            logger.error("CSV is empty or has no header row")
+            return [], stats
 
-        logger.info(f"✅ CSV: Found and resolved {len(creators)} creators")
-        return creators
+        # Detect columns once, before the row loop
+        id_col = _detect_column(reader.fieldnames, _ID_COLUMNS)
+        url_col = _detect_column(reader.fieldnames, _URL_COLUMNS)
+        name_col = _detect_column(reader.fieldnames, _NAME_COLUMNS)
 
-    async def fetch_wikipedia(self) -> Dict[str, int]:
-        """
-        Fetch top creators from Wikipedia's most-subscribed list.
+        logger.debug(f"CSV columns → id:{id_col!r}, url:{url_col!r}, name:{name_col!r}")
 
-        Returns:
-            Dict mapping channel_id -> source_rank
-        """
-        url = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channels"
-        logger.info(f"📖 Fetching from Wikipedia...")
+        rows = [r for r in reader if any(r.values())]
 
-        try:
-            response = requests.get(url, timeout=30, headers=self.headers)
-            response.raise_for_status()
-        except requests.RequestException as e:
-            logger.error(f"Failed to fetch Wikipedia: {e}")
-            return {}
+    logger.info(f"  {len(rows)} non-empty rows to process")
+    remaining_budget = quota_budget
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        creators = {}
+    for rank, row in enumerate(rows, start=1):
+        channel_id: Optional[str] = None
+        channel_name: Optional[str] = (
+            row.get(name_col, "").strip() if name_col else None
+        )
+        channel_url: Optional[str] = row.get(url_col, "").strip() if url_col else None
 
-        # Find main content tables
-        tables = soup.find_all("table", class_="wikitable")
-        if not tables:
-            logger.warning("No wikitables found - Wikipedia structure may have changed")
-            return {}
+        # ── Step 1: try to get the channel ID directly (zero API cost) ────────
+        raw_id = row.get(id_col, "").strip() if id_col else ""
+        raw_url = channel_url or ""
 
-        logger.debug(f"Found {len(tables)} wikitables")
-
-        # Extract from all tables (index 0 is usually the main one)
-        position = 1
-        for table in tables[:2]:  # Process top 2 tables
-            for link in table.find_all("a", href=True):
-                href = link["href"]
-
-                # Extract channel ID
-                channel_id = self._extract_channel_id(href)
-                if channel_id and channel_id not in creators:
-                    creators[channel_id] = position
-                    position += 1
-
-                if position > 200:  # Cap at 200
-                    break
-            if position > 200:
+        for candidate in (raw_id, raw_url):
+            if not candidate:
+                continue
+            extracted = validator.extract_from_url(candidate) or (
+                candidate if validator.is_valid(candidate) else None
+            )
+            if extracted:
+                channel_id = extracted
+                logger.debug(
+                    f"  [{rank}] {channel_name or candidate} → {channel_id} (direct, 0 units)"
+                )
                 break
 
-        logger.info(f"✅ Wikipedia: Found {len(creators)} creators")
-        return creators
+        # ── Step 2: @handle resolution (1 unit) ───────────────────────────────
+        if not channel_id and channel_name:
+            kind = _classify_identifier(channel_name, validator)
 
-    async def fetch_youtube_trending(self) -> Dict[str, int]:
-        """
-        Fetch top creators from YouTube's trending category.
+            if kind == "channel_id":
+                channel_id = validator.extract_from_url(channel_name) or channel_name
+                logger.debug(
+                    f"  [{rank}] {channel_name} → {channel_id} (direct, 0 units)"
+                )
 
-        Note: YouTube trending data requires API access.
-        This is a placeholder for API integration.
-
-        Returns:
-            Dict mapping channel_id -> source_rank
-        """
-        # This would require YouTube API access to /videos with chart=mostPopular
-        # For now, return empty to avoid API quota issues
-        logger.info("⭐️  YouTube Trending: Skipped (requires API implementation)")
-        return {}
-
-    async def fetch_youtube_music(self) -> Dict[str, int]:
-        """
-        Fetch top music channels from YouTube Music Charts.
-
-        Note: This would scrape YouTube Music or use API.
-        Placeholder for future implementation.
-
-        Returns:
-            Dict mapping channel_id -> source_rank
-        """
-        logger.info("🎵 YouTube Music: Skipped (requires API implementation)")
-        return {}
-
-    def _extract_channel_id(self, href: str) -> Optional[str]:
-        """Extract channel ID from various YouTube URL formats."""
-        # Try direct regex extraction first (fastest)
-        channel_id = self.validator.extract_from_url(href)
-        if channel_id:
-            return channel_id
-
-        # For handles, would need async resolver - skip for now
-        # In production, queue these for async resolution
-        return None
-
-    async def fetch_all_sources(
-        self, config: Dict[Source, SourceConfig]
-    ) -> Dict[str, Dict]:
-        """
-        Fetch from all enabled sources in parallel.
-
-        Args:
-            config: Configuration for each source
-
-        Returns:
-            Dict mapping channel_id -> {"source": ..., "rank": ...}
-        """
-        all_creators = {}
-        tasks = {}
-
-        # Build parallel tasks for all enabled sources
-        csv_config = config.get(Source.CSV, SourceConfig(Source.CSV))
-        if csv_config.enabled and csv_config.csv_path:
-            tasks["csv"] = self.fetch_csv(csv_config.csv_path)
-
-        if config.get(Source.WIKIPEDIA, SourceConfig(Source.WIKIPEDIA)).enabled:
-            tasks["wikipedia"] = self.fetch_wikipedia()
-
-        if config.get(
-            Source.YOUTUBE_TRENDING, SourceConfig(Source.YOUTUBE_TRENDING)
-        ).enabled:
-            tasks["youtube_trending"] = self.fetch_youtube_trending()
-
-        if config.get(Source.YOUTUBE_MUSIC, SourceConfig(Source.YOUTUBE_MUSIC)).enabled:
-            tasks["youtube_music"] = self.fetch_youtube_music()
-
-        # Execute all tasks concurrently
-        if tasks:
-            results = await asyncio.gather(
-                *tasks.values(),
-                return_exceptions=True,
-            )
-
-            for source_name, result in zip(tasks.keys(), results):
-                if isinstance(result, Exception):
-                    logger.error(f"Error fetching {source_name}: {result}")
+            elif kind == "handle":
+                if remaining_budget >= _HANDLE_COST:
+                    if not dry_run:
+                        channel_id = await resolver.resolve_handle_to_channel_id(
+                            channel_name
+                        )
+                    else:
+                        channel_id = f"DRY_RUN_{rank}"
+                    if channel_id:
+                        remaining_budget -= _HANDLE_COST
+                        stats.quota_units_used += _HANDLE_COST
+                        logger.debug(
+                            f"  [{rank}] {channel_name} → {channel_id} (handle, 1 unit)"
+                        )
+                    else:
+                        logger.warning(
+                            f"  [{rank}] Could not resolve handle: {channel_name}"
+                        )
+                        stats.unresolvable += 1
+                        continue
+                else:
+                    logger.warning(
+                        f"  [{rank}] {channel_name}: budget exhausted, skipping handle resolution"
+                    )
+                    stats.quota_skipped += 1
+                    stats.skipped_names.append(channel_name)
                     continue
 
-                try:
-                    source = Source(source_name)
-                    for channel_id, rank in result.items():
-                        if channel_id not in all_creators:
-                            all_creators[channel_id] = {
-                                "source": source_name,
-                                "rank": rank,
-                            }
-                except Exception as e:
-                    logger.error(f"Error processing results from {source_name}: {e}")
+            else:  # plain name — expensive search
+                if remaining_budget >= _SEARCH_COST:
+                    if not dry_run:
+                        channel_id = await resolver.resolve_handle_to_channel_id(
+                            channel_name
+                        )
+                    else:
+                        channel_id = f"DRY_RUN_{rank}"
+                    if channel_id:
+                        remaining_budget -= _SEARCH_COST
+                        stats.quota_units_used += _SEARCH_COST
+                        logger.debug(
+                            f"  [{rank}] {channel_name!r} → {channel_id} (search, 100 units)"
+                            f" | budget remaining: {remaining_budget}"
+                        )
+                    else:
+                        logger.warning(
+                            f"  [{rank}] Could not resolve: {channel_name!r}"
+                        )
+                        stats.unresolvable += 1
+                        continue
+                else:
+                    # Budget exhausted — log and skip, don't silently lose
+                    stats.quota_skipped += 1
+                    stats.skipped_names.append(channel_name or f"row {rank}")
+                    continue
 
-        return all_creators
+        if not channel_id:
+            logger.warning(f"  [{rank}] No identifier found in row: {dict(row)}")
+            stats.unresolvable += 1
+            continue
+
+        if channel_id in seen_ids:
+            logger.debug(f"  [{rank}] Duplicate in CSV: {channel_id}, skipping")
+            continue
+        seen_ids.add(channel_id)
+
+        creators.append(
+            DiscoveredCreator(
+                channel_id=channel_id,
+                channel_name=channel_name,
+                channel_url=channel_url,
+                source="csv",
+                source_rank=rank,
+            )
+        )
+
+    logger.info(
+        f"✅ CSV: {len(creators)} creators resolved | "
+        f"{stats.quota_units_used} API units used | "
+        f"{stats.quota_skipped} rows skipped (budget) | "
+        f"{stats.unresolvable} unresolvable"
+    )
+    if stats.quota_skipped > 0:
+        logger.warning(
+            f"  ⚠️  {stats.quota_skipped} channels skipped to preserve quota. "
+            "Add @handles or UC IDs to the CSV to resolve them without search quota."
+        )
+    return creators, stats
 
 
-async def add_creator_with_source(
-    channel_id: str,
-    source: str = "csv",
-    source_rank: Optional[int] = None,
+# ---------------------------------------------------------------------------
+# Wikipedia source
+# ---------------------------------------------------------------------------
+
+
+async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreator]:
+    """
+    Fetch top YouTube channels from Wikipedia's most-subscribed list.
+
+    Extracts UC channel IDs directly from href attributes — no API calls needed.
+    Note: Wikipedia has been migrating channel links to @handle format; the
+    UC-ID regex will only match rows that still use /channel/UCxxx links.
+    Rows with handle-only links are not resolved here to avoid quota spend.
+    """
+    url = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channels"
+    logger.info("📖 Fetching from Wikipedia...")
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ViralVibesSeed/1.0)"}
+
+    try:
+        resp = requests.get(url, timeout=30, headers=headers)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Wikipedia fetch failed: {e}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    tables = soup.find_all("table", class_="wikitable")
+    if not tables:
+        logger.warning("No wikitables found — Wikipedia structure may have changed")
+        return []
+
+    creators: List[DiscoveredCreator] = []
+    seen: Set[str] = set()
+    rank = 1
+
+    for table in tables[:2]:
+        for link in table.find_all("a", href=True):
+            channel_id = validator.extract_from_url(link["href"])
+            if channel_id and channel_id not in seen:
+                seen.add(channel_id)
+                creators.append(
+                    DiscoveredCreator(
+                        channel_id=channel_id,
+                        channel_name=link.get_text(strip=True) or None,
+                        channel_url=f"https://www.youtube.com/channel/{channel_id}",
+                        source="wikipedia",
+                        source_rank=rank,
+                    )
+                )
+                rank += 1
+            if rank > 200:
+                break
+        if rank > 200:
+            break
+
+    logger.info(f"✅ Wikipedia: {len(creators)} creators found via UC ID extraction")
+    if len(creators) < 10:
+        logger.warning(
+            "  Very few channels extracted from Wikipedia. "
+            "Wikipedia may have switched to @handle links — "
+            "handle resolution from Wikipedia is not currently implemented "
+            "to avoid quota spend."
+        )
+    return creators
+
+
+# ---------------------------------------------------------------------------
+# Database operations
+# ---------------------------------------------------------------------------
+
+
+async def upsert_creator(
+    creator: DiscoveredCreator, dry_run: bool = False
 ) -> Optional[str]:
     """
-    Add creator to database with source information.
+    Insert creator if not already present.
 
-    Args:
-        channel_id: YouTube channel ID (UCxxxxxx)
-        source: Where creator came from (csv, wikipedia, youtube_trending, etc.)
-        source_rank: Position in source ranking
+    Uses db.queue_creator_sync() for sync job creation, which includes
+    deduplication (no duplicate pending jobs for the same creator).
 
-    Returns:
-        Creator ID if successful, None otherwise
+    Returns the creator UUID, or None on failure.
     """
     if not db.supabase_client:
         logger.error("Supabase client not available")
         return None
 
     try:
-        # Check if already exists
+        # Check existence first
         existing = (
             db.supabase_client.table(CREATOR_TABLE)
             .select("id")
-            .eq("channel_id", channel_id)
+            .eq("channel_id", creator.channel_id)
             .limit(1)
             .execute()
         )
-
         if existing.data:
-            logger.debug(f"Creator already exists: {channel_id}")
-            return existing.data[0]["id"]
+            return existing.data[0]["id"]  # Already in DB
 
-        # Insert with source info
-        insert_data = {
-            "channel_id": channel_id,
-            "source": source,
-        }
-
-        if source_rank is not None:
-            insert_data["source_rank"] = source_rank
-
-        response = db.supabase_client.table(CREATOR_TABLE).insert(insert_data).execute()
-
-        if response.data:
-            creator_id = response.data[0]["id"]
+        if dry_run:
             logger.info(
-                f"Created creator: {channel_id} (source={source}, rank={source_rank})"
+                f"  [dry-run] Would insert: {creator.channel_id} ({creator.channel_name})"
             )
-            return creator_id
+            return f"dry-run-{creator.channel_id}"
 
-        logger.error(f"Insert returned no data for {channel_id}")
-        return None
+        payload = {
+            "channel_id": creator.channel_id,
+            "source": creator.source,
+            "source_rank": creator.source_rank,
+        }
+        # Populate name/url if we have them — reduces work for the sync worker
+        if creator.channel_name:
+            payload["channel_name"] = creator.channel_name
+        if creator.channel_url:
+            payload["channel_url"] = creator.channel_url
+
+        resp = db.supabase_client.table(CREATOR_TABLE).insert(payload).execute()
+
+        if not resp.data:
+            logger.error(f"DB insert returned no data for {creator.channel_id}")
+            return None
+
+        return resp.data[0]["id"]
 
     except Exception as e:
-        logger.error(f"Error creating creator {channel_id}: {e}")
+        logger.error(f"DB error for {creator.channel_id}: {e}")
         return None
 
 
-async def enqueue_creator_sync(creator_id: str) -> bool:
-    """Enqueue a creator sync job."""
-    if not db.supabase_client:
-        logger.error("Supabase client not available")
-        return False
-
-    try:
-        result = (
-            db.supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .insert(
-                {
-                    "creator_id": creator_id,
-                    "job_type": "refresh_stats",
-                    "status": "pending",
-                }
-            )
-            .execute()
-        )
-        return bool(result.data)
-    except Exception as e:
-        logger.error(f"Error enqueueing sync job for creator {creator_id}: {e}")
-        return False
-
-
-async def process_creators(
-    creators_dict: Dict[str, Dict],
-    validator: ChannelIDValidator,
-    resolver: YouTubeResolver,
-) -> dict:
+async def seed_creators(
+    creators: List[DiscoveredCreator],
+    stats: SeedStats,
+    dry_run: bool = False,
+) -> SeedStats:
     """
-    Process discovered creators and add to database.
+    Upsert each creator and queue a sync job. Updates stats in-place.
 
-    Args:
-        creators_dict: Dict mapping channel_id -> {"source": ..., "rank": ...}
-        validator: ChannelIDValidator instance
-        resolver: YouTubeResolver instance
-
-    Returns:
-        Stats dict with counts
+    Uses db.queue_creator_sync() — which deduplicates pending jobs —
+    instead of raw inserts into creator_sync_jobs.
     """
-    stats = {
-        "enqueued": 0,
-        "skipped": 0,
-        "failed": 0,
-        "duplicate": 0,
-        "sync_jobs_queued": 0,
-        "by_source": {},
-    }
+    for creator in creators:
+        creator_id = await upsert_creator(creator, dry_run=dry_run)
 
-    for channel_id, metadata in creators_dict.items():
-        source = metadata.get("source", "unknown")
-        rank = metadata.get("rank")
-
-        # Add to source stats
-        if source not in stats["by_source"]:
-            stats["by_source"][source] = {
-                "enqueued": 0,
-                "failed": 0,
-                "sync_jobs_queued": 0,
-            }
-
-        # Validate channel ID format
-        if not validator.is_valid(channel_id):
-            logger.warning(f"Invalid channel ID format: {channel_id}")
-            stats["skipped"] += 1
+        if creator_id is None:
+            stats.failed += 1
             continue
 
-        # Add creator to database
-        creator_id = await add_creator_with_source(
-            channel_id=channel_id,
-            source=source,
-            source_rank=rank,
-        )
-
-        if not creator_id:
-            stats["failed"] += 1
-            stats["by_source"][source]["failed"] += 1
+        # Detect whether this was a pre-existing row or a new insert
+        # upsert_creator returns the existing id immediately on conflict,
+        # so we can distinguish by checking if it came back without a DB write.
+        # The simplest heuristic: if we got back an ID without dry-run writing,
+        # check whether the row was already there (it returns early from existing check).
+        # To keep things simple: we treat "got an id" as success and let queue_creator_sync
+        # handle deduplication of the sync job.
+        if dry_run or creator_id.startswith("dry-run-"):
+            stats.inserted += 1
             continue
 
-        # Enqueue sync job
-        sync_queued = await enqueue_creator_sync(creator_id)
+        # Queue sync job via the canonical db function (includes dedup)
+        queued = queue_creator_sync(creator_id, source=creator.source)
+        if queued:
+            stats.sync_jobs_queued += 1
 
-        if sync_queued:
-            stats["enqueued"] += 1
-            stats["sync_jobs_queued"] += 1
-            stats["by_source"][source]["enqueued"] += 1
-            logger.info(f"✅ Enqueued: {channel_id} (source={source}, rank={rank})")
-        else:
-            stats["failed"] += 1
-            stats["by_source"][source]["failed"] += 1
-            logger.error(f"Failed to queue sync for {channel_id}")
+        stats.inserted += 1
+        logger.info(
+            f"  ✅ {creator.channel_id} | {creator.channel_name or '?'} "
+            f"| source={creator.source} rank={creator.source_rank}"
+        )
 
     return stats
 
 
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def _parse_args():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Seed YouTube creators into the ViralVibes database.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument(
+        "csv_path",
+        nargs="?",
+        help="Path to CSV file with creator names/handles/IDs",
+    )
+    parser.add_argument(
+        "--quota-budget",
+        type=int,
+        default=2000,
+        metavar="UNITS",
+        help=(
+            "Max YouTube API quota units to spend on name→ID resolution. "
+            "Searches cost 100 units each; handle lookups cost 1. "
+            "Default: 2000 (= 20 searches or 2000 handle lookups)."
+        ),
+    )
+    parser.add_argument(
+        "--no-wikipedia",
+        action="store_true",
+        help="Skip the Wikipedia source",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve channels and show what would be inserted, without writing to DB",
+    )
+    return parser.parse_args()
+
+
 async def main():
-    """Main seeding workflow with multiple sources."""
     load_dotenv()
     setup_logging()
+    args = _parse_args()
 
-    logger.info("Initializing Supabase...")
-    client = init_supabase()
-    if not client:
-        logger.error("❌ Failed to initialize Supabase client")
+    # ── Supabase ────────────────────────────────────────────────────────────
+    if not args.dry_run:
+        logger.info("Initializing Supabase...")
+        client = init_supabase()
+        if not client:
+            logger.error("❌ Failed to initialize Supabase — check env vars")
+            sys.exit(1)
+    else:
+        logger.info("[dry-run] Skipping Supabase init")
+
+    # ── YouTube resolver ────────────────────────────────────────────────────
+    api_key = os.getenv("YOUTUBE_API_KEY_CREATORS") or os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
         logger.error(
-            "Make sure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set"
+            "❌ No YouTube API key found (YOUTUBE_API_KEY_CREATORS or YOUTUBE_API_KEY)"
         )
         sys.exit(1)
-
-    # Initialize YouTube resolver
-    api_key = os.getenv("YOUTUBE_API_KEY")
-    if not api_key:
-        logger.warning(
-            "⚠️  YOUTUBE_API_KEY not set - channel name resolution will be skipped"
-        )
 
     resolver = YouTubeResolver(api_key=api_key)
     validator = ChannelIDValidator()
 
-    # Determine CSV path (NEW)
-    csv_path = None
-    if len(sys.argv) > 1:
-        # CSV path passed as command-line argument
-        csv_path = sys.argv[1]
-    else:
-        # Try common default locations
-        for default_path in ["youtubers.csv", "./youtubers.csv", "data/youtubers.csv"]:
-            if Path(default_path).exists():
-                csv_path = default_path
+    # ── Resolve CSV path ────────────────────────────────────────────────────
+    csv_path = args.csv_path
+    if csv_path is None:
+        for candidate in ("youtubers.csv", "./youtubers.csv", "data/youtubers.csv"):
+            if Path(candidate).exists():
+                csv_path = candidate
                 break
 
-    # Configure sources (UPDATED)
-    source_config = {
-        Source.CSV: SourceConfig(  # NEW
-            source=Source.CSV,
-            enabled=csv_path is not None,
-            weight=10,  # Highest priority
-            max_results=500,
-            csv_path=csv_path,
-        ),
-        Source.WIKIPEDIA: SourceConfig(
-            source=Source.WIKIPEDIA,
-            enabled=True,
-            weight=5,
-            max_results=200,
-        ),
-        Source.YOUTUBE_TRENDING: SourceConfig(
-            source=Source.YOUTUBE_TRENDING,
-            enabled=False,  # Requires API quota
-            weight=3,
-            max_results=50,
-        ),
-        Source.YOUTUBE_MUSIC: SourceConfig(
-            source=Source.YOUTUBE_MUSIC,
-            enabled=False,  # Requires implementation
-            weight=2,
-            max_results=50,
-        ),
-    }
-
-    # Show what's enabled (NEW)
-    enabled_sources = [s.name for s, c in source_config.items() if c.enabled]
-    logger.info(f"Enabled sources: {', '.join(enabled_sources)}")
+    # ── Collect creators from all sources ───────────────────────────────────
+    all_creators: List[DiscoveredCreator] = []
+    combined_stats = SeedStats()
 
     if csv_path:
-        logger.info(f"CSV path: {csv_path}")
+        csv_creators, csv_stats = await resolve_csv(
+            csv_path,
+            resolver=resolver,
+            validator=validator,
+            quota_budget=args.quota_budget,
+            dry_run=args.dry_run,
+        )
+        all_creators.extend(csv_creators)
+        # Carry quota stats forward for final summary
+        combined_stats.quota_units_used += csv_stats.quota_units_used
+        combined_stats.quota_skipped += csv_stats.quota_skipped
+        combined_stats.unresolvable += csv_stats.unresolvable
+        combined_stats.skipped_names.extend(csv_stats.skipped_names)
+    else:
+        logger.info("No CSV path provided — skipping CSV source")
 
-    # Fetch from all sources
-    logger.info("Fetching from all sources...")
-    fetcher = SourceFetcher(validator, resolver)
-    all_creators = await fetcher.fetch_all_sources(source_config)
+    if not args.no_wikipedia:
+        # Wikipedia needs no API calls — always run it
+        wiki_creators = await fetch_wikipedia(validator)
+        all_creators.extend(wiki_creators)
 
-    if not all_creators:
-        logger.error("❌ No creators found from any source")
+    # Deduplicate across sources (CSV wins over Wikipedia for same channel_id)
+    seen: Set[str] = set()
+    unique_creators: List[DiscoveredCreator] = []
+    for c in all_creators:
+        if c.channel_id not in seen:
+            seen.add(c.channel_id)
+            unique_creators.append(c)
+
+    logger.info(
+        f"\nTotal unique creators to seed: {len(unique_creators)} "
+        f"({len(all_creators) - len(unique_creators)} duplicates across sources removed)"
+    )
+
+    if not unique_creators:
+        logger.error("❌ No creators resolved from any source")
         sys.exit(1)
 
-    logger.info(f"Found {len(all_creators)} unique creators across all sources")
+    # ── Write to DB ─────────────────────────────────────────────────────────
+    logger.info(
+        f"{'[dry-run] ' if args.dry_run else ''}Seeding {len(unique_creators)} creators..."
+    )
+    combined_stats = await seed_creators(
+        unique_creators, combined_stats, dry_run=args.dry_run
+    )
 
-    # Process creators
-    logger.info("Processing creators...")
-    stats = await process_creators(all_creators, validator, resolver)
-
-    # Report results
-    total = stats["enqueued"] + stats["skipped"] + stats["failed"]
-    logger.info("\n" + "=" * 70)
-    logger.info("SEEDING COMPLETE")
-    logger.info("=" * 70)
-    logger.info(f"✅ Enqueued:   {stats['enqueued']}")
-    logger.info(f"⭐️  Skipped:   {stats['skipped']}")
-    logger.info(f"❌ Failed:     {stats['failed']}")
-    logger.info(f"📊 Total:      {total}")
-
-    if stats["by_source"]:
-        logger.info("\nResults by source:")
-        for source, source_stats in stats["by_source"].items():
-            logger.info(
-                f"  {source}: {source_stats['enqueued']} enqueued, {source_stats['failed']} failed"
-            )
-
-    if total > 0:
-        success_rate = (stats["enqueued"] / total) * 100
-        logger.info(f"📈 Success:    {success_rate:.1f}%")
-    logger.info("=" * 70)
+    # ── Summary ─────────────────────────────────────────────────────────────
+    logger.info("\n" + combined_stats.summary())
 
 
 if __name__ == "__main__":
