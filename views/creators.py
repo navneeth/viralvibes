@@ -22,10 +22,7 @@ Creator perspective (Jimmy Donaldson style):
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from urllib.parse import urlencode
-
-import flag
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -34,9 +31,10 @@ from utils import format_date_relative, format_number, safe_get_value
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
+    calculate_views_per_subscriber,
     estimate_monthly_revenue,
     format_channel_age,
-    get_activity_emoji,
+    get_activity_badge,
     get_activity_title,
     get_age_emoji,
     get_age_title,
@@ -585,6 +583,8 @@ def _render_creators_grid(creators: list[dict]) -> Grid:
 def _build_card_header(
     thumbnail_url: str,
     channel_name: str,
+    channel_url: str,
+    custom_url: str,
     current_subs: int,
     current_videos: int,
     rank: str,
@@ -595,6 +595,9 @@ def _build_card_header(
     channel_age_days: int,
 ) -> Div:
     """Build card header section with avatar, name, rank, and grade badges."""
+    # Normalise handle — strip leading @ and re-add for consistency
+    handle_display = f"@{custom_url.lstrip('@')}" if custom_url else None
+
     return Div(
         # Thumbnail with rank badge overlay
         Div(
@@ -613,24 +616,44 @@ def _build_card_header(
         # Channel info
         Div(
             Div(
-                H3(channel_name, cls="font-semibold text-gray-900 truncate mb-0.5"),
+                # Channel name as a link to the channel
+                A(
+                    H3(
+                        channel_name,
+                        cls="font-semibold text-gray-900 truncate mb-0.5 hover:text-blue-600 transition-colors",
+                    ),
+                    href=channel_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="no-underline",
+                ),
+                # @handle in small muted text
+                (
+                    P(handle_display, cls="text-xs text-gray-400 font-medium mb-0.5")
+                    if handle_display
+                    else None
+                ),
                 P(
                     f"{format_number(current_subs)} subscribers · {current_videos} videos",
                     cls="text-xs text-gray-600",
                 ),
                 cls="flex-1",
             ),
-            # Quality grade badge
-            Div(
+            # Quality grade badge — hidden for grade C ("New"), which just means unscored
+            (
                 Div(
-                    P(grade_icon, cls="text-lg"),
-                    cls="flex flex-col items-center",
-                ),
-                Div(
-                    P(grade_label, cls="text-xs font-semibold text-right"),
-                    cls="text-right",
-                ),
-                cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
+                    Div(
+                        P(grade_icon, cls="text-lg"),
+                        cls="flex flex-col items-center",
+                    ),
+                    Div(
+                        P(grade_label, cls="text-xs font-semibold text-right"),
+                        cls="text-right",
+                    ),
+                    cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
+                )
+                if quality_grade and quality_grade != "C"
+                else None
             ),
             cls="flex justify-between items-start gap-3 flex-1",
         ),
@@ -682,15 +705,15 @@ def _build_primary_metrics(
 def _build_performance_metrics(
     avg_views_per_video: int,
     current_videos: int,
-    engagement_score: float,
     estimated_revenue: int,
+    views_per_sub: float,
 ) -> Div:
-    """Build performance metrics grid (3-column, removed unreliable engagement)."""
+    """Build performance metrics grid."""
     return Div(
         Div(
             P("AVG VIEWS", cls="text-xs font-semibold text-gray-600 uppercase"),
             P(
-                f"{format_number(avg_views_per_video)}",
+                format_number(avg_views_per_video),
                 cls="text-lg font-bold text-gray-900 mt-1",
             ),
             P("per video", cls="text-xs text-gray-500"),
@@ -706,6 +729,15 @@ def _build_performance_metrics(
             cls="bg-gray-50 rounded-lg p-3 text-center",
         ),
         Div(
+            P("VIEWS/SUB", cls="text-xs font-semibold text-indigo-700 uppercase"),
+            P(
+                f"{views_per_sub:.1f}x",
+                cls="text-lg font-bold text-indigo-600 mt-1",
+            ),
+            P("audience reach", cls="text-xs text-indigo-500"),
+            cls="bg-indigo-50 rounded-lg p-3 text-center",
+        ),
+        Div(
             P(
                 "EST. REVENUE",
                 cls="text-xs font-semibold text-green-700 uppercase font-bold",
@@ -717,24 +749,28 @@ def _build_performance_metrics(
             P("/month est.", cls="text-xs text-green-600"),
             cls="bg-green-50 rounded-lg p-3 text-center",
         ),
-        cls="grid grid-cols-3 gap-3 mb-4",
+        cls="grid grid-cols-2 gap-3 mb-4",
     )
 
 
 def _build_growth_trend(
-    growth_rate: float, growth_signal_text: str, growth_emoji: str, growth_style: str
+    growth_rate: float, growth_label: str, growth_style: str
 ) -> Div:
-    """Build growth trend indicator section."""
+    """Build growth trend indicator section.
+
+    growth_label comes from get_growth_signal() and already includes the emoji
+    (e.g. "🚀 Rapid Growth"), so we display it directly without duplicating the emoji.
+    """
     return Div(
         Div(
             P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
             Div(
                 P(
-                    f"{growth_emoji} {growth_rate:+.1f}%",
-                    cls=f"text-sm font-bold text-gray-900",
+                    f"{growth_rate:+.1f}%",
+                    cls="text-sm font-bold text-gray-900",
                 ),
                 Span(
-                    growth_signal_text,
+                    growth_label,
                     cls=f"px-2 py-1 text-xs font-semibold rounded-full border {growth_style}",
                 ),
                 cls="flex items-center gap-2",
@@ -812,35 +848,27 @@ def _build_info_strip(
             )
         )
 
-    # Channel age
+    # Channel age — show emoji + human-readable text (e.g. "🆕 8mo", "👑 12y")
     if channel_age_days:
         icons.append(
             Span(
-                get_age_emoji(channel_age_days),
+                f"{get_age_emoji(channel_age_days)} {format_channel_age(channel_age_days)}",
                 title=f"Channel age: {get_age_title(channel_age_days)}",
-                cls="text-lg",
+                cls="text-xs font-medium text-gray-600",
             )
         )
 
-    # Activity level
-    if monthly_uploads:
+    # Activity level — use get_activity_badge for labelled text (e.g. "🔥 Very Active")
+    activity_badge = get_activity_badge(monthly_uploads)
+    if activity_badge:
         icons.append(
             Span(
-                get_activity_emoji(monthly_uploads),
-                title=f"Activity: {get_activity_title(monthly_uploads)}",
-                cls="text-lg",
+                activity_badge,
+                title=f"Upload frequency: {get_activity_title(monthly_uploads)}",
+                cls="text-xs font-medium text-gray-600",
             )
         )
-
-    # Custom URL badge (if available)
-    if custom_url:
-        icons.append(
-            Span(
-                "✔️",
-                title=f"Custom URL: @{custom_url.lstrip('@')}",
-                cls="text-lg",
-            )
-        )
+    # Note: custom_url checkmark removed — @handle is now shown in the card header
 
     if not icons:
         return None
@@ -897,6 +925,7 @@ def _render_creator_card(creator: dict) -> Div:
     avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
     estimated_revenue = estimate_monthly_revenue(current_views)
     growth_rate = calculate_growth_rate(subs_change, current_subs)
+    views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
 
     # === STATUS & STYLING ===
     sync_status = safe_get_value(creator, "sync_status", "pending")
@@ -904,7 +933,9 @@ def _render_creator_card(creator: dict) -> Div:
     card_border = f"border-l-4 border-amber-400" if sync_status != "synced" else ""
 
     grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
-    growth_signal_text, growth_emoji, growth_style = get_growth_signal(growth_rate)
+    # get_growth_signal returns (label_with_emoji, emoji, style).
+    # label already includes the emoji, so _ discards the redundant bare emoji.
+    growth_label, _, growth_style = get_growth_signal(growth_rate)
 
     # === INFO STRIP DATA ===
     custom_url = safe_get_value(creator, "custom_url", "")
@@ -932,6 +963,8 @@ def _render_creator_card(creator: dict) -> Div:
         _build_card_header(
             thumbnail_url,
             channel_name,
+            channel_url,
+            custom_url,
             current_subs,
             current_videos,
             rank,
@@ -941,16 +974,27 @@ def _render_creator_card(creator: dict) -> Div:
             quality_grade,
             channel_age_days,
         ),
+        # Bio — shown when present, truncated to keep cards uniform
+        (
+            P(
+                (bio[:130] + "…") if len(bio) > 130 else bio,
+                cls="text-xs text-gray-500 leading-relaxed mb-4 line-clamp-2",
+            )
+            if (
+                bio := safe_get_value(creator, "bio")
+                or safe_get_value(creator, "channel_description")
+                or ""
+            )
+            else None
+        ),
         # Primary metrics
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
         # Performance metrics
         _build_performance_metrics(
-            avg_views_per_video, current_videos, engagement_score, estimated_revenue
+            avg_views_per_video, current_videos, estimated_revenue, views_per_sub
         ),
         # Growth trend
-        _build_growth_trend(
-            growth_rate, growth_signal_text, growth_emoji, growth_style
-        ),
+        _build_growth_trend(growth_rate, growth_label, growth_style),
         # Keywords (if available)
         (
             Div(
