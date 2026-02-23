@@ -756,11 +756,7 @@ def _build_performance_metrics(
 def _build_growth_trend(
     growth_rate: float, growth_label: str, growth_style: str
 ) -> Div:
-    """Build growth trend indicator section.
-
-    growth_label comes from get_growth_signal() and already includes the emoji
-    (e.g. "🚀 Rapid Growth"), so we display it directly without duplicating the emoji.
-    """
+    """Build growth trend indicator section."""
     return Div(
         Div(
             P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
@@ -795,6 +791,14 @@ def _build_growth_trend(
             else "bg-red-50 rounded-lg p-3 mb-4"
         ),
     )
+
+
+def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
+    """Render a truncated bio paragraph, or None if no bio is available."""
+    if not bio:
+        return None
+    text = bio[:max_chars].rstrip() + "…" if len(bio) > max_chars else bio
+    return P(text, cls="text-xs text-gray-500 leading-relaxed mb-4 line-clamp-2")
 
 
 def _build_card_footer(last_updated: str, channel_url: str) -> Div:
@@ -933,9 +937,7 @@ def _render_creator_card(creator: dict) -> Div:
     card_border = f"border-l-4 border-amber-400" if sync_status != "synced" else ""
 
     grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
-    # get_growth_signal returns (label_with_emoji, emoji, style).
-    # label already includes the emoji, so _ discards the redundant bare emoji.
-    growth_label, _, growth_style = get_growth_signal(growth_rate)
+    growth_label, growth_style = get_growth_signal(growth_rate)
 
     # === INFO STRIP DATA ===
     custom_url = safe_get_value(creator, "custom_url", "")
@@ -975,17 +977,9 @@ def _render_creator_card(creator: dict) -> Div:
             channel_age_days,
         ),
         # Bio — shown when present, truncated to keep cards uniform
-        (
-            P(
-                (bio[:130] + "…") if len(bio) > 130 else bio,
-                cls="text-xs text-gray-500 leading-relaxed mb-4 line-clamp-2",
-            )
-            if (
-                bio := safe_get_value(creator, "bio")
-                or safe_get_value(creator, "channel_description")
-                or ""
-            )
-            else None
+        _render_bio(
+            safe_get_value(creator, "bio")
+            or safe_get_value(creator, "channel_description")
         ),
         # Primary metrics
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
