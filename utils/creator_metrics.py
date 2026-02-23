@@ -53,21 +53,22 @@ def format_channel_age(channel_age_days: Optional[int]) -> str:
     return f"{months}mo" if months > 0 else "New"
 
 
-def get_growth_signal(growth_rate: float) -> Tuple[str, str, str]:
+def get_growth_signal(growth_rate: float) -> Tuple[str, str]:
     """
     Get growth signal interpretation.
 
     Returns:
-        Tuple of (label, emoji, style_classes)
+        Tuple of (label, style_classes). The label includes the emoji
+        (e.g. "🚀 Rapid Growth") so callers don't need to handle it separately.
     """
     if growth_rate > 5:
-        return ("🚀 Rapid Growth", "🚀", "bg-green-100 text-green-800 border-green-300")
+        return ("🚀 Rapid Growth", "bg-green-100 text-green-800 border-green-300")
     elif growth_rate > 1:
-        return ("📈 Growing", "📈", "bg-green-50 text-green-700 border-green-200")
+        return ("📈 Growing", "bg-green-50 text-green-700 border-green-200")
     elif growth_rate < -2:
-        return ("📉 Declining", "📉", "bg-red-50 text-red-700 border-red-200")
+        return ("📉 Declining", "bg-red-50 text-red-700 border-red-200")
     else:
-        return ("→ Stable", "→", "bg-gray-50 text-gray-700 border-gray-200")
+        return ("→ Stable", "bg-gray-50 text-gray-700 border-gray-200")
 
 
 def get_grade_info(quality_grade: str) -> Tuple[str, str, str]:
