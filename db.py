@@ -1913,24 +1913,22 @@ def get_creators(
         query = query.neq("channel_name", None)
         query = query.gt("current_subscribers", 0)
 
-        # Get total count if requested (before applying limit/offset)
-        total_count = 0
-        if return_count:
-            count_response = query.select("id", count="exact").limit(1).execute()
-            total_count = (
-                count_response.count if hasattr(count_response, "count") else 0
-            )
-
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
-        # Execute
-        response = query.execute()
-        creators = response.data if response.data else []
+        # Execute single query with optional count (more efficient than separate queries)
+        if return_count:
+            response = query.select("*", count="exact").execute()
+            creators = response.data if response.data else []
+            total_count = getattr(response, "count", 0) or 0
+        else:
+            response = query.select("*").execute()
+            creators = response.data if response.data else []
+            total_count = 0
 
-        # Add ranking position (1-based index)
+        # Add ranking position (1-based index, adjusted for offset)
         for idx, creator in enumerate(creators, 1):
-            creator["_rank"] = idx
+            creator["_rank"] = offset + idx
 
         # Log results
         filters_applied = []
