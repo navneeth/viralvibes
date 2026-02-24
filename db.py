@@ -1916,7 +1916,7 @@ def get_creators(
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
 
         # Filter out incomplete creators (ensure data quality)
-        query = query.not_.is_("channel_name", "null")
+        query = query.filter("channel_name", "not.is", "null")
         query = query.gt("current_subscribers", 0)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
