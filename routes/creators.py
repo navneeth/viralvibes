@@ -56,7 +56,7 @@ def creators_route(request):
         offset=(page - 1) * per_page,
         return_count=True,
     )
-    
+
     creators = result.creators
     total_count = result.total_count
 

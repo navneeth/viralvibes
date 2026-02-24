@@ -1788,6 +1788,7 @@ def add_creator_manually(
 
 class CreatorsResult(NamedTuple):
     """Result from get_creators with pagination metadata."""
+
     creators: list[dict]
     total_count: int
 
