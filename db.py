@@ -1870,8 +1870,8 @@ def get_creators(
         }
         sort_field, descending = sort_map.get(sort, ("current_subscribers", True))
 
-        # Start query
-        query = supabase_client.table(CREATOR_TABLE).select("*")
+        # Start query (select will be applied at end with optional count)
+        query = supabase_client.table(CREATOR_TABLE)
 
         # Apply search filter (also search custom_url and keywords)
         if search:
