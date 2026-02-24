@@ -30,7 +30,7 @@ from constants import (
     SIGNUPS_TABLE,
     JobStatus,
 )
-from utils import compute_dashboard_id
+from utils import compute_dashboard_id, safe_get_value
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -1794,7 +1794,8 @@ def get_creators(
     language_filter: str = "all",
     activity_filter: str = "all",
     age_filter: str = "all",
-    limit: int = 100,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[dict]:
     """
     Fetch creators for frontend display with comprehensive filtering and sorting.
@@ -1908,8 +1909,8 @@ def get_creators(
         query = query.neq("channel_name", None)
         query = query.gt("current_subscribers", 0)
 
-        # Apply sorting and limit (DB does the work)
-        query = query.order(sort_field, desc=descending).limit(limit)
+        # Apply sorting, limit, and offset (DB does the work for pagination)
+        query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
         # Execute
         response = query.execute()
@@ -1945,46 +1946,142 @@ def get_creators(
         return []
 
 
-def calculate_creator_stats(creators: list[dict]) -> dict:
+def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> dict:
     """
     Calculate aggregate statistics from creators list for hero section.
-    Only returns real data from database - no estimates or derived metrics.
+
+    Marketing-focused metrics:
+    - Total creators (inventory size)
+    - Average engagement rate (quality indicator)
+    - Growth momentum (trending creators count)
+    - Quality distribution (A+/A grade percentage)
 
     Args:
-        creators: List of creator dicts
+        creators: List of creator dicts (filtered or all)
+        include_all: If True, fetch ALL creators from DB for accurate totals
 
     Returns:
-        Dict with total_subscribers, total_views, total_videos
+        Dict with marketing-relevant metrics
     """
     if not creators:
         return {
+            "total_creators": 0,
+            "avg_engagement": 0,
+            "growing_creators": 0,
+            "premium_creators": 0,
             "total_subscribers": 0,
-            "total_views": 0,
             "total_videos": 0,
         }
 
     try:
-        from utils import safe_get_value
 
-        # Sum real database values only
-        total_subscribers = sum(
-            safe_get_value(c, "current_subscribers", 0) for c in creators
+        # If include_all=True, use database aggregation instead of loading all rows into Python
+        if include_all and supabase_client:
+            try:
+                # TODO: Push full aggregation to database via RPC or materialized view for zero data transfer
+                # Current approach fetches minimal fields but still transfers O(n) rows on every page load
+                logger.debug("Calculating stats from all creators using DB aggregation")
+
+                # Get total count (fast, no data transfer)
+                count_response = (
+                    supabase_client.table(CREATOR_TABLE)
+                    .select("id", count="exact")
+                    .eq("sync_status", "synced")
+                    .limit(1)
+                    .execute()
+                )
+                total_creators = (
+                    count_response.count if hasattr(count_response, "count") else 0
+                )
+
+                # Safety valve: If creator count exceeds threshold, fall back to page-level stats
+                # This prevents unbounded query cost as dataset grows beyond 5000 creators
+                MAX_CREATORS_FOR_FULL_STATS = 5000
+                if total_creators > MAX_CREATORS_FOR_FULL_STATS:
+                    logger.warning(
+                        f"Creator count ({total_creators}) exceeds limit ({MAX_CREATORS_FOR_FULL_STATS}). "
+                        f"Falling back to page-level stats. Consider implementing database-side aggregation."
+                    )
+                    stats_source = creators
+                    total_creators = len(creators)
+                else:
+                    # For other aggregates, fetch only necessary fields (not full creator objects)
+                    # Still in-memory aggregation but lighter than full rows
+                    agg_response = (
+                        supabase_client.table(CREATOR_TABLE)
+                        .select(
+                            "engagement_score,subscribers_change_30d,quality_grade,"
+                            "current_subscribers,current_video_count"
+                        )
+                        .eq("sync_status", "synced")
+                        .execute()
+                    )
+                    stats_source = agg_response.data if agg_response.data else []
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch aggregated stats from DB: {e}")
+                stats_source = creators
+                total_creators = len(creators)
+        else:
+            stats_source = creators
+            total_creators = len(creators)
+
+        # Calculate average engagement (walrus operator := stores value and uses it in condition)
+        # This avoids calling safe_get_value twice per creator (once for check, once for list)
+        engagement_scores = [
+            score
+            for c in stats_source
+            if (score := safe_get_value(c, "engagement_score", 0)) > 0
+        ]
+        avg_engagement = (
+            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
         )
-        total_views = sum(safe_get_value(c, "current_view_count", 0) for c in creators)
+        has_engagement_data = len(engagement_scores) > 0
+
+        # Count growing creators (use walrus operator to avoid duplicate calls)
+        growing_creators = sum(
+            1
+            for c in stats_source
+            if (change := safe_get_value(c, "subscribers_change_30d", 0)) > 0
+        )
+
+        # Count premium creators (use walrus operator)
+        premium_creators = sum(
+            1
+            for c in stats_source
+            if (grade := safe_get_value(c, "quality_grade", "C")) in ["A+", "A"]
+        )
+
+        # Sum for secondary metrics (use walrus operator)
+        total_subscribers = sum(
+            subs
+            for c in stats_source
+            if (subs := safe_get_value(c, "current_subscribers", 0))
+        )
         total_videos = sum(
-            safe_get_value(c, "current_video_count", 0) for c in creators
+            vids
+            for c in stats_source
+            if (vids := safe_get_value(c, "current_video_count", 0))
         )
 
         return {
+            "total_creators": int(total_creators),
+            "avg_engagement": round(avg_engagement, 2),
+            "has_engagement_data": has_engagement_data,
+            "growing_creators": int(growing_creators),
+            "premium_creators": int(premium_creators),
             "total_subscribers": int(total_subscribers),
-            "total_views": int(total_views),
             "total_videos": int(total_videos),
         }
 
     except Exception as e:
         logger.exception(f"Error calculating creator stats: {e}")
         return {
+            "total_creators": 0,
+            "avg_engagement": 0,
+            "has_engagement_data": False,
+            "growing_creators": 0,
+            "premium_creators": 0,
             "total_subscribers": 0,
-            "total_views": 0,
             "total_videos": 0,
         }

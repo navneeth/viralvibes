@@ -31,7 +31,19 @@ def creators_route(request):
         "age", "all"
     )  # all, new, established, veteran
 
+    # Pagination parameters
+    try:
+        page = max(1, int(request.query_params.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+
+    try:
+        per_page = max(1, min(100, int(request.query_params.get("per_page", 50))))
+    except (TypeError, ValueError):
+        per_page = 50
+
     # Fetch creators (db.py handles all logic)
+    # Using pagination to keep page load performant as creator count grows
     creators = get_creators(
         search=search,
         sort=sort,
@@ -39,11 +51,13 @@ def creators_route(request):
         language_filter=language_filter,
         activity_filter=activity_filter,
         age_filter=age_filter,
-        limit=100,
+        limit=per_page,
+        offset=(page - 1) * per_page,
     )
 
-    # Calculate aggregate stats for hero section
-    stats = calculate_creator_stats(creators)
+    # Calculate aggregate stats for hero section from ALL creators in DB
+    # (not just the filtered/displayed ones) for accurate totals
+    stats = calculate_creator_stats(creators, include_all=True)
 
     # Render page
     return render_creators_page(

@@ -130,9 +130,22 @@ def render_creators_page(
             ),
         }
 
+    # Check if any filters are active
+    has_active_filters = (
+        search
+        or grade_filter != "all"
+        or language_filter != "all"
+        or activity_filter != "all"
+        or age_filter != "all"
+    )
+
     return Container(
-        # Hero section with real stats
-        _render_hero(len(creators), stats),
+        # Hero section with real stats from DB
+        _render_hero(
+            stats=stats,
+            filtered_count=len(creators),
+            has_filters=has_active_filters,
+        ),
         # Filter controls (sticky bar)
         _render_filter_bar(
             search=search,
@@ -153,8 +166,21 @@ def render_creators_page(
     )
 
 
-def _render_hero(creator_count: int, stats: dict) -> Div:
-    """Hero section with real statistics - statement design."""
+def _render_hero(
+    stats: dict, filtered_count: int = 0, has_filters: bool = False
+) -> Div:
+    """
+    Hero section with marketing-relevant statistics from database.
+
+    Smart display:
+    - No filters: Shows total creators from DB (e.g., "500 creators")
+    - With filters: Shows filtered count + total (e.g., "45 of 500 creators")
+
+    All numbers come from DB state (via stats dict), NOT from filtered results.
+    Designed for agencies looking to identify collaboration opportunities.
+    """
+    total_creators = stats.get("total_creators", 0)
+
     return Div(
         Div(
             H1(
@@ -162,61 +188,85 @@ def _render_hero(creator_count: int, stats: dict) -> Div:
                 cls="text-5xl font-bold text-gray-900 tracking-tight",
             ),
             P(
-                "Analytics for creators who want to grow.",
+                "Discover high-performing creators for brand collaborations.",
                 cls="text-lg text-gray-600 mt-2",
             ),
             cls="mb-8",
         ),
-        # Metric Strip - real data only, no estimates
+        # Metric Strip - marketing-focused metrics from DB
         Div(
+            # Total/Filtered creators - smart display based on filter state
             Div(
                 P(
-                    "Creators Analyzed",
+                    "Filtered Results" if has_filters else "Total Creators",
                     cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
-                    format_number(creator_count),
+                    (
+                        f"{format_number(filtered_count)} of {format_number(total_creators)}"
+                        if has_filters
+                        else format_number(total_creators)
+                    ),
                     cls="text-4xl font-bold text-gray-900 mt-2",
                 ),
-                cls="text-center",
-            ),
-            Div(
                 P(
-                    "Total Subscribers",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
-                ),
-                H2(
-                    format_number(stats.get("total_subscribers", 0)),
-                    cls="text-4xl font-bold text-blue-600 mt-2",
-                ),
-                cls="text-center",
-            ),
-            Div(
-                P(
-                    "Total Videos",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
-                ),
-                H2(
-                    format_number(stats.get("total_videos", 0)),
-                    cls="text-4xl font-bold text-purple-600 mt-2",
-                ),
-                P(
-                    "Content library",
+                    "matching filters" if has_filters else "In database",
                     cls="text-xs text-gray-600 mt-1",
                 ),
                 cls="text-center",
             ),
+            # Premium creators (A+/A grade)
             Div(
                 P(
-                    "Total Views",
+                    "Premium Creators",
                     cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
-                    format_number(stats.get("total_views", 0)),
-                    cls="text-4xl font-bold text-emerald-600 mt-2",
+                    format_number(stats.get("premium_creators", 0)),
+                    cls="text-4xl font-bold text-purple-600 mt-2",
                 ),
                 P(
-                    "Lifetime views",
+                    "A+ / A grade",
+                    cls="text-xs text-gray-600 mt-1",
+                ),
+                cls="text-center",
+            ),
+            # Growing creators (trending)
+            Div(
+                P(
+                    "Growing Creators",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                ),
+                H2(
+                    format_number(stats.get("growing_creators", 0)),
+                    cls="text-4xl font-bold text-green-600 mt-2",
+                ),
+                P(
+                    "Positive momentum",
+                    cls="text-xs text-gray-600 mt-1",
+                ),
+                cls="text-center",
+            ),
+            # Average engagement (quality indicator)
+            Div(
+                P(
+                    "Avg Engagement",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                ),
+                H2(
+                    (
+                        "–"
+                        if not stats.get("has_engagement_data", False)
+                        else f"{stats.get('avg_engagement', 0):.1f}%"
+                    ),
+                    cls="text-4xl font-bold text-blue-600 mt-2",
+                ),
+                P(
+                    (
+                        "No data"
+                        if not stats.get("has_engagement_data", False)
+                        else "Audience quality"
+                    ),
                     cls="text-xs text-gray-600 mt-1",
                 ),
                 cls="text-center",
