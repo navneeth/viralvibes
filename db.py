@@ -12,8 +12,7 @@ import os
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, NamedTuple
 
 from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -1787,6 +1786,12 @@ def add_creator_manually(
 # =============================================================================
 
 
+class CreatorsResult(NamedTuple):
+    """Result from get_creators with pagination metadata."""
+    creators: list[dict]
+    total_count: int
+
+
 def get_creators(
     search: str = "",
     sort: str = "subscribers",
@@ -1797,7 +1802,7 @@ def get_creators(
     limit: int = 50,
     offset: int = 0,
     return_count: bool = False,
-) -> list[dict] | tuple[list[dict], int]:
+) -> list[dict] | CreatorsResult:
     """
     Fetch creators for frontend display with comprehensive filtering and sorting.
 
@@ -1829,11 +1834,11 @@ def get_creators(
             - veteran: Veteran channels (10+ years old)
         limit: Maximum number of results (default 50)
         offset: Number of results to skip (for pagination)
-        return_count: If True, returns tuple of (creators, total_count)
+        return_count: If True, returns CreatorsResult with total_count
 
     Returns:
         List of creator dicts with _rank position added (1-based index)
-        OR tuple of (creators list, total count) if return_count=True
+        OR CreatorsResult(creators, total_count) if return_count=True
 
     Examples:
         # Get top 50 Japanese creators by consistency
@@ -1847,7 +1852,7 @@ def get_creators(
     """
     if not supabase_client:
         logger.warning("Supabase client not available")
-        return ([], 0) if return_count else []
+        return CreatorsResult([], 0) if return_count else []
 
     try:
         # Build sort mapping (DB does the sorting based on this)
@@ -1951,12 +1956,12 @@ def get_creators(
         )
 
         if return_count:
-            return creators, total_count
+            return CreatorsResult(creators, total_count)
         return creators
 
     except Exception as e:
         logger.exception(f"Error fetching creators: {e}")
-        return ([], 0) if return_count else []
+        return CreatorsResult([], 0) if return_count else []
 
 
 def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> dict:

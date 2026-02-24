@@ -45,7 +45,7 @@ def creators_route(request):
 
     # Fetch creators (db.py handles all logic)
     # Using pagination to keep page load performant as creator count grows
-    creators, total_count = get_creators(
+    result = get_creators(
         search=search,
         sort=sort,
         grade_filter=grade_filter,
@@ -56,6 +56,9 @@ def creators_route(request):
         offset=(page - 1) * per_page,
         return_count=True,
     )
+    
+    creators = result.creators
+    total_count = result.total_count
 
     # Calculate total pages
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
