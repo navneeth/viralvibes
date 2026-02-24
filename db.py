@@ -1873,6 +1873,17 @@ def get_creators(
         # Start query (select will be applied at end with optional count)
         query = supabase_client.table(CREATOR_TABLE)
 
+        # ⚠️ CRITICAL: Apply NULL/quality filters BEFORE .or_()
+        # The .or_() method changes the postgrest-py query builder type from
+        # SyncSelectRequestBuilder to SyncFilterRequestBuilder, which loses the
+        # .not_ attribute. NULL checks via .not_.is_() must be chained directly
+        # after .table() and before any .or_() calls. This is a postgrest-py
+        # client limitation, not a PostgREST API limitation.
+        query = query.not_.is_("channel_name", "null")  # Exclude creators without names
+        query = query.gt(
+            "current_subscribers", 0
+        )  # Exclude creators with 0 subscribers
+
         # Apply search filter (also search custom_url and keywords)
         if search:
             # ✅ SECURITY: Escape wildcards in search input
@@ -1914,10 +1925,6 @@ def get_creators(
                 query = query.lt("channel_age_days", 3650)  # < 10 years
             elif age_filter == "veteran":
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
-
-        # Filter out incomplete creators (ensure data quality)
-        query = query.filter("channel_name", "not.is", "null")
-        query = query.gt("current_subscribers", 0)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
