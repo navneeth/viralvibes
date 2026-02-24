@@ -3,8 +3,9 @@ Creators routes - browse and filter discovered YouTube creators.
 """
 
 import logging
+from urllib.parse import urlencode
 
-from fasthtml.common import *
+from fasthtml.common import RedirectResponse
 
 from db import calculate_creator_stats, get_creators
 from views.creators import render_creators_page
@@ -57,7 +58,39 @@ def creators_route(request):
     )
 
     # Calculate total pages
-    total_pages = (total_count + per_page - 1) // per_page  # Ceiling division
+    total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+
+    # Handle out-of-range pages: redirect to last valid page
+    # This prevents confusing "no results" UI when page > total_pages
+    if total_count > 0 and page > total_pages:
+        # Build redirect URL to last page with all filters preserved
+        redirect_params = {
+            "search": search,
+            "sort": sort,
+            "grade": grade_filter,
+            "language": language_filter,
+            "activity": activity_filter,
+            "age": age_filter,
+            "page": str(total_pages),
+            "per_page": str(per_page),
+        }
+        redirect_url = f"/creators?{urlencode(redirect_params)}"
+        return RedirectResponse(redirect_url, status_code=303)
+
+    # If page < 1, redirect to page 1
+    if page < 1:
+        redirect_params = {
+            "search": search,
+            "sort": sort,
+            "grade": grade_filter,
+            "language": language_filter,
+            "activity": activity_filter,
+            "age": age_filter,
+            "page": "1",
+            "per_page": str(per_page),
+        }
+        redirect_url = f"/creators?{urlencode(redirect_params)}"
+        return RedirectResponse(redirect_url, status_code=303)
 
     # Calculate aggregate stats for hero section from ALL creators in DB
     # (not just the filtered/displayed ones) for accurate totals
