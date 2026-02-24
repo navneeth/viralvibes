@@ -254,11 +254,19 @@ def _render_hero(
                     cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
-                    f"{stats.get('avg_engagement', 0):.1f}%",
+                    (
+                        "–"
+                        if not stats.get("has_engagement_data", False)
+                        else f"{stats.get('avg_engagement', 0):.1f}%"
+                    ),
                     cls="text-4xl font-bold text-blue-600 mt-2",
                 ),
                 P(
-                    "Audience quality",
+                    (
+                        "No data"
+                        if not stats.get("has_engagement_data", False)
+                        else "Audience quality"
+                    ),
                     cls="text-xs text-gray-600 mt-1",
                 ),
                 cls="text-center",
