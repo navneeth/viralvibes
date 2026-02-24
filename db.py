@@ -1928,7 +1928,7 @@ def get_creators(
         # Execute query (count already included in select if needed)
         response = query.execute()
         creators = response.data if response.data else []
-        total_count = getattr(response, "count", 0) or 0 if return_count else 0
+        total_count = (getattr(response, "count", 0) or 0) if return_count else 0
 
         # Add ranking position (1-based index, adjusted for offset)
         for idx, creator in enumerate(creators, 1):
