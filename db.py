@@ -1873,9 +1873,16 @@ def get_creators(
         # Start query (select will be applied at end with optional count)
         query = supabase_client.table(CREATOR_TABLE)
 
-        # Filter out incomplete creators early (before .or_() which changes builder type)
-        query = query.not_.is_("channel_name", "null")
-        query = query.gt("current_subscribers", 0)
+        # ⚠️ CRITICAL: Apply NULL/quality filters BEFORE .or_()
+        # The .or_() method changes the postgrest-py query builder type from
+        # SyncSelectRequestBuilder to SyncFilterRequestBuilder, which loses the
+        # .not_ attribute. NULL checks via .not_.is_() must be chained directly
+        # after .table() and before any .or_() calls. This is a postgrest-py
+        # client limitation, not a PostgREST API limitation.
+        query = query.not_.is_("channel_name", "null")  # Exclude creators without names
+        query = query.gt(
+            "current_subscribers", 0
+        )  # Exclude creators with 0 subscribers
 
         # Apply search filter (also search custom_url and keywords)
         if search:
