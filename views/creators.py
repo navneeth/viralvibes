@@ -92,6 +92,10 @@ def render_creators_page(
     activity_filter: str = "all",
     age_filter: str = "all",
     stats: dict = None,
+    page: int = 1,
+    per_page: int = 50,
+    total_count: int = 0,
+    total_pages: int = 1,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -158,7 +162,22 @@ def render_creators_page(
         ),
         # Creators grid or empty state
         (
-            _render_creators_grid(creators)
+            Div(
+                _render_creators_grid(creators),
+                # Pagination controls
+                _render_pagination(
+                    page=page,
+                    total_pages=total_pages,
+                    search=search,
+                    sort=sort,
+                    grade_filter=grade_filter,
+                    language_filter=language_filter,
+                    activity_filter=activity_filter,
+                    age_filter=age_filter,
+                    per_page=per_page,
+                    total_count=total_count,
+                ),
+            )
             if creators
             else _render_empty_state(search, grade_filter)
         ),
@@ -1056,6 +1075,152 @@ def _render_creator_card(creator: dict) -> Div:
         # Footer
         _build_card_footer(last_updated, channel_url),
         cls=f"bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer {card_border}",
+    )
+
+
+def _render_pagination(
+    page: int,
+    total_pages: int,
+    search: str,
+    sort: str,
+    grade_filter: str,
+    language_filter: str,
+    activity_filter: str,
+    age_filter: str,
+    per_page: int,
+    total_count: int,
+) -> Div:
+    """
+    Render pagination controls with smart page button display.
+
+    Pattern inspired by FastHTML best practices:
+    - Shows first, last, and current pages
+    - Uses ellipsis (...) for skipped ranges
+    - Highlights current page
+    - Preserves all filter state in URLs
+    """
+    if total_pages <= 1:
+        return Div()  # No pagination needed
+
+    # Build base query params
+    base_params = {
+        "search": search,
+        "sort": sort,
+        "grade": grade_filter,
+        "language": language_filter,
+        "activity": activity_filter,
+        "age": age_filter,
+        "per_page": str(per_page),
+    }
+
+    def page_link(page_num: int, label: str = None, is_current: bool = False):
+        """Generate a page link button."""
+        if label is None:
+            label = str(page_num)
+
+        params = {**base_params, "page": str(page_num)}
+        url = f"/creators?{urlencode(params)}"
+
+        if is_current:
+            return Span(
+                label,
+                cls="px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg cursor-default",
+            )
+        else:
+            return A(
+                label,
+                href=url,
+                cls="px-3 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
+            )
+
+    def ellipsis():
+        """Render ellipsis for skipped pages."""
+        return Span("...", cls="px-2 text-gray-400")
+
+    # Smart page button display logic (like the FastHTML example)
+    buttons = []
+
+    if total_pages <= 7:
+        # Show all pages if 7 or fewer
+        buttons = [
+            page_link(p, is_current=(p == page)) for p in range(1, total_pages + 1)
+        ]
+    elif page <= 3:
+        # Near start: [1] [2] [3] [4] ... [last]
+        buttons = [page_link(p, is_current=(p == page)) for p in range(1, 5)]
+        buttons.append(ellipsis())
+        buttons.append(page_link(total_pages))
+    elif page >= total_pages - 2:
+        # Near end: [1] ... [last-3] [last-2] [last-1] [last]
+        buttons.append(page_link(1))
+        buttons.append(ellipsis())
+        buttons.extend(
+            [
+                page_link(p, is_current=(p == page))
+                for p in range(total_pages - 3, total_pages + 1)
+            ]
+        )
+    else:
+        # Middle: [1] ... [current-1] [current] [current+1] ... [last]
+        buttons.append(page_link(1))
+        buttons.append(ellipsis())
+        buttons.extend(
+            [page_link(p, is_current=(p == page)) for p in range(page - 1, page + 2)]
+        )
+        buttons.append(ellipsis())
+        buttons.append(page_link(total_pages))
+
+    # Previous/Next buttons
+    prev_params = {**base_params, "page": str(page - 1)}
+    next_params = {**base_params, "page": str(page + 1)}
+
+    prev_button = (
+        A(
+            "← Previous",
+            href=f"/creators?{urlencode(prev_params)}",
+            cls="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
+        )
+        if page > 1
+        else Span(
+            "← Previous",
+            cls="px-4 py-2 bg-gray-100 text-gray-400 font-medium rounded-lg cursor-not-allowed",
+        )
+    )
+
+    next_button = (
+        A(
+            "Next →",
+            href=f"/creators?{urlencode(next_params)}",
+            cls="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
+        )
+        if page < total_pages
+        else Span(
+            "Next →",
+            cls="px-4 py-2 bg-gray-100 text-gray-400 font-medium rounded-lg cursor-not-allowed",
+        )
+    )
+
+    # Results info
+    start_result = (page - 1) * per_page + 1
+    end_result = min(page * per_page, total_count)
+
+    return Div(
+        # Results summary
+        Div(
+            P(
+                f"Showing {start_result:,}–{end_result:,} of {total_count:,} creators",
+                cls="text-sm text-gray-600",
+            ),
+            cls="text-center mb-4",
+        ),
+        # Pagination controls
+        Div(
+            prev_button,
+            Div(*buttons, cls="flex gap-1"),
+            next_button,
+            cls="flex items-center justify-center gap-4 flex-wrap",
+        ),
+        cls="py-8",
     )
 
 
