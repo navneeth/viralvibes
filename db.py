@@ -1870,17 +1870,15 @@ def get_creators(
         }
         sort_field, descending = sort_map.get(sort, ("current_subscribers", True))
 
-        # Start query (select will be applied at end with optional count)
-        query = supabase_client.table(CREATOR_TABLE)
+        # Start query - must call .select() to get a builder with filter methods
+        query = supabase_client.table(CREATOR_TABLE).select(
+            "*", count="exact" if return_count else None
+        )
 
-        # ⚠️ NOTE: Cannot use .not_.is_() here because .table() returns SyncRequestBuilder
-        # which lacks the .not_ attribute. Only .select() returns a builder with .not_.
-        # Since we call .select() at the end (with optional count="exact"), we filter
-        # NULL channel_name using .neq() which treats NULL as not equal (SQL behavior).
-        # For current_subscribers, .gt(0) naturally excludes NULL and zero values.
-        query = query.gt(
-            "current_subscribers", 0
-        )  # Exclude creators with 0 or NULL subscribers
+        # Filter out incomplete creators (ensure data quality)
+        # Using .not_.is_() for NULL check - only works after .select() is called
+        query = query.not_.is_("channel_name", "null")
+        query = query.gt("current_subscribers", 0)
 
         # Apply search filter (also search custom_url and keywords)
         if search:
@@ -1927,15 +1925,10 @@ def get_creators(
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
-        # Execute single query with optional count (more efficient than separate queries)
-        if return_count:
-            response = query.select("*", count="exact").execute()
-            creators = response.data if response.data else []
-            total_count = getattr(response, "count", 0) or 0
-        else:
-            response = query.select("*").execute()
-            creators = response.data if response.data else []
-            total_count = 0
+        # Execute query (count already included in select if needed)
+        response = query.execute()
+        creators = response.data if response.data else []
+        total_count = (getattr(response, "count", 0) or 0) if return_count else 0
 
         # Add ranking position (1-based index, adjusted for offset)
         for idx, creator in enumerate(creators, 1):
