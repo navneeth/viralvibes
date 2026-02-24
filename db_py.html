@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="main_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-02-24 07:30 +0000
+            created at 2026-02-24 07:39 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -2000,7 +2000,7 @@
     <p class="mis show_mis"><span class="n"><a id="t1916" href="#t1916">1916</a></span><span class="t">                <span class="nam">query</span> <span class="op">=</span> <span class="nam">query</span><span class="op">.</span><span class="nam">gte</span><span class="op">(</span><span class="str">"channel_age_days"</span><span class="op">,</span> <span class="num">3650</span><span class="op">)</span>  <span class="com"># >= 10 years</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1917" href="#t1917">1917</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1918" href="#t1918">1918</a></span><span class="t">        <span class="com"># Filter out incomplete creators (ensure data quality)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1919" href="#t1919">1919</a></span><span class="t">        <span class="nam">query</span> <span class="op">=</span> <span class="nam">query</span><span class="op">.</span><span class="nam">not_</span><span class="op">.</span><span class="nam">is_</span><span class="op">(</span><span class="str">"channel_name"</span><span class="op">,</span> <span class="str">"null"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1919" href="#t1919">1919</a></span><span class="t">        <span class="nam">query</span> <span class="op">=</span> <span class="nam">query</span><span class="op">.</span><span class="nam">filter</span><span class="op">(</span><span class="str">"channel_name"</span><span class="op">,</span> <span class="str">"not.is"</span><span class="op">,</span> <span class="str">"null"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1920" href="#t1920">1920</a></span><span class="t">        <span class="nam">query</span> <span class="op">=</span> <span class="nam">query</span><span class="op">.</span><span class="nam">gt</span><span class="op">(</span><span class="str">"current_subscribers"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1921" href="#t1921">1921</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1922" href="#t1922">1922</a></span><span class="t">        <span class="com"># Apply sorting, limit, and offset (DB does the work for pagination)</span>&nbsp;</span><span class="r"></span></p>
@@ -2197,7 +2197,7 @@
             <a class="nav" href="main_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-02-24 07:30 +0000
+            created at 2026-02-24 07:39 +0000
         </p>
     </div>
 </footer>
