@@ -1873,6 +1873,10 @@ def get_creators(
         # Start query (select will be applied at end with optional count)
         query = supabase_client.table(CREATOR_TABLE)
 
+        # Filter out incomplete creators early (before .or_() which changes builder type)
+        query = query.not_.is_("channel_name", "null")
+        query = query.gt("current_subscribers", 0)
+
         # Apply search filter (also search custom_url and keywords)
         if search:
             # ✅ SECURITY: Escape wildcards in search input
@@ -1914,10 +1918,6 @@ def get_creators(
                 query = query.lt("channel_age_days", 3650)  # < 10 years
             elif age_filter == "veteran":
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
-
-        # Filter out incomplete creators (ensure data quality)
-        query = query.filter("channel_name", "not.is", "null")
-        query = query.gt("current_subscribers", 0)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
