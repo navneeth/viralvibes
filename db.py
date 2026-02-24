@@ -30,7 +30,7 @@ from constants import (
     SIGNUPS_TABLE,
     JobStatus,
 )
-from utils import compute_dashboard_id
+from utils import compute_dashboard_id, safe_get_value
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -1945,46 +1945,109 @@ def get_creators(
         return []
 
 
-def calculate_creator_stats(creators: list[dict]) -> dict:
+def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> dict:
     """
     Calculate aggregate statistics from creators list for hero section.
-    Only returns real data from database - no estimates or derived metrics.
+
+    Marketing-focused metrics:
+    - Total creators (inventory size)
+    - Average engagement rate (quality indicator)
+    - Growth momentum (trending creators count)
+    - Quality distribution (A+/A grade percentage)
 
     Args:
-        creators: List of creator dicts
+        creators: List of creator dicts (filtered or all)
+        include_all: If True, fetch ALL creators from DB for accurate totals
 
     Returns:
-        Dict with total_subscribers, total_views, total_videos
+        Dict with marketing-relevant metrics
     """
     if not creators:
         return {
+            "total_creators": 0,
+            "avg_engagement": 0,
+            "growing_creators": 0,
+            "premium_creators": 0,
             "total_subscribers": 0,
-            "total_views": 0,
             "total_videos": 0,
         }
 
     try:
-        from utils import safe_get_value
 
-        # Sum real database values only
-        total_subscribers = sum(
-            safe_get_value(c, "current_subscribers", 0) for c in creators
+        # If include_all=True, fetch all creators from DB (not just displayed page)
+        if include_all and supabase_client:
+            try:
+                all_creators_response = (
+                    supabase_client.table(CREATOR_TABLE)
+                    .select(
+                        "current_subscribers,engagement_score,"
+                        "subscribers_change_30d,quality_grade,current_video_count"
+                    )
+                    .eq("sync_status", "synced")
+                    .execute()
+                )
+                stats_source = (
+                    all_creators_response.data
+                    if all_creators_response.data
+                    else creators
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch all creators for stats: {e}")
+                stats_source = creators
+        else:
+            stats_source = creators
+
+        # Count total creators
+        total_creators = len(stats_source)
+
+        # Calculate average engagement (marketing agencies care about this)
+        engagement_scores = [
+            safe_get_value(c, "engagement_score", 0)
+            for c in stats_source
+            if safe_get_value(c, "engagement_score", 0) > 0
+        ]
+        avg_engagement = (
+            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
         )
-        total_views = sum(safe_get_value(c, "current_view_count", 0) for c in creators)
+
+        # Count growing creators (positive 30-day growth)
+        growing_creators = sum(
+            1
+            for c in stats_source
+            if safe_get_value(c, "subscribers_change_30d", 0) > 0
+        )
+
+        # Count premium creators (A+ or A grade)
+        premium_creators = sum(
+            1
+            for c in stats_source
+            if safe_get_value(c, "quality_grade", "C") in ["A+", "A"]
+        )
+
+        # Sum for secondary metrics
+        total_subscribers = sum(
+            safe_get_value(c, "current_subscribers", 0) for c in stats_source
+        )
         total_videos = sum(
-            safe_get_value(c, "current_video_count", 0) for c in creators
+            safe_get_value(c, "current_video_count", 0) for c in stats_source
         )
 
         return {
+            "total_creators": int(total_creators),
+            "avg_engagement": round(avg_engagement, 2),
+            "growing_creators": int(growing_creators),
+            "premium_creators": int(premium_creators),
             "total_subscribers": int(total_subscribers),
-            "total_views": int(total_views),
             "total_videos": int(total_videos),
         }
 
     except Exception as e:
         logger.exception(f"Error calculating creator stats: {e}")
         return {
+            "total_creators": 0,
+            "avg_engagement": 0,
+            "growing_creators": 0,
+            "premium_creators": 0,
             "total_subscribers": 0,
-            "total_views": 0,
             "total_videos": 0,
         }
