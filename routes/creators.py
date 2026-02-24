@@ -44,7 +44,7 @@ def creators_route(request):
 
     # Fetch creators (db.py handles all logic)
     # Using pagination to keep page load performant as creator count grows
-    creators = get_creators(
+    creators, total_count = get_creators(
         search=search,
         sort=sort,
         grade_filter=grade_filter,
@@ -53,7 +53,11 @@ def creators_route(request):
         age_filter=age_filter,
         limit=per_page,
         offset=(page - 1) * per_page,
+        return_count=True,
     )
+
+    # Calculate total pages
+    total_pages = (total_count + per_page - 1) // per_page  # Ceiling division
 
     # Calculate aggregate stats for hero section from ALL creators in DB
     # (not just the filtered/displayed ones) for accurate totals
@@ -69,4 +73,8 @@ def creators_route(request):
         activity_filter=activity_filter,
         age_filter=age_filter,
         stats=stats,
+        page=page,
+        per_page=per_page,
+        total_count=total_count,
+        total_pages=total_pages,
     )

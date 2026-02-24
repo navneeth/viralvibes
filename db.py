@@ -1796,7 +1796,8 @@ def get_creators(
     age_filter: str = "all",
     limit: int = 50,
     offset: int = 0,
-) -> list[dict]:
+    return_count: bool = False,
+) -> list[dict] | tuple[list[dict], int]:
     """
     Fetch creators for frontend display with comprehensive filtering and sorting.
 
@@ -1826,10 +1827,13 @@ def get_creators(
             - new: New channels (<1 year old)
             - established: Established (1-10 years old)
             - veteran: Veteran channels (10+ years old)
-        limit: Maximum number of results (default 100)
+        limit: Maximum number of results (default 50)
+        offset: Number of results to skip (for pagination)
+        return_count: If True, returns tuple of (creators, total_count)
 
     Returns:
         List of creator dicts with _rank position added (1-based index)
+        OR tuple of (creators list, total count) if return_count=True
 
     Examples:
         # Get top 50 Japanese creators by consistency
@@ -1843,7 +1847,7 @@ def get_creators(
     """
     if not supabase_client:
         logger.warning("Supabase client not available")
-        return []
+        return ([], 0) if return_count else []
 
     try:
         # Build sort mapping (DB does the sorting based on this)
@@ -1909,6 +1913,14 @@ def get_creators(
         query = query.neq("channel_name", None)
         query = query.gt("current_subscribers", 0)
 
+        # Get total count if requested (before applying limit/offset)
+        total_count = 0
+        if return_count:
+            count_response = query.select("id", count="exact").limit(1).execute()
+            total_count = (
+                count_response.count if hasattr(count_response, "count") else 0
+            )
+
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
@@ -1936,14 +1948,17 @@ def get_creators(
         filters_str = ", ".join(filters_applied) if filters_applied else "none"
         logger.info(
             f"Retrieved {len(creators)} creators "
-            f"(sort={sort}, filters=[{filters_str}], limit={limit})"
+            f"(sort={sort}, filters=[{filters_str}], limit={limit}, offset={offset})"
+            + (f", total_count={total_count}" if return_count else "")
         )
 
+        if return_count:
+            return creators, total_count
         return creators
 
     except Exception as e:
         logger.exception(f"Error fetching creators: {e}")
-        return []
+        return ([], 0) if return_count else []
 
 
 def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> dict:
