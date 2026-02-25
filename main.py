@@ -375,8 +375,18 @@ def get_avatar(user_id: str):
 @rt("/validate/url", methods=["POST"])
 def validate_url(playlist: YoutubePlaylist, req, sess):
     """Validate playlist URL - requires authentication"""
+    
+    # Validate URL FIRST (before storing or processing)
+    errors = YoutubePlaylistValidator.validate(playlist)
+    if errors:
+        return Div(
+            Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
+            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded",
+        )
+    
+    # Check auth AFTER validation (only store valid URLs)
     if not (sess and sess.get("auth")):
-        # Store the playlist URL they want to analyze
+        # Store the VALIDATED playlist URL they want to analyze
         sess["intended_playlist_url"] = playlist.playlist_url
 
         # Build the One-Tap login page
@@ -386,12 +396,7 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
 
         return login_ui
 
-    errors = YoutubePlaylistValidator.validate(playlist)
-    if errors:
-        return Div(
-            Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
-            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded",
-        )
+    # Authenticated user - proceed to preview
     return Script(
         "htmx.ajax('POST', '/validate/preview', {target: '#preview-box', values: {playlist_url: '%s'}});"
         % playlist.playlist_url
