@@ -2,6 +2,18 @@
 # Re-exports for clean imports - maintains backward compatibility
 # All UI components are now in ui_components.py module
 
+from components.auth_components import (
+    # Authentication components
+    AccountChooser,
+    GoogleGLogo,
+    GoogleSignInButton,
+    LoginPrompt,
+    OAuthLoadingState,
+    OneTapLoginCard,
+    PrivacyDisclaimer,
+    ShieldCheckIcon,
+    TrustBadge,
+)
 from components.base import (
     # Base structural helpers
     DivCentered,

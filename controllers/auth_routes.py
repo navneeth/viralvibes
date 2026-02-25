@@ -7,15 +7,14 @@ import logging
 import os
 
 from fasthtml.common import *
-from monsterui.all import ButtonT
-from fasthtml.common import Titled, Container
+from monsterui.all import ButtonT, AlertT
 
 
 logger = logging.getLogger(__name__)
 
 
 def build_login_page(oauth, req):
-    """Build login page content"""
+    """Build login page content - ORIGINAL STABLE VERSION"""
     if oauth:
         login_link = oauth.login_link(req)
     else:
@@ -34,6 +33,61 @@ def build_login_page(oauth, req):
                 cls="max-w-md mx-auto mt-20",
             ),
         ),
+    )
+
+
+def build_onetap_login_page(
+    oauth,
+    req,
+    sess=None,
+    return_url: str = None,
+    remembered_email: str = None,
+):
+    """Build One-Tap login page - NEW OPTIONAL ENHANCEMENT
+
+    This is the new Material Design 3 login UI.
+    Use this instead of build_login_page() when ready to migrate.
+
+    Args:
+        oauth: OAuth instance
+        req: Request object
+        sess: Session object (for remembered email)
+        return_url: URL to redirect after login
+        remembered_email: Last logged-in email (optional)
+
+    Returns:
+        OneTapLoginCard component
+    """
+    from components.auth_components import OneTapLoginCard
+
+    # Get remembered user info from session/cookie
+    if sess and not remembered_email:
+        remembered_email = sess.get("last_email")
+
+    remembered_avatar = None
+    remembered_user_id = None
+
+    if remembered_email and sess:
+        remembered_user_id = sess.get("last_user_id")
+        if remembered_user_id:
+            remembered_avatar = f"/avatar/{remembered_user_id}"
+
+    # Get OAuth login link
+    if oauth:
+        login_link = oauth.login_link(req)
+    else:
+        login_link = "#"
+        logger.warning("OAuth not configured - login will not work")
+
+    # Build One-Tap card
+    return OneTapLoginCard(
+        oauth_login_link=login_link,
+        site_name="ViralVibes",
+        logo_src="/static/ViralVibes_Logo.png",
+        return_url=return_url,
+        remembered_email=remembered_email,
+        remembered_avatar=remembered_avatar,
+        remembered_user_id=remembered_user_id,
     )
 
 
