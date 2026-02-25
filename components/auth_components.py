@@ -116,10 +116,7 @@ def GoogleSignInButton(
 # Account Chooser (Return User Flow)
 # =============================================================================
 def AccountChooser(
-    email: str, 
-    oauth_login_link: str,
-    avatar_url: str = None, 
-    user_id: str = None
+    email: str, oauth_login_link: str, avatar_url: str = None, user_id: str = None
 ):
     """Show existing account chip for returning users.
 
@@ -213,7 +210,8 @@ def OneTapLoginCard(
         account_section = Div(
             AccountChooser(
                 email=remembered_email,
-                oauth_login_link=oauth_login_link + (f"&state={return_url}" if return_url else ""),
+                oauth_login_link=oauth_login_link
+                + (f"&state={return_url}" if return_url else ""),
                 avatar_url=remembered_avatar,
                 user_id=remembered_user_id,
             ),

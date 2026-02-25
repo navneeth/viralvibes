@@ -375,7 +375,7 @@ def get_avatar(user_id: str):
 @rt("/validate/url", methods=["POST"])
 def validate_url(playlist: YoutubePlaylist, req, sess):
     """Validate playlist URL - requires authentication"""
-    
+
     # Validate URL FIRST (before storing or processing)
     errors = YoutubePlaylistValidator.validate(playlist)
     if errors:
@@ -383,7 +383,7 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
             Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
             cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded",
         )
-    
+
     # Check auth AFTER validation (only store valid URLs)
     if not (sess and sess.get("auth")):
         # Store the VALIDATED playlist URL they want to analyze
