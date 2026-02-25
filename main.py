@@ -256,6 +256,22 @@ def login(req, sess):
     )
 
 
+@rt("/login/onetap")
+def login_onetap_test(req, sess):
+    """TEST ROUTE - One-Tap UI preview (doesn't affect production /login)"""
+    from controllers.auth_routes import build_onetap_login_page
+
+    return_url = sess.get("intended_url") if sess else "/"
+
+    # Build the One-Tap login page
+    onetap_card = build_onetap_login_page(oauth, req, sess, return_url)
+
+    return Titled(
+        "Sign in to ViralVibes (New UI)",
+        onetap_card,
+    )
+
+
 @rt("/logout")
 def logout():
     """Standard logout - clears session and redirects"""
