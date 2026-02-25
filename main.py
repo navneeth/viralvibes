@@ -1027,7 +1027,7 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
         submit_playlist_job(intended_playlist_url, user_id=user_id)
 
         # Redirect to their dashboard
-        dashboard_id = compute_dashboard_id(intended_playlist_url, user_id=user_id)
+        dashboard_id = compute_dashboard_id(intended_playlist_url)
         return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
 
     # Fetch dashboards with filters
