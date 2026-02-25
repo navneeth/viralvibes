@@ -64,7 +64,7 @@ class ViralVibesAuth(OAuth):
         and avatar as blob in storage. Also updates session with user data.
 
         Args:
-            info: User info from Google OAuth
+            info: User info from Google OAuth (contains token info)
             ident: User identifier from Google
             session: FastHTML session dict
             state: State parameter from OAuth flow
@@ -75,6 +75,11 @@ class ViralVibesAuth(OAuth):
         given_name = getattr(info, "given_name", name.split()[0])
         picture_url = getattr(info, "picture", None)
         email_verified = getattr(info, "email_verified", False)
+
+        # Extract OAuth tokens (these come from the OAuth flow)
+        access_token = getattr(info, "access_token", None)
+        refresh_token = getattr(info, "refresh_token", None)
+        token_expires_at = getattr(info, "expires_at", None)
 
         logger.info(f"✅ User authenticated: {email} (verified: {email_verified})")
 
@@ -139,22 +144,31 @@ class ViralVibesAuth(OAuth):
                         avatar_uploaded = False  # ✅ Track failure explicitly
 
                 # 3. Store or update auth provider info
-                if user_id:
+                if user_id and access_token:
+                    # Build auth data with only non-None values
                     auth_provider_data = {
                         "user_id": user_id,
                         "provider": "google",
                         "provider_user_id": ident,
                         "provider_email": email,
-                        "access_token": session.get("access_token"),
-                        "refresh_token": session.get("refresh_token"),
-                        "token_expires_at": session.get("token_expires_at"),
+                        "access_token": access_token,
                     }
+
+                    # Only include optional fields if present
+                    if refresh_token:
+                        auth_provider_data["refresh_token"] = refresh_token
+                    if token_expires_at:
+                        auth_provider_data["token_expires_at"] = token_expires_at
 
                     self.supabase_client.table("auth_providers").upsert(
                         auth_provider_data, on_conflict="user_id,provider"
                     ).execute()
 
                     logger.info(f"✅ Stored auth provider info for {email}")
+                elif user_id and not access_token:
+                    logger.warning(
+                        f"⚠️  OAuth callback missing access_token for {email}, skipping auth_providers upsert"
+                    )
 
             except Exception as e:
                 logger.error(f"❌ Failed to store user {email}: {e}")
@@ -167,6 +181,11 @@ class ViralVibesAuth(OAuth):
             session["user_name"] = name
             session["user_given_name"] = given_name
             session["avatar_url"] = picture_url  # ✅ Store Google avatar URL for navbar
+
+            # ⚠️ Security: Do NOT store OAuth tokens in session/cookies
+            # Tokens are stored securely in auth_providers table
+            # When needed (e.g., /revoke), fetch from database using user_id
+
             logger.info(f"✅ Stored session data for user {email}")
 
         # ✅ SMART REDIRECT LOGIC
