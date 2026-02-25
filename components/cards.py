@@ -92,44 +92,317 @@ def faq_item(question: str, answer: str, id: int) -> Div:
 # =============================================================================
 # Main Cards
 # =============================================================================
-def HeaderCard() -> Card:
-    """Simplified, flat header card for ViralVibes — no nested components."""
-    return CardTitle(
+
+"""
+HeaderCard Redesign — ViralVibes
+================================
+Ticker-inspired hero card: live stats scroll horizontally like a stock ticker.
+Dark editorial aesthetic with sharp red accents.
+Drop-in replacement for HeaderCard() in cards.py.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Ticker data — duplicated so the loop is seamless
+# ---------------------------------------------------------------------------
+_TICKER_ITEMS = [
+    ("🔥", "Viral Score", "92.4"),
+    ("👁", "Avg Views", "1.2M"),
+    ("💬", "Engagement", "8.7%"),
+    ("📈", "Growth Rate", "+34%"),
+    ("🎯", "CTR", "6.1%"),
+    ("⏱", "Watch Time", "14m 22s"),
+    ("🏆", "Top Creator", "MrBeast"),
+    ("📊", "Playlists", "10,419"),
+    ("⚡", "Real-time", "< 2 sec"),
+    ("🌐", "Countries", "142"),
+]
+
+# Double the list so the animation can loop perfectly
+_TICKER_DOUBLED = _TICKER_ITEMS * 2
+
+
+def _ticker_item(emoji: str, label: str, value: str):
+    return Span(
+        Span(emoji, style="font-size:1rem"),
+        Span(value, style="font-weight:700; color:#fff"),
+        Span(label, style="color:rgba(255,255,255,0.65); font-weight:500"),
+        Span(cls="vv-ticker-dot"),
+        cls="vv-ticker-item",
+    )
+
+
+def _ticker_strip():
+    items = [_ticker_item(e, l, v) for e, l, v in _TICKER_DOUBLED]
+    return Div(
+        Div(*items, cls="vv-ticker-track"),
+        cls="vv-ticker-strip",
+        **{"aria-label": "Live analytics ticker"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stat chip row
+# ---------------------------------------------------------------------------
+def _stat(value: str, label: str):
+    return Div(
+        Div(value, cls="vv-stat-value"),
+        Div(label, cls="vv-stat-label"),
+        cls="vv-stat",
+    )
+
+
+def _stat_row():
+    return Div(
+        _stat("10K+", "Playlists"),
+        Div(cls="vv-stat-divider"),
+        _stat("98%", "Accuracy"),
+        Div(cls="vv-stat-divider"),
+        _stat("< 2s", "Analysis"),
+        Div(cls="vv-stat-divider"),
+        _stat("142", "Countries"),
+        cls="vv-stat-bar",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main headline — each word animates in with staggered delay
+# ---------------------------------------------------------------------------
+def _headline():
+    words = [
+        ("Decode", "delay-1"),
+        ("YouTube", "delay-2"),
+        ("Virality.", "delay-3 red"),
+    ]
+    spans = [Span(word + "\u00a0", cls=f"vv-word {cls}") for word, cls in words]
+    return H1(*spans, cls="vv-headline")
+
+
+# ---------------------------------------------------------------------------
+# Public component
+# ---------------------------------------------------------------------------
+def HeaderCard() -> Div:
+    """
+    Redesigned HeaderCard with a live ticker strip and editorial dark aesthetic.
+    Drop-in replacement — same function name, same import path.
+    """
+    return Div(
+        # ── Card shell ────────────────────────────────────────────────────
         Div(
-            # Text content (left)
+            # Decorative glow blob
+            Div(cls="vv-glow"),
+            # ── Upper body ──────────────────────────────────────────────
             Div(
-                H1(
-                    "Welcome to ViralVibes",
-                    cls=STYLES["hero_title"] + " text-blue-700 mb-4",
+                # Left: copy + CTA
+                Div(
+                    # "LIVE" pill
+                    Div(
+                        Span(cls="vv-pill-dot"),
+                        Span("Live Analytics"),
+                        cls="vv-pill",
+                    ),
+                    # Headline
+                    _headline(),
+                    # Sub-copy
+                    P(
+                        "Analyze any YouTube playlist to uncover engagement trends, "
+                        "viral patterns, and creator insights — instantly.",
+                        cls="vv-sub vv-word delay-4",
+                    ),
+                    # CTA row
+                    Div(
+                        A(
+                            # Google logo SVG
+                            Svg(
+                                Path(
+                                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z",
+                                    fill="#4285F4",
+                                ),
+                                Path(
+                                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z",
+                                    fill="#34A853",
+                                ),
+                                Path(
+                                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z",
+                                    fill="#FBBC05",
+                                ),
+                                Path(
+                                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z",
+                                    fill="#EA4335",
+                                ),
+                                viewBox="0 0 24 24",
+                                style="width:18px;height:18px;flex-shrink:0;",
+                            ),
+                            "Continue with Google",
+                            href="/login",
+                            style=(
+                                "display:inline-flex; align-items:center; gap:0.6rem;"
+                                "padding:0.72rem 1.4rem;"
+                                "background:#fff; color:#1f1f1f;"
+                                "font-weight:600; font-size:0.88rem;"
+                                "border-radius:0.6rem;"
+                                "text-decoration:none;"
+                                "box-shadow:0 0 0 1px rgba(255,255,255,0.12), 0 4px 14px rgba(0,0,0,0.35);"
+                                "animation:ring-pulse 2.4s ease-out infinite;"
+                                "transition:background 0.2s, box-shadow 0.2s, transform 0.15s;"
+                            ),
+                        ),
+                        A(
+                            "See an example →",
+                            href="#",
+                            cls="vv-link",
+                        ),
+                        cls="vv-cta-row",
+                    ),
+                    # Trust line
+                    P(
+                        UkIcon("lock", cls="w-3 h-3"),
+                        Span("No credit card required"),
+                        cls="vv-trust",
+                    ),
+                    cls="vv-content",
                 ),
-                P(
-                    "Decode YouTube virality. Instantly.",
-                    cls="text-xl text-gray-700 mb-3",
+                # Right: dashboard preview mockup
+                Div(
+                    # Fake browser chrome
+                    Div(
+                        # traffic lights
+                        Div(
+                            Span(
+                                style="width:10px;height:10px;border-radius:50%;background:#ff5f57;"
+                            ),
+                            Span(
+                                style="width:10px;height:10px;border-radius:50%;background:#febc2e;"
+                            ),
+                            Span(
+                                style="width:10px;height:10px;border-radius:50%;background:#28c840;"
+                            ),
+                            style="display:flex;gap:6px;align-items:center;",
+                        ),
+                        Div(
+                            "viralvibes.app/dashboard",
+                            style=(
+                                "flex:1; text-align:center;"
+                                "font-family:'Geist Mono',monospace;"
+                                "font-size:0.65rem;"
+                                "color:rgba(255,255,255,0.3);"
+                                "letter-spacing:0.04em;"
+                            ),
+                        ),
+                        style=(
+                            "display:flex; align-items:center; gap:0.5rem;"
+                            "padding: 0.6rem 1rem;"
+                            "background: rgba(255,255,255,0.04);"
+                            "border-bottom: 1px solid rgba(255,255,255,0.07);"
+                        ),
+                    ),
+                    # Fake chart content
+                    Div(
+                        # Mini metric chips
+                        Div(
+                            *[
+                                Div(
+                                    Div(
+                                        v,
+                                        style="font-family:'Geist Mono',monospace;font-size:1.1rem;font-weight:700;color:#fff;",
+                                    ),
+                                    Div(
+                                        l,
+                                        style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.08em;color:rgba(255,255,255,0.35);margin-top:2px;",
+                                    ),
+                                    style=(
+                                        "background:rgba(255,255,255,0.04);"
+                                        "border:1px solid rgba(255,255,255,0.08);"
+                                        "border-radius:0.6rem;"
+                                        "padding:0.65rem 0.75rem;"
+                                        "flex:1;"
+                                    ),
+                                )
+                                for v, l in [
+                                    ("1.2M", "Avg Views"),
+                                    ("8.7%", "Engagement"),
+                                    ("+34%", "Growth"),
+                                ]
+                            ],
+                            style="display:flex;gap:0.5rem;",
+                        ),
+                        # GIF placeholder
+                        Div(
+                            Img(
+                                src="/static/dashboard-preview.png",
+                                alt="Dashboard preview",
+                                style="display:block; width:100%; height:auto; border-radius:0.55rem;",
+                            ),
+                            # Fallback shown if gif is missing
+                            Div(
+                                UkIcon(
+                                    "image",
+                                    cls="w-6 h-6",
+                                    style="color:rgba(239,68,68,0.6)",
+                                ),
+                                Span(
+                                    "dashboard-preview.png",
+                                    style="font-family:'Geist Mono',monospace; font-size:0.62rem; letter-spacing:0.06em; color:rgba(239,68,68,0.5); text-transform:uppercase;",
+                                ),
+                                style=(
+                                    "position:absolute; inset:0;"
+                                    "display:flex; flex-direction:column;"
+                                    "align-items:center; justify-content:center; gap:0.4rem;"
+                                ),
+                                cls="vv-gif-fallback",
+                            ),
+                            style=(
+                                "position:relative;"
+                                "border:1px dashed rgba(239,68,68,0.35);"
+                                "border-radius:0.55rem;"
+                                "overflow:hidden;"
+                                "background:rgba(239,68,68,0.04);"
+                                "min-height:88px;"
+                                "margin-top:0.75rem;"
+                            ),
+                        ),
+                        # Viral score row
+                        Div(
+                            Div(
+                                Span(
+                                    "Viral Score",
+                                    style="font-size:0.7rem;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.07em;",
+                                ),
+                                Span(
+                                    "92.4 / 100",
+                                    style="font-family:'Geist Mono',monospace;font-size:0.85rem;color:#f87171;font-weight:700;",
+                                ),
+                                style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;",
+                            ),
+                            Div(
+                                Div(
+                                    style="width:92.4%;height:100%;background:linear-gradient(to right,#ef4444,#f87171);border-radius:9999px;"
+                                ),
+                                style="width:100%;height:5px;background:rgba(255,255,255,0.08);border-radius:9999px;overflow:hidden;",
+                            ),
+                            style="margin-top:0.75rem;",
+                        ),
+                        style="padding:0.85rem;",
+                    ),
+                    style=(
+                        "flex: 1;"
+                        "background: rgba(255,255,255,0.03);"
+                        "border: 1px solid rgba(255,255,255,0.08);"
+                        "border-radius: 0.9rem;"
+                        "overflow: hidden;"
+                        "margin: 1.5rem 2rem 1.5rem 0;"
+                        "position: relative; z-index:1;"
+                        "min-width:240px;"
+                    ),
                 ),
-                P(
-                    "Analyze any YouTube playlist to uncover engagement trends, viral patterns, and creator insights — instantly.",
-                    cls="text-base text-gray-500 max-w-lg",
-                ),
-                Button(
-                    UkIcon("chart-bar", cls="mr-2"),
-                    "Start Analyzing",
-                    onclick="document.querySelector('#analyze-section').scrollIntoView({behavior:'smooth'})",
-                    cls="mt-6 " + STYLES["cta_primary"],
-                ),
-                cls="flex-1",
+                cls="vv-layout",
             ),
-            # Image (right)
-            Img(
-                src="/static/thumbnail.png",
-                alt="YouTube Analytics Dashboard Preview",
-                cls="flex-1 w-64 md:w-80 lg:w-96 " + STYLES["card_thumbnail"],
-                loading="lazy",
-            ),
-            # Overall container
-            cls="flex flex-col md:flex-row gap-10 items-center justify-between",
+            # ── Ticker strip ─────────────────────────────────────────────
+            _ticker_strip(),
+            # ── Stat row ─────────────────────────────────────────────────
+            _stat_row(),
+            cls="vv-header-card",
         ),
-        cls=THEME["card_base"],
-        uk_scrollspy="cls: uk-animation-slide-bottom-small",
     )
 
 
