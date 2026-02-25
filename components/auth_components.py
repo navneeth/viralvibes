@@ -13,7 +13,7 @@ from monsterui.all import *
 # =============================================================================
 def GoogleGLogo(size: int = 24):
     """Official Google 'G' logo SVG.
-    
+
     Source: Google Brand Resource Center
     https://developers.google.com/identity/branding-guidelines
     """
@@ -98,7 +98,7 @@ def GoogleSignInButton(
     full_width: bool = True,
 ):
     """Official Google Sign-In button following brand guidelines.
-    
+
     References:
     - https://developers.google.com/identity/branding-guidelines
     - Material Design 3 elevated button specs
@@ -117,7 +117,7 @@ def GoogleSignInButton(
 # =============================================================================
 def AccountChooser(email: str, avatar_url: str = None, user_id: str = None):
     """Show existing account chip for returning users.
-    
+
     Args:
         email: User's email address
         avatar_url: User avatar (e.g., /avatar/{user_id})
@@ -164,7 +164,7 @@ def OneTapLoginCard(
     remembered_user_id: str = None,
 ):
     """One-Tap centered login card with Material Design 3 styling.
-    
+
     Args:
         oauth_login_link: Google OAuth URL (from oauth.login_link(req))
         site_name: Your application name
@@ -173,7 +173,7 @@ def OneTapLoginCard(
         remembered_email: Last logged-in email (for account chooser)
         remembered_avatar: Avatar URL for returning user
         remembered_user_id: User ID for returning user
-    
+
     Features:
         - Centered elevation card
         - Progressive disclosure
@@ -181,7 +181,7 @@ def OneTapLoginCard(
         - Trust badges
         - Accessibility optimized
     """
-    
+
     # Build the card header
     card_header = Div(
         # Logo
@@ -202,7 +202,7 @@ def OneTapLoginCard(
         ),
         cls="auth-header",
     )
-    
+
     # Account chooser for returning users
     account_section = None
     if remembered_email:
@@ -215,7 +215,7 @@ def OneTapLoginCard(
             P("or", cls="auth-divider-text"),
             cls="auth-account-section",
         )
-    
+
     # Primary CTA
     cta_section = Div(
         GoogleSignInButton(
@@ -226,13 +226,13 @@ def OneTapLoginCard(
         TrustBadge(text="No credit card required • Free forever"),
         cls="auth-cta-section",
     )
-    
+
     # Footer
     card_footer = Div(
         PrivacyDisclaimer(),
         cls="auth-footer",
     )
-    
+
     # Assemble the card
     return Div(
         Div(
@@ -257,7 +257,7 @@ def LoginPrompt(
     compact: bool = False,
 ):
     """Inline login prompt for friction points (e.g., before analysis).
-    
+
     Args:
         oauth_login_link: Google OAuth URL
         message: Custom prompt message

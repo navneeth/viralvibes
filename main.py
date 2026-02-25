@@ -51,7 +51,9 @@ from controllers.auth_routes import (
     build_login_page,
     build_logout_response,
     require_auth,
+    build_onetap_login_page,
 )
+
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
 from db import (
@@ -374,11 +376,15 @@ def get_avatar(user_id: str):
 def validate_url(playlist: YoutubePlaylist, req, sess):
     """Validate playlist URL - requires authentication"""
     if not (sess and sess.get("auth")):
-        sess["intended_url"] = str(req.url.path)
-        return Alert(
-            P("Please log in to analyze playlists."),
-            cls=AlertT.warning,
+        # Store the playlist URL they want to analyze
+        sess["intended_playlist_url"] = playlist.playlist_url
+
+        # Build the One-Tap login page
+        login_ui = build_onetap_login_page(
+            oauth, req, sess, return_url="/me/dashboards"
         )
+
+        return login_ui
 
     errors = YoutubePlaylistValidator.validate(playlist)
     if errors:
@@ -1005,6 +1011,19 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
     if not auth or not user_id:
         sess["intended_url"] = str(req.url.path)
         return RedirectResponse("/login", status_code=303)
+
+    # Check if user just logged in to analyze a playlist
+    intended_playlist_url = sess.get("intended_playlist_url")
+    if intended_playlist_url:
+        sess.pop("intended_playlist_url", None)  # Remove after using
+        logger.info(f"Submitting job for {intended_playlist_url} after login")
+
+        # Submit the playlist job
+        submit_playlist_job(intended_playlist_url, user_id=user_id)
+
+        # Redirect to their dashboard
+        dashboard_id = compute_dashboard_id(intended_playlist_url, user_id=user_id)
+        return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
 
     # Fetch dashboards with filters
     dashboards = get_user_dashboards(user_id, search=search, sort=sort)
