@@ -64,7 +64,7 @@ class ViralVibesAuth(OAuth):
         and avatar as blob in storage. Also updates session with user data.
 
         Args:
-            info: User info from Google OAuth
+            info: User info from Google OAuth (contains token info)
             ident: User identifier from Google
             session: FastHTML session dict
             state: State parameter from OAuth flow
@@ -75,6 +75,11 @@ class ViralVibesAuth(OAuth):
         given_name = getattr(info, "given_name", name.split()[0])
         picture_url = getattr(info, "picture", None)
         email_verified = getattr(info, "email_verified", False)
+        
+        # Extract OAuth tokens (these come from the OAuth flow)
+        access_token = getattr(info, "access_token", None)
+        refresh_token = getattr(info, "refresh_token", None)
+        token_expires_at = getattr(info, "expires_at", None)
 
         logger.info(f"✅ User authenticated: {email} (verified: {email_verified})")
 
@@ -145,9 +150,9 @@ class ViralVibesAuth(OAuth):
                         "provider": "google",
                         "provider_user_id": ident,
                         "provider_email": email,
-                        "access_token": session.get("access_token"),
-                        "refresh_token": session.get("refresh_token"),
-                        "token_expires_at": session.get("token_expires_at"),
+                        "access_token": access_token,
+                        "refresh_token": refresh_token,
+                        "token_expires_at": token_expires_at,
                     }
 
                     self.supabase_client.table("auth_providers").upsert(
@@ -167,6 +172,8 @@ class ViralVibesAuth(OAuth):
             session["user_name"] = name
             session["user_given_name"] = given_name
             session["avatar_url"] = picture_url  # ✅ Store Google avatar URL for navbar
+            session["access_token"] = access_token  # ✅ Store for token revocation
+            session["refresh_token"] = refresh_token  # ✅ Store for token refresh
             logger.info(f"✅ Stored session data for user {email}")
 
         # ✅ SMART REDIRECT LOGIC
