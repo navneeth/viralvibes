@@ -292,8 +292,26 @@ def revoke(req, sess):
 
     Useful for testing OAuth flow and full user disconnection.
     """
-    access_token = sess.get("access_token")
+    user_id = sess.get("user_id")
     user_email = sess.get("user_email", "unknown")
+
+    access_token = None
+
+    # Fetch access_token from secure backend storage
+    if user_id and supabase_client:
+        try:
+            result = (
+                supabase_client.table("auth_providers")
+                .select("access_token")
+                .eq("user_id", user_id)
+                .eq("provider", "google")
+                .single()
+                .execute()
+            )
+            if result.data:
+                access_token = result.data.get("access_token")
+        except Exception as e:
+            logger.warning(f"Failed to fetch access_token for revocation: {e}")
 
     # Attempt token revocation
     if access_token:
