@@ -2081,7 +2081,68 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             if (vids := safe_get_value(c, "current_video_count", 0))
         )
 
+        # ═══════════════════════════════════════════════════════════════
+        # NEW AGENCY-FOCUSED METRICS FOR REDESIGNED HERO
+        # ═══════════════════════════════════════════════════════════════
+
+        # Count unique countries for geographic diversity
+        countries = set(
+            country
+            for c in stats_source
+            if (country := safe_get_value(c, "country_code", None))
+        )
+        total_countries = len(countries)
+
+        # Count unique categories for content diversity
+        # topic_categories can be a list or comma-separated string
+        categories = set()
+        for c in stats_source:
+            cats = safe_get_value(c, "topic_categories", None)
+            if cats:
+                if isinstance(cats, list):
+                    categories.update(cats)
+                elif isinstance(cats, str):
+                    # Handle comma-separated strings
+                    categories.update(
+                        cat.strip() for cat in cats.split(",") if cat.strip()
+                    )
+        total_categories = len(categories)
+
+        # Grade distribution for visual quality breakdown
+        grade_counts = {}
+        for c in stats_source:
+            grade = safe_get_value(c, "quality_grade", "C")
+            grade_counts[grade] = grade_counts.get(grade, 0) + 1
+
+        # Verified percentage (official badge)
+        verified_count = sum(
+            1 for c in stats_source if safe_get_value(c, "official", False)
+        )
+        verified_percentage = (
+            (verified_count / len(stats_source)) * 100 if stats_source else 0
+        )
+
+        # Active percentage (monthly_uploads > 5 = actively posting)
+        active_count = sum(
+            1 for c in stats_source if safe_get_value(c, "monthly_uploads", 0) > 5
+        )
+        active_percentage = (
+            (active_count / len(stats_source)) * 100 if stats_source else 0
+        )
+
+        # Top 3 countries by creator count
+        country_counts = {}
+        for c in stats_source:
+            country = safe_get_value(c, "country_code", None)
+            if country:
+                country_counts[country] = country_counts.get(country, 0) + 1
+
+        top_countries = sorted(
+            country_counts.items(), key=lambda x: x[1], reverse=True
+        )[:3]
+
         return {
+            # Original metrics (keep for backward compatibility)
             "total_creators": int(total_creators),
             "avg_engagement": round(avg_engagement, 2),
             "has_engagement_data": has_engagement_data,
@@ -2089,6 +2150,13 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "premium_creators": int(premium_creators),
             "total_subscribers": int(total_subscribers),
             "total_videos": int(total_videos),
+            # New agency-focused metrics
+            "total_countries": int(total_countries),
+            "total_categories": int(total_categories),
+            "grade_counts": grade_counts,
+            "verified_percentage": round(verified_percentage, 1),
+            "active_percentage": round(active_percentage, 1),
+            "top_countries": top_countries,
         }
 
     except Exception as e:
