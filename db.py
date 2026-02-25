@@ -2093,6 +2093,14 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         )
         total_countries = len(countries)
 
+        # Count unique languages for content diversity
+        languages = set(
+            lang
+            for c in stats_source
+            if (lang := safe_get_value(c, "default_language", None))
+        )
+        total_languages = len(languages)
+
         # Count unique categories for content diversity
         # topic_categories can be a list or comma-separated string
         categories = set()
@@ -2152,6 +2160,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "total_videos": int(total_videos),
             # New agency-focused metrics
             "total_countries": int(total_countries),
+            "total_languages": int(total_languages),
             "total_categories": int(total_categories),
             "grade_counts": grade_counts,
             "verified_percentage": round(verified_percentage, 1),
