@@ -199,6 +199,17 @@ def _render_hero(
     Designed for agencies looking to identify collaboration opportunities.
     """
     total_creators = stats.get("total_creators", 0)
+    total_countries = stats.get("total_countries", 0)
+    total_languages = stats.get("total_languages", 0)
+    total_categories = stats.get("total_categories", 0)
+    premium_creators = stats.get("premium_creators", 0)
+    growing_creators = stats.get("growing_creators", 0)
+    avg_engagement = stats.get("avg_engagement", 0)
+    verified_percentage = stats.get("verified_percentage", 0)
+    active_percentage = stats.get("active_percentage", 0)
+    top_countries = stats.get("top_countries", [])
+    total_subscribers = stats.get("total_subscribers", 0)
+    total_videos = stats.get("total_videos", 0)
 
     return Div(
         Div(
