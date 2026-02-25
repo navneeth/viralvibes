@@ -1,5 +1,59 @@
-/* Geist & Geist Mono — loaded via CDN (no local font files required) */
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap");
+/* Geist & Geist Mono — Local fonts */
+@font-face {
+  font-family: 'Geist';
+  src: url('/assets/fonts/geist/Geist-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/assets/fonts/geist/Geist-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/assets/fonts/geist/Geist-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/assets/fonts/geist/Geist-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/assets/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/assets/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/assets/fonts/geist-mono/GeistMono-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
 
 .font-details-off {
   font-feature-settings: "clig" off, "liga" off;
@@ -640,7 +694,7 @@
   margin-bottom: 1.25rem;
 }
 
-.vv-live-dot {
+.vv-pill-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -655,29 +709,30 @@
   animation: word-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.vv-word.d1 { animation-delay: 0.05s; }
-.vv-word.d2 { animation-delay: 0.20s; }
-.vv-word.d3 { animation-delay: 0.36s; }
-.vv-word.d4 { animation-delay: 0.52s; }
-.vv-word.d5 { animation-delay: 0.70s; }
-.vv-word.d6 { animation-delay: 0.88s; }
+.vv-word.delay-1 { animation-delay: 0.05s; }
+.vv-word.delay-2 { animation-delay: 0.20s; }
+.vv-word.delay-3 { animation-delay: 0.36s; }
+.vv-word.delay-4 { animation-delay: 0.52s; }
+.vv-word.delay-5 { animation-delay: 0.70s; }
+.vv-word.delay-6 { animation-delay: 0.88s; }
 
 /* ── Headline ── */
 .vv-headline {
-  font-size: clamp(2.1rem, 4.5vw, 3.4rem);
-  font-weight: 750;
-  letter-spacing: -0.035em;
-  line-height: 1.08;
+  font-family: 'Geist', system-ui, sans-serif;
+  font-size: clamp(2.2rem, 5vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
   color: #fff;
-  margin-bottom: 1.1rem;
+  margin: 0 0 1rem;
 }
 
 .vv-headline .red { color: #f87171; }
 
 /* ── Sub-copy ── */
 .vv-sub {
-  color: rgba(255, 255, 255, 0.48);
-  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 1.05rem;
   line-height: 1.65;
   max-width: 36ch;
   margin-bottom: 2rem;
@@ -689,6 +744,25 @@
   align-items: center;
   gap: 1.5rem;
   flex-wrap: wrap;
+}
+
+/* ── Content section ── */
+.vv-content {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2.5rem 2rem 2rem 2.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Layout wrapper ── */
+.vv-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  min-height: 300px;
 }
 
 /* ── Google button ── */
@@ -726,11 +800,12 @@
 
 /* ── Secondary link ── */
 .vv-link {
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.855rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.875rem;
   font-weight: 500;
   text-decoration: none;
   transition: color 0.2s;
+  align-self: center;
 }
 
 .vv-link:hover { color: rgba(255, 255, 255, 0.85); }
@@ -744,6 +819,10 @@
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.28);
+}
+
+.vv-trust svg {
+  flex-shrink: 0;
 }
 
 /* ── Ticker strip ── */
@@ -786,7 +865,7 @@
 
 .vv-ticker-track:hover { animation-play-state: paused; }
 
-.vv-tick-item {
+.vv-ticker-item {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -800,9 +879,9 @@
   color: rgba(255, 255, 255, 0.95);
 }
 
-.vv-tick-item .tick-val { color: #fff; font-weight: 800; }
+.vv-ticker-item .tick-val { color: #fff; font-weight: 800; }
 
-.vv-tick-sep {
+.vv-ticker-dot {
   width: 4px;
   height: 4px;
   border-radius: 50%;
@@ -820,7 +899,7 @@
   overflow: hidden;
 }
 
-.vv-stat-cell {
+.vv-stat {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -828,7 +907,7 @@
   position: relative;
 }
 
-.vv-stat-cell + .vv-stat-cell::before {
+.vv-stat + .vv-stat::before {
   content: "";
   position: absolute;
   left: 0;
@@ -838,7 +917,7 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.vv-stat-cell .stat-val {
+.vv-stat-value {
   font-family: "Geist Mono", "Courier New", monospace;
   font-size: 1.35rem;
   font-weight: 700;
@@ -846,12 +925,18 @@
   line-height: 1;
 }
 
-.vv-stat-cell .stat-lbl {
+.vv-stat-label {
   font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: rgba(255, 255, 255, 0.3);
   margin-top: 4px;
+}
+
+.vv-stat-divider {
+  width: 1px;
+  height: 2rem;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* ── Dashboard panel ── */

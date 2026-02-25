@@ -137,7 +137,7 @@ def _ticker_strip():
     return Div(
         Div(*items, cls="vv-ticker-track"),
         cls="vv-ticker-strip",
-        aria_label="Live analytics ticker",
+        **{"aria-label": "Live analytics ticker"},
     )
 
 
@@ -161,11 +161,7 @@ def _stat_row():
         _stat("< 2s", "Analysis"),
         Div(cls="vv-stat-divider"),
         _stat("142", "Countries"),
-        style=(
-            "display:flex; gap:1.5rem; align-items:center; "
-            "padding: 1.25rem 2rem; "
-            "border-top: 1px solid rgba(255,255,255,0.07);"
-        ),
+        cls="vv-stat-bar",
     )
 
 
@@ -176,21 +172,10 @@ def _headline():
     words = [
         ("Decode", "delay-1"),
         ("YouTube", "delay-2"),
-        ("Virality.", "delay-3 text-red-400"),
+        ("Virality.", "delay-3 red"),
     ]
     spans = [Span(word + "\u00a0", cls=f"vv-word {cls}") for word, cls in words]
-    return H1(
-        *spans,
-        style=(
-            "font-family: 'Geist', system-ui, sans-serif;"
-            "font-size: clamp(2.2rem, 5vw, 3.5rem);"
-            "font-weight: 700;"
-            "letter-spacing: -0.03em;"
-            "line-height: 1.1;"
-            "color: #fff;"
-            "margin: 0 0 1rem;"
-        ),
-    )
+    return H1(*spans, cls="vv-headline")
 
 
 # ---------------------------------------------------------------------------
@@ -222,14 +207,7 @@ def HeaderCard() -> Div:
                     P(
                         "Analyze any YouTube playlist to uncover engagement trends, "
                         "viral patterns, and creator insights — instantly.",
-                        cls="vv-word delay-4",
-                        style=(
-                            "color: rgba(255,255,255,0.55);"
-                            "font-size: 1.05rem;"
-                            "line-height: 1.65;"
-                            "max-width: 36ch;"
-                            "margin-bottom: 2rem;"
-                        ),
+                        cls="vv-sub vv-word delay-4",
                     ),
                     # CTA row
                     Div(
@@ -272,34 +250,17 @@ def HeaderCard() -> Div:
                         A(
                             "See an example →",
                             href="#",
-                            style=(
-                                "color:rgba(255,255,255,0.45);"
-                                "font-size:0.875rem; font-weight:500;"
-                                "text-decoration:none; align-self:center;"
-                                "transition:color 0.2s;"
-                            ),
+                            cls="vv-link",
                         ),
-                        style="display:flex; align-items:center; gap:1.5rem;",
+                        cls="vv-cta-row",
                     ),
                     # Trust line
                     P(
-                        UkIcon("lock", cls="w-3 h-3", style="flex-shrink:0;"),
+                        UkIcon("lock", cls="w-3 h-3"),
                         Span("No credit card required"),
-                        style=(
-                            "display:flex; align-items:center; gap:0.35rem;"
-                            "margin-top:0.75rem;"
-                            "font-size:0.72rem; letter-spacing:0.04em;"
-                            "color:rgba(255,255,255,0.28);"
-                        ),
+                        cls="vv-trust",
                     ),
-                    style=(
-                        "flex: 1.2;"
-                        "display: flex;"
-                        "flex-direction: column;"
-                        "justify-content: center;"
-                        "padding: 2.5rem 2rem 2rem 2.5rem;"
-                        "position: relative; z-index:1;"
-                    ),
+                    cls="vv-content",
                 ),
                 # Right: dashboard preview mockup
                 Div(
@@ -434,12 +395,7 @@ def HeaderCard() -> Div:
                         "min-width:240px;"
                     ),
                 ),
-                style=(
-                    "display: flex;"
-                    "flex-wrap: wrap;"
-                    "align-items: stretch;"
-                    "min-height: 300px;"
-                ),
+                cls="vv-layout",
             ),
             # ── Ticker strip ─────────────────────────────────────────────
             _ticker_strip(),
