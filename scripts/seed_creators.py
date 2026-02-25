@@ -68,10 +68,8 @@ class DiscoveredCreator:
 
 @dataclass
 class SeedStats:
-    # Counts both new inserts and pre-existing rows that were found in DB.
-    # upsert_creator does not distinguish new vs existing in its return type,
-    # so we don't track them separately to avoid misleading "0 already existed" output.
-    upserted: int = 0
+    upserted: int = 0  # genuinely new rows inserted
+    skipped_existing: int = 0  # rows already in DB — skipped entirely
     failed: int = 0
     quota_skipped: int = 0  # name-only rows skipped to preserve quota
     unresolvable: int = 0  # genuinely could not resolve
@@ -87,7 +85,8 @@ class SeedStats:
             "─" * 60,
             "SEEDING COMPLETE",
             "─" * 60,
-            f"  Upserted (new+existing): {self.upserted}",
+            f"  Inserted (new):          {self.upserted}",
+            f"  Skipped (already in DB): {self.skipped_existing}",
             f"  Sync jobs queued:        {self.sync_jobs_queued}",
             f"  Failed (DB errors):      {self.failed}",
             f"  Unresolvable:            {self.unresolvable}",
@@ -386,24 +385,24 @@ async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreat
 
 async def upsert_creator(
     creator: DiscoveredCreator, dry_run: bool = False
-) -> Optional[str]:
+) -> Tuple[Optional[str], bool]:
     """
-    Insert creator if not already present.
+    Insert creator only if not already present.
 
-    Uses db.queue_creator_sync() for sync job creation, which includes
-    deduplication (no duplicate pending jobs for the same creator).
-
-    Returns the creator UUID, or None on failure.
+    Returns (creator_uuid, is_new):
+      - is_new=True  → row was just inserted
+      - is_new=False → row already existed in DB (nothing written)
+      - (None, False) → DB error
     """
     if dry_run:
         logger.info(
             f"  [dry-run] Would insert: {creator.channel_id} ({creator.channel_name})"
         )
-        return f"dry-run-{creator.channel_id}"
+        return f"dry-run-{creator.channel_id}", True
 
     if not db.supabase_client:
         logger.error("Supabase client not available")
-        return None
+        return None, False
 
     try:
         # Check existence first
@@ -415,7 +414,7 @@ async def upsert_creator(
             .execute()
         )
         if existing.data:
-            return existing.data[0]["id"]  # Already in DB
+            return existing.data[0]["id"], False  # Already in DB — skip
 
         payload = {
             "channel_id": creator.channel_id,
@@ -432,13 +431,13 @@ async def upsert_creator(
 
         if not resp.data:
             logger.error(f"DB insert returned no data for {creator.channel_id}")
-            return None
+            return None, False
 
-        return resp.data[0]["id"]
+        return resp.data[0]["id"], True
 
     except Exception as e:
         logger.error(f"DB error for {creator.channel_id}: {e}")
-        return None
+        return None, False
 
 
 async def seed_creators(
@@ -453,10 +452,18 @@ async def seed_creators(
     instead of raw inserts into creator_sync_jobs.
     """
     for creator in creators:
-        creator_id = await upsert_creator(creator, dry_run=dry_run)
+        creator_id, is_new = await upsert_creator(creator, dry_run=dry_run)
 
         if creator_id is None:
             stats.failed += 1
+            continue
+
+        if not is_new:
+            # Already in DB — skip silently (no sync job, no log noise)
+            stats.skipped_existing += 1
+            logger.debug(
+                f"  ⏭  {creator.channel_id} | {creator.channel_name or '?'} already in DB — skipped"
+            )
             continue
 
         if creator_id.startswith("dry-run-"):
