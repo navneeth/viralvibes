@@ -1039,10 +1039,14 @@ async def process_creator_syncs():
             metrics.syncs_failed,
             metrics.syncs_retried,
         )
-        
+
         # Calculate quota usage
-        quota_used_pct = (metrics.youtube_credits_used / YOUTUBE_DAILY_QUOTA * 100) if YOUTUBE_DAILY_QUOTA > 0 else 0
-        
+        quota_used_pct = (
+            (metrics.youtube_credits_used / YOUTUBE_DAILY_QUOTA * 100)
+            if YOUTUBE_DAILY_QUOTA > 0
+            else 0
+        )
+
         progress_msg = (
             f"── Worker status | "
             f"{int(elapsed / 60)}m elapsed, {int(remaining / 60)}m remaining | "
@@ -1144,8 +1148,10 @@ async def main():
         # Calculate quota metrics
         credits_used = metrics.youtube_credits_used
         credits_remaining = YOUTUBE_DAILY_QUOTA - credits_used
-        quota_pct = (credits_used / YOUTUBE_DAILY_QUOTA * 100) if YOUTUBE_DAILY_QUOTA > 0 else 0
-        
+        quota_pct = (
+            (credits_used / YOUTUBE_DAILY_QUOTA * 100) if YOUTUBE_DAILY_QUOTA > 0 else 0
+        )
+
         logger.info(
             f"Worker shutdown complete | "
             f"Uptime: {metrics.uptime():.0f}s | "
