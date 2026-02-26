@@ -80,8 +80,24 @@ EMPTY_QUEUE_BACKOFF_MAX = int(
     os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_MAX", "300")
 )  # Cap at 5 min
 
-# YouTube API quota metering (standard quota is 10,000 units/day)
-YOUTUBE_DAILY_QUOTA = int(os.getenv("YOUTUBE_DAILY_QUOTA", "10000"))
+# YouTube API quota metering (standard quota is 10,000 units/day).
+# Guard against misconfigured or non-positive quotas to avoid divide-by-zero
+# and misleading "remaining" / percentage calculations downstream.
+_raw_youtube_daily_quota = int(os.getenv("YOUTUBE_DAILY_QUOTA", "10000"))
+if _raw_youtube_daily_quota <= 0:
+    # Enforce a minimum of 1 unit so downstream code can safely assume a
+    # positive daily budget. This effectively disables quota tracking while
+    # still keeping metrics/log calculations well-defined.
+    logger.warning(
+        "YOUTUBE_DAILY_QUOTA is set to %s; it must be a positive integer. "
+        "Falling back to 1 to keep quota calculations valid. "
+        "This effectively disables quota tracking.",
+        _raw_youtube_daily_quota,
+    )
+    YOUTUBE_DAILY_QUOTA = 1
+else:
+    YOUTUBE_DAILY_QUOTA = _raw_youtube_daily_quota
+
 YOUTUBE_CREDITS_PER_CHANNEL_FETCH = 1  # channels.list costs 1 unit
 
 
@@ -118,6 +134,19 @@ class WorkerMetrics:
         if total == 0:
             return 0.0
         return (self.syncs_processed / total) * 100
+
+    def quota_percentage(self) -> float:
+        """Return YouTube API quota consumed as a percentage.
+
+        Returns 0 if quota is 0 or negative (gracefully handles misconfiguration).
+        """
+        if YOUTUBE_DAILY_QUOTA <= 0:
+            return 0.0
+        return (self.youtube_credits_used / YOUTUBE_DAILY_QUOTA) * 100
+
+    def quota_remaining(self) -> int:
+        """Return remaining YouTube API quota units."""
+        return max(0, YOUTUBE_DAILY_QUOTA - self.youtube_credits_used)
 
 
 # --- Services ---
@@ -1040,15 +1069,9 @@ async def process_creator_syncs():
             metrics.syncs_retried,
         )
 
-        # Calculate quota usage
-        quota_used_pct = (
-            (metrics.youtube_credits_used / YOUTUBE_DAILY_QUOTA * 100)
-            if YOUTUBE_DAILY_QUOTA > 0
-            else 0
-        )
-
+        # Build progress status message using cached metrics
         progress_msg = (
-            f"── Worker status | "
+            f"-- Worker status | "
             f"{int(elapsed / 60)}m elapsed, {int(remaining / 60)}m remaining | "
             f"Processed: {metrics.syncs_processed}, "
             f"Failed: {metrics.syncs_failed}, "
@@ -1057,7 +1080,7 @@ async def process_creator_syncs():
             f"DB errors: {metrics.db_errors}, "
             f"Timeouts: {metrics.timeout_errors} | "
             f"Success rate: {metrics.success_rate():.1f}% | "
-            f"YT Quota: {metrics.youtube_credits_used:,}/{YOUTUBE_DAILY_QUOTA:,} ({quota_used_pct:.1f}%)"
+            f"YT Quota: {metrics.youtube_credits_used:,}/{YOUTUBE_DAILY_QUOTA:,} ({metrics.quota_percentage():.1f}%)"
         )
         if current_metrics != last_reported_metrics:
             logger.info(progress_msg)
@@ -1145,13 +1168,6 @@ async def main():
         logger.exception(f"Fatal error: {e}")
         raise SystemExit(1)
     finally:
-        # Calculate quota metrics
-        credits_used = metrics.youtube_credits_used
-        credits_remaining = YOUTUBE_DAILY_QUOTA - credits_used
-        quota_pct = (
-            (credits_used / YOUTUBE_DAILY_QUOTA * 100) if YOUTUBE_DAILY_QUOTA > 0 else 0
-        )
-
         logger.info(
             f"Worker shutdown complete | "
             f"Uptime: {metrics.uptime():.0f}s | "
@@ -1163,10 +1179,10 @@ async def main():
             f"Timeouts: {metrics.timeout_errors}"
         )
         logger.info(
-            f"📊 YouTube API Quota | "
-            f"Used: {credits_used:,} units | "
-            f"Remaining: {credits_remaining:,} / {YOUTUBE_DAILY_QUOTA:,} units | "
-            f"Consumed: {quota_pct:.2f}%"
+            f"YouTube API Quota | "
+            f"Used: {metrics.youtube_credits_used:,} units | "
+            f"Remaining: {metrics.quota_remaining():,} / {YOUTUBE_DAILY_QUOTA:,} units | "
+            f"Consumed: {metrics.quota_percentage():.2f}%"
         )
 
 

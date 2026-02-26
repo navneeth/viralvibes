@@ -33,6 +33,7 @@ import asyncio
 import csv
 import logging
 import os
+import random
 import sys
 import time
 from dataclasses import dataclass, field
@@ -185,8 +186,9 @@ async def resolve_csv(
         logger.debug(f"CSV columns → id:{id_col!r}, url:{url_col!r}, name:{name_col!r}")
 
         rows = [r for r in reader if any(r.values())]
+        random.shuffle(rows)
 
-    logger.info(f"  {len(rows)} non-empty rows to process")
+    logger.info(f"  {len(rows)} non-empty rows to process (order randomised)")
     remaining_budget = quota_budget
 
     for rank, row in enumerate(rows, start=1):

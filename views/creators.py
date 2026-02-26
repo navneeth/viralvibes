@@ -245,7 +245,7 @@ def _render_hero(
                     cls="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    f"{format_number(total_countries)} Countries",
+                    f"{format_number(total_countries)} Nations",
                     cls="text-3xl font-bold text-blue-600",
                 ),
                 # Top country flags (visual diversity indicator)
@@ -277,7 +277,7 @@ def _render_hero(
                     cls="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    f"{format_number(total_languages)} Languages",
+                    f"{format_number(total_languages)} ",
                     cls="text-3xl font-bold text-purple-600",
                 ),
                 # Top language flags (linguistic diversity)
