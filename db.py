@@ -2149,6 +2149,17 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             country_counts.items(), key=lambda x: x[1], reverse=True
         )[:3]
 
+        # Top 5 languages by creator count
+        language_counts = {}
+        for c in stats_source:
+            lang = safe_get_value(c, "default_language", None)
+            if lang:
+                language_counts[lang] = language_counts.get(lang, 0) + 1
+
+        top_languages = sorted(
+            language_counts.items(), key=lambda x: x[1], reverse=True
+        )[:5]
+
         return {
             # Original metrics (keep for backward compatibility)
             "total_creators": int(total_creators),
@@ -2166,6 +2177,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "verified_percentage": round(verified_percentage, 1),
             "active_percentage": round(active_percentage, 1),
             "top_countries": top_countries,
+            "top_languages": top_languages,
         }
 
     except Exception as e:

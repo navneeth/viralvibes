@@ -245,37 +245,69 @@ def _render_hero(
                 ),
                 cls="text-center",
             ),
-            # Premium creators (A+/A grade)
+            # Global Reach - Countries with flag showcase
             Div(
                 P(
-                    "Premium Creators",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                    "Global Reach",
+                    cls="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    format_number(stats.get("premium_creators", 0)),
-                    cls="text-4xl font-bold text-purple-600 mt-2",
+                    f"{format_number(total_countries)} Countries",
+                    cls="text-3xl font-bold text-blue-600",
+                ),
+                # Top country flags (visual diversity indicator)
+                Div(
+                    *(
+                        [
+                            Span(
+                                get_country_flag(country_code) or "🌍",
+                                title=f"{country_code.upper()}: {count} creators",
+                                cls="text-2xl",
+                            )
+                            for country_code, count in top_countries[:4]
+                        ]
+                        if top_countries
+                        else [Span("🌍", cls="text-2xl")]
+                    ),
+                    cls="flex gap-1 justify-center mt-2",
                 ),
                 P(
-                    "A+ / A grade",
-                    cls="text-xs text-gray-600 mt-1",
+                    "worldwide creators",
+                    cls="text-xs text-blue-500 mt-1",
                 ),
-                cls="text-center",
+                cls="text-center bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-200",
             ),
-            # Growing creators (trending)
+            # Linguistic Diversity - Languages with flag showcase
             Div(
                 P(
-                    "Growing Creators",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                    "Languages",
+                    cls="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    format_number(stats.get("growing_creators", 0)),
-                    cls="text-4xl font-bold text-green-600 mt-2",
+                    f"{format_number(total_languages)} Languages",
+                    cls="text-3xl font-bold text-purple-600",
+                ),
+                # Top language flags (linguistic diversity)
+                Div(
+                    *(
+                        [
+                            Span(
+                                get_language_emoji(lang_code) or "🗣️",
+                                title=f"{get_language_name(lang_code)}: {count} creators",
+                                cls="text-2xl",
+                            )
+                            for lang_code, count in stats.get("top_languages", [])[:5]
+                        ]
+                        if stats.get("top_languages")
+                        else [Span("🗣️", cls="text-2xl")]
+                    ),
+                    cls="flex gap-1 justify-center mt-2 flex-wrap",
                 ),
                 P(
-                    "Positive momentum",
-                    cls="text-xs text-gray-600 mt-1",
+                    "content languages",
+                    cls="text-xs text-purple-500 mt-1",
                 ),
-                cls="text-center",
+                cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200",
             ),
             # Average engagement (quality indicator)
             Div(
