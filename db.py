@@ -2082,80 +2082,61 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         )
 
         # ═══════════════════════════════════════════════════════════════
-        # NEW AGENCY-FOCUSED METRICS FOR REDESIGNED HERO
+        # NEW AGENCY-FOCUSED METRICS - SINGLE PASS COLLECTION
         # ═══════════════════════════════════════════════════════════════
-
-        # Count unique countries for geographic diversity
-        countries = set(
-            country
-            for c in stats_source
-            if (country := safe_get_value(c, "country_code", None))
-        )
-        total_countries = len(countries)
-
-        # Count unique languages for content diversity
-        languages = set(
-            lang
-            for c in stats_source
-            if (lang := safe_get_value(c, "default_language", None))
-        )
-        total_languages = len(languages)
-
-        # Count unique categories for content diversity
-        # topic_categories can be a list or comma-separated string
+        # Consolidate all metric collection into one pass for performance
+        countries = set()
+        languages = set()
         categories = set()
+        grade_counts = {}
+        country_counts = {}
+        language_counts = {}
+        verified_count = 0
+        active_count = 0
+
         for c in stats_source:
-            cats = safe_get_value(c, "topic_categories", None)
-            if cats:
+            # Geographic diversity
+            if country := safe_get_value(c, "country_code", None):
+                countries.add(country)
+                country_counts[country] = country_counts.get(country, 0) + 1
+
+            # Linguistic diversity
+            if lang := safe_get_value(c, "default_language", None):
+                languages.add(lang)
+                language_counts[lang] = language_counts.get(lang, 0) + 1
+
+            # Content categories (can be list or comma-separated string)
+            if cats := safe_get_value(c, "topic_categories", None):
                 if isinstance(cats, list):
                     categories.update(cats)
                 elif isinstance(cats, str):
-                    # Handle comma-separated strings
                     categories.update(
                         cat.strip() for cat in cats.split(",") if cat.strip()
                     )
-        total_categories = len(categories)
 
-        # Grade distribution for visual quality breakdown
-        grade_counts = {}
-        for c in stats_source:
+            # Grade distribution
             grade = safe_get_value(c, "quality_grade", "C")
             grade_counts[grade] = grade_counts.get(grade, 0) + 1
 
-        # Verified percentage (official badge)
-        verified_count = sum(
-            1 for c in stats_source if safe_get_value(c, "official", False)
-        )
+            # Verification and activity
+            if safe_get_value(c, "official", False):
+                verified_count += 1
+            if safe_get_value(c, "monthly_uploads", 0) > 5:
+                active_count += 1
+
+        # Calculate percentages and top lists
+        total_countries = len(countries)
+        total_languages = len(languages)
+        total_categories = len(categories)
         verified_percentage = (
             (verified_count / len(stats_source)) * 100 if stats_source else 0
-        )
-
-        # Active percentage (monthly_uploads > 5 = actively posting)
-        active_count = sum(
-            1 for c in stats_source if safe_get_value(c, "monthly_uploads", 0) > 5
         )
         active_percentage = (
             (active_count / len(stats_source)) * 100 if stats_source else 0
         )
-
-        # Top 3 countries by creator count
-        country_counts = {}
-        for c in stats_source:
-            country = safe_get_value(c, "country_code", None)
-            if country:
-                country_counts[country] = country_counts.get(country, 0) + 1
-
         top_countries = sorted(
             country_counts.items(), key=lambda x: x[1], reverse=True
         )[:3]
-
-        # Top 5 languages by creator count
-        language_counts = {}
-        for c in stats_source:
-            lang = safe_get_value(c, "default_language", None)
-            if lang:
-                language_counts[lang] = language_counts.get(lang, 0) + 1
-
         top_languages = sorted(
             language_counts.items(), key=lambda x: x[1], reverse=True
         )[:5]
