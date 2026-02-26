@@ -2028,7 +2028,9 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
                         supabase_client.table(CREATOR_TABLE)
                         .select(
                             "engagement_score,subscribers_change_30d,quality_grade,"
-                            "current_subscribers,current_video_count"
+                            "current_subscribers,current_video_count,"
+                            "country_code,default_language,topic_categories,"
+                            "official,monthly_uploads"
                         )
                         .eq("sync_status", "synced")
                         .execute()
