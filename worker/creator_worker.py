@@ -80,6 +80,10 @@ EMPTY_QUEUE_BACKOFF_MAX = int(
     os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_MAX", "300")
 )  # Cap at 5 min
 
+# YouTube API quota metering (standard quota is 10,000 units/day)
+YOUTUBE_DAILY_QUOTA = int(os.getenv("YOUTUBE_DAILY_QUOTA", "10000"))
+YOUTUBE_CREDITS_PER_CHANNEL_FETCH = 1  # channels.list costs 1 unit
+
 
 class JobStatus(Enum):
     """Job status enumeration."""
@@ -101,6 +105,7 @@ class WorkerMetrics:
     api_errors: int = 0
     db_errors: int = 0
     timeout_errors: int = 0
+    youtube_credits_used: int = 0  # YouTube API quota units consumed
     start_time: float = 0.0
 
     def uptime(self) -> float:
@@ -514,6 +519,9 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
             f"  YouTube API response for {channel_id}: "
             f"subs={subs:,}, views={views:,}, videos={videos:,}"
         )
+
+        # Track YouTube API quota usage (channels.list = 1 credit)
+        metrics.youtube_credits_used += YOUTUBE_CREDITS_PER_CHANNEL_FETCH
 
         return channel_data
 
@@ -1031,6 +1039,10 @@ async def process_creator_syncs():
             metrics.syncs_failed,
             metrics.syncs_retried,
         )
+        
+        # Calculate quota usage
+        quota_used_pct = (metrics.youtube_credits_used / YOUTUBE_DAILY_QUOTA * 100) if YOUTUBE_DAILY_QUOTA > 0 else 0
+        
         progress_msg = (
             f"── Worker status | "
             f"{int(elapsed / 60)}m elapsed, {int(remaining / 60)}m remaining | "
@@ -1040,7 +1052,8 @@ async def process_creator_syncs():
             f"API errors: {metrics.api_errors}, "
             f"DB errors: {metrics.db_errors}, "
             f"Timeouts: {metrics.timeout_errors} | "
-            f"Success rate: {metrics.success_rate():.1f}%"
+            f"Success rate: {metrics.success_rate():.1f}% | "
+            f"YT Quota: {metrics.youtube_credits_used:,}/{YOUTUBE_DAILY_QUOTA:,} ({quota_used_pct:.1f}%)"
         )
         if current_metrics != last_reported_metrics:
             logger.info(progress_msg)
@@ -1128,6 +1141,11 @@ async def main():
         logger.exception(f"Fatal error: {e}")
         raise SystemExit(1)
     finally:
+        # Calculate quota metrics
+        credits_used = metrics.youtube_credits_used
+        credits_remaining = YOUTUBE_DAILY_QUOTA - credits_used
+        quota_pct = (credits_used / YOUTUBE_DAILY_QUOTA * 100) if YOUTUBE_DAILY_QUOTA > 0 else 0
+        
         logger.info(
             f"Worker shutdown complete | "
             f"Uptime: {metrics.uptime():.0f}s | "
@@ -1137,6 +1155,12 @@ async def main():
             f"API errors: {metrics.api_errors} | "
             f"DB errors: {metrics.db_errors} | "
             f"Timeouts: {metrics.timeout_errors}"
+        )
+        logger.info(
+            f"📊 YouTube API Quota | "
+            f"Used: {credits_used:,} units | "
+            f"Remaining: {credits_remaining:,} / {YOUTUBE_DAILY_QUOTA:,} units | "
+            f"Consumed: {quota_pct:.2f}%"
         )
 
 
