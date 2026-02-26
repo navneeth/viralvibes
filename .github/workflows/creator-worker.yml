@@ -23,6 +23,7 @@ jobs:
       CREATOR_WORKER_POLL_INTERVAL: "30"  # 30 seconds between polls
       CREATOR_WORKER_BATCH_SIZE: "1"  # Process 1 creator at a time (frugal)
       CREATOR_WORKER_MAX_RUNTIME: "3600"  # 1 hour in seconds
+      YOUTUBE_DAILY_QUOTA: "10000"  # Standard YouTube API daily quota (tracked and reported)
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
