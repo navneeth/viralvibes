@@ -2081,7 +2081,68 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             if (vids := safe_get_value(c, "current_video_count", 0))
         )
 
+        # ═══════════════════════════════════════════════════════════════
+        # NEW AGENCY-FOCUSED METRICS - SINGLE PASS COLLECTION
+        # ═══════════════════════════════════════════════════════════════
+        # Consolidate all metric collection into one pass for performance
+        countries = set()
+        languages = set()
+        categories = set()
+        grade_counts = {}
+        country_counts = {}
+        language_counts = {}
+        verified_count = 0
+        active_count = 0
+
+        for c in stats_source:
+            # Geographic diversity
+            if country := safe_get_value(c, "country_code", None):
+                countries.add(country)
+                country_counts[country] = country_counts.get(country, 0) + 1
+
+            # Linguistic diversity
+            if lang := safe_get_value(c, "default_language", None):
+                languages.add(lang)
+                language_counts[lang] = language_counts.get(lang, 0) + 1
+
+            # Content categories (can be list or comma-separated string)
+            if cats := safe_get_value(c, "topic_categories", None):
+                if isinstance(cats, list):
+                    categories.update(cats)
+                elif isinstance(cats, str):
+                    categories.update(
+                        cat.strip() for cat in cats.split(",") if cat.strip()
+                    )
+
+            # Grade distribution
+            grade = safe_get_value(c, "quality_grade", "C")
+            grade_counts[grade] = grade_counts.get(grade, 0) + 1
+
+            # Verification and activity
+            if safe_get_value(c, "official", False):
+                verified_count += 1
+            if safe_get_value(c, "monthly_uploads", 0) > 5:
+                active_count += 1
+
+        # Calculate percentages and top lists
+        total_countries = len(countries)
+        total_languages = len(languages)
+        total_categories = len(categories)
+        verified_percentage = (
+            (verified_count / len(stats_source)) * 100 if stats_source else 0
+        )
+        active_percentage = (
+            (active_count / len(stats_source)) * 100 if stats_source else 0
+        )
+        top_countries = sorted(
+            country_counts.items(), key=lambda x: x[1], reverse=True
+        )[:3]
+        top_languages = sorted(
+            language_counts.items(), key=lambda x: x[1], reverse=True
+        )[:5]
+
         return {
+            # Original metrics (keep for backward compatibility)
             "total_creators": int(total_creators),
             "avg_engagement": round(avg_engagement, 2),
             "has_engagement_data": has_engagement_data,
@@ -2089,6 +2150,15 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "premium_creators": int(premium_creators),
             "total_subscribers": int(total_subscribers),
             "total_videos": int(total_videos),
+            # New agency-focused metrics
+            "total_countries": int(total_countries),
+            "total_languages": int(total_languages),
+            "total_categories": int(total_categories),
+            "grade_counts": grade_counts,
+            "verified_percentage": round(verified_percentage, 1),
+            "active_percentage": round(active_percentage, 1),
+            "top_countries": top_countries,
+            "top_languages": top_languages,
         }
 
     except Exception as e:
