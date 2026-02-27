@@ -680,11 +680,13 @@ def _format_categories(topic_categories: list) -> list[str]:
     """
     if not topic_categories:
         return []
+    seen = set()
     names = []
     for url in topic_categories:
         slug = str(url).rstrip("/").rsplit("/", 1)[-1]
         name = slug.replace("_", " ")
-        if name and name not in names:
+        if name and name not in seen:
+            seen.add(name)
             names.append(name)
     return sorted(names)
 
@@ -701,7 +703,7 @@ def _needs_category_fetch(existing_primary_category: Optional[str]) -> bool:
     Cost when fetching: 2 units (playlistItems.list + videos.list).
     Cost when skipping: 0 extra units.
     """
-    return not existing_primary_category
+    return existing_primary_category is None
 
 
 async def _fetch_channel_category_distribution(channel_id: str) -> dict:
@@ -743,9 +745,6 @@ async def _fetch_channel_category_distribution(channel_id: str) -> dict:
                 timeout=10,  # Short timeout — this is supplementary data
             )
 
-        # Track quota usage regardless of whether data came back
-        metrics.youtube_credits_used += YOUTUBE_CREDITS_PER_CATEGORY_FETCH
-
         return result
 
     except asyncio.TimeoutError:
@@ -755,6 +754,9 @@ async def _fetch_channel_category_distribution(channel_id: str) -> dict:
     except Exception as e:
         logger.debug(f"  Category distribution failed for {channel_id}: {e} — skipping")
         return empty
+    finally:
+        # Track quota usage even on timeout/error — the API call was still made
+        metrics.youtube_credits_used += YOUTUBE_CREDITS_PER_CATEGORY_FETCH
 
 
 def _compute_quality_grade(engagement: float, subscribers: int) -> str:
