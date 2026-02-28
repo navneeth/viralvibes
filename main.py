@@ -49,12 +49,12 @@ from constants import (
     SIGNUPS_TABLE,
 )
 from controllers.auth_routes import (
+    build_auth_redirect_page,
     build_login_page,
     build_logout_response,
-    require_auth,
     build_onetap_login_page,
+    require_auth,
 )
-from controllers.auth_routes import build_onetap_login_page
 
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
@@ -246,83 +246,66 @@ def index(req, sess):
 @rt("/login")
 def login(req, sess):
     """
-    Login page - public route
-    PRIMARY LOGIN ENDPOINT - STABLE LEGACY UI
+    PRIMARY LOGIN ENDPOINT - UNIFIED AUTH UI
 
-    Uses build_login_page() (basic Google sign-in button).
-    Do NOT change this yet - we're testing /login/onetap in parallel.
+    This now uses build_auth_redirect_page() which handles:
+    ✅ Navbar display
+    ✅ Switches between old/new UI via USE_NEW_LOGIN_UI env var
+    ✅ Single source of truth for login page
+
+    Default: Modern One-Tap Material Design UI
+    Fallback: Simple button (set USE_NEW_LOGIN_UI=false)
     """
     # If user manually visited /login (no intended_url), clear any stored URL
     # so they get redirected to homepage after login
     if not sess.get("intended_url"):
         sess.pop("intended_url", None)
 
-    return Titled(
-        "ViralVibes - Login",
-        Container(
-            NavComponent(oauth, req, sess),
-            build_login_page(oauth, req),
-        ),
-    )
+    return build_auth_redirect_page(oauth, req, sess, return_url="/")
 
 
 @rt("/login/onetap")
 def login_onetap_test(req, sess):
     """
-    TEST ROUTE - One-Tap UI preview (doesn't affect production /login)
+    DEPRECATED TEST ROUTE - Use /login/new instead
 
-    PARALLEL TEST ROUTE - NEW ONE-TAP UI
+    Legacy parallel test route. Now handled by the unified helper.
+    Kept for backward compatibility during migration.
 
-    Uses build_onetap_login_page() (Material Design 3 card UI).
-    Not yet replacing /login. Test at: http://localhost:5001/login/onetap
-    Will be promoted to /login in Step 2.
+    Redirects to /login with new UI enabled.
     """
-
-    return_url = sess.get("intended_url") if sess else "/"
-
-    # Build the One-Tap login page
-    onetap_card = build_onetap_login_page(oauth, req, sess, return_url)
-
-    return Titled(
-        "Sign in to ViralVibes (New UI)",
-        onetap_card,
-    )
-
-
-@rt("/login/new")
-def login_new_ui(req, sess):
-    """
-    STEP 2: NEW PRIMARY LOGIN UI (PARALLEL TESTING)
-
-    Production-ready One-Tap login page with full navbar.
-    This is the version that will replace /login after testing.
-
-    Test this route to verify:
-    ✅ One-Tap card displays correctly
-    ✅ Google OAuth flow works
-    ✅ User redirects properly after login
-    ✅ Session data saves correctly
-
-    Access: http://localhost:5001/login/new
-    """
-    from controllers.auth_routes import build_onetap_login_page
-
-    # Clear manual visits (same behavior as old /login)
+    # Clear manual visits
     if not sess.get("intended_url"):
         sess.pop("intended_url", None)
 
     return_url = sess.get("intended_url") if sess else "/"
 
-    # Build the One-Tap login page
-    onetap_card = build_onetap_login_page(oauth, req, sess, return_url)
+    # Use unified builder with force new UI
+    return build_auth_redirect_page(oauth, req, sess, return_url, use_new_ui=True)
 
-    return Titled(
-        "Sign in to ViralVibes",
-        Container(
-            NavComponent(oauth, req, sess),  # ← Added for production readiness
-            onetap_card,
-        ),
-    )
+
+@rt("/login/new")
+def login_new_ui(req, sess):
+    """
+    STEP 3: A/B TEST ROUTE - FORCE NEW ONE-TAP UI
+
+    This explicitly forces the new Material Design 3 UI regardless
+    of the USE_NEW_LOGIN_UI env var. Useful for A/B testing or
+    demonstrating the new UI.
+
+    After Step 2 testing, this route can be deprecated as /login
+    will use the new UI by default.
+
+    Access: http://localhost:5001/login/new
+    """
+    # Clear manual visits (same behavior as /login)
+    if not sess.get("intended_url"):
+        sess.pop("intended_url", None)
+
+    return_url = sess.get("intended_url") if sess else "/"
+
+    # Use unified builder but FORCE new UI
+    return build_auth_redirect_page(oauth, req, sess, return_url, use_new_ui=True)
 
 
 @rt("/logout")
@@ -457,13 +440,11 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
     if not (sess and sess.get("auth")):
         # Store the VALIDATED playlist URL they want to analyze
         sess["intended_playlist_url"] = playlist.playlist_url
+        # Store intended URL for post-login redirect
+        sess["intended_url"] = "/me/dashboards"
 
-        # Build the One-Tap login page
-        login_ui = build_onetap_login_page(
-            oauth, req, sess, return_url="/me/dashboards"
-        )
-
-        return login_ui
+        # Redirect to clean login page (avoids navbar duplication)
+        return RedirectResponse("/login", status_code=303)
 
     # Authenticated user - proceed to preview
     return Script(

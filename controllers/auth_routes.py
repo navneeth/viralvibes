@@ -118,3 +118,72 @@ def require_auth(auth, error_message="Please log in.", skip_in_tests=True):
     if not auth:
         return Alert(P(error_message), cls=AlertT.warning)
     return None
+
+
+# =============================================================================
+# STEP 3: Unified Auth Redirect Page Builder
+# =============================================================================
+
+
+def build_auth_redirect_page(
+    oauth,
+    req,
+    sess=None,
+    return_url: str = "/",
+    use_new_ui: bool = None,
+):
+    """
+    UNIFIED AUTH PAGE BUILDER - Single source of truth for login UI
+
+    Use this everywhere you need to show a login page. Automatically
+    includes navbar and handles UI switching.
+
+    Args:
+        oauth: OAuth instance
+        req: Request object
+        sess: Session object (optional, for remembered user data)
+        return_url: Where to redirect after login (default: "/")
+        use_new_ui: Force UI choice (None = use env var, True/False = override)
+
+    Returns:
+        Full page with NavComponent + auth card (new UI) or button (old UI)
+
+    Environment:
+        USE_NEW_LOGIN_UI: "true" (default) → Use One-Tap card
+                         "false" → Use simple button (legacy)
+
+    Usage:
+        # In any route that needs auth redirect:
+        if not (sess and sess.get("auth")):
+            return build_auth_redirect_page(oauth, req, sess, return_url="/my-path")
+    """
+    from components import NavComponent
+
+    # Determine which UI to use
+    if use_new_ui is None:
+        use_new_ui = os.getenv("USE_NEW_LOGIN_UI", "true").lower() == "true"
+
+    # Build the auth card/button
+    if use_new_ui:
+        # NEW: One-Tap Material Design card (full-page with centering)
+        auth_content = build_onetap_login_page(oauth, req, sess, return_url)
+
+        # Return full page: navbar + centered card
+        # Don't use Container wrapper for new UI, let auth-container handle layout
+        return Titled(
+            "Sign in to ViralVibes",
+            Div(
+                NavComponent(oauth, req, sess),
+                auth_content,  # Already has full-page layout in .auth-container
+                cls="auth-page-wrapper",
+            ),
+        )
+    else:
+        # OLD: Simple button (legacy) - wrapped in container with navbar
+        return Titled(
+            "Sign in to ViralVibes",
+            Container(
+                NavComponent(oauth, req, sess),
+                build_login_page(oauth, req),
+            ),
+        )
