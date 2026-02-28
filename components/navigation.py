@@ -74,23 +74,11 @@ def NavComponent(oauth, req=None, sess=None):
         )
 
     else:
-        # ❌ LOGGED OUT: Show "Try It Free" + "Log in"
-
-        # ✅ Show BOTH buttons (progressive disclosure)
-        auth_section = Div(
-            # Primary CTA: Try the product
-            Button(
-                "Try It Free",
-                cls=f"{ButtonT.secondary} text-sm",
-                onclick="document.querySelector('#analyze-section')?.scrollIntoView({behavior:'smooth'})",
-            ),
-            # Secondary: Login
-            A(
-                "Log in",
-                href=login_href,
-                cls=f"{ButtonT.primary} text-sm",
-            ),
-            cls="flex items-center gap-2",
+        # ❌ LOGGED OUT: Single red CTA — login and try-it are the same action
+        auth_section = A(
+            "Get Started Free",
+            href=login_href,
+            cls="btn-cta-primary text-sm",
         )
 
     # ============================================================================
