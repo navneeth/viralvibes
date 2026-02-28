@@ -1027,6 +1027,20 @@
   padding: 1.5rem;
 }
 
+.auth-page-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
+}
+
+.auth-page-wrapper .auth-container {
+  min-height: auto;
+  flex: 1;
+  padding: 3rem 1.5rem;
+  margin-top: 0;
+}
+
 .auth-card {
   background: #ffffff;
   border-radius: 28px;

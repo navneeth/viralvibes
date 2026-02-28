@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -48,10 +49,12 @@ from constants import (
     SIGNUPS_TABLE,
 )
 from controllers.auth_routes import (
+    build_auth_redirect_page,
     build_login_page,
     build_logout_response,
-    require_auth,
     build_onetap_login_page,
+    normalize_intended_url,
+    require_auth,
 )
 
 from controllers.job_progress import job_progress_controller
@@ -243,35 +246,60 @@ def index(req, sess):
 
 @rt("/login")
 def login(req, sess):
-    """Login page - public route"""
-    # If user manually visited /login (no intended_url), clear any stored URL
-    # so they get redirected to homepage after login
-    if not sess.get("intended_url"):
-        sess.pop("intended_url", None)
+    """
+    PRIMARY LOGIN ENDPOINT - UNIFIED AUTH UI
 
-    return Titled(
-        "ViralVibes - Login",
-        Container(
-            NavComponent(oauth, req, sess),
-            build_login_page(oauth, req),
-        ),
-    )
+    This now uses build_auth_redirect_page() which handles:
+    ✅ Navbar display
+    ✅ Switches between old/new UI via USE_NEW_LOGIN_UI env var
+    ✅ Single source of truth for login page
+
+    Default: Modern One-Tap Material Design UI
+    Fallback: Simple button (set USE_NEW_LOGIN_UI=false)
+    """
+    # Normalize session: if user manually visited /login (no intended_url),
+    # clear any stale URLs so they get redirected to homepage after login
+    normalize_intended_url(sess)
+
+    return build_auth_redirect_page(oauth, req, sess, return_url="/")
 
 
 @rt("/login/onetap")
 def login_onetap_test(req, sess):
-    """TEST ROUTE - One-Tap UI preview (doesn't affect production /login)"""
-    from controllers.auth_routes import build_onetap_login_page
+    """
+    DEPRECATED TEST ROUTE - Use /login/new instead
 
-    return_url = sess.get("intended_url") if sess else "/"
+    Legacy parallel test route. Now handled by the unified helper.
+    Kept for backward compatibility during migration.
 
-    # Build the One-Tap login page
-    onetap_card = build_onetap_login_page(oauth, req, sess, return_url)
+    Redirects to /login with new UI enabled.
+    """
+    # Normalize session: clear stale intended_url if this was a manual visit
+    normalize_intended_url(sess)
 
-    return Titled(
-        "Sign in to ViralVibes (New UI)",
-        onetap_card,
-    )
+    # Use unified builder with force new UI (respects sess['intended_url'])
+    return build_auth_redirect_page(oauth, req, sess, return_url="/", use_new_ui=True)
+
+
+@rt("/login/new")
+def login_new_ui(req, sess):
+    """
+    STEP 3: A/B TEST ROUTE - FORCE NEW ONE-TAP UI
+
+    This explicitly forces the new Material Design 3 UI regardless
+    of the USE_NEW_LOGIN_UI env var. Useful for A/B testing or
+    demonstrating the new UI.
+
+    After Step 2 testing, this route can be deprecated as /login
+    will use the new UI by default.
+
+    Access: http://localhost:5001/login/new
+    """
+    # Normalize session: clear stale intended_url if this was a manual visit
+    normalize_intended_url(sess)
+
+    # Use unified builder but FORCE new UI (respects sess['intended_url'])
+    return build_auth_redirect_page(oauth, req, sess, return_url="/", use_new_ui=True)
 
 
 @rt("/logout")
@@ -406,13 +434,11 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
     if not (sess and sess.get("auth")):
         # Store the VALIDATED playlist URL they want to analyze
         sess["intended_playlist_url"] = playlist.playlist_url
+        # Store intended URL for post-login redirect
+        sess["intended_url"] = "/me/dashboards"
 
-        # Build the One-Tap login page
-        login_ui = build_onetap_login_page(
-            oauth, req, sess, return_url="/me/dashboards"
-        )
-
-        return login_ui
+        # Redirect to clean login page (avoids navbar duplication)
+        return RedirectResponse("/login", status_code=303)
 
     # Authenticated user - proceed to preview
     return Script(
