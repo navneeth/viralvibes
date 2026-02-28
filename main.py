@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -53,6 +54,7 @@ from controllers.auth_routes import (
     require_auth,
     build_onetap_login_page,
 )
+from controllers.auth_routes import build_onetap_login_page
 
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
@@ -243,7 +245,13 @@ def index(req, sess):
 
 @rt("/login")
 def login(req, sess):
-    """Login page - public route"""
+    """
+    Login page - public route
+    PRIMARY LOGIN ENDPOINT - STABLE LEGACY UI
+
+    Uses build_login_page() (basic Google sign-in button).
+    Do NOT change this yet - we're testing /login/onetap in parallel.
+    """
     # If user manually visited /login (no intended_url), clear any stored URL
     # so they get redirected to homepage after login
     if not sess.get("intended_url"):
@@ -260,8 +268,15 @@ def login(req, sess):
 
 @rt("/login/onetap")
 def login_onetap_test(req, sess):
-    """TEST ROUTE - One-Tap UI preview (doesn't affect production /login)"""
-    from controllers.auth_routes import build_onetap_login_page
+    """
+    TEST ROUTE - One-Tap UI preview (doesn't affect production /login)
+
+    PARALLEL TEST ROUTE - NEW ONE-TAP UI
+
+    Uses build_onetap_login_page() (Material Design 3 card UI).
+    Not yet replacing /login. Test at: http://localhost:5001/login/onetap
+    Will be promoted to /login in Step 2.
+    """
 
     return_url = sess.get("intended_url") if sess else "/"
 
@@ -271,6 +286,42 @@ def login_onetap_test(req, sess):
     return Titled(
         "Sign in to ViralVibes (New UI)",
         onetap_card,
+    )
+
+
+@rt("/login/new")
+def login_new_ui(req, sess):
+    """
+    STEP 2: NEW PRIMARY LOGIN UI (PARALLEL TESTING)
+
+    Production-ready One-Tap login page with full navbar.
+    This is the version that will replace /login after testing.
+
+    Test this route to verify:
+    ✅ One-Tap card displays correctly
+    ✅ Google OAuth flow works
+    ✅ User redirects properly after login
+    ✅ Session data saves correctly
+
+    Access: http://localhost:5001/login/new
+    """
+    from controllers.auth_routes import build_onetap_login_page
+
+    # Clear manual visits (same behavior as old /login)
+    if not sess.get("intended_url"):
+        sess.pop("intended_url", None)
+
+    return_url = sess.get("intended_url") if sess else "/"
+
+    # Build the One-Tap login page
+    onetap_card = build_onetap_login_page(oauth, req, sess, return_url)
+
+    return Titled(
+        "Sign in to ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),  # ← Added for production readiness
+            onetap_card,
+        ),
     )
 
 
