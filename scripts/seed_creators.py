@@ -51,6 +51,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -546,12 +547,18 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
         if not raw_id:
             continue
 
-        # Normalise: strip any accidental URL prefix that editors may have added
-        if "youtube.com" in raw_id:
-            channel_id = validator.extract_from_url(raw_id)
-        elif validator.is_valid(raw_id):
+        # Normalise: strip any accidental URL prefix that editors may have added.
+        # Treat the value as a YouTube URL only if it actually parses to a
+        # youtube.com (or subdomain) hostname; otherwise, fall back to raw ID.
+        channel_id = None
+        if raw_id.startswith(("http://", "https://")):
+            parsed = urlparse(raw_id)
+            host = parsed.hostname or ""
+            if host == "youtube.com" or host.endswith(".youtube.com"):
+                channel_id = validator.extract_from_url(raw_id)
+        if channel_id is None and validator.is_valid(raw_id):
             channel_id = raw_id
-        else:
+        if channel_id is None:
             # Not a UC ID — could be a handle or legacy username.
             # Skip to avoid API cost; user can add to CSV with @handle prefix.
             skipped_invalid += 1
