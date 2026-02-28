@@ -99,6 +99,7 @@ else:
     YOUTUBE_DAILY_QUOTA = _raw_youtube_daily_quota
 
 YOUTUBE_CREDITS_PER_CHANNEL_FETCH = 1  # channels.list costs 1 unit
+YOUTUBE_CREDITS_PER_CATEGORY_FETCH = 2  # playlistItems.list (1) + videos.list (1)
 
 
 class JobStatus(Enum):
@@ -665,6 +666,99 @@ async def _calculate_engagement_score(channel_id: str) -> float:
         return 0.0
 
 
+def _format_categories(topic_categories: list) -> list[str]:
+    """
+    Convert raw YouTube topicCategories Wikipedia URLs to readable names.
+
+    YouTube returns these as Wikipedia URLs, e.g.:
+        https://en.wikipedia.org/wiki/Music            → "Music"
+        https://en.wikipedia.org/wiki/Video_game_culture → "Video game culture"
+
+    These are distinct from the video-level categoryId used by
+    _fetch_channel_category_distribution — topic_categories come from
+    channels.list topicDetails and are kept for reference only.
+    """
+    if not topic_categories:
+        return []
+    seen = set()
+    names = []
+    for url in topic_categories:
+        slug = str(url).rstrip("/").rsplit("/", 1)[-1]
+        name = slug.replace("_", " ")
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return sorted(names)
+
+
+def _needs_category_fetch(existing_primary_category: Optional[str]) -> bool:
+    """
+    Decide whether to spend 2 quota units fetching the category distribution.
+
+    Rule: fetch only when primary_category is NULL (never been set).
+    Once populated it is stable — a channel's content type rarely changes.
+    To force a re-fetch for a specific creator, set primary_category = NULL
+    directly in the DB and it will be picked up on the next sync.
+
+    Cost when fetching: 2 units (playlistItems.list + videos.list).
+    Cost when skipping: 0 extra units.
+    """
+    return existing_primary_category is None
+
+
+async def _fetch_channel_category_distribution(channel_id: str) -> dict:
+    """
+    Fetch and return a channel's video category distribution by sampling uploads.
+
+    YouTube doesn't expose a categoryId on channels directly — this derives it
+    from snippet.categoryId on recent videos (same field used in playlist tables).
+
+    Returns gracefully on any error; a missing category never fails the sync.
+
+    API cost: 2 quota units (playlistItems.list + videos.list).
+
+    Args:
+        channel_id: YouTube channel ID (UCxxxxxx)
+
+    Returns:
+        {
+            "primary_category":      str | None,   e.g. "Gaming"
+            "primary_category_id":   str | None,   e.g. "20"
+            "category_distribution": dict,         e.g. {"Gaming": 38, "Education": 4}
+        }
+    """
+    empty: dict = {
+        "primary_category": None,
+        "primary_category_id": None,
+        "category_distribution": {},
+    }
+
+    try:
+        if not youtube_resolver:
+            return empty
+
+        async with youtube_api_lock:
+            result = await asyncio.wait_for(
+                youtube_resolver.get_channel_category_distribution(
+                    channel_id, sample_size=50
+                ),
+                timeout=10,  # Short timeout — this is supplementary data
+            )
+
+        return result
+
+    except asyncio.TimeoutError:
+        metrics.timeout_errors += 1
+        logger.debug(f"  Category distribution timed out for {channel_id} — skipping")
+        return empty
+    except Exception as e:
+        logger.debug(f"  Category distribution failed for {channel_id}: {e} — skipping")
+        return empty
+    finally:
+        # Track quota usage even on timeout/error — the API call was still made
+        metrics.youtube_credits_used += YOUTUBE_CREDITS_PER_CATEGORY_FETCH
+
+
 def _compute_quality_grade(engagement: float, subscribers: int) -> str:
     """Compute quality grade (informational only)."""
     if subscribers >= 5000 and engagement >= 5.0:
@@ -721,7 +815,7 @@ async def handle_sync_job(
         # STAGE 1: Fetch creator metadata
         creator_response = (
             supabase_client.table(CREATOR_TABLE)
-            .select("channel_id,channel_name")
+            .select("channel_id,channel_name,primary_category")
             .eq("id", creator_id)
             .execute()
         )
@@ -751,8 +845,23 @@ async def handle_sync_job(
         except asyncio.TimeoutError:
             raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s")
 
-        # STAGE 3.5: Engagement score (optional)
-        engagement = await _calculate_engagement_score(channel_id)
+        # STAGE 3.5: Engagement score + category distribution (both optional)
+        # Category costs 2 extra quota units — only fetch when primary_category
+        # is NULL (never been set). To force a re-fetch, NULL the column in DB.
+        should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
+        if should_fetch_categories:
+            engagement, cat_data = await asyncio.gather(
+                _calculate_engagement_score(channel_id),
+                _fetch_channel_category_distribution(channel_id),
+            )
+        else:
+            engagement = await _calculate_engagement_score(channel_id)
+            cat_data = {
+                "primary_category": creator.get("primary_category"),
+                "primary_category_id": None,
+                "category_distribution": None,  # None = leave existing DB value as-is
+            }
+            logger.debug(f"{job_tag} Category already set — skipping fetch")
         quality = _compute_quality_grade(
             engagement, channel_data["current_subscribers"]
         )
@@ -760,11 +869,35 @@ async def handle_sync_job(
         subs = channel_data["current_subscribers"]
         views = channel_data["current_view_count"]
         videos = channel_data["current_video_count"]
+        topic_url_labels = _format_categories(channel_data.get("topic_categories", []))
+
+        primary_category = cat_data.get("primary_category")
+        primary_category_id = cat_data.get("primary_category_id")
+        category_distribution = cat_data.get("category_distribution", {})
 
         logger.info(
             f"{job_tag} Stats: subs={subs:,}, views={views:,}, videos={videos:,}, "
             f"engagement={engagement:.2f}%, quality={quality}"
         )
+        if primary_category:
+            dist_str = ", ".join(
+                f"{name}: {count}"
+                for name, count in sorted(
+                    category_distribution.items(), key=lambda x: x[1], reverse=True
+                )
+            )
+            logger.info(
+                f"{job_tag} Category: primary='{primary_category}' "
+                f"(id={primary_category_id}) | "
+                f"distribution ({len(category_distribution)} buckets): {dist_str}"
+            )
+        else:
+            logger.debug(f"{job_tag} No video category data available for {channel_id}")
+        if topic_url_labels:
+            logger.debug(
+                f"{job_tag} Topic URLs ({len(topic_url_labels)}): "
+                + ", ".join(topic_url_labels)
+            )
 
         # STAGE 3.5: Validate stats quality
         is_invalid = False
@@ -806,17 +939,29 @@ async def handle_sync_job(
             "featured_channels_count": channel_data.get("featured_channels_count", 0),
             "featured_channels_urls": channel_data.get("featured_channels_urls"),
             "topic_categories": channel_data.get("topic_categories", []),
-            "official": channel_data.get("official", False),
-            "channel_age_days": channel_data.get("channel_age_days"),
-            "monthly_uploads": channel_data.get("monthly_uploads"),
-            "hidden_subscriber_count": channel_data.get(
-                "hidden_subscriber_count", False
-            ),
-            "sync_status": sync_status,
-            "sync_error_message": sync_error,
-            "last_updated_at": datetime.now(timezone.utc).isoformat(),
-            "last_synced_at": datetime.now(timezone.utc).isoformat(),
+            "primary_category": primary_category,
         }
+
+        # Only write category fields when freshly fetched — avoids overwriting
+        # the histogram on every routine stats sync.
+        if should_fetch_categories and category_distribution is not None:
+            full_payload["primary_category_id"] = primary_category_id
+            full_payload["category_distribution"] = category_distribution or None
+
+        full_payload.update(
+            {
+                "official": channel_data.get("official", False),
+                "channel_age_days": channel_data.get("channel_age_days"),
+                "monthly_uploads": channel_data.get("monthly_uploads"),
+                "hidden_subscriber_count": channel_data.get(
+                    "hidden_subscriber_count", False
+                ),
+                "sync_status": sync_status,
+                "sync_error_message": sync_error,
+                "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         # Filter to available schema columns
         update_payload, missing_fields = schema_detector.filter_payload(full_payload)

@@ -37,6 +37,51 @@ from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# YouTube Data API v3 — video category ID → human-readable name
+# This is a static registry; YouTube has not changed these IDs since 2012.
+# Source: https://developers.google.com/youtube/v3/docs/videoCategories
+# ---------------------------------------------------------------------------
+YOUTUBE_VIDEO_CATEGORIES: dict[str, str] = {
+    "1": "Film & Animation",
+    "2": "Autos & Vehicles",
+    "10": "Music",
+    "15": "Pets & Animals",
+    "17": "Sports",
+    "18": "Short Movies",
+    "19": "Travel & Events",
+    "20": "Gaming",
+    "21": "Videoblogging",
+    "22": "People & Blogs",
+    "23": "Comedy",
+    "24": "Entertainment",
+    "25": "News & Politics",
+    "26": "Howto & Style",
+    "27": "Education",
+    "28": "Science & Technology",
+    "29": "Nonprofits & Activism",
+    "30": "Movies",
+    "31": "Anime/Animation",
+    "32": "Action/Adventure",
+    "33": "Classics",
+    "34": "Comedy",
+    "35": "Documentary",
+    "36": "Drama",
+    "37": "Family",
+    "38": "Foreign",
+    "39": "Horror",
+    "40": "Sci-Fi/Fantasy",
+    "41": "Thriller",
+    "42": "Shorts",
+    "43": "Shows",
+    "44": "Trailers",
+}
+
+
+def get_video_category_name(category_id: str) -> str:
+    """Resolve a YouTube video categoryId to its human-readable name."""
+    return YOUTUBE_VIDEO_CATEGORIES.get(str(category_id), f"Unknown ({category_id})")
+
 
 class ChannelIDValidator:
     """
@@ -251,6 +296,141 @@ class YouTubeResolver:
         except HttpError as e:
             logger.error(f"[YouTubeResolver] Failed to fetch {channel_id}: {e}")
             return None
+
+    async def get_channel_category_distribution(
+        self,
+        channel_id: str,
+        sample_size: int = 50,
+    ) -> dict:
+        """
+        Infer a channel's content category by sampling its most recent uploads.
+
+        YouTube's channels.list API does not expose a categoryId the way
+        videos.list does.  The only channel-level category signal it provides
+        is topicDetails.topicCategories — a list of Wikipedia URLs — which is
+        coarse and unreliable.
+
+        This method uses the same categoryId field that drives the playlist
+        video table (snippet.categoryId from videos.list) and aggregates it
+        over the channel's recent uploads to produce:
+          - a primary_category   (dominant name, e.g. "Gaming")
+          - a primary_category_id (raw id, e.g. "20")
+          - a category_distribution dict suitable for a histogram
+            e.g. {"Gaming": 38, "Entertainment": 8, "Education": 4}
+
+        API cost: 2 quota units per call
+          - 1 unit  : playlistItems.list  (fetch recent video IDs)
+          - 1 unit  : videos.list         (fetch snippet for those IDs)
+
+        Args:
+            channel_id:  YouTube channel ID (UCxxxxxx)
+            sample_size: Number of recent videos to sample (max 50, API limit)
+
+        Returns:
+            {
+                "primary_category":    str | None,
+                "primary_category_id": str | None,
+                "category_distribution": { "<name>": <count>, ... },  # histogram data
+            }
+            All keys are always present; None / empty dict on failure.
+        """
+        empty_result: dict = {
+            "primary_category": None,
+            "primary_category_id": None,
+            "category_distribution": {},
+        }
+
+        if not self._validator.is_valid(channel_id):
+            return empty_result
+
+        youtube = self._get_youtube_client()
+        # Channels' uploads playlist: replace leading "UC" with "UU"
+        uploads_playlist_id = "UU" + channel_id[2:]
+        # Cap at 50 — the hard limit for a single playlistItems.list page
+        capped_sample = min(sample_size, 50)
+
+        try:
+            # ── Step 1: Fetch recent video IDs from uploads playlist ──────────
+            playlist_resp = await self._execute_async(
+                youtube.playlistItems().list(
+                    part="contentDetails",
+                    playlistId=uploads_playlist_id,
+                    maxResults=capped_sample,
+                )
+            )
+
+            video_ids = [
+                item["contentDetails"]["videoId"]
+                for item in playlist_resp.get("items", [])
+                if item.get("contentDetails", {}).get("videoId")
+            ]
+
+            if not video_ids:
+                logger.debug(
+                    f"[YouTubeResolver] No upload IDs found for {channel_id} "
+                    f"(playlist={uploads_playlist_id})"
+                )
+                return empty_result
+
+            # ── Step 2: Fetch snippet (contains categoryId) for those videos ─
+            videos_resp = await self._execute_async(
+                youtube.videos().list(
+                    part="snippet",
+                    id=",".join(video_ids),
+                )
+            )
+
+            # ── Step 3: Tally category IDs across the sample ─────────────────
+            id_counts: dict[str, int] = {}
+            for item in videos_resp.get("items", []):
+                cat_id = item.get("snippet", {}).get("categoryId")
+                if cat_id:
+                    id_counts[cat_id] = id_counts.get(cat_id, 0) + 1
+
+            if not id_counts:
+                logger.debug(
+                    f"[YouTubeResolver] No categoryIds found in {len(video_ids)} "
+                    f"sampled videos for {channel_id}"
+                )
+                return empty_result
+
+            # ── Step 4: Resolve IDs → human-readable names ───────────────────
+            # Build name-keyed distribution for the histogram
+            name_distribution: dict[str, int] = {
+                get_video_category_name(cat_id): count
+                for cat_id, count in id_counts.items()
+            }
+
+            # Dominant category = highest video count
+            dominant_id = max(id_counts, key=id_counts.__getitem__)
+            dominant_name = get_video_category_name(dominant_id)
+
+            total_sampled = sum(id_counts.values())
+            logger.info(
+                f"[YouTubeResolver] {channel_id} category distribution "
+                f"({total_sampled} videos sampled): {name_distribution} "
+                f"→ primary='{dominant_name}' (id={dominant_id})"
+            )
+
+            return {
+                "primary_category": dominant_name,
+                "primary_category_id": dominant_id,
+                "category_distribution": name_distribution,
+            }
+
+        except HttpError as e:
+            # Private/deleted uploads playlists return 404 — not a hard error
+            logger.warning(
+                f"[YouTubeResolver] Could not fetch category distribution for "
+                f"{channel_id}: HTTP {e.resp.status} — {e}"
+            )
+            return empty_result
+        except Exception as e:
+            logger.error(
+                f"[YouTubeResolver] Unexpected error fetching category distribution "
+                f"for {channel_id}: {e}"
+            )
+            return empty_result
 
     @staticmethod
     def normalize_channel(item: dict) -> dict:
