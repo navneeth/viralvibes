@@ -9,6 +9,7 @@ import os
 from fasthtml.common import *
 from monsterui.all import ButtonT, AlertT
 
+from components import NavComponent
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,25 @@ def require_auth(auth, error_message="Please log in.", skip_in_tests=True):
 
 
 # =============================================================================
+# Session normalization for login flows
+# =============================================================================
+
+
+def normalize_intended_url(sess):
+    """Normalize stored intended_url for manual login visits.
+
+    If the user manually visits a login route (no intended_url previously set),
+    clear any stored intended_url so they get redirected to the homepage
+    after login instead of a stale URL.
+
+    Args:
+        sess: Session object (optional)
+    """
+    if sess and not sess.get("intended_url"):
+        sess.pop("intended_url", None)
+
+
+# =============================================================================
 # STEP 3: Unified Auth Redirect Page Builder
 # =============================================================================
 
@@ -149,24 +169,32 @@ def build_auth_redirect_page(
         Full page with NavComponent + auth card (new UI) or button (old UI)
 
     Environment:
-        USE_NEW_LOGIN_UI: "true" (default) → Use One-Tap card
-                         "false" → Use simple button (legacy)
+        USE_NEW_LOGIN_UI: Accepts "true", "1", "yes", "on" (case-insensitive)
+                         Any other value → Use simple button (legacy)
+                         Default: "true" → Use One-Tap card
 
     Usage:
         # In any route that needs auth redirect:
         if not (sess and sess.get("auth")):
             return build_auth_redirect_page(oauth, req, sess, return_url="/my-path")
     """
-    from components import NavComponent
+
+    # Respect session's intended_url if present (set by previous routes like /validate/url)
+    # Otherwise use the provided return_url parameter, default to "/"
+    final_return_url = return_url
+    if sess and sess.get("intended_url"):
+        final_return_url = sess["intended_url"]
 
     # Determine which UI to use
     if use_new_ui is None:
-        use_new_ui = os.getenv("USE_NEW_LOGIN_UI", "true").lower() == "true"
+        # Flexible env var parsing: accept multiple truthy values
+        env_val = os.getenv("USE_NEW_LOGIN_UI", "true").strip().lower()
+        use_new_ui = env_val in {"1", "true", "yes", "on"}
 
     # Build the auth card/button
     if use_new_ui:
         # NEW: One-Tap Material Design card (full-page with centering)
-        auth_content = build_onetap_login_page(oauth, req, sess, return_url)
+        auth_content = build_onetap_login_page(oauth, req, sess, final_return_url)
 
         # Return full page: navbar + centered card
         # Don't use Container wrapper for new UI, let auth-container handle layout

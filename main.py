@@ -53,6 +53,7 @@ from controllers.auth_routes import (
     build_login_page,
     build_logout_response,
     build_onetap_login_page,
+    normalize_intended_url,
     require_auth,
 )
 
@@ -256,10 +257,9 @@ def login(req, sess):
     Default: Modern One-Tap Material Design UI
     Fallback: Simple button (set USE_NEW_LOGIN_UI=false)
     """
-    # If user manually visited /login (no intended_url), clear any stored URL
-    # so they get redirected to homepage after login
-    if not sess.get("intended_url"):
-        sess.pop("intended_url", None)
+    # Normalize session: if user manually visited /login (no intended_url),
+    # clear any stale URLs so they get redirected to homepage after login
+    normalize_intended_url(sess)
 
     return build_auth_redirect_page(oauth, req, sess, return_url="/")
 
@@ -274,14 +274,11 @@ def login_onetap_test(req, sess):
 
     Redirects to /login with new UI enabled.
     """
-    # Clear manual visits
-    if not sess.get("intended_url"):
-        sess.pop("intended_url", None)
+    # Normalize session: clear stale intended_url if this was a manual visit
+    normalize_intended_url(sess)
 
-    return_url = sess.get("intended_url") if sess else "/"
-
-    # Use unified builder with force new UI
-    return build_auth_redirect_page(oauth, req, sess, return_url, use_new_ui=True)
+    # Use unified builder with force new UI (respects sess['intended_url'])
+    return build_auth_redirect_page(oauth, req, sess, return_url="/", use_new_ui=True)
 
 
 @rt("/login/new")
@@ -298,14 +295,11 @@ def login_new_ui(req, sess):
 
     Access: http://localhost:5001/login/new
     """
-    # Clear manual visits (same behavior as /login)
-    if not sess.get("intended_url"):
-        sess.pop("intended_url", None)
+    # Normalize session: clear stale intended_url if this was a manual visit
+    normalize_intended_url(sess)
 
-    return_url = sess.get("intended_url") if sess else "/"
-
-    # Use unified builder but FORCE new UI
-    return build_auth_redirect_page(oauth, req, sess, return_url, use_new_ui=True)
+    # Use unified builder but FORCE new UI (respects sess['intended_url'])
+    return build_auth_redirect_page(oauth, req, sess, return_url="/", use_new_ui=True)
 
 
 @rt("/logout")
