@@ -15,6 +15,37 @@ from fasthtml.oauth import GoogleAppClient, OAuth
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# AUTH SKIP PATTERNS - Centralized for consistency
+# =============================================================================
+# Skip list uses re.search() — same as Beforeware.skip.
+# Use regex patterns for directories, exact strings for page routes.
+# See canonical pattern: adv_app.py and quickstart docs.
+# NOTE: Patterns are centralized here so that both ViralVibesAuth and the
+# Beforeware in main.py share a single source of truth for auth-skipped routes.
+AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
+    # Static asset patterns (regex) — covers all files in these dirs
+    r"/favicon\.ico",
+    r"/static/.*",
+    r"/css/.*",
+    r"/js/.*",
+    r"/assets/.*",
+    r".*\.css",
+    r".*\.js",
+    r".*\.(ico|gif|jpg|jpeg|webm|png|svg|webp|woff|woff2|ttf|otf)",
+    # Public page routes (exact strings)
+    "/",
+    "/login",
+    "/redirect",
+    "/validate/url",
+    "/validate/preview",
+    "/newsletter",
+    "/debug/supabase",
+    "/avatar",
+    "/creators",
+]
+
+
 class ViralVibesAuth(OAuth):
     """Custom OAuth handler for ViralVibes"""
 
@@ -378,35 +409,13 @@ def init_google_oauth(app, supabase_client=None):
     try:
         google_client = GoogleAppClient(client_id, client_secret)
 
-        # Skip list uses re.search() — same as Beforeware.skip.
-        # Use regex patterns for directories, exact strings for page routes.
-        # See canonical pattern: adv_app.py and quickstart docs.
-        skip_routes = [
-            # Static asset patterns (regex) — covers all files in these dirs
-            r"/favicon\.ico",
-            r"/static/.*",
-            r"/css/.*",
-            r"/js/.*",
-            r"/assets/.*",
-            r".*\.css",
-            r".*\.js",
-            r".*\.(ico|gif|jpg|jpeg|webm|png|svg|webp|woff|woff2|ttf|otf)",
-            # Public page routes (exact strings)
-            "/",
-            "/login",
-            "/redirect",
-            "/validate/url",
-            "/validate/preview",
-            "/newsletter",
-            "/debug/supabase",
-            "/avatar",
-            "/creators",
-        ]
-
-        oauth = ViralVibesAuth(app, google_client, supabase_client, skip=skip_routes)
+        # Use centralized skip patterns (shared with Beforeware in main.py)
+        oauth = ViralVibesAuth(
+            app, google_client, supabase_client, skip=AUTH_SKIP_ROUTE_PATTERNS
+        )
 
         logger.info(
-            f"✅ Google OAuth initialized successfully with {len(skip_routes)} public routes"
+            f"✅ Google OAuth initialized successfully with {len(AUTH_SKIP_ROUTE_PATTERNS)} public routes"
         )
         return google_client, oauth
 

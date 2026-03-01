@@ -20,7 +20,11 @@ from fasthtml.core import HtmxHeaders
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
-from auth.auth_service import ViralVibesAuth, init_google_oauth
+from auth.auth_service import (
+    AUTH_SKIP_ROUTE_PATTERNS,
+    ViralVibesAuth,
+    init_google_oauth,
+)
 from auth.token_revocation import clear_auth_session, revoke_google_token
 from components import (
     AnalysisFormCard,
@@ -179,24 +183,7 @@ def _auth_before(req, sess):
 
 _bware = Beforeware(
     _auth_before,
-    skip=[
-        r"/favicon\.ico",
-        r"/static/.*",
-        r"/css/.*",
-        r"/js/.*",
-        r"/assets/.*",
-        r".*\.css",
-        r".*\.js",
-        r".*\.(ico|gif|jpg|jpeg|webm|png|svg|webp|woff|woff2|ttf|otf)",
-        "/",
-        "/login",
-        "/redirect",
-        "/validate/url",
-        "/validate/preview",
-        "/newsletter",
-        "/creators",
-        "/avatar",
-    ],
+    skip=AUTH_SKIP_ROUTE_PATTERNS,
 )
 
 app, rt = fast_app(
