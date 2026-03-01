@@ -380,6 +380,7 @@ def init_google_oauth(app, supabase_client=None):
 
         # ✅ Define public routes that skip authentication
         skip_routes = [
+            # ── Page routes ────────────────────────────────────────────
             "/",  # Homepage - public
             "/login",  # Login page - must be public
             "/redirect",  # OAuth callback - required by FastHTML
@@ -388,6 +389,12 @@ def init_google_oauth(app, supabase_client=None):
             "/newsletter",  # Public newsletter signup
             "/debug/supabase",  # Debug endpoint - public
             "/avatar",  # Avatar serving - public
+            # ── Static assets — MUST be skipped or unauthenticated    ──
+            # requests get 303-redirected to /login, breaking the page ──
+            "/css",  # /css/main.css and any other stylesheets
+            "/js",  # /js/index.js, /js/reveal.js, etc.
+            "/static",  # /static/favicon.ico, images, etc.
+            "/assets",  # /assets/fonts/, /assets/icons/, etc.
         ]
 
         oauth = ViralVibesAuth(app, google_client, supabase_client, skip=skip_routes)
