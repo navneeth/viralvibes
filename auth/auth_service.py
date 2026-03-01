@@ -378,23 +378,29 @@ def init_google_oauth(app, supabase_client=None):
     try:
         google_client = GoogleAppClient(client_id, client_secret)
 
-        # ✅ Define public routes that skip authentication
+        # Skip list uses re.search() — same as Beforeware.skip.
+        # Use regex patterns for directories, exact strings for page routes.
+        # See canonical pattern: adv_app.py and quickstart docs.
         skip_routes = [
-            # ── Page routes ────────────────────────────────────────────
-            "/",  # Homepage - public
-            "/login",  # Login page - must be public
-            "/redirect",  # OAuth callback - required by FastHTML
-            "/validate/url",  # Allow URL validation without login
-            "/validate/preview",  # Allow previews without login
-            "/newsletter",  # Public newsletter signup
-            "/debug/supabase",  # Debug endpoint - public
-            "/avatar",  # Avatar serving - public
-            # ── Static assets — MUST be skipped or unauthenticated    ──
-            # requests get 303-redirected to /login, breaking the page ──
-            "/css",  # /css/main.css and any other stylesheets
-            "/js",  # /js/index.js, /js/reveal.js, etc.
-            "/static",  # /static/favicon.ico, images, etc.
-            "/assets",  # /assets/fonts/, /assets/icons/, etc.
+            # Static asset patterns (regex) — covers all files in these dirs
+            r"/favicon\.ico",
+            r"/static/.*",
+            r"/css/.*",
+            r"/js/.*",
+            r"/assets/.*",
+            r".*\.css",
+            r".*\.js",
+            r".*\.(ico|gif|jpg|jpeg|webm|png|svg|webp|woff|woff2|ttf|otf)",
+            # Public page routes (exact strings)
+            "/",
+            "/login",
+            "/redirect",
+            "/validate/url",
+            "/validate/preview",
+            "/newsletter",
+            "/debug/supabase",
+            "/avatar",
+            "/creators",
         ]
 
         oauth = ViralVibesAuth(app, google_client, supabase_client, skip=skip_routes)

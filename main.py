@@ -168,8 +168,40 @@ hdrs += (
     Script(src="/js/reveal.js"),
 )
 
+# Auth beforeware — canonical FastHTML pattern (adv_app.py, quickstart docs).
+# skip uses re.search(), so regex patterns like r'/static/.*' cover all children.
+_login_redir = RedirectResponse("/login", status_code=303)
+
+
+def _auth_before(req, sess):
+    req.scope["auth"] = sess.get("auth", None)
+
+
+_bware = Beforeware(
+    _auth_before,
+    skip=[
+        r"/favicon\.ico",
+        r"/static/.*",
+        r"/css/.*",
+        r"/js/.*",
+        r"/assets/.*",
+        r".*\.css",
+        r".*\.js",
+        r".*\.(ico|gif|jpg|jpeg|webm|png|svg|webp|woff|woff2|ttf|otf)",
+        "/",
+        "/login",
+        "/redirect",
+        "/validate/url",
+        "/validate/preview",
+        "/newsletter",
+        "/creators",
+        "/avatar",
+    ],
+)
+
 app, rt = fast_app(
     hdrs=hdrs,
+    before=_bware,
     title="ViralVibes - YouTube Trends, Decoded",
     static_dir="static",
     favicon="/static/favicon.ico",
