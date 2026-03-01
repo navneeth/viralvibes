@@ -3,7 +3,10 @@ Seed creator discovery from multiple sources.
 
 Supports:
 - CSV: Local list of channels (youtubers.csv or specified path)
-- Wikipedia: Most-subscribed YouTube channels list
+- Wikipedia (most-subscribed): Top 100 by subscriber count
+- Wikipedia (most-viewed): Top 50 by total view count
+- Wikidata SPARQL: ~500+ notable channels with Wikipedia articles,
+                   sourced via the P2397 YouTube channel ID property
 
 Quota strategy
 --------------
@@ -11,6 +14,9 @@ YouTube Data API v3 costs vary significantly by operation:
   - channels.list by UC ID    →   1 unit  (free lookup)
   - channels.list by @handle  →   1 unit  (cheap)
   - search.list by name       → 100 units (expensive — avoid where possible)
+
+Wikipedia and Wikidata sources require NO YouTube API calls at all.
+They return UC IDs directly, so seeding from them is completely free.
 
 This script minimises quota usage by resolving in priority order:
   1. UC IDs detected directly in CSV   → 0 API calls
@@ -27,6 +33,8 @@ Usage
   python scripts/seed_creators.py scripts/youtubers.csv
   python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 5000
   python scripts/seed_creators.py scripts/youtubers.csv --dry-run
+  python scripts/seed_creators.py --no-wikipedia --no-wikidata   # CSV only
+  python scripts/seed_creators.py --no-csv                       # scraped sources only
 """
 
 import asyncio
@@ -43,6 +51,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -369,13 +378,218 @@ async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreat
         if rank > 200:
             break
 
-    logger.info(f"✅ Wikipedia: {len(creators)} creators found via UC ID extraction")
+    logger.info(
+        f"✅ Wikipedia (most-subscribed): {len(creators)} creators found via UC ID extraction"
+    )
     if len(creators) < 10:
         logger.warning(
             "  Very few channels extracted from Wikipedia. "
             "Wikipedia may have switched to @handle links — "
             "handle resolution from Wikipedia is not currently implemented "
             "to avoid quota spend."
+        )
+    return creators
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia source — most-viewed channels
+# ---------------------------------------------------------------------------
+
+
+async def fetch_wikipedia_most_viewed(
+    validator: ChannelIDValidator,
+) -> List[DiscoveredCreator]:
+    """
+    Fetch top 50 YouTube channels from Wikipedia's most-viewed list.
+
+    URL: https://en.wikipedia.org/wiki/List_of_most-viewed_YouTube_channels
+    Structure: single wikitable with UC IDs in href attributes — identical
+    parsing approach to fetch_wikipedia (most-subscribed).
+
+    No YouTube API calls required — UC IDs extracted directly from links.
+    Complements the subscriber-ranked list with view-count-ranked channels
+    (e.g. children's content and music labels rank higher here).
+    """
+    url = "https://en.wikipedia.org/wiki/List_of_most-viewed_YouTube_channels"
+    logger.info("📖 Fetching from Wikipedia (most-viewed)...")
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ViralVibesSeed/1.0)"}
+
+    try:
+        resp = requests.get(url, timeout=30, headers=headers)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Wikipedia (most-viewed) fetch failed: {e}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    tables = soup.find_all("table", class_="wikitable")
+    if not tables:
+        logger.warning(
+            "No wikitables found on most-viewed page — Wikipedia structure may have changed"
+        )
+        return []
+
+    creators: List[DiscoveredCreator] = []
+    seen: Set[str] = set()
+    rank = 1
+
+    for table in tables[:1]:  # Only the first table on this page
+        for link in table.find_all("a", href=True):
+            channel_id = validator.extract_from_url(link["href"])
+            if channel_id and channel_id not in seen:
+                seen.add(channel_id)
+                creators.append(
+                    DiscoveredCreator(
+                        channel_id=channel_id,
+                        channel_name=link.get_text(strip=True) or None,
+                        channel_url=f"https://www.youtube.com/channel/{channel_id}",
+                        source="wikipedia_most_viewed",
+                        source_rank=rank,
+                    )
+                )
+                rank += 1
+        if rank > 100:
+            break
+
+    logger.info(
+        f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction"
+    )
+    if len(creators) < 5:
+        logger.warning(
+            "  Very few channels extracted from Wikipedia most-viewed. "
+            "Page structure may have changed or links may now use @handles."
+        )
+    return creators
+
+
+# ---------------------------------------------------------------------------
+# Wikidata SPARQL source
+# ---------------------------------------------------------------------------
+
+# SPARQL query: all items with a YouTube channel ID (P2397), optionally
+# filtered to those that are instances of "YouTube channel" (Q2178147) or
+# simply any notable entity with a channel. We request the raw channel ID,
+# the English label, and the subscriber count (P3744) for sorting.
+_WIKIDATA_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
+
+_WIKIDATA_QUERY = """
+SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+  ?item wdt:P2397 ?channelId .
+  OPTIONAL { ?item wdt:P3744 ?subscribers . }
+  OPTIONAL {
+    ?item rdfs:label ?label .
+    FILTER(LANG(?label) = "en")
+  }
+}
+ORDER BY DESC(?subscribers)
+LIMIT 600
+"""
+
+
+async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreator]:
+    """
+    Fetch notable YouTube channels from Wikidata's public SPARQL endpoint.
+
+    Wikidata property P2397 is the YouTube channel ID — it stores the raw
+    UC... identifier directly, so no YouTube API calls are needed at all.
+
+    Coverage: ~500–600 notable channels that have Wikipedia articles and a
+    verified YouTube channel ID entry (musicians, media companies, politicians,
+    sports teams, educational channels, major creators). Ordered by subscriber
+    count (P3744) where available so the most prominent channels get the lowest
+    source_rank values.
+
+    Endpoint: https://query.wikidata.org/sparql
+    Rate limit: 1 request / 5 s recommended. We make exactly one call.
+    ToS: CC0 licensed data — fully open for reuse.
+    """
+    logger.info("🌐 Fetching from Wikidata SPARQL...")
+    headers = {
+        "User-Agent": "ViralVibesSeed/1.0 (seed_creators.py; contact via project repo)",
+        "Accept": "application/sparql-results+json",
+    }
+    params = {"query": _WIKIDATA_QUERY, "format": "json"}
+
+    try:
+        resp = requests.get(
+            _WIKIDATA_SPARQL_ENDPOINT,
+            params=params,
+            headers=headers,
+            timeout=60,  # SPARQL can be slow
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        logger.error(f"Wikidata SPARQL fetch failed: {e}")
+        return []
+    except ValueError as e:
+        logger.error(f"Wikidata SPARQL response was not valid JSON: {e}")
+        return []
+
+    bindings = data.get("results", {}).get("bindings", [])
+    if not bindings:
+        logger.warning(
+            "Wikidata SPARQL returned no results — query or endpoint may have changed."
+        )
+        return []
+
+    creators: List[DiscoveredCreator] = []
+    seen: Set[str] = set()
+    rank = 1
+    skipped_invalid = 0
+
+    for row in bindings:
+        raw_id = row.get("channelId", {}).get("value", "").strip()
+
+        # Wikidata P2397 stores the raw UC... ID (without the URL prefix).
+        # Validate it before trusting it — the property is sometimes used
+        # incorrectly for handle strings or legacy /user/ names.
+        if not raw_id:
+            continue
+
+        # Normalise: strip any accidental URL prefix that editors may have added.
+        # Treat the value as a YouTube URL only if it actually parses to a
+        # youtube.com (or subdomain) hostname; otherwise, fall back to raw ID.
+        channel_id = None
+        if raw_id.startswith(("http://", "https://")):
+            parsed = urlparse(raw_id)
+            host = parsed.hostname or ""
+            if host == "youtube.com" or host.endswith(".youtube.com"):
+                channel_id = validator.extract_from_url(raw_id)
+        if channel_id is None and validator.is_valid(raw_id):
+            channel_id = raw_id
+        if channel_id is None:
+            # Not a UC ID — could be a handle or legacy username.
+            # Skip to avoid API cost; user can add to CSV with @handle prefix.
+            skipped_invalid += 1
+            logger.debug(f"  Wikidata: skipping non-UC value: {raw_id!r}")
+            continue
+
+        if not channel_id or channel_id in seen:
+            continue
+
+        seen.add(channel_id)
+        label = row.get("label", {}).get("value") or None
+
+        creators.append(
+            DiscoveredCreator(
+                channel_id=channel_id,
+                channel_name=label,
+                channel_url=f"https://www.youtube.com/channel/{channel_id}",
+                source="wikidata",
+                source_rank=rank,
+            )
+        )
+        rank += 1
+
+    logger.info(
+        f"✅ Wikidata: {len(creators)} creators found "
+        f"({skipped_invalid} non-UC entries skipped)"
+    )
+    if len(creators) < 50:
+        logger.warning(
+            "  Fewer results than expected from Wikidata. "
+            "The SPARQL endpoint may be rate-limiting or the query timed out."
         )
     return creators
 
@@ -518,7 +732,22 @@ def _parse_args():
     parser.add_argument(
         "--no-wikipedia",
         action="store_true",
-        help="Skip the Wikipedia source",
+        help="Skip the Wikipedia most-subscribed source",
+    )
+    parser.add_argument(
+        "--no-wikipedia-views",
+        action="store_true",
+        help="Skip the Wikipedia most-viewed source",
+    )
+    parser.add_argument(
+        "--no-wikidata",
+        action="store_true",
+        help="Skip the Wikidata SPARQL source (~500 notable channels, no API cost)",
+    )
+    parser.add_argument(
+        "--no-csv",
+        action="store_true",
+        help="Skip the CSV source (run scraped sources only)",
     )
     parser.add_argument(
         "--dry-run",
@@ -566,7 +795,7 @@ async def main():
     all_creators: List[DiscoveredCreator] = []
     combined_stats = SeedStats()
 
-    if csv_path:
+    if csv_path and not args.no_csv:
         csv_creators, csv_stats = await resolve_csv(
             csv_path,
             resolver=resolver,
@@ -580,13 +809,30 @@ async def main():
         combined_stats.quota_skipped += csv_stats.quota_skipped
         combined_stats.unresolvable += csv_stats.unresolvable
         combined_stats.skipped_names.extend(csv_stats.skipped_names)
+    elif args.no_csv:
+        logger.info("CSV source disabled via --no-csv")
     else:
         logger.info("No CSV path provided — skipping CSV source")
 
     if not args.no_wikipedia:
-        # Wikipedia needs no API calls — always run it
+        # No API calls — always safe to run
         wiki_creators = await fetch_wikipedia(validator)
         all_creators.extend(wiki_creators)
+    else:
+        logger.info("Wikipedia (most-subscribed) disabled via --no-wikipedia")
+
+    if not args.no_wikipedia_views:
+        wiki_views_creators = await fetch_wikipedia_most_viewed(validator)
+        all_creators.extend(wiki_views_creators)
+    else:
+        logger.info("Wikipedia (most-viewed) disabled via --no-wikipedia-views")
+
+    if not args.no_wikidata:
+        # Single SPARQL call — no YouTube quota spend, ~500 notable channels
+        wikidata_creators = await fetch_wikidata(validator)
+        all_creators.extend(wikidata_creators)
+    else:
+        logger.info("Wikidata SPARQL disabled via --no-wikidata")
 
     # Deduplicate across sources (CSV wins over Wikipedia for same channel_id)
     seen: Set[str] = set()
