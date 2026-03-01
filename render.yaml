@@ -11,7 +11,7 @@ services:
     startCommand: |
       # decode cookies into /tmp
       echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
-      python -m worker.worker
+      python -m worker.creator_worker
     envVars:
       - key: SUPABASE_URL
         sync: false
