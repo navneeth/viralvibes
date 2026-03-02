@@ -24,4 +24,3 @@ def calculate_engagement_rate(
     if not view_count or view_count == 0:
         return 0.0
     return ((like_count or 0) + (dislike_count or 0)) / view_count * 100
-
