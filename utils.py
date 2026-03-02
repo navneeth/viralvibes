@@ -5,6 +5,7 @@ import html
 import json
 import logging
 import re
+import isodate
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
@@ -14,169 +15,6 @@ from fasthtml.common import *
 from constants import TimeEstimates
 
 logger = logging.getLogger(__name__)
-
-
-def safe_get_value(obj, key: str, default=0):
-    """
-    Safely get value from dict or Supabase object. Returns default if None.
-
-    This helper works with both dict objects and Supabase response objects,
-    handling None values consistently across the codebase.
-
-    Args:
-        obj: Dictionary or object with attributes
-        key: Key/attribute name to retrieve
-        default: Default value to return if key is missing or value is None
-
-    Returns:
-        The value associated with the key, or default if missing/None
-    """
-    if isinstance(obj, dict):
-        value = obj.get(key, default)
-    else:
-        value = getattr(obj, key, default)
-
-    # If value is None, return default instead
-    return value if value is not None else default
-
-
-def calculate_engagement_rate(
-    view_count: float, like_count: float, dislike_count: float
-) -> float:
-    """Calculate engagement rate as a percentage."""
-    if not view_count or view_count == 0:
-        return 0.0
-    return ((like_count or 0) + (dislike_count or 0)) / view_count * 100
-
-
-def format_number(num: float) -> str:
-    """
-    Convert a large number into a human-readable string (e.g., 1.2M, 3.4K).
-    Args:
-        num (float): The input number.
-    Returns:
-        str: Human-readable formatted string.
-    """
-    if not num:
-        return "0"
-    if num >= 1_000_000_000:
-        return f"{num / 1_000_000_000:.1f}B"
-    elif num >= 1_000_000:
-        return f"{num / 1_000_000:.1f}M"
-    elif num >= 1_000:
-        return f"{num / 1_000:.1f}K"
-    return f"{num:,.0f}"
-
-
-def calculate_creator_stats(creators: list) -> dict:
-    """
-    Calculate aggregate statistics from creators list for hero section.
-
-    Args:
-        creators: List of creator dicts or Supabase objects
-
-    Returns:
-        Dict with aggregate stats (total_subscribers, total_views, avg_engagement, total_revenue)
-    """
-    if not creators:
-        return {
-            "total_subscribers": 0,
-            "total_views": 0,
-            "avg_engagement": 0.0,
-            "total_revenue": 0,
-        }
-
-    try:
-        total_subscribers = sum(
-            safe_get_value(c, "current_subscribers", 0) for c in creators
-        )
-        total_views = sum(safe_get_value(c, "current_view_count", 0) for c in creators)
-
-        # Calculate average engagement
-        engagement_scores = [safe_get_value(c, "engagement_score", 0) for c in creators]
-        avg_engagement = (
-            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
-        )
-
-        # Calculate total revenue (CPM: $4 per 1000 views)
-        total_revenue = sum(
-            (safe_get_value(c, "current_view_count", 0) * 4) / 1000 for c in creators
-        )
-
-        return {
-            "total_subscribers": int(total_subscribers),
-            "total_views": int(total_views),
-            "avg_engagement": round(avg_engagement, 2),
-            "total_revenue": int(total_revenue),
-        }
-    except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).exception(f"Error calculating creator stats: {e}")
-        return {
-            "total_subscribers": 0,
-            "total_views": 0,
-            "avg_engagement": 0.0,
-            "total_revenue": 0,
-        }
-
-
-def format_percentage(x):
-    try:
-        return f"{float(x):.2%}"
-    except Exception:
-        return ""
-
-
-def format_float(value: float, decimals: int = 2) -> float:
-    """
-    Clean floating-point precision errors.
-    Convert 0.699999999999996 → 0.70
-    """
-    if value is None:
-        return 0.0
-    return round(float(value), decimals)
-
-
-def format_duration(seconds: int) -> str:
-    """
-    Convert seconds into a human-readable duration string (e.g., 1:30, 2:15:45).
-    Args:
-        seconds (int): Duration in seconds.
-    Returns:
-        str: Formatted duration string in MM:SS or HH:MM:SS format.
-    """
-    try:
-        # Convert to integer if float
-        if isinstance(seconds, float):
-            seconds = int(seconds)
-
-        # Validate input type
-        if not isinstance(seconds, int):
-            raise TypeError("Duration must be a number")
-
-        # Validate input value
-        if seconds < 0:
-            raise ValueError("Duration cannot be negative")
-
-        # Handle zero or None case
-        if not seconds:
-            return "00:00"
-
-        # Calculate time components
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        remaining_seconds = seconds % 60
-
-        # Format based on duration
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
-        return f"{minutes:02d}:{remaining_seconds:02d}"
-
-    except Exception as e:
-        # Log the error and return a safe default
-        print(f"Error formatting duration: {str(e)}")
-        return "00:00"
 
 
 def estimate_remaining_time(video_count: int, progress: float) -> tuple[int, str]:
@@ -224,36 +62,8 @@ def format_seconds(seconds: int) -> str:
     return f"{m}m {s}s" if m else f"{s}s"
 
 
-# --- Define helper for parsing formatted numbers into raw ints ---
-# parser for formatted numbers (e.g., 12.3M, 540K, 1,234)
-def parse_number(val: str) -> int:
-    try:
-        if val is None:
-            return 0
-        if isinstance(val, (int, float)):
-            return int(val)
-        s = str(val).strip()
-        if s == "" or s in {"—", "-", "N/A"}:
-            return 0
-        s = s.replace(",", "").upper()
-        multiplier = 1.0
-        if s.endswith("B"):
-            multiplier = 1e9
-            s = s[:-1]
-        elif s.endswith("M"):
-            multiplier = 1e6
-            s = s[:-1]
-        elif s.endswith("K"):
-            multiplier = 1e3
-            s = s[:-1]
-        return int(float(s) * multiplier)
-    except Exception:
-        return 0
-
-
 # Helper: convert ISO8601 to "HH:MM:SS"
 def parse_iso_duration(duration: str) -> str:
-    import isodate
 
     try:
         td = isodate.parse_duration(duration)
@@ -441,41 +251,6 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
 # =============================================================================
 # Date formatting utilities
 # =============================================================================
-
-
-def format_date_simple(date_str: str | None) -> str:
-    """
-    Format ISO datetime to simple date string.
-
-    Args:
-        date_str: ISO datetime string (e.g., "2026-01-29T10:30:00Z")
-
-    Returns:
-        Formatted date (e.g., "Jan 29, 2026") or "Recently" if None
-
-    Examples:
-        >>> format_date_simple("2026-01-29T10:30:00Z")
-        "Jan 29, 2026"
-        >>> format_date_simple("2026-01-29")
-        "Jan 29, 2026"
-        >>> format_date_simple(None)
-        "Recently"
-    """
-    if not date_str:
-        return "Recently"
-
-    try:
-        # Handle both datetime and date strings
-        if isinstance(date_str, str):
-            # Remove timezone info for parsing
-            clean_date = date_str.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(clean_date)
-        else:
-            dt = date_str
-
-        return dt.strftime("%b %d, %Y")
-    except Exception:
-        return "Recently"
 
 
 def format_date_relative(date_str: str | None) -> str:

@@ -57,7 +57,6 @@ from .dataframe import (
 
 # Analytics
 from .analytics import (
-    calculate_creator_stats,
     calculate_engagement_rate,
 )
 
