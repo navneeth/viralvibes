@@ -49,25 +49,6 @@ def calculate_engagement_rate(
     return ((like_count or 0) + (dislike_count or 0)) / view_count * 100
 
 
-def format_number(num: float) -> str:
-    """
-    Convert a large number into a human-readable string (e.g., 1.2M, 3.4K).
-    Args:
-        num (float): The input number.
-    Returns:
-        str: Human-readable formatted string.
-    """
-    if not num:
-        return "0"
-    if num >= 1_000_000_000:
-        return f"{num / 1_000_000_000:.1f}B"
-    elif num >= 1_000_000:
-        return f"{num / 1_000_000:.1f}M"
-    elif num >= 1_000:
-        return f"{num / 1_000:.1f}K"
-    return f"{num:,.0f}"
-
-
 def calculate_creator_stats(creators: list) -> dict:
     """
     Calculate aggregate statistics from creators list for hero section.
@@ -119,23 +100,6 @@ def calculate_creator_stats(creators: list) -> dict:
             "avg_engagement": 0.0,
             "total_revenue": 0,
         }
-
-
-def format_percentage(x):
-    try:
-        return f"{float(x):.2%}"
-    except Exception:
-        return ""
-
-
-def format_float(value: float, decimals: int = 2) -> float:
-    """
-    Clean floating-point precision errors.
-    Convert 0.699999999999996 → 0.70
-    """
-    if value is None:
-        return 0.0
-    return round(float(value), decimals)
 
 
 def format_duration(seconds: int) -> str:
