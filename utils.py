@@ -5,6 +5,7 @@ import html
 import json
 import logging
 import re
+import isodate
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
@@ -102,47 +103,6 @@ def calculate_creator_stats(creators: list) -> dict:
         }
 
 
-def format_duration(seconds: int) -> str:
-    """
-    Convert seconds into a human-readable duration string (e.g., 1:30, 2:15:45).
-    Args:
-        seconds (int): Duration in seconds.
-    Returns:
-        str: Formatted duration string in MM:SS or HH:MM:SS format.
-    """
-    try:
-        # Convert to integer if float
-        if isinstance(seconds, float):
-            seconds = int(seconds)
-
-        # Validate input type
-        if not isinstance(seconds, int):
-            raise TypeError("Duration must be a number")
-
-        # Validate input value
-        if seconds < 0:
-            raise ValueError("Duration cannot be negative")
-
-        # Handle zero or None case
-        if not seconds:
-            return "00:00"
-
-        # Calculate time components
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        remaining_seconds = seconds % 60
-
-        # Format based on duration
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
-        return f"{minutes:02d}:{remaining_seconds:02d}"
-
-    except Exception as e:
-        # Log the error and return a safe default
-        print(f"Error formatting duration: {str(e)}")
-        return "00:00"
-
-
 def estimate_remaining_time(video_count: int, progress: float) -> tuple[int, str]:
     """
     Estimate remaining time for playlist analysis.
@@ -217,7 +177,6 @@ def parse_number(val: str) -> int:
 
 # Helper: convert ISO8601 to "HH:MM:SS"
 def parse_iso_duration(duration: str) -> str:
-    import isodate
 
     try:
         td = isodate.parse_duration(duration)
