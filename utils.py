@@ -366,41 +366,6 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
 # =============================================================================
 
 
-def format_date_simple(date_str: str | None) -> str:
-    """
-    Format ISO datetime to simple date string.
-
-    Args:
-        date_str: ISO datetime string (e.g., "2026-01-29T10:30:00Z")
-
-    Returns:
-        Formatted date (e.g., "Jan 29, 2026") or "Recently" if None
-
-    Examples:
-        >>> format_date_simple("2026-01-29T10:30:00Z")
-        "Jan 29, 2026"
-        >>> format_date_simple("2026-01-29")
-        "Jan 29, 2026"
-        >>> format_date_simple(None)
-        "Recently"
-    """
-    if not date_str:
-        return "Recently"
-
-    try:
-        # Handle both datetime and date strings
-        if isinstance(date_str, str):
-            # Remove timezone info for parsing
-            clean_date = date_str.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(clean_date)
-        else:
-            dt = date_str
-
-        return dt.strftime("%b %d, %Y")
-    except Exception:
-        return "Recently"
-
-
 def format_date_relative(date_str: str | None) -> str:
     """
     Format ISO datetime to relative time or simple date.
