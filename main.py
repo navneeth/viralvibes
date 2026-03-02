@@ -235,29 +235,34 @@ def index(req, sess):
     def _Section(*c, **kwargs):
         return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
 
+    # Ensure all components are wrapped safely
+    sections = [
+        hero_section() or Div(),  # Fallback if None
+        SectionDivider(),
+        engagement_slider_section() or Div(),
+        _Section(HeaderCard(), id="home-section"),
+        SectionDivider(),
+        _Section(features_section() or Div(), id="features-section"),
+        _Section(how_it_works_section() or Div(), id="how-it-works-section"),
+        SectionDivider(),
+        _Section(AnalysisFormCard(), id="analyze-section"),
+        SectionDivider(),
+        _Section(HomepageAccordion(), id="explore-section"),
+        SectionDivider(),
+        _Section(faq_section() or Div(), id="faq-section"),
+        footer() or Div(),
+    ]
+
+    # Filter out any None/False values
+    sections = [s for s in sections if s is not None and s is not False]
+
     return Titled(
         "ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             Container(
-                hero_section(),
-                SectionDivider(),
-                engagement_slider_section(),
-                _Section(HeaderCard(), id="home-section"),
-                SectionDivider(),
-                _Section(features_section(), id="features-section"),
-                _Section(how_it_works_section(), id="how-it-works-section"),
-                SectionDivider(),
-                _Section(AnalysisFormCard(), id="analyze-section"),
-                # grid-first Explore, then accordion for details
-                # SectionDivider(),
-                # _Section(ExploreGridSection(), id="explore-grid"),
-                SectionDivider(),
-                _Section(HomepageAccordion(), id="explore-section"),
-                SectionDivider(),
-                _Section(faq_section(), id="faq-section"),
-                footer(),
-                cls=(ContainerT.xl, "uk-container-expand"),
+                *sections,
+                cls=f"{ContainerT.xl} uk-container-expand",
             ),
         ),
     )
@@ -896,9 +901,9 @@ def check_job_status(playlist_url: str, req, sess):
         return Div(
             P("Analysis in progress... Please wait."),
             Div(
-                Loading(
+                Span(
+                    cls=f"{LoadingT.bars} {LoadingT.lg}",
                     id="loading-bar",
-                    cls=(LoadingT.bars, LoadingT.lg),
                     style="margin-top:1rem; color:#393e6e;",
                 ),
             ),
