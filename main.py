@@ -257,7 +257,7 @@ def index(req, sess):
                 SectionDivider(),
                 _Section(faq_section(), id="faq-section"),
                 footer(),
-                cls=(ContainerT.xl, "uk-container-expand"),
+                cls=f"{ContainerT.xl} uk-container-expand",
             ),
         ),
     )
@@ -896,9 +896,9 @@ def check_job_status(playlist_url: str, req, sess):
         return Div(
             P("Analysis in progress... Please wait."),
             Div(
-                Loading(
+                Span(
+                    cls=f"{LoadingT.bars} {LoadingT.lg}",
                     id="loading-bar",
-                    cls=(LoadingT.bars, LoadingT.lg),
                     style="margin-top:1rem; color:#393e6e;",
                 ),
             ),
