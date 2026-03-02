@@ -27,7 +27,8 @@ def format_number(num: float) -> str:
 def parse_number(val: str) -> int:
     """
     Parse formatted numbers (e.g., 12.3M, 540K, 1,234) into raw ints.
-
+    Helper for parsing formatted numbers into raw ints
+    formatted numbers (e.g., 12.3M, 540K, 1,234)
     Args:
         val: String representation of a number (can include M, K, B suffixes)
 

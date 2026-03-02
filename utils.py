@@ -148,33 +148,6 @@ def format_seconds(seconds: int) -> str:
     return f"{m}m {s}s" if m else f"{s}s"
 
 
-# --- Define helper for parsing formatted numbers into raw ints ---
-# parser for formatted numbers (e.g., 12.3M, 540K, 1,234)
-def parse_number(val: str) -> int:
-    try:
-        if val is None:
-            return 0
-        if isinstance(val, (int, float)):
-            return int(val)
-        s = str(val).strip()
-        if s == "" or s in {"—", "-", "N/A"}:
-            return 0
-        s = s.replace(",", "").upper()
-        multiplier = 1.0
-        if s.endswith("B"):
-            multiplier = 1e9
-            s = s[:-1]
-        elif s.endswith("M"):
-            multiplier = 1e6
-            s = s[:-1]
-        elif s.endswith("K"):
-            multiplier = 1e3
-            s = s[:-1]
-        return int(float(s) * multiplier)
-    except Exception:
-        return 0
-
-
 # Helper: convert ISO8601 to "HH:MM:SS"
 def parse_iso_duration(duration: str) -> str:
 
