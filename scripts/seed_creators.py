@@ -3,10 +3,22 @@ Seed creator discovery from multiple sources.
 
 Supports:
 - CSV: Local list of channels (youtubers.csv or specified path)
-- Wikipedia (most-subscribed): Top 100 by subscriber count
-- Wikipedia (most-viewed): Top 50 by total view count
+- Wikipedia (most-subscribed): Top 200 by subscriber count (random sampling available)
+- Wikipedia (most-viewed): Top 100 by total view count (random sampling available)
 - Wikidata SPARQL: ~500+ notable channels with Wikipedia articles,
-                   sourced via the P2397 YouTube channel ID property
+                   sourced via the P2397 YouTube channel ID property (random sampling available)
+
+Random Sampling Strategy
+-------------------------
+Wikipedia and Wikidata sources support random sampling (--sample-size) to enable
+diverse creator discovery across multiple runs:
+
+  - Without sampling: Same top channels returned every run (useful for first run)
+  - With sampling (default 50): Random 50 channels per run, different each time
+  - Multiple runs gradually cover the entire dataset without quota waste
+
+This allows running the script daily to discover new creators without hitting
+the same channels repeatedly.
 
 Quota strategy
 --------------
@@ -18,23 +30,43 @@ YouTube Data API v3 costs vary significantly by operation:
 Wikipedia and Wikidata sources require NO YouTube API calls at all.
 They return UC IDs directly, so seeding from them is completely free.
 
-This script minimises quota usage by resolving in priority order:
-  1. UC IDs detected directly in CSV   → 0 API calls
-  2. @handles detected in CSV          → 1 unit each (channels.list)
-  3. Plain names                        → 100 units each (search.list)
+This script minimises quota usage by:
+  1. Processing free sources FIRST (Wikipedia, Wikidata)
+  2. Then resolving CSV in priority order:
+     a. UC IDs detected directly in CSV   → 0 API calls
+     b. @handles detected in CSV          → 1 unit each (channels.list)
+     c. Plain names                        → 100 units each (search.list)
 
 For plain-name rows the script stops resolving once the remaining
-quota budget (--quota-budget, default 2000 units) would be exceeded,
+quota budget (--quota-budget, default 5000 units) would be exceeded,
 and logs which channels were skipped so you can add their @handles
 to the CSV instead.
 
 Usage
 -----
+  # Default: random 50 from each source, 5000 quota budget
   python scripts/seed_creators.py scripts/youtubers.csv
-  python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 5000
+
+  # Custom sample size for diverse discovery
+  python scripts/seed_creators.py --sample-size 30
+
+  # No sampling (get all top channels - useful for first run)
+  python scripts/seed_creators.py --sample-size 0
+
+  # Higher quota for more CSV names
+  python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 10000
+
+  # Dry run to see what would be discovered
   python scripts/seed_creators.py scripts/youtubers.csv --dry-run
-  python scripts/seed_creators.py --no-wikipedia --no-wikidata   # CSV only
-  python scripts/seed_creators.py --no-csv                       # scraped sources only
+
+  # CSV only (skip scraped sources)
+  python scripts/seed_creators.py scripts/youtubers.csv --no-wikipedia --no-wikidata
+
+  # Scraped sources only (skip CSV)
+  python scripts/seed_creators.py --no-csv
+
+  # Daily discovery run (recommended)
+  python scripts/seed_creators.py --sample-size 50 --quota-budget 5000
 """
 
 import asyncio
@@ -328,7 +360,9 @@ async def resolve_csv(
 # ---------------------------------------------------------------------------
 
 
-async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreator]:
+async def fetch_wikipedia(
+    validator: ChannelIDValidator, sample_size: Optional[int] = None
+) -> List[DiscoveredCreator]:
     """
     Fetch top YouTube channels from Wikipedia's most-subscribed list.
 
@@ -336,6 +370,10 @@ async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreat
     Note: Wikipedia has been migrating channel links to @handle format; the
     UC-ID regex will only match rows that still use /channel/UCxxx links.
     Rows with handle-only links are not resolved here to avoid quota spend.
+
+    Args:
+        sample_size: Number of random channels to return. If None, returns all.
+                     Enables diverse discovery across multiple runs.
     """
     url = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channels"
     logger.info("📖 Fetching from Wikipedia...")
@@ -378,9 +416,19 @@ async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreat
         if rank > 200:
             break
 
-    logger.info(
-        f"✅ Wikipedia (most-subscribed): {len(creators)} creators found via UC ID extraction"
-    )
+    # Apply random sampling if requested
+    if sample_size and sample_size < len(creators):
+        original_count = len(creators)
+        creators = random.sample(creators, sample_size)
+        logger.info(
+            f"✅ Wikipedia (most-subscribed): {len(creators)} random channels "
+            f"selected from {original_count} total (enables diverse discovery)"
+        )
+    else:
+        logger.info(
+            f"✅ Wikipedia (most-subscribed): {len(creators)} creators found via UC ID extraction"
+        )
+
     if len(creators) < 10:
         logger.warning(
             "  Very few channels extracted from Wikipedia. "
@@ -397,7 +445,7 @@ async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreat
 
 
 async def fetch_wikipedia_most_viewed(
-    validator: ChannelIDValidator,
+    validator: ChannelIDValidator, sample_size: Optional[int] = None
 ) -> List[DiscoveredCreator]:
     """
     Fetch top 50 YouTube channels from Wikipedia's most-viewed list.
@@ -409,6 +457,9 @@ async def fetch_wikipedia_most_viewed(
     No YouTube API calls required — UC IDs extracted directly from links.
     Complements the subscriber-ranked list with view-count-ranked channels
     (e.g. children's content and music labels rank higher here).
+
+    Args:
+        sample_size: Number of random channels to return. If None, returns all.
     """
     url = "https://en.wikipedia.org/wiki/List_of_most-viewed_YouTube_channels"
     logger.info("📖 Fetching from Wikipedia (most-viewed)...")
@@ -451,9 +502,19 @@ async def fetch_wikipedia_most_viewed(
         if rank > 100:
             break
 
-    logger.info(
-        f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction"
-    )
+    # Apply random sampling if requested
+    if sample_size and sample_size < len(creators):
+        original_count = len(creators)
+        creators = random.sample(creators, sample_size)
+        logger.info(
+            f"✅ Wikipedia (most-viewed): {len(creators)} random channels "
+            f"selected from {original_count} total"
+        )
+    else:
+        logger.info(
+            f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction"
+        )
+
     if len(creators) < 5:
         logger.warning(
             "  Very few channels extracted from Wikipedia most-viewed. "
@@ -486,7 +547,9 @@ LIMIT 600
 """
 
 
-async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreator]:
+async def fetch_wikidata(
+    validator: ChannelIDValidator, sample_size: Optional[int] = None
+) -> List[DiscoveredCreator]:
     """
     Fetch notable YouTube channels from Wikidata's public SPARQL endpoint.
 
@@ -502,6 +565,10 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
     Endpoint: https://query.wikidata.org/sparql
     Rate limit: 1 request / 5 s recommended. We make exactly one call.
     ToS: CC0 licensed data — fully open for reuse.
+
+    Args:
+        sample_size: Number of random channels to return. If None, returns all.
+                     Random sampling enables discovering different channels each run.
     """
     logger.info("🌐 Fetching from Wikidata SPARQL...")
     headers = {
@@ -582,11 +649,35 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
         )
         rank += 1
 
-    logger.info(
-        f"✅ Wikidata: {len(creators)} creators found "
-        f"({skipped_invalid} non-UC entries skipped)"
-    )
-    if len(creators) < 50:
+    # Apply random sampling if requested (after full fetch to preserve subscriber rank)
+    if sample_size and sample_size < len(creators):
+        original_count = len(creators)
+        # Random sample but preserve some high-ranked channels
+        # Take top 20% guaranteed + random sample from rest
+        guaranteed = min(sample_size // 5, len(creators))
+        remaining_sample = sample_size - guaranteed
+
+        if remaining_sample > 0 and len(creators) > guaranteed:
+            guaranteed_creators = creators[:guaranteed]
+            remaining_creators = creators[guaranteed:]
+            sampled_remaining = random.sample(
+                remaining_creators, min(remaining_sample, len(remaining_creators))
+            )
+            creators = guaranteed_creators + sampled_remaining
+        else:
+            creators = creators[:sample_size]
+
+        logger.info(
+            f"✅ Wikidata: {len(creators)} channels selected from {original_count} total "
+            f"({guaranteed} top-ranked + {len(creators) - guaranteed} random)"
+        )
+    else:
+        logger.info(
+            f"✅ Wikidata: {len(creators)} creators found "
+            f"({skipped_invalid} non-UC entries skipped)"
+        )
+
+    if len(creators) < 50 and not sample_size:
         logger.warning(
             "  Fewer results than expected from Wikidata. "
             "The SPARQL endpoint may be rate-limiting or the query timed out."
@@ -721,12 +812,25 @@ def _parse_args():
     parser.add_argument(
         "--quota-budget",
         type=int,
-        default=2000,
+        default=5000,
         metavar="UNITS",
         help=(
             "Max YouTube API quota units to spend on name→ID resolution. "
             "Searches cost 100 units each; handle lookups cost 1. "
-            "Default: 2000 (= 20 searches or 2000 handle lookups)."
+            "Default: 5000 (= 50 searches or 5000 handle lookups). "
+            "Daily quota limit is typically 10,000 units."
+        ),
+    )
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=50,
+        metavar="N",
+        help=(
+            "Random sample size from Wikipedia/Wikidata sources. "
+            "Enables diverse discovery across multiple runs. "
+            "Set to 0 for all channels (original behavior). "
+            "Default: 50"
         ),
     )
     parser.add_argument(
@@ -795,6 +899,33 @@ async def main():
     all_creators: List[DiscoveredCreator] = []
     combined_stats = SeedStats()
 
+    # Process FREE sources first (no quota cost) to maximize discovery
+    # Random sampling enables different channels each run
+    sample_size = args.sample_size if args.sample_size > 0 else None
+
+    if not args.no_wikipedia:
+        # No API calls — always safe to run
+        wiki_creators = await fetch_wikipedia(validator, sample_size=sample_size)
+        all_creators.extend(wiki_creators)
+    else:
+        logger.info("Wikipedia (most-subscribed) disabled via --no-wikipedia")
+
+    if not args.no_wikipedia_views:
+        wiki_views_creators = await fetch_wikipedia_most_viewed(
+            validator, sample_size=sample_size
+        )
+        all_creators.extend(wiki_views_creators)
+    else:
+        logger.info("Wikipedia (most-viewed) disabled via --no-wikipedia-views")
+
+    if not args.no_wikidata:
+        # Single SPARQL call — no YouTube quota spend, ~500 notable channels
+        wikidata_creators = await fetch_wikidata(validator, sample_size=sample_size)
+        all_creators.extend(wikidata_creators)
+    else:
+        logger.info("Wikidata SPARQL disabled via --no-wikidata")
+
+    # Process CSV LAST so free sources don't waste quota on duplicates
     if csv_path and not args.no_csv:
         csv_creators, csv_stats = await resolve_csv(
             csv_path,
@@ -813,26 +944,6 @@ async def main():
         logger.info("CSV source disabled via --no-csv")
     else:
         logger.info("No CSV path provided — skipping CSV source")
-
-    if not args.no_wikipedia:
-        # No API calls — always safe to run
-        wiki_creators = await fetch_wikipedia(validator)
-        all_creators.extend(wiki_creators)
-    else:
-        logger.info("Wikipedia (most-subscribed) disabled via --no-wikipedia")
-
-    if not args.no_wikipedia_views:
-        wiki_views_creators = await fetch_wikipedia_most_viewed(validator)
-        all_creators.extend(wiki_views_creators)
-    else:
-        logger.info("Wikipedia (most-viewed) disabled via --no-wikipedia-views")
-
-    if not args.no_wikidata:
-        # Single SPARQL call — no YouTube quota spend, ~500 notable channels
-        wikidata_creators = await fetch_wikidata(validator)
-        all_creators.extend(wikidata_creators)
-    else:
-        logger.info("Wikidata SPARQL disabled via --no-wikidata")
 
     # Deduplicate across sources (CSV wins over Wikipedia for same channel_id)
     seen: Set[str] = set()
