@@ -3,22 +3,16 @@ Seed creator discovery from multiple sources.
 
 Supports:
 - CSV: Local list of channels (youtubers.csv or specified path)
-- Wikipedia (most-subscribed): Top 200 by subscriber count (random sampling available)
-- Wikipedia (most-viewed): Top 100 by total view count (random sampling available)
+- Wikipedia (most-subscribed): Top 100 by subscriber count
+- Wikipedia (most-viewed): Top 50 by total view count
 - Wikidata SPARQL: ~500+ notable channels with Wikipedia articles,
-                   sourced via the P2397 YouTube channel ID property (random sampling available)
-
-Random Sampling Strategy
--------------------------
-Wikipedia and Wikidata sources support random sampling (--sample-size) to enable
-diverse creator discovery across multiple runs:
-
-  - Without sampling: Same top channels returned every run (useful for first run)
-  - With sampling (default 50): Random 50 channels per run, different each time
-  - Multiple runs gradually cover the entire dataset without quota waste
-
-This allows running the script daily to discover new creators without hitting
-the same channels repeatedly.
+                   sourced via the P2397 YouTube channel ID property
+- Wikidata Extended: Targeted per-entity-type SPARQL queries (YouTubers,
+                     musicians, bands, comedians, athletes, journalists,
+                     news orgs, businesses, filmmakers). Each query runs
+                     with its own high LIMIT and is rate-limited at 6 s
+                     between calls. Yields ~5,000–10,000 additional
+                     channels with zero YouTube API cost.
 
 Quota strategy
 --------------
@@ -30,43 +24,27 @@ YouTube Data API v3 costs vary significantly by operation:
 Wikipedia and Wikidata sources require NO YouTube API calls at all.
 They return UC IDs directly, so seeding from them is completely free.
 
-This script minimises quota usage by:
-  1. Processing free sources FIRST (Wikipedia, Wikidata)
-  2. Then resolving CSV in priority order:
-     a. UC IDs detected directly in CSV   → 0 API calls
-     b. @handles detected in CSV          → 1 unit each (channels.list)
-     c. Plain names                        → 100 units each (search.list)
+This script minimises quota usage by resolving in priority order:
+  1. UC IDs detected directly in CSV   → 0 API calls
+  2. @handles detected in CSV          → 1 unit each (channels.list)
+  3. Plain names                        → 100 units each (search.list)
 
 For plain-name rows the script stops resolving once the remaining
-quota budget (--quota-budget, default 5000 units) would be exceeded,
+quota budget (--quota-budget, default 2000 units) would be exceeded,
 and logs which channels were skipped so you can add their @handles
 to the CSV instead.
 
 Usage
 -----
-  # Default: random 50 from each source, 5000 quota budget
   python scripts/seed_creators.py scripts/youtubers.csv
-
-  # Custom sample size for diverse discovery
-  python scripts/seed_creators.py --sample-size 30
-
-  # No sampling (get all top channels - useful for first run)
-  python scripts/seed_creators.py --sample-size 0
-
   # Higher quota for more CSV names
-  python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 10000
-
-  # Dry run to see what would be discovered
+  python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 5000
+  # Dry run to see what would be discovered and resolved without making any API calls or DB changes
   python scripts/seed_creators.py scripts/youtubers.csv --dry-run
-
-  # CSV only (skip scraped sources)
-  python scripts/seed_creators.py scripts/youtubers.csv --no-wikipedia --no-wikidata
-
-  # Scraped sources only (skip CSV)
-  python scripts/seed_creators.py --no-csv
-
+  python scripts/seed_creators.py --no-wikipedia --no-wikidata   # CSV only
+  python scripts/seed_creators.py --no-csv                       # scraped sources only
   # Daily discovery run (recommended)
-  python scripts/seed_creators.py --sample-size 50 --quota-budget 5000
+  python scripts/seed_creators.py --no-csv --quota-budget 5000   # smaller quota for daily incremental runs
 """
 
 import asyncio
@@ -360,9 +338,7 @@ async def resolve_csv(
 # ---------------------------------------------------------------------------
 
 
-async def fetch_wikipedia(
-    validator: ChannelIDValidator, sample_size: Optional[int] = None
-) -> List[DiscoveredCreator]:
+async def fetch_wikipedia(validator: ChannelIDValidator) -> List[DiscoveredCreator]:
     """
     Fetch top YouTube channels from Wikipedia's most-subscribed list.
 
@@ -370,10 +346,6 @@ async def fetch_wikipedia(
     Note: Wikipedia has been migrating channel links to @handle format; the
     UC-ID regex will only match rows that still use /channel/UCxxx links.
     Rows with handle-only links are not resolved here to avoid quota spend.
-
-    Args:
-        sample_size: Number of random channels to return. If None, returns all.
-                     Enables diverse discovery across multiple runs.
     """
     url = "https://en.wikipedia.org/wiki/List_of_most-subscribed_YouTube_channels"
     logger.info("📖 Fetching from Wikipedia...")
@@ -416,19 +388,9 @@ async def fetch_wikipedia(
         if rank > 200:
             break
 
-    # Apply random sampling if requested
-    if sample_size and sample_size < len(creators):
-        original_count = len(creators)
-        creators = random.sample(creators, sample_size)
-        logger.info(
-            f"✅ Wikipedia (most-subscribed): {len(creators)} random channels "
-            f"selected from {original_count} total (enables diverse discovery)"
-        )
-    else:
-        logger.info(
-            f"✅ Wikipedia (most-subscribed): {len(creators)} creators found via UC ID extraction"
-        )
-
+    logger.info(
+        f"✅ Wikipedia (most-subscribed): {len(creators)} creators found via UC ID extraction"
+    )
     if len(creators) < 10:
         logger.warning(
             "  Very few channels extracted from Wikipedia. "
@@ -445,7 +407,7 @@ async def fetch_wikipedia(
 
 
 async def fetch_wikipedia_most_viewed(
-    validator: ChannelIDValidator, sample_size: Optional[int] = None
+    validator: ChannelIDValidator,
 ) -> List[DiscoveredCreator]:
     """
     Fetch top 50 YouTube channels from Wikipedia's most-viewed list.
@@ -457,9 +419,6 @@ async def fetch_wikipedia_most_viewed(
     No YouTube API calls required — UC IDs extracted directly from links.
     Complements the subscriber-ranked list with view-count-ranked channels
     (e.g. children's content and music labels rank higher here).
-
-    Args:
-        sample_size: Number of random channels to return. If None, returns all.
     """
     url = "https://en.wikipedia.org/wiki/List_of_most-viewed_YouTube_channels"
     logger.info("📖 Fetching from Wikipedia (most-viewed)...")
@@ -502,19 +461,9 @@ async def fetch_wikipedia_most_viewed(
         if rank > 100:
             break
 
-    # Apply random sampling if requested
-    if sample_size and sample_size < len(creators):
-        original_count = len(creators)
-        creators = random.sample(creators, sample_size)
-        logger.info(
-            f"✅ Wikipedia (most-viewed): {len(creators)} random channels "
-            f"selected from {original_count} total"
-        )
-    else:
-        logger.info(
-            f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction"
-        )
-
+    logger.info(
+        f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction"
+    )
     if len(creators) < 5:
         logger.warning(
             "  Very few channels extracted from Wikipedia most-viewed. "
@@ -547,9 +496,7 @@ LIMIT 600
 """
 
 
-async def fetch_wikidata(
-    validator: ChannelIDValidator, sample_size: Optional[int] = None
-) -> List[DiscoveredCreator]:
+async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreator]:
     """
     Fetch notable YouTube channels from Wikidata's public SPARQL endpoint.
 
@@ -565,10 +512,6 @@ async def fetch_wikidata(
     Endpoint: https://query.wikidata.org/sparql
     Rate limit: 1 request / 5 s recommended. We make exactly one call.
     ToS: CC0 licensed data — fully open for reuse.
-
-    Args:
-        sample_size: Number of random channels to return. If None, returns all.
-                     Random sampling enables discovering different channels each run.
     """
     logger.info("🌐 Fetching from Wikidata SPARQL...")
     headers = {
@@ -649,40 +592,300 @@ async def fetch_wikidata(
         )
         rank += 1
 
-    # Apply random sampling if requested (after full fetch to preserve subscriber rank)
-    if sample_size and sample_size < len(creators):
-        original_count = len(creators)
-        # Random sample but preserve some high-ranked channels
-        # Take top 20% guaranteed + random sample from rest
-        guaranteed = min(sample_size // 5, len(creators))
-        remaining_sample = sample_size - guaranteed
-
-        if remaining_sample > 0 and len(creators) > guaranteed:
-            guaranteed_creators = creators[:guaranteed]
-            remaining_creators = creators[guaranteed:]
-            sampled_remaining = random.sample(
-                remaining_creators, min(remaining_sample, len(remaining_creators))
-            )
-            creators = guaranteed_creators + sampled_remaining
-        else:
-            creators = creators[:sample_size]
-
-        logger.info(
-            f"✅ Wikidata: {len(creators)} channels selected from {original_count} total "
-            f"({guaranteed} top-ranked + {len(creators) - guaranteed} random)"
-        )
-    else:
-        logger.info(
-            f"✅ Wikidata: {len(creators)} creators found "
-            f"({skipped_invalid} non-UC entries skipped)"
-        )
-
-    if len(creators) < 50 and not sample_size:
+    logger.info(
+        f"✅ Wikidata: {len(creators)} creators found "
+        f"({skipped_invalid} non-UC entries skipped)"
+    )
+    if len(creators) < 50:
         logger.warning(
             "  Fewer results than expected from Wikidata. "
             "The SPARQL endpoint may be rate-limiting or the query timed out."
         )
     return creators
+
+
+# ---------------------------------------------------------------------------
+# Wikidata Extended — targeted per-entity-type queries
+# ---------------------------------------------------------------------------
+#
+# The broad _WIKIDATA_QUERY above fetches any item with P2397, ordered by
+# subscriber count, but its LIMIT 600 means many real creators are missed.
+#
+# The queries below each target a specific Wikidata entity class.  Running
+# them separately lets us use a high per-class LIMIT and still ORDER BY
+# subscribers so the best signal rises to the top.  All results are UC IDs
+# sourced directly from P2397 — zero YouTube API cost.
+#
+# Entity classes used (Wikidata QIDs):
+#   Q17125263  — YouTuber (content creator whose primary medium is YouTube)
+#   Q177220    — singer / solo musician
+#   Q215380    — musical group / band
+#   Q245068    — comedian
+#   Q2066131   — athlete
+#   Q1930187   — journalist
+#   Q1331793   — news media organisation
+#   Q4830453   — business / brand / company
+#   Q2526255   — film director / filmmaker
+#
+# Rate limit: Wikidata recommends ≤ 1 request / 5 s from automated clients.
+# We sleep 6 s between calls to stay safely within that bound.
+# ---------------------------------------------------------------------------
+
+_WIKIDATA_ENTITY_QUERIES: List[Tuple[str, str]] = [
+    (
+        "YouTubers",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q17125263 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 2000
+        """,
+    ),
+    (
+        "Musicians",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q177220 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 2000
+        """,
+    ),
+    (
+        "Bands",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q215380 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 1000
+        """,
+    ),
+    (
+        "Comedians",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q245068 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 1000
+        """,
+    ),
+    (
+        "Athletes",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q2066131 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 1000
+        """,
+    ),
+    (
+        "Journalists",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q1930187 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    (
+        "NewsOrgs",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q1331793 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    (
+        "Businesses",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q4830453 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    (
+        "Filmmakers",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q2526255 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+]
+
+
+def _parse_wikidata_bindings(
+    bindings: List[dict],
+    validator: ChannelIDValidator,
+    source: str,
+    seen: Set[str],
+    start_rank: int,
+) -> Tuple[List[DiscoveredCreator], int]:
+    """
+    Shared parser for Wikidata SPARQL result bindings.
+
+    Applies the same UC-ID validation and URL-prefix normalisation used in
+    fetch_wikidata().  Mutates `seen` in-place so callers share dedup state
+    across multiple query results.
+
+    Returns (creators, skipped_invalid_count).
+    """
+    creators: List[DiscoveredCreator] = []
+    skipped_invalid = 0
+    rank = start_rank
+
+    for row in bindings:
+        raw_id = row.get("channelId", {}).get("value", "").strip()
+        if not raw_id:
+            continue
+
+        channel_id = None
+        if raw_id.startswith(("http://", "https://")):
+            parsed = urlparse(raw_id)
+            host = parsed.hostname or ""
+            if host == "youtube.com" or host.endswith(".youtube.com"):
+                channel_id = validator.extract_from_url(raw_id)
+        if channel_id is None and validator.is_valid(raw_id):
+            channel_id = raw_id
+        if channel_id is None:
+            skipped_invalid += 1
+            logger.debug(f"  Wikidata ({source}): skipping non-UC value: {raw_id!r}")
+            continue
+
+        if channel_id in seen:
+            continue
+
+        seen.add(channel_id)
+        label = row.get("label", {}).get("value") or None
+
+        creators.append(
+            DiscoveredCreator(
+                channel_id=channel_id,
+                channel_name=label,
+                channel_url=f"https://www.youtube.com/channel/{channel_id}",
+                source=source,
+                source_rank=rank,
+            )
+        )
+        rank += 1
+
+    return creators, skipped_invalid
+
+
+async def fetch_wikidata_extended(
+    validator: ChannelIDValidator,
+    already_seen: Optional[Set[str]] = None,
+) -> List[DiscoveredCreator]:
+    """
+    Run targeted Wikidata SPARQL queries, one per creator entity type.
+
+    Unlike the broad fetch_wikidata() which fires a single generic query
+    with LIMIT 600, this function issues one query per Wikidata class
+    (YouTuber, Musician, Band, Comedian, Athlete, …) each with its own
+    high LIMIT.  Because each class is fetched independently the results
+    are additive — a channel that is both a musician and a YouTuber will
+    appear in whichever class query returns it first, then be deduped out
+    of subsequent ones.
+
+    already_seen: optional set of channel_ids to skip from the start
+                  (pass the set collected from earlier sources to avoid
+                  re-adding channels already queued for seeding).
+
+    Rate limiting: 6 s sleep between requests (Wikidata recommends ≤ 1/5 s).
+    Cost: zero YouTube API units — all data comes from Wikidata P2397.
+    Expected yield: 3,000–8,000 additional unique creators beyond the broad query.
+    """
+    logger.info("🌐 Fetching from Wikidata Extended (entity-type queries)...")
+
+    seen: Set[str] = set(already_seen) if already_seen else set()
+    all_creators: List[DiscoveredCreator] = []
+    # start_rank continues from 1 within this source; dedup against other
+    # sources happens in main() via the global seen set.
+    rank = 1
+
+    wikidata_headers = {
+        "User-Agent": "ViralVibesSeed/1.0 (seed_creators.py; contact via project repo)",
+        "Accept": "application/sparql-results+json",
+    }
+
+    for entity_label, query in _WIKIDATA_ENTITY_QUERIES:
+        logger.info(f"  ↳ Querying: {entity_label}...")
+        try:
+            resp = requests.get(
+                _WIKIDATA_SPARQL_ENDPOINT,
+                params={"query": query, "format": "json"},
+                headers=wikidata_headers,
+                timeout=90,  # entity queries can be slower than the broad one
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as e:
+            logger.warning(
+                f"    Wikidata Extended ({entity_label}) request failed: {e}"
+            )
+            time.sleep(6)
+            continue
+        except ValueError as e:
+            logger.warning(f"    Wikidata Extended ({entity_label}) invalid JSON: {e}")
+            time.sleep(6)
+            continue
+
+        bindings = data.get("results", {}).get("bindings", [])
+        batch, skipped = _parse_wikidata_bindings(
+            bindings,
+            validator,
+            source=f"wikidata_{entity_label.lower()}",
+            seen=seen,
+            start_rank=rank,
+        )
+        logger.info(
+            f"    → {len(batch)} new creators " f"({skipped} non-UC entries skipped)"
+        )
+        all_creators.extend(batch)
+        rank += len(batch)
+
+        time.sleep(6)  # respect Wikidata's rate limit between queries
+
+    logger.info(f"✅ Wikidata Extended: {len(all_creators)} additional creators found")
+    return all_creators
 
 
 # ---------------------------------------------------------------------------
@@ -812,25 +1015,12 @@ def _parse_args():
     parser.add_argument(
         "--quota-budget",
         type=int,
-        default=5000,
+        default=2000,
         metavar="UNITS",
         help=(
             "Max YouTube API quota units to spend on name→ID resolution. "
             "Searches cost 100 units each; handle lookups cost 1. "
-            "Default: 5000 (= 50 searches or 5000 handle lookups). "
-            "Daily quota limit is typically 10,000 units."
-        ),
-    )
-    parser.add_argument(
-        "--sample-size",
-        type=int,
-        default=50,
-        metavar="N",
-        help=(
-            "Random sample size from Wikipedia/Wikidata sources. "
-            "Enables diverse discovery across multiple runs. "
-            "Set to 0 for all channels (original behavior). "
-            "Default: 50"
+            "Default: 2000 (= 20 searches or 2000 handle lookups)."
         ),
     )
     parser.add_argument(
@@ -847,6 +1037,16 @@ def _parse_args():
         "--no-wikidata",
         action="store_true",
         help="Skip the Wikidata SPARQL source (~500 notable channels, no API cost)",
+    )
+    parser.add_argument(
+        "--no-wikidata-extended",
+        action="store_true",
+        help=(
+            "Skip the Wikidata Extended entity-type queries "
+            "(YouTubers, musicians, athletes, etc.). "
+            "Adds ~3,000–8,000 channels at zero API cost but takes ~60 s "
+            "due to Wikidata rate-limit sleeps."
+        ),
     )
     parser.add_argument(
         "--no-csv",
@@ -899,33 +1099,6 @@ async def main():
     all_creators: List[DiscoveredCreator] = []
     combined_stats = SeedStats()
 
-    # Process FREE sources first (no quota cost) to maximize discovery
-    # Random sampling enables different channels each run
-    sample_size = args.sample_size if args.sample_size > 0 else None
-
-    if not args.no_wikipedia:
-        # No API calls — always safe to run
-        wiki_creators = await fetch_wikipedia(validator, sample_size=sample_size)
-        all_creators.extend(wiki_creators)
-    else:
-        logger.info("Wikipedia (most-subscribed) disabled via --no-wikipedia")
-
-    if not args.no_wikipedia_views:
-        wiki_views_creators = await fetch_wikipedia_most_viewed(
-            validator, sample_size=sample_size
-        )
-        all_creators.extend(wiki_views_creators)
-    else:
-        logger.info("Wikipedia (most-viewed) disabled via --no-wikipedia-views")
-
-    if not args.no_wikidata:
-        # Single SPARQL call — no YouTube quota spend, ~500 notable channels
-        wikidata_creators = await fetch_wikidata(validator, sample_size=sample_size)
-        all_creators.extend(wikidata_creators)
-    else:
-        logger.info("Wikidata SPARQL disabled via --no-wikidata")
-
-    # Process CSV LAST so free sources don't waste quota on duplicates
     if csv_path and not args.no_csv:
         csv_creators, csv_stats = await resolve_csv(
             csv_path,
@@ -944,6 +1117,37 @@ async def main():
         logger.info("CSV source disabled via --no-csv")
     else:
         logger.info("No CSV path provided — skipping CSV source")
+
+    if not args.no_wikipedia:
+        # No API calls — always safe to run
+        wiki_creators = await fetch_wikipedia(validator)
+        all_creators.extend(wiki_creators)
+    else:
+        logger.info("Wikipedia (most-subscribed) disabled via --no-wikipedia")
+
+    if not args.no_wikipedia_views:
+        wiki_views_creators = await fetch_wikipedia_most_viewed(validator)
+        all_creators.extend(wiki_views_creators)
+    else:
+        logger.info("Wikipedia (most-viewed) disabled via --no-wikipedia-views")
+
+    if not args.no_wikidata:
+        # Single SPARQL call — no YouTube quota spend, ~500 notable channels
+        wikidata_creators = await fetch_wikidata(validator)
+        all_creators.extend(wikidata_creators)
+    else:
+        logger.info("Wikidata SPARQL disabled via --no-wikidata")
+
+    if not args.no_wikidata_extended:
+        # One SPARQL call per entity type — no YouTube quota spend, ~3–8k channels.
+        # Pass already-seen IDs so the extended queries skip duplicates up front.
+        already_seen = {c.channel_id for c in all_creators}
+        wikidata_ext_creators = await fetch_wikidata_extended(
+            validator, already_seen=already_seen
+        )
+        all_creators.extend(wikidata_ext_creators)
+    else:
+        logger.info("Wikidata Extended disabled via --no-wikidata-extended")
 
     # Deduplicate across sources (CSV wins over Wikipedia for same channel_id)
     seen: Set[str] = set()
