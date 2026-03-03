@@ -59,6 +59,7 @@ import db
 from constants import CREATOR_TABLE
 from db import init_supabase, queue_creator_sync, setup_logging
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
+from services.youtube_config import get_creator_worker_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -773,15 +774,14 @@ async def main():
         logger.info("[dry-run] Skipping Supabase init")
 
     # ── YouTube resolver ────────────────────────────────────────────────────
-    api_key = os.getenv("YOUTUBE_API_KEY_CREATORS") or os.getenv("YOUTUBE_API_KEY")
-    if not api_key:
-        logger.error(
-            "❌ No YouTube API key found (YOUTUBE_API_KEY_CREATORS or YOUTUBE_API_KEY)"
-        )
+    try:
+        api_key = get_creator_worker_api_key()
+        resolver = YouTubeResolver(api_key=api_key)
+        validator = ChannelIDValidator()
+        logger.info("✅ YouTube services initialized")
+    except ValueError as e:
+        logger.error(f"❌ {e}")
         sys.exit(1)
-
-    resolver = YouTubeResolver(api_key=api_key)
-    validator = ChannelIDValidator()
 
     # ── Resolve CSV path ────────────────────────────────────────────────────
     csv_path = args.csv_path
