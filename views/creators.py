@@ -1023,18 +1023,18 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
 
 def _render_topic_categories(topic_categories: str | None) -> Div | None:
     """
-    Render topic categories as elegant emoji strip with Wikipedia links.
+    Render topic categories as clean emoji-only pills.
 
     Args:
         topic_categories: Comma-separated category names from DB
                          (e.g., "Music,Entertainment,Video game culture")
 
     Returns:
-        Div with clickable emoji + text categories, or None if no categories
+        Div with minimal emoji pills, or None if no categories
 
-    Design: Displays as a centered strip with gradient background,
-            limited to 3 categories for clean UX. Each category links
-            to its Wikipedia page for educational context.
+    Design: Ultra-clean emoji-only badges with subtle colors.
+            Full category name appears on hover with Wikipedia link.
+            Reduces visual overload while maintaining context.
     """
     if not topic_categories:
         return None
@@ -1047,35 +1047,37 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     if not categories:
         return None
 
-    # Build category links with emojis (limit to 3 for clean display)
-    category_items = []
-    for cat in categories[:3]:
+    # Color palette for pills (subtle, professional)
+    pill_colors = [
+        "bg-blue-100 hover:bg-blue-200",
+        "bg-purple-100 hover:bg-purple-200",
+        "bg-green-100 hover:bg-green-200",
+        "bg-pink-100 hover:bg-pink-200",
+        "bg-indigo-100 hover:bg-indigo-200",
+    ]
+
+    # Build emoji-only pills (limit to 5 for clean display)
+    category_pills = []
+    for idx, cat in enumerate(categories[:5]):
         emoji = get_topic_category_emoji(cat)
-        # Convert category name to Wikipedia URL
         wiki_slug = cat.replace(" ", "_")
         wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
+        color = pill_colors[idx % len(pill_colors)]
 
-        category_items.append(
+        category_pills.append(
             A(
-                f"{emoji} {cat}",
+                emoji,
                 href=wiki_url,
                 target="_blank",
                 rel="noopener noreferrer",
-                cls="text-xs font-medium text-gray-700 hover:text-blue-600 transition-colors no-underline",
-                title=f"Learn more about {cat} on Wikipedia",
+                cls=f"inline-flex items-center justify-center w-8 h-8 rounded-full {color} text-base transition-all duration-200 no-underline hover:scale-110",
+                title=f"{cat} (click to learn more)",
             )
         )
 
-    # Join with bullet separators
-    elements = []
-    for i, item in enumerate(category_items):
-        elements.append(item)
-        if i < len(category_items) - 1:
-            elements.append(Span("•", cls="text-gray-400 mx-2"))
-
     return Div(
-        *elements,
-        cls="flex items-center justify-center flex-wrap gap-1 py-2.5 px-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100 mb-3",
+        *category_pills,
+        cls="flex items-center justify-center gap-2 py-2 px-3 mb-3",
     )
 
 
