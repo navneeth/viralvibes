@@ -1044,6 +1044,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     try:
         # Try parsing as JSON first (e.g., '["https://...", "https://..."]')
         import json
+
         parsed = json.loads(topic_categories)
         if isinstance(parsed, list):
             raw_categories = [str(item).strip() for item in parsed if item]
@@ -1068,6 +1069,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
                 slug = item.split("/wiki/")[-1].rstrip("/")
                 # Decode URL encoding and convert underscores to spaces
                 import urllib.parse
+
                 name = urllib.parse.unquote(slug).replace("_", " ")
                 if name:
                     categories.append(name)
