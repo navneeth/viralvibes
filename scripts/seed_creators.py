@@ -11,8 +11,8 @@ Supports:
                      musicians, bands, comedians, athletes, journalists,
                      news orgs, businesses, filmmakers, YouTube-channel
                      entities). Each query runs with its own high LIMIT
-                     and is rate-limited at 6 s between calls. Yields
-                     ~5,000–10,000 additional channels with zero YouTube
+                     and is rate-limited between calls (per WIKIDATA_RATE_LIMIT_SLEEP).
+                     Yields ~5,000–10,000 additional channels with zero YouTube
                      API cost.
 
 Quota strategy
@@ -68,6 +68,13 @@ from db import init_supabase, queue_creator_sync, setup_logging
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Configuration
+# =============================================================================
+# Wikidata recommends ≤ 1 request / 5 s from automated clients.
+# Using 6 s provides safe margin and accounts for processing time.
+WIKIDATA_RATE_LIMIT_SLEEP = 6  # seconds
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -633,7 +640,7 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
 # under a person entry).
 #
 # Rate limit: Wikidata recommends ≤ 1 request / 5 s from automated clients.
-# We sleep 6 s between calls to stay safely within that bound.
+# We sleep WIKIDATA_RATE_LIMIT_SLEEP between calls to stay safely within that bound.
 # ---------------------------------------------------------------------------
 
 _WIKIDATA_ENTITY_QUERIES: List[Tuple[str, str]] = [
@@ -859,7 +866,7 @@ async def fetch_wikidata_extended(
                   (pass the set collected from earlier sources to avoid
                   re-adding channels already queued for seeding).
 
-    Rate limiting: 6 s sleep between requests (Wikidata recommends ≤ 1/5 s).
+    Rate limiting: WIKIDATA_RATE_LIMIT_SLEEP seconds between requests (Wikidata recommends ≤ 1/5 s).
     Cost: zero YouTube API units — all data comes from Wikidata P2397.
     Expected yield: 3,000–8,000 additional unique creators beyond the broad query.
     """
@@ -886,12 +893,14 @@ async def fetch_wikidata_extended(
             resp.raise_for_status()
             data = resp.json()
         except requests.RequestException as e:
-            logger.warning(f"    Wikidata Extended ({entity_label}) request failed: {e}")
-            time.sleep(6)
+            logger.warning(
+                f"    Wikidata Extended ({entity_label}) request failed: {e}"
+            )
+            time.sleep(WIKIDATA_RATE_LIMIT_SLEEP)
             continue
         except ValueError as e:
             logger.warning(f"    Wikidata Extended ({entity_label}) invalid JSON: {e}")
-            time.sleep(6)
+            time.sleep(WIKIDATA_RATE_LIMIT_SLEEP)
             continue
 
         bindings = data.get("results", {}).get("bindings", [])
@@ -903,17 +912,16 @@ async def fetch_wikidata_extended(
             start_rank=rank,
         )
         logger.info(
-            f"    → {len(batch)} new creators "
-            f"({skipped} non-UC entries skipped)"
+            f"    → {len(batch)} new creators " f"({skipped} non-UC entries skipped)"
         )
         all_creators.extend(batch)
         rank += len(batch)
 
-        time.sleep(6)  # respect Wikidata's rate limit between queries
+        time.sleep(
+            WIKIDATA_RATE_LIMIT_SLEEP
+        )  # respect Wikidata's rate limit between queries
 
-    logger.info(
-        f"✅ Wikidata Extended: {len(all_creators)} additional creators found"
-    )
+    logger.info(f"✅ Wikidata Extended: {len(all_creators)} additional creators found")
     return all_creators
 
 
