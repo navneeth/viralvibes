@@ -25,6 +25,7 @@ from fasthtml.common import *
 from starlette.responses import Response
 
 from components.errors import ErrorAlert
+from controllers.auth_routes import require_auth
 from db import (
     get_dashboard_event_counts,
     get_supabase,
@@ -66,24 +67,6 @@ def get_user_from_request(request: Request) -> Optional[str]:
         logger.debug("Anonymous user")
 
     return user_id
-
-
-def require_auth(func):
-    """Decorator to require authenticated user."""
-
-    @wraps(func)
-    def wrapper(request: Request, *args, **kwargs):
-        user_id = get_user_from_request(request)
-        if not user_id:
-            logger.warning(f"Unauthorized access to {func.__name__}")
-            return ErrorAlert(
-                "Access Denied",
-                "You must be logged in to view this page.",
-                status_code=401,
-            )
-        return func(request, user_id, *args, **kwargs)
-
-    return wrapper
 
 
 # ============================================================================
@@ -262,8 +245,7 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
 
 
 @rt("/me/dashboards")
-@require_auth
-def my_dashboards(request: Request, user_id: str) -> Div:
+def my_dashboards(request: Request, sess) -> Div:
     """
     Render user's PERSONAL dashboards.
     - Only authenticated users can view
@@ -272,11 +254,18 @@ def my_dashboards(request: Request, user_id: str) -> Div:
 
     Args:
         request: FastHTML request object
-        user_id: Authenticated user ID (from @require_auth decorator)
+        sess: Session object containing auth data
 
     Returns:
-        Rendered dashboards list HTML
+        Rendered dashboards list HTML or error if not authenticated
     """
+    # Check authentication
+    auth = sess.get("auth")
+    auth_error = require_auth(auth, "Please log in to view your dashboards.")
+    if auth_error:
+        return auth_error
+
+    user_id = sess.get("user_id")
     logger.info(f"Loading personal dashboards for user: {user_id}")
 
     if not supabase_client:
@@ -360,8 +349,7 @@ def my_dashboards(request: Request, user_id: str) -> Div:
 
 
 @rt("/me")
-@require_auth
-def user_profile(request: Request, user_id: str) -> Div:
+def user_profile(request: Request, sess) -> Div:
     """
     Render user profile page.
 
@@ -370,6 +358,13 @@ def user_profile(request: Request, user_id: str) -> Div:
     - Quick stats (playlists analyzed, total views, etc.)
     - Links to settings, dashboards, etc.
     """
+    # Check authentication
+    auth = sess.get("auth")
+    auth_error = require_auth(auth, "Please log in to view your profile.")
+    if auth_error:
+        return auth_error
+
+    user_id = sess.get("user_id")
     logger.info(f"Loading profile for user: {user_id}")
 
     if not supabase_client:

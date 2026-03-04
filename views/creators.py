@@ -49,6 +49,83 @@ from utils.creator_metrics import (
 logger = logging.getLogger(__name__)
 
 
+# Topic Category to Emoji Mapping (for topicCategories from YouTube API)
+# These are Wikipedia-based categories distinct from video categoryId
+TOPIC_CATEGORY_EMOJI_MAP = {
+    "music": "🎵",
+    "gaming": "🎮",
+    "video game": "🎮",
+    "game": "🎮",
+    "sport": "⚽",
+    "basketball": "🏀",
+    "baseball": "⚾",
+    "football": "🏈",
+    "soccer": "⚽",
+    "entertainment": "🎬",
+    "film": "🎬",
+    "movie": "🎬",
+    "television": "📺",
+    "education": "🎓",
+    "knowledge": "📚",
+    "science": "🔬",
+    "technology": "💻",
+    "food": "🍳",
+    "lifestyle": "🏠",
+    "cooking": "🍳",
+    "health": "💪",
+    "fitness": "💪",
+    "art": "🎨",
+    "performing arts": "🎭",
+    "society": "🎪",
+    "culture": "🎪",
+    "news": "📰",
+    "politics": "🏛️",
+    "comedy": "😂",
+    "humor": "😂",
+    "travel": "✈️",
+    "nature": "🌿",
+    "animals": "🐾",
+    "pets": "🐾",
+    "fashion": "👗",
+    "beauty": "💄",
+    "diy": "🔨",
+    "craft": "✂️",
+    "business": "💼",
+    "finance": "💰",
+    "automotive": "🚗",
+    "vehicle": "🚗",
+}
+
+
+def get_topic_category_emoji(category_name: str) -> str:
+    """
+    Get emoji for a topic category name.
+
+    Args:
+        category_name: Topic category name (e.g., "Music", "Video game culture")
+
+    Returns:
+        Emoji string (e.g., "🎵", "🎮")
+
+    Examples:
+        get_topic_category_emoji("Music") → "🎵"
+        get_topic_category_emoji("Video game culture") → "🎮"
+        get_topic_category_emoji("Entertainment") → "🎬"
+    """
+    if not category_name:
+        return "🏷️"
+
+    name_lower = category_name.lower()
+
+    # Try to find a matching emoji
+    for key, emoji in TOPIC_CATEGORY_EMOJI_MAP.items():
+        if key in name_lower:
+            return emoji
+
+    # Default fallback
+    return "🏷️"
+
+
 def _filter_valid_creators(creators: list[dict]) -> list[dict]:
     """
     Filter out creators with incomplete data.
@@ -898,6 +975,150 @@ def _build_growth_trend(
     )
 
 
+def _render_topic_categories(topic_categories: str | None) -> Div | None:
+    """
+    Render topic categories as elegant emoji strip.
+
+    Args:
+        topic_categories: Comma-separated category names from DB
+                         (e.g., "Music,Entertainment,Video game culture")
+
+    Returns:
+        Div with emoji + text categories, or None if no categories
+
+    Design: Displays as a centered strip with gradient background,
+            limited to 3 categories for clean UX.
+    """
+    if not topic_categories:
+        return None
+
+    # Parse categories (stored as comma-separated text)
+    categories = [
+        cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
+    ]
+
+    if not categories:
+        return None
+
+    # Build category spans with emojis (limit to 3 for clean display)
+    category_items = []
+    for cat in categories[:3]:
+        emoji = get_topic_category_emoji(cat)
+        category_items.append(
+            Span(f"{emoji} {cat}", cls="text-xs font-medium text-gray-700")
+        )
+
+    # Join with bullet separators
+    elements = []
+    for i, item in enumerate(category_items):
+        elements.append(item)
+        if i < len(category_items) - 1:
+            elements.append(Span("•", cls="text-gray-400 mx-2"))
+
+    return Div(
+        *elements,
+        cls="flex items-center justify-center flex-wrap gap-1 py-2.5 px-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100 mb-3",
+    )
+
+
+def _render_topic_categories(topic_categories: str | None) -> Div | None:
+    """
+    Render topic categories as clean emoji-only pills.
+
+    Args:
+        topic_categories: Comma-separated category names from DB
+                         (e.g., "Music,Entertainment,Video game culture")
+
+    Returns:
+        Div with minimal emoji pills, or None if no categories
+
+    Design: Ultra-clean emoji-only badges with subtle colors.
+            Full category name appears on hover with Wikipedia link.
+            Reduces visual overload while maintaining context.
+    """
+    if not topic_categories:
+        return None
+
+    # Parse categories - may be JSON array or comma-separated string
+    raw_categories = []
+    try:
+        # Try parsing as JSON first (e.g., '["https://...", "https://..."]')
+        import json
+
+        parsed = json.loads(topic_categories)
+        if isinstance(parsed, list):
+            raw_categories = [str(item).strip() for item in parsed if item]
+        else:
+            raw_categories = [str(parsed).strip()]
+    except (json.JSONDecodeError, TypeError):
+        # Fallback to comma-separated string
+        raw_categories = [
+            cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
+        ]
+
+    if not raw_categories:
+        return None
+
+    # Extract category names from Wikipedia URLs
+    categories = []
+    for item in raw_categories:
+        # If it's a Wikipedia URL, extract the category name from the slug
+        if "wikipedia.org/wiki/" in item:
+            try:
+                # Extract everything after the last /wiki/
+                slug = item.split("/wiki/")[-1].rstrip("/")
+                # Decode URL encoding and convert underscores to spaces
+                import urllib.parse
+
+                name = urllib.parse.unquote(slug).replace("_", " ")
+                if name:
+                    categories.append(name)
+            except Exception:
+                continue
+        else:
+            # It's already a category name
+            clean_name = item.strip("\"'[]").strip()
+            if clean_name:
+                categories.append(clean_name)
+
+    if not categories:
+        return None
+
+    # Color palette for pills (subtle, professional)
+    pill_colors = [
+        "bg-blue-100 hover:bg-blue-200",
+        "bg-purple-100 hover:bg-purple-200",
+        "bg-green-100 hover:bg-green-200",
+        "bg-pink-100 hover:bg-pink-200",
+        "bg-indigo-100 hover:bg-indigo-200",
+    ]
+
+    # Build emoji-only pills (limit to 5 for clean display)
+    category_pills = []
+    for idx, cat in enumerate(categories[:5]):
+        emoji = get_topic_category_emoji(cat)
+        # Create clean Wikipedia URL from category name
+        wiki_slug = cat.replace(" ", "_")
+        wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
+        color = pill_colors[idx % len(pill_colors)]
+
+        category_pills.append(
+            A(
+                emoji,
+                href=wiki_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                cls=f"inline-flex items-center justify-center w-8 h-8 rounded-full {color} text-base transition-all duration-200 no-underline hover:scale-110",
+                title=f"{cat} (click to learn more)",
+            )
+        )
+
+    return Div(
+        *category_pills,
+        cls="flex items-center justify-center gap-2 py-2 px-3 mb-3",
+    )
+
+
 def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
     """Render a truncated bio paragraph, or None if no bio is available."""
     if not bio:
@@ -1081,6 +1302,8 @@ def _render_creator_card(creator: dict) -> Div:
             quality_grade,
             channel_age_days,
         ),
+        # Topic categories emoji strip (NEW)
+        _render_topic_categories(safe_get_value(creator, "topic_categories")),
         # Bio — shown when present, truncated to keep cards uniform
         _render_bio(
             safe_get_value(creator, "bio")

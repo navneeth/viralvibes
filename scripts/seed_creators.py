@@ -9,11 +9,10 @@ Supports:
                    sourced via the P2397 YouTube channel ID property
 - Wikidata Extended: Targeted per-entity-type SPARQL queries (YouTubers,
                      musicians, bands, comedians, athletes, journalists,
-                     news orgs, businesses, filmmakers, YouTube-channel
-                     entities). Each query runs with its own high LIMIT
-                     and is rate-limited at 6 s between calls. Yields
-                     ~5,000–10,000 additional channels with zero YouTube
-                     API cost.
+                     news orgs, businesses, filmmakers). Each query runs
+                     with its own high LIMIT and is rate-limited at 6 s
+                     between calls. Yields ~5,000–10,000 additional
+                     channels with zero YouTube API cost.
 
 Quota strategy
 --------------
@@ -38,10 +37,14 @@ to the CSV instead.
 Usage
 -----
   python scripts/seed_creators.py scripts/youtubers.csv
+  # Higher quota for more CSV names
   python scripts/seed_creators.py scripts/youtubers.csv --quota-budget 5000
+  # Dry run to see what would be discovered and resolved without making any API calls or DB changes
   python scripts/seed_creators.py scripts/youtubers.csv --dry-run
   python scripts/seed_creators.py --no-wikipedia --no-wikidata   # CSV only
   python scripts/seed_creators.py --no-csv                       # scraped sources only
+  # Daily discovery run (recommended)
+  python scripts/seed_creators.py --no-csv --quota-budget 5000   # smaller quota for daily incremental runs
 """
 
 import asyncio
@@ -623,14 +626,6 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
 #   Q1331793   — news media organisation
 #   Q4830453   — business / brand / company
 #   Q2526255   — film director / filmmaker
-#   Q2178147   — YouTube channel (the channel itself as a Wikidata entity)
-#
-# The Q2178147 query is qualitatively different from the others: instead of
-# finding people/organisations that *have* a YouTube channel, it finds items
-# that *are* YouTube channels — a separate, largely non-overlapping population
-# in Wikidata where the channel entity is modelled directly (e.g. many gaming
-# channels, commentary channels, and brand channels live here rather than
-# under a person entry).
 #
 # Rate limit: Wikidata recommends ≤ 1 request / 5 s from automated clients.
 # We sleep 6 s between calls to stay safely within that bound.
@@ -754,31 +749,6 @@ _WIKIDATA_ENTITY_QUERIES: List[Tuple[str, str]] = [
         LIMIT 500
         """,
     ),
-    # ── NEW ──────────────────────────────────────────────────────────────────
-    # Q2178147 = "YouTube channel" as a direct Wikidata entity.
-    #
-    # The queries above find people/orgs that *have* a YouTube channel via
-    # P2397.  This query finds items that *are* YouTube channels — a separate
-    # population where the channel itself is the Wikidata subject (rather than
-    # the person behind it).  Gaming channels, commentary channels, brand
-    # channels, and many non-English creators tend to be modelled this way.
-    #
-    # No subscriber data is stored on most of these items (P3744 is sparse
-    # for channel-entities), so we ORDER BY label as a stable fallback rather
-    # than getting an arbitrary ordering.  LIMIT 5000 captures the bulk of
-    # this population without risking a Wikidata query timeout.
-    (
-        "YouTubeChannelEntities",
-        """
-        SELECT DISTINCT ?channelId ?label WHERE {
-          ?item wdt:P31 wd:Q2178147 ;
-                wdt:P2397 ?channelId .
-          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
-        }
-        ORDER BY ?label
-        LIMIT 5000
-        """,
-    ),
 ]
 
 
@@ -849,10 +819,10 @@ async def fetch_wikidata_extended(
 
     Unlike the broad fetch_wikidata() which fires a single generic query
     with LIMIT 600, this function issues one query per Wikidata class
-    (YouTuber, Musician, Band, Comedian, Athlete, …, YouTubeChannelEntities)
-    each with its own high LIMIT.  Because each class is fetched independently
-    the results are additive — a channel that is both a musician and a YouTuber
-    will appear in whichever class query returns it first, then be deduped out
+    (YouTuber, Musician, Band, Comedian, Athlete, …) each with its own
+    high LIMIT.  Because each class is fetched independently the results
+    are additive — a channel that is both a musician and a YouTuber will
+    appear in whichever class query returns it first, then be deduped out
     of subsequent ones.
 
     already_seen: optional set of channel_ids to skip from the start
@@ -867,6 +837,8 @@ async def fetch_wikidata_extended(
 
     seen: Set[str] = set(already_seen) if already_seen else set()
     all_creators: List[DiscoveredCreator] = []
+    # start_rank continues from 1 within this source; dedup against other
+    # sources happens in main() via the global seen set.
     rank = 1
 
     wikidata_headers = {
@@ -886,7 +858,9 @@ async def fetch_wikidata_extended(
             resp.raise_for_status()
             data = resp.json()
         except requests.RequestException as e:
-            logger.warning(f"    Wikidata Extended ({entity_label}) request failed: {e}")
+            logger.warning(
+                f"    Wikidata Extended ({entity_label}) request failed: {e}"
+            )
             time.sleep(6)
             continue
         except ValueError as e:
@@ -903,17 +877,14 @@ async def fetch_wikidata_extended(
             start_rank=rank,
         )
         logger.info(
-            f"    → {len(batch)} new creators "
-            f"({skipped} non-UC entries skipped)"
+            f"    → {len(batch)} new creators " f"({skipped} non-UC entries skipped)"
         )
         all_creators.extend(batch)
         rank += len(batch)
 
         time.sleep(6)  # respect Wikidata's rate limit between queries
 
-    logger.info(
-        f"✅ Wikidata Extended: {len(all_creators)} additional creators found"
-    )
+    logger.info(f"✅ Wikidata Extended: {len(all_creators)} additional creators found")
     return all_creators
 
 
@@ -1072,8 +1043,8 @@ def _parse_args():
         action="store_true",
         help=(
             "Skip the Wikidata Extended entity-type queries "
-            "(YouTubers, musicians, athletes, YouTube channel entities, etc.). "
-            "Adds ~3,000–8,000 channels at zero API cost but takes ~90 s "
+            "(YouTubers, musicians, athletes, etc.). "
+            "Adds ~3,000–8,000 channels at zero API cost but takes ~60 s "
             "due to Wikidata rate-limit sleeps."
         ),
     )
