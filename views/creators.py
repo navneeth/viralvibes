@@ -1060,7 +1060,9 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     category_pills = []
     for idx, cat in enumerate(categories[:5]):
         emoji = get_topic_category_emoji(cat)
-        wiki_slug = cat.replace(" ", "_")
+        # Clean category name: strip quotes and normalize for URL
+        clean_cat = cat.strip('"\'').strip()
+        wiki_slug = clean_cat.replace(" ", "_")
         wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
         color = pill_colors[idx % len(pill_colors)]
 
@@ -1071,7 +1073,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
                 target="_blank",
                 rel="noopener noreferrer",
                 cls=f"inline-flex items-center justify-center w-8 h-8 rounded-full {color} text-base transition-all duration-200 no-underline hover:scale-110",
-                title=f"{cat} (click to learn more)",
+                title=f"{clean_cat} (click to learn more)",
             )
         )
 
