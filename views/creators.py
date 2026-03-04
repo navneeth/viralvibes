@@ -1039,10 +1039,32 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     if not topic_categories:
         return None
 
-    # Parse categories (stored as comma-separated text)
-    categories = [
+    # Parse categories (stored as comma-separated text, may be URLs or names)
+    raw_categories = [
         cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
     ]
+
+    if not raw_categories:
+        return None
+
+    # Extract category names from Wikipedia URLs if present
+    categories = []
+    for cat in raw_categories:
+        # Remove any JSON array artifacts like brackets and quotes
+        clean = cat.strip("[]\"'").strip()
+
+        # If it's a Wikipedia URL, extract the slug
+        if "wikipedia.org/wiki/" in clean:
+            slug = clean.rstrip("/").rsplit("/", 1)[-1]
+            # Convert underscores to spaces and decode URL encoding
+            import urllib.parse
+
+            name = urllib.parse.unquote(slug.replace("_", " "))
+        else:
+            name = clean
+
+        if name:
+            categories.append(name)
 
     if not categories:
         return None
@@ -1060,9 +1082,8 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     category_pills = []
     for idx, cat in enumerate(categories[:5]):
         emoji = get_topic_category_emoji(cat)
-        # Clean category name: strip quotes and normalize for URL
-        clean_cat = cat.strip("\"'").strip()
-        wiki_slug = clean_cat.replace(" ", "_")
+        # Create clean Wikipedia URL from category name
+        wiki_slug = cat.replace(" ", "_")
         wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
         color = pill_colors[idx % len(pill_colors)]
 
@@ -1073,7 +1094,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
                 target="_blank",
                 rel="noopener noreferrer",
                 cls=f"inline-flex items-center justify-center w-8 h-8 rounded-full {color} text-base transition-all duration-200 no-underline hover:scale-110",
-                title=f"{clean_cat} (click to learn more)",
+                title=f"{cat} (click to learn more)",
             )
         )
 
