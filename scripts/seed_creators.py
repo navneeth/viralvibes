@@ -7,6 +7,13 @@ Supports:
 - Wikipedia (most-viewed): Top 50 by total view count
 - Wikidata SPARQL: ~500+ notable channels with Wikipedia articles,
                    sourced via the P2397 YouTube channel ID property
+- Wikidata Extended: Targeted per-entity-type SPARQL queries (YouTubers,
+                     musicians, bands, comedians, athletes, journalists,
+                     news orgs, businesses, filmmakers, YouTube-channel
+                     entities). Each query runs with its own high LIMIT
+                     and is rate-limited at 6 s between calls. Yields
+                     ~5,000–10,000 additional channels with zero YouTube
+                     API cost.
 
 Quota strategy
 --------------
@@ -595,6 +602,322 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
 
 
 # ---------------------------------------------------------------------------
+# Wikidata Extended — targeted per-entity-type queries
+# ---------------------------------------------------------------------------
+#
+# The broad _WIKIDATA_QUERY above fetches any item with P2397, ordered by
+# subscriber count, but its LIMIT 600 means many real creators are missed.
+#
+# The queries below each target a specific Wikidata entity class.  Running
+# them separately lets us use a high per-class LIMIT and still ORDER BY
+# subscribers so the best signal rises to the top.  All results are UC IDs
+# sourced directly from P2397 — zero YouTube API cost.
+#
+# Entity classes used (Wikidata QIDs):
+#   Q17125263  — YouTuber (content creator whose primary medium is YouTube)
+#   Q177220    — singer / solo musician
+#   Q215380    — musical group / band
+#   Q245068    — comedian
+#   Q2066131   — athlete
+#   Q1930187   — journalist
+#   Q1331793   — news media organisation
+#   Q4830453   — business / brand / company
+#   Q2526255   — film director / filmmaker
+#   Q2178147   — YouTube channel (the channel itself as a Wikidata entity)
+#
+# The Q2178147 query is qualitatively different from the others: instead of
+# finding people/organisations that *have* a YouTube channel, it finds items
+# that *are* YouTube channels — a separate, largely non-overlapping population
+# in Wikidata where the channel entity is modelled directly (e.g. many gaming
+# channels, commentary channels, and brand channels live here rather than
+# under a person entry).
+#
+# Rate limit: Wikidata recommends ≤ 1 request / 5 s from automated clients.
+# We sleep 6 s between calls to stay safely within that bound.
+# ---------------------------------------------------------------------------
+
+_WIKIDATA_ENTITY_QUERIES: List[Tuple[str, str]] = [
+    (
+        "YouTubers",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q17125263 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 2000
+        """,
+    ),
+    (
+        "Musicians",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q177220 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 2000
+        """,
+    ),
+    (
+        "Bands",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q215380 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 1000
+        """,
+    ),
+    (
+        "Comedians",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q245068 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 1000
+        """,
+    ),
+    (
+        "Athletes",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q2066131 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 1000
+        """,
+    ),
+    (
+        "Journalists",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q1930187 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    (
+        "NewsOrgs",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q1331793 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    (
+        "Businesses",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q4830453 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    (
+        "Filmmakers",
+        """
+        SELECT DISTINCT ?channelId ?label ?subscribers WHERE {
+          ?item wdt:P31 wd:Q2526255 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item wdt:P3744 ?subscribers . }
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY DESC(?subscribers)
+        LIMIT 500
+        """,
+    ),
+    # ── NEW ──────────────────────────────────────────────────────────────────
+    # Q2178147 = "YouTube channel" as a direct Wikidata entity.
+    #
+    # The queries above find people/orgs that *have* a YouTube channel via
+    # P2397.  This query finds items that *are* YouTube channels — a separate
+    # population where the channel itself is the Wikidata subject (rather than
+    # the person behind it).  Gaming channels, commentary channels, brand
+    # channels, and many non-English creators tend to be modelled this way.
+    #
+    # No subscriber data is stored on most of these items (P3744 is sparse
+    # for channel-entities), so we ORDER BY label as a stable fallback rather
+    # than getting an arbitrary ordering.  LIMIT 5000 captures the bulk of
+    # this population without risking a Wikidata query timeout.
+    (
+        "YouTubeChannelEntities",
+        """
+        SELECT DISTINCT ?channelId ?label WHERE {
+          ?item wdt:P31 wd:Q2178147 ;
+                wdt:P2397 ?channelId .
+          OPTIONAL { ?item rdfs:label ?label . FILTER(LANG(?label) = "en") }
+        }
+        ORDER BY ?label
+        LIMIT 5000
+        """,
+    ),
+]
+
+
+def _parse_wikidata_bindings(
+    bindings: List[dict],
+    validator: ChannelIDValidator,
+    source: str,
+    seen: Set[str],
+    start_rank: int,
+) -> Tuple[List[DiscoveredCreator], int]:
+    """
+    Shared parser for Wikidata SPARQL result bindings.
+
+    Applies the same UC-ID validation and URL-prefix normalisation used in
+    fetch_wikidata().  Mutates `seen` in-place so callers share dedup state
+    across multiple query results.
+
+    Returns (creators, skipped_invalid_count).
+    """
+    creators: List[DiscoveredCreator] = []
+    skipped_invalid = 0
+    rank = start_rank
+
+    for row in bindings:
+        raw_id = row.get("channelId", {}).get("value", "").strip()
+        if not raw_id:
+            continue
+
+        channel_id = None
+        if raw_id.startswith(("http://", "https://")):
+            parsed = urlparse(raw_id)
+            host = parsed.hostname or ""
+            if host == "youtube.com" or host.endswith(".youtube.com"):
+                channel_id = validator.extract_from_url(raw_id)
+        if channel_id is None and validator.is_valid(raw_id):
+            channel_id = raw_id
+        if channel_id is None:
+            skipped_invalid += 1
+            logger.debug(f"  Wikidata ({source}): skipping non-UC value: {raw_id!r}")
+            continue
+
+        if channel_id in seen:
+            continue
+
+        seen.add(channel_id)
+        label = row.get("label", {}).get("value") or None
+
+        creators.append(
+            DiscoveredCreator(
+                channel_id=channel_id,
+                channel_name=label,
+                channel_url=f"https://www.youtube.com/channel/{channel_id}",
+                source=source,
+                source_rank=rank,
+            )
+        )
+        rank += 1
+
+    return creators, skipped_invalid
+
+
+async def fetch_wikidata_extended(
+    validator: ChannelIDValidator,
+    already_seen: Optional[Set[str]] = None,
+) -> List[DiscoveredCreator]:
+    """
+    Run targeted Wikidata SPARQL queries, one per creator entity type.
+
+    Unlike the broad fetch_wikidata() which fires a single generic query
+    with LIMIT 600, this function issues one query per Wikidata class
+    (YouTuber, Musician, Band, Comedian, Athlete, …, YouTubeChannelEntities)
+    each with its own high LIMIT.  Because each class is fetched independently
+    the results are additive — a channel that is both a musician and a YouTuber
+    will appear in whichever class query returns it first, then be deduped out
+    of subsequent ones.
+
+    already_seen: optional set of channel_ids to skip from the start
+                  (pass the set collected from earlier sources to avoid
+                  re-adding channels already queued for seeding).
+
+    Rate limiting: 6 s sleep between requests (Wikidata recommends ≤ 1/5 s).
+    Cost: zero YouTube API units — all data comes from Wikidata P2397.
+    Expected yield: 3,000–8,000 additional unique creators beyond the broad query.
+    """
+    logger.info("🌐 Fetching from Wikidata Extended (entity-type queries)...")
+
+    seen: Set[str] = set(already_seen) if already_seen else set()
+    all_creators: List[DiscoveredCreator] = []
+    rank = 1
+
+    wikidata_headers = {
+        "User-Agent": "ViralVibesSeed/1.0 (seed_creators.py; contact via project repo)",
+        "Accept": "application/sparql-results+json",
+    }
+
+    for entity_label, query in _WIKIDATA_ENTITY_QUERIES:
+        logger.info(f"  ↳ Querying: {entity_label}...")
+        try:
+            resp = requests.get(
+                _WIKIDATA_SPARQL_ENDPOINT,
+                params={"query": query, "format": "json"},
+                headers=wikidata_headers,
+                timeout=90,  # entity queries can be slower than the broad one
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as e:
+            logger.warning(f"    Wikidata Extended ({entity_label}) request failed: {e}")
+            time.sleep(6)
+            continue
+        except ValueError as e:
+            logger.warning(f"    Wikidata Extended ({entity_label}) invalid JSON: {e}")
+            time.sleep(6)
+            continue
+
+        bindings = data.get("results", {}).get("bindings", [])
+        batch, skipped = _parse_wikidata_bindings(
+            bindings,
+            validator,
+            source=f"wikidata_{entity_label.lower()}",
+            seen=seen,
+            start_rank=rank,
+        )
+        logger.info(
+            f"    → {len(batch)} new creators "
+            f"({skipped} non-UC entries skipped)"
+        )
+        all_creators.extend(batch)
+        rank += len(batch)
+
+        time.sleep(6)  # respect Wikidata's rate limit between queries
+
+    logger.info(
+        f"✅ Wikidata Extended: {len(all_creators)} additional creators found"
+    )
+    return all_creators
+
+
+# ---------------------------------------------------------------------------
 # Database operations
 # ---------------------------------------------------------------------------
 
@@ -745,6 +1068,16 @@ def _parse_args():
         help="Skip the Wikidata SPARQL source (~500 notable channels, no API cost)",
     )
     parser.add_argument(
+        "--no-wikidata-extended",
+        action="store_true",
+        help=(
+            "Skip the Wikidata Extended entity-type queries "
+            "(YouTubers, musicians, athletes, YouTube channel entities, etc.). "
+            "Adds ~3,000–8,000 channels at zero API cost but takes ~90 s "
+            "due to Wikidata rate-limit sleeps."
+        ),
+    )
+    parser.add_argument(
         "--no-csv",
         action="store_true",
         help="Skip the CSV source (run scraped sources only)",
@@ -833,6 +1166,17 @@ async def main():
         all_creators.extend(wikidata_creators)
     else:
         logger.info("Wikidata SPARQL disabled via --no-wikidata")
+
+    if not args.no_wikidata_extended:
+        # One SPARQL call per entity type — no YouTube quota spend, ~3–8k channels.
+        # Pass already-seen IDs so the extended queries skip duplicates up front.
+        already_seen = {c.channel_id for c in all_creators}
+        wikidata_ext_creators = await fetch_wikidata_extended(
+            validator, already_seen=already_seen
+        )
+        all_creators.extend(wikidata_ext_creators)
+    else:
+        logger.info("Wikidata Extended disabled via --no-wikidata-extended")
 
     # Deduplicate across sources (CSV wins over Wikipedia for same channel_id)
     seen: Set[str] = set()
