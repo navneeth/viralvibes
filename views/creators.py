@@ -1039,32 +1039,45 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     if not topic_categories:
         return None
 
-    # Parse categories (stored as comma-separated text, may be URLs or names)
-    raw_categories = [
-        cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
-    ]
+    # Parse categories - may be JSON array or comma-separated string
+    raw_categories = []
+    try:
+        # Try parsing as JSON first (e.g., '["https://...", "https://..."]')
+        import json
+        parsed = json.loads(topic_categories)
+        if isinstance(parsed, list):
+            raw_categories = [str(item).strip() for item in parsed if item]
+        else:
+            raw_categories = [str(parsed).strip()]
+    except (json.JSONDecodeError, TypeError):
+        # Fallback to comma-separated string
+        raw_categories = [
+            cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
+        ]
 
     if not raw_categories:
         return None
 
-    # Extract category names from Wikipedia URLs if present
+    # Extract category names from Wikipedia URLs
     categories = []
-    for cat in raw_categories:
-        # Remove any JSON array artifacts like brackets and quotes
-        clean = cat.strip("[]\"'").strip()
-
-        # If it's a Wikipedia URL, extract the slug
-        if "wikipedia.org/wiki/" in clean:
-            slug = clean.rstrip("/").rsplit("/", 1)[-1]
-            # Convert underscores to spaces and decode URL encoding
-            import urllib.parse
-
-            name = urllib.parse.unquote(slug.replace("_", " "))
+    for item in raw_categories:
+        # If it's a Wikipedia URL, extract the category name from the slug
+        if "wikipedia.org/wiki/" in item:
+            try:
+                # Extract everything after the last /wiki/
+                slug = item.split("/wiki/")[-1].rstrip("/")
+                # Decode URL encoding and convert underscores to spaces
+                import urllib.parse
+                name = urllib.parse.unquote(slug).replace("_", " ")
+                if name:
+                    categories.append(name)
+            except Exception:
+                continue
         else:
-            name = clean
-
-        if name:
-            categories.append(name)
+            # It's already a category name
+            clean_name = item.strip("\"'[]").strip()
+            if clean_name:
+                categories.append(clean_name)
 
     if not categories:
         return None
