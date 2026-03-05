@@ -1372,8 +1372,12 @@ async def process_creator_syncs():
                         timeout=SYNC_TIMEOUT + 30,  # Extra buffer for DB ops
                     )
                     results.append(result)
+                except asyncio.CancelledError:
+                    # Propagate cancellation for clean shutdown
+                    raise
                 except Exception as e:
-                    logger.error(f"Job {i} raised exception: {e}")
+                    # Log with full traceback for debuggability
+                    logger.exception("Job %s raised exception", i)
                     results.append(e)
 
             successes = sum(1 for r in results if r is True)
@@ -1383,6 +1387,10 @@ async def process_creator_syncs():
             )
 
             await asyncio.sleep(POLL_INTERVAL)
+
+        except asyncio.CancelledError:
+            # Propagate cancellation (e.g., SIGTERM/SIGINT during shutdown)
+            raise
 
         except asyncio.TimeoutError:
             logger.warning("⚠️  Batch processing timed out — continuing to next poll")
