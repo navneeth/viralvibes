@@ -1133,8 +1133,8 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     category_pills = []
     for idx, cat in enumerate(categories[:5]):
         emoji = get_topic_category_emoji(cat)
-        # Create clean Wikipedia URL from category name
-        wiki_slug = cat.replace(" ", "_")
+        # Create clean Wikipedia URL from category name (URL-encoded for special characters)
+        wiki_slug = urllib.parse.quote(cat.replace(" ", "_"))
         wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
         color = pill_colors[idx % len(pill_colors)]
 
