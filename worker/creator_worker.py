@@ -534,10 +534,14 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
     logger.debug(f"  Calling YouTube API for channel {channel_id}...")
 
     try:
-        # Get normalized data from YouTubeResolver
-        channel_data = await asyncio.wait_for(
-            youtube_resolver.get_channel_data(channel_id), timeout=SYNC_TIMEOUT
-        )
+        # CRITICAL: Acquire lock to serialize YouTube API calls
+        # httplib2 (used by googleapiclient) is NOT thread-safe and causes
+        # SSL errors and memory corruption when called concurrently
+        async with youtube_api_lock:
+            # Get normalized data from YouTubeResolver
+            channel_data = await asyncio.wait_for(
+                youtube_resolver.get_channel_data(channel_id), timeout=SYNC_TIMEOUT
+            )
 
         if not channel_data:
             raise Exception("No data returned from YouTube API")
@@ -898,7 +902,7 @@ async def handle_sync_job(
             f"{job_tag} Stats: subs={subs:,}, views={views:,}, videos={videos:,}, "
             f"engagement={engagement:.2f}%, quality={quality}"
         )
-        if primary_category:
+        if primary_category and category_distribution:
             dist_str = ", ".join(
                 f"{name}: {count}"
                 for name, count in sorted(

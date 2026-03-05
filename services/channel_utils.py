@@ -170,11 +170,23 @@ class YouTubeResolver:
         self._validator = ChannelIDValidator()
 
     def _get_youtube_client(self):
-        """Lazy load YouTube API client."""
+        """
+        Lazy load YouTube API client.
+
+        Note: The client is NOT thread-safe. All API calls must be serialized
+        using the youtube_api_lock in the worker to prevent SSL errors and
+        memory corruption from concurrent httplib2 usage.
+        """
         if not self._youtube_client:
             if not self.api_key:
                 raise ValueError("YOUTUBE_API_KEY not configured")
-            self._youtube_client = build("youtube", "v3", developerKey=self.api_key)
+
+            self._youtube_client = build(
+                "youtube",
+                "v3",
+                developerKey=self.api_key,
+                cache_discovery=False,  # Avoid discovery cache issues in concurrent environments
+            )
         return self._youtube_client
 
     async def _execute_async(self, request):
