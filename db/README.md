@@ -15,9 +15,9 @@ db/
 
 ## Database: Supabase (PostgreSQL)
 
-**Provider:** Supabase  
-**Engine:** PostgreSQL 15+  
-**Authentication:** Row Level Security (RLS) enabled  
+**Provider:** Supabase
+**Engine:** PostgreSQL 15+
+**Authentication:** Row Level Security (RLS) enabled
 
 ## Tables Overview
 
@@ -205,7 +205,7 @@ LIMIT 50;
 ### Get creators with active growth
 
 ```sql
-SELECT 
+SELECT
     channel_name,
     current_subscribers,
     subscribers_change_30d,
@@ -230,7 +230,7 @@ ORDER BY quality_grade;
 ### Find creators needing baseline initialization
 
 ```sql
-SELECT COUNT(*) 
+SELECT COUNT(*)
 FROM creators
 WHERE prev_snapshot_at IS NULL
   AND current_subscribers IS NOT NULL;
