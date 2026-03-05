@@ -167,20 +167,40 @@ class YouTubeResolver:
         """
         self.api_key = api_key
         self._youtube_client = None
+        self._youtube_lock = asyncio.Lock()  # Protects non-thread-safe httplib2 client
         self._validator = ChannelIDValidator()
 
     def _get_youtube_client(self):
-        """Lazy load YouTube API client."""
+        """
+        Lazy load YouTube API client.
+
+        The underlying client uses httplib2, which is NOT thread-safe. All API
+        calls are automatically serialized via self._youtube_lock in _execute_async,
+        so external callers do not need to manage concurrency themselves.
+        """
         if not self._youtube_client:
             if not self.api_key:
                 raise ValueError("YOUTUBE_API_KEY not configured")
-            self._youtube_client = build("youtube", "v3", developerKey=self.api_key)
+
+            self._youtube_client = build(
+                "youtube",
+                "v3",
+                developerKey=self.api_key,
+                cache_discovery=False,  # Avoid discovery cache issues in concurrent environments
+            )
         return self._youtube_client
 
     async def _execute_async(self, request):
-        """Execute YouTube API request asynchronously."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, request.execute)
+        """
+        Execute YouTube API request asynchronously with internal locking.
+
+        Serializes all API calls via self._youtube_lock to prevent thread-safety
+        issues with the underlying httplib2 client, which can cause SSL errors
+        and memory corruption when accessed concurrently.
+        """
+        async with self._youtube_lock:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, request.execute)
 
     def validate_channel_id(self, channel_id: str) -> bool:
         """
