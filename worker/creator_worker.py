@@ -1355,22 +1355,26 @@ async def process_creator_syncs():
                 )
                 empty_poll_count = 0
 
-            logger.info(f"Processing {len(jobs)} pending job(s)...")
+            logger.info(f"Processing {len(jobs)} pending job(s) sequentially...")
 
-            tasks = [
-                handle_sync_job(
-                    job_id=job["id"],
-                    creator_id=job["creator_id"],
-                    job_number=i,
-                    retry_count=job.get("retry_count", 0),
-                )
-                for i, job in enumerate(jobs, 1)
-            ]
-
-            results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=BATCH_SIZE * SYNC_TIMEOUT + 10,
-            )
+            # Process jobs one at a time to avoid httplib2 thread-safety issues
+            # Even with internal locking, concurrent tasks can corrupt httplib2 state
+            results = []
+            for i, job in enumerate(jobs, 1):
+                try:
+                    result = await asyncio.wait_for(
+                        handle_sync_job(
+                            job_id=job["id"],
+                            creator_id=job["creator_id"],
+                            job_number=i,
+                            retry_count=job.get("retry_count", 0),
+                        ),
+                        timeout=SYNC_TIMEOUT + 30,  # Extra buffer for DB ops
+                    )
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Job {i} raised exception: {e}")
+                    results.append(e)
 
             successes = sum(1 for r in results if r is True)
             failures = sum(1 for r in results if r is False or isinstance(r, Exception))
