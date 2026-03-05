@@ -1015,6 +1015,52 @@ def _build_growth_trend(
 
 def _render_topic_categories(topic_categories: str | None) -> Div | None:
     """
+    Render topic categories as elegant emoji strip.
+
+    Args:
+        topic_categories: Comma-separated category names from DB
+                         (e.g., "Music,Entertainment,Video game culture")
+
+    Returns:
+        Div with emoji + text categories, or None if no categories
+
+    Design: Displays as a centered strip with gradient background,
+            limited to 3 categories for clean UX.
+    """
+    if not topic_categories:
+        return None
+
+    # Parse categories (stored as comma-separated text)
+    categories = [
+        cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
+    ]
+
+    if not categories:
+        return None
+
+    # Build category spans with emojis (limit to 3 for clean display)
+    category_items = []
+    for cat in categories[:3]:
+        emoji = get_topic_category_emoji(cat)
+        category_items.append(
+            Span(f"{emoji} {cat}", cls="text-xs font-medium text-gray-700")
+        )
+
+    # Join with bullet separators
+    elements = []
+    for i, item in enumerate(category_items):
+        elements.append(item)
+        if i < len(category_items) - 1:
+            elements.append(Span("•", cls="text-gray-400 mx-2"))
+
+    return Div(
+        *elements,
+        cls="flex items-center justify-center flex-wrap gap-1 py-2.5 px-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100 mb-3",
+    )
+
+
+def _render_topic_categories(topic_categories: str | None) -> Div | None:
+    """
     Render topic categories as clean emoji-only pills.
 
     Args:
