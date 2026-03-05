@@ -97,6 +97,12 @@ jobs:
               # Continue processing despite failure (fault isolation)
               JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
               EMPTY_RUNS=0
+            fi
+
+            echo ""
+            sleep 2  # Brief pause between iterations
+          done
+
           echo "════════════════════════════════════════════════════════════"
           echo "✅ Worker loop complete at $(date)"
           echo "   Jobs processed: $JOBS_PROCESSED"
