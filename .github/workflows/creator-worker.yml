@@ -23,7 +23,7 @@ jobs:
       YOUTUBE_API_KEY:               ${{ secrets.YOUTUBE_API_KEY }}
 
       # ── Throughput ────────────────────────────────────────────────
-      CREATOR_WORKER_BATCH_SIZE:    "15"    # Process these many creator at a time → 7.5x throughput
+      CREATOR_WORKER_BATCH_SIZE:    "15"    # Process this many creators at a time → 7.5x throughput
       CREATOR_WORKER_POLL_INTERVAL: "15"    # seconds between polls → tighter loop
       CREATOR_WORKER_MAX_RUNTIME:   "3300"  # 55 min in sec — leaves 20m safety margin
 
