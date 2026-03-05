@@ -68,7 +68,10 @@ logger = logging.getLogger("vv_creator_worker")
 POLL_INTERVAL = int(
     os.getenv("CREATOR_WORKER_POLL_INTERVAL", str(CREATOR_WORKER_POLL_INTERVAL))
 )
-BATCH_SIZE = int(os.getenv("CREATOR_WORKER_BATCH_SIZE", str(CREATOR_WORKER_BATCH_SIZE)))
+# CRITICAL: Process 1 job per worker run to avoid httplib2 memory corruption
+# Each job gets a completely fresh Python process and clean httplib2 state
+BATCH_SIZE = 1  # Changed from 15 - prevents memory corruption in httplib2 C library
+EXIT_AFTER_JOB = True  # Exit after processing 1 job for complete memory isolation
 MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
@@ -1385,6 +1388,14 @@ async def process_creator_syncs():
             logger.info(
                 f"Batch done: {successes}/{len(jobs)} succeeded, {failures} failed"
             )
+
+            # Exit after processing job(s) for complete memory isolation
+            if EXIT_AFTER_JOB:
+                logger.info(
+                    "✅ Job processing complete - exiting for fresh process start "
+                    "(prevents httplib2 memory corruption)"
+                )
+                break
 
             await asyncio.sleep(POLL_INTERVAL)
 
