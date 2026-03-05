@@ -2,108 +2,50 @@ name: Creator Stats Worker
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # Every 6 hours (4x/day) instead of once daily
-  workflow_dispatch:
+    - cron: '0 */6 * * *'  # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
+  workflow_dispatch:        # Manual trigger always available
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Never cancel an in-progress sync
+  cancel-in-progress: false  # Never kill an in-progress sync
 
 jobs:
   run-creator-worker:
     runs-on: ubuntu-latest
-    timeout-minutes: 75      # 60 jobs × 1 min avg = 60 min + 15 min buffer
+    timeout-minutes: 75  # Hard ceiling. MAX_RUNTIME is 55 min, giving 20 min buffer.
 
     env:
       NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       YOUTUBE_API_KEY:               ${{ secrets.YOUTUBE_API_KEY }}
+      YOUTUBE_DAILY_QUOTA:           "10000"
 
-      # ── Memory Isolation Strategy ─────────────────────────────────
-      # CRITICAL: Worker processes exactly 1 job per run, then exits.
-      # This prevents httplib2 memory corruption that causes SSL errors
-      # and segfaults. Each job gets a completely fresh Python process
-      # and clean httplib2 state. We loop below to process multiple jobs.
-      #
-      # BATCH_SIZE=1 and EXIT_AFTER_JOB=True are hardcoded in the Python
-      # code and NOT configurable via environment variables. Attempting to
-      # override them here will have no effect.
-
-      CREATOR_WORKER_POLL_INTERVAL: "5"     # Fast poll when queue has jobs
-      CREATOR_WORKER_MAX_RUNTIME:   "120"   # 2 min max per job (exits after 1)
-      CREATOR_WORKER_EMPTY_BACKOFF_MAX: "10"  # Quick exit if queue empty
-
-      # ── Quota ─────────────────────────────────────────────────────
-      # 60 jobs × ~3 units = ~180 units/run × 4 runs/day = ~720 units/day
-      # Well within 10,000 daily quota (7% usage)
-      YOUTUBE_DAILY_QUOTA: "10000"
+      # ── Runtime ───────────────────────────────────────────────────
+      # Worker exits cleanly after MAX_RUNTIME seconds.
+      # At BATCH_SIZE=10, POLL_INTERVAL=15s:
+      #   → ~(3300 / 15) × 10 = ~2,200 creators per run
+      #   × 4 runs/day = ~8,800 syncs/day — well within 10k quota
+      CREATOR_WORKER_MAX_RUNTIME:       "3300"  # 55 min — exits before the 75m timeout
+      CREATOR_WORKER_BATCH_SIZE:        "10"    # 10 creators per poll cycle
+      CREATOR_WORKER_POLL_INTERVAL:     "15"    # seconds between poll cycles
+      CREATOR_WORKER_EMPTY_BACKOFF_MAX: "60"    # max idle wait when queue is empty
 
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.10'       # 3.10 is EOL in October 2026
-          cache: 'pip'                 # Cache dependencies between runs
+          python-version: '3.10'
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements-backend.txt
 
-      - name: Run creator worker (loop for memory isolation)
+      - name: Run creator worker
         run: |
-          echo "Starting creator worker loop at $(date)"
-          echo "Strategy: 1 job per worker run, loop 60 times for complete memory isolation"
-          echo ""
-
-          JOBS_PROCESSED=0
-          MAX_JOBS=60
-          EMPTY_RUNS=0
-          MAX_EMPTY_RUNS=3
-
-          while [ $JOBS_PROCESSED -lt $MAX_JOBS ]; do
-            ITERATION=$((JOBS_PROCESSED + 1))
-            echo "════════════════════════════════════════════════════════════"
-            echo "▶ Iteration $ITERATION/$MAX_JOBS - Fresh process start"
-            echo "════════════════════════════════════════════════════════════"
-
-            START_TIME=$(date +%s)
-
-            # Run worker - it will process exactly 1 job then exit
-            if python -m worker.creator_worker; then
-              END_TIME=$(date +%s)
-              DURATION=$((END_TIME - START_TIME))
-
-              # Quick exit (<10s) likely means empty queue
-              if [ $DURATION -lt 10 ]; then
-                EMPTY_RUNS=$((EMPTY_RUNS + 1))
-                echo "⚠️  Quick exit (${DURATION}s) - queue likely empty (consecutive: $EMPTY_RUNS/$MAX_EMPTY_RUNS)"
-
-                if [ $EMPTY_RUNS -ge $MAX_EMPTY_RUNS ]; then
-                  echo "✅ Queue empty after $EMPTY_RUNS quick exits - stopping loop"
-                  break
-                fi
-                sleep 5
-              else
-                echo "✅ Worker completed successfully (${DURATION}s)"
-                JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
-                EMPTY_RUNS=0
-              fi
-            else
-              EXIT_CODE=$?
-              echo "❌ Worker failed with exit code $EXIT_CODE"
-
-              # Continue processing despite failure (fault isolation)
-              JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
-              EMPTY_RUNS=0
-            fi
-
-            echo ""
-            sleep 2  # Brief pause between iterations
-          done
-
-          echo "════════════════════════════════════════════════════════════"
-          echo "✅ Worker loop complete at $(date)"
-          echo "   Jobs processed: $JOBS_PROCESSED"
-          echo "════════════════════════════════════════════════════════════"
+          echo "▶ Creator worker starting at $(date)"
+          python -m worker.creator_worker
+          echo "✅ Creator worker finished at $(date)"
