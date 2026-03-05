@@ -21,7 +21,9 @@ Creator perspective (Jimmy Donaldson style):
 
 from __future__ import annotations
 
+import json
 import logging
+import urllib.parse
 from urllib.parse import urlencode
 
 from fasthtml.common import *
@@ -936,9 +938,45 @@ def _build_performance_metrics(
 
 
 def _build_growth_trend(
-    growth_rate: float, growth_label: str, growth_style: str
+    growth_rate: float,
+    growth_label: str,
+    growth_style: str,
+    subs_change: int | None = None,
 ) -> Div:
-    """Build growth trend indicator section."""
+    """
+    Build growth trend indicator section.
+
+    Handles three states:
+    1. Valid growth data: Shows percentage, label, and bar
+    2. Tracking in progress (NULL/None): Shows "tracking" badge
+    3. Zero growth with valid baseline: Shows 0% (legitimate)
+    """
+    # Check if growth data is available (not None/NULL from DB)
+    has_growth_data = subs_change is not None
+
+    if not has_growth_data:
+        # Growth tracking initializing - show elegant "in progress" state
+        return Div(
+            Div(
+                P("GROWTH TRACKING", cls="text-xs font-semibold text-gray-600"),
+                Div(
+                    Span("📊", cls="text-2xl"),
+                    Span(
+                        "Initializing...",
+                        cls="px-3 py-1.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-700 border border-blue-200",
+                    ),
+                    cls="flex items-center gap-3",
+                ),
+                P(
+                    "Growth metrics available in 7+ days",
+                    cls="text-xs text-gray-500 mt-2",
+                ),
+                cls="flex flex-col items-center justify-center gap-2",
+            ),
+            cls="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 mb-4 border border-blue-100",
+        )
+
+    # Has valid growth data - show normal growth bar
     return Div(
         Div(
             P("30-DAY TREND", cls="text-xs font-semibold text-gray-600"),
@@ -1043,8 +1081,6 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     raw_categories = []
     try:
         # Try parsing as JSON first (e.g., '["https://...", "https://..."]')
-        import json
-
         parsed = json.loads(topic_categories)
         if isinstance(parsed, list):
             raw_categories = [str(item).strip() for item in parsed if item]
@@ -1068,8 +1104,6 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
                 # Extract everything after the last /wiki/
                 slug = item.split("/wiki/")[-1].rstrip("/")
                 # Decode URL encoding and convert underscores to spaces
-                import urllib.parse
-
                 name = urllib.parse.unquote(slug).replace("_", " ")
                 if name:
                     categories.append(name)
@@ -1097,8 +1131,8 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     category_pills = []
     for idx, cat in enumerate(categories[:5]):
         emoji = get_topic_category_emoji(cat)
-        # Create clean Wikipedia URL from category name
-        wiki_slug = cat.replace(" ", "_")
+        # Create clean Wikipedia URL from category name (URL-encoded for special characters)
+        wiki_slug = urllib.parse.quote(cat.replace(" ", "_"))
         wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
         color = pill_colors[idx % len(pill_colors)]
 
@@ -1315,8 +1349,8 @@ def _render_creator_card(creator: dict) -> Div:
         _build_performance_metrics(
             avg_views_per_video, current_videos, estimated_revenue, views_per_sub
         ),
-        # Growth trend
-        _build_growth_trend(growth_rate, growth_label, growth_style),
+        # Growth trend (pass subs_change to detect NULL/tracking state)
+        _build_growth_trend(growth_rate, growth_label, growth_style, subs_change),
         # Keywords (if available)
         (
             Div(

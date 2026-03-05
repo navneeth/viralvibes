@@ -812,10 +812,14 @@ async def handle_sync_job(
         if not supabase_client:
             raise RuntimeError("Supabase client not initialized")
 
-        # STAGE 1: Fetch creator metadata
+        # STAGE 1: Fetch creator metadata (including previous stats for delta calculation)
         creator_response = (
             supabase_client.table(CREATOR_TABLE)
-            .select("channel_id,channel_name,primary_category")
+            .select(
+                "channel_id,channel_name,primary_category,"
+                "current_subscribers,current_view_count,current_video_count,"
+                "prev_subscribers,prev_view_count,prev_video_count,prev_snapshot_at"
+            )
             .eq("id", creator_id)
             .execute()
         )
@@ -826,6 +830,21 @@ async def handle_sync_job(
         creator = creator_response.data[0]
         channel_id = creator.get("channel_id")
         channel_name = creator.get("channel_name", "unknown")
+
+        # Track previous values for 30-day delta calculation
+        prev_subs = (
+            creator.get("prev_subscribers") or creator.get("current_subscribers") or 0
+        )
+        prev_views = (
+            creator.get("prev_view_count") or creator.get("current_view_count") or 0
+        )
+        prev_videos = (
+            creator.get("prev_video_count") or creator.get("current_video_count") or 0
+        )
+        prev_snapshot_at = creator.get("prev_snapshot_at")
+        current_subs = creator.get("current_subscribers") or 0
+        current_views = creator.get("current_view_count") or 0
+        current_videos = creator.get("current_video_count") or 0
 
         if not channel_id:
             raise ValueError(f"Creator {creator_id} has no channel_id set")
@@ -920,11 +939,81 @@ async def handle_sync_job(
                 f"{job_tag} ⚠️  Suspicious stats: {channel_id} has 0 subs but {views:,} views"
             )
 
+        # STAGE 3.75: Calculate 30-day changes
+        # Determine if we should take a new snapshot (every ~30 days)
+        now = datetime.now(timezone.utc)
+        should_update_snapshot = False
+        has_valid_baseline = False  # Track if we have enough data for meaningful deltas
+
+        if prev_snapshot_at:
+            try:
+                # Parse the timestamp (handle both with and without timezone)
+                if isinstance(prev_snapshot_at, str):
+                    # Try parsing with timezone first, then without
+                    try:
+                        prev_dt = datetime.fromisoformat(
+                            prev_snapshot_at.replace("Z", "+00:00")
+                        )
+                    except ValueError:
+                        prev_dt = datetime.fromisoformat(prev_snapshot_at).replace(
+                            tzinfo=timezone.utc
+                        )
+                else:
+                    prev_dt = (
+                        prev_snapshot_at.replace(tzinfo=timezone.utc)
+                        if prev_snapshot_at.tzinfo is None
+                        else prev_snapshot_at
+                    )
+
+                days_since_snapshot = (now - prev_dt).days
+                should_update_snapshot = days_since_snapshot >= 30
+                # Only show growth if baseline is at least 7 days old (enough for meaningful change)
+                has_valid_baseline = days_since_snapshot >= 7
+                logger.debug(
+                    f"{job_tag} Days since last snapshot: {days_since_snapshot} "
+                    f"(threshold: 30, valid_baseline: {has_valid_baseline})"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"{job_tag} Could not parse prev_snapshot_at: {e}, forcing snapshot"
+                )
+                should_update_snapshot = True
+                has_valid_baseline = False
+        else:
+            # First sync ever - initialize snapshot
+            should_update_snapshot = True
+            has_valid_baseline = False
+            logger.debug(
+                f"{job_tag} No previous snapshot - initializing (growth tracking starts now)"
+            )
+
+        # Calculate changes based on snapshot values (only if we have valid baseline)
+        if has_valid_baseline:
+            subs_change_30d = subs - prev_subs
+            views_change_30d = views - prev_views
+            videos_change_30d = videos - prev_videos
+            logger.info(
+                f"{job_tag} 30-day changes: subs={subs_change_30d:+,}, "
+                f"views={views_change_30d:+,}, videos={videos_change_30d:+}"
+            )
+        else:
+            # Not enough data yet - use NULL to indicate "tracking in progress"
+            subs_change_30d = None
+            views_change_30d = None
+            videos_change_30d = None
+            logger.info(
+                f"{job_tag} Growth tracking initializing - changes will be available "
+                f"after baseline matures (7+ days)"
+            )
+
         # STAGE 4: Build full update payload
         full_payload = {
             "current_subscribers": subs,
             "current_view_count": views,
             "current_video_count": videos,
+            "subscribers_change_30d": subs_change_30d,
+            "views_change_30d": views_change_30d,
+            "videos_change_30d": videos_change_30d,
             "channel_name": channel_data.get("channel_name"),
             "channel_description": channel_data.get("channel_description"),
             "custom_url": channel_data.get("custom_url"),
@@ -941,6 +1030,14 @@ async def handle_sync_job(
             "topic_categories": channel_data.get("topic_categories", []),
             "primary_category": primary_category,
         }
+
+        # Update snapshot if enough time has passed
+        if should_update_snapshot:
+            full_payload["prev_subscribers"] = current_subs
+            full_payload["prev_view_count"] = current_views
+            full_payload["prev_video_count"] = current_videos
+            full_payload["prev_snapshot_at"] = now.isoformat()
+            logger.debug(f"{job_tag} Updating snapshot baseline")
 
         # Only write category fields when freshly fetched — avoids overwriting
         # the histogram on every routine stats sync.
