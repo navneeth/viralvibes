@@ -153,7 +153,7 @@ class WorkerMetrics:
 # --- Services ---
 youtube_resolver: Optional[YouTubeResolver] = None
 channel_validator = ChannelIDValidator()
-youtube_api_lock = asyncio.Lock()  # Serialize YouTube API calls (not thread-safe)
+# Note: Thread-safety is now handled internally by YouTubeResolver._execute_async
 
 # --- Worker metrics ---
 metrics = WorkerMetrics()
@@ -534,14 +534,11 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
     logger.debug(f"  Calling YouTube API for channel {channel_id}...")
 
     try:
-        # CRITICAL: Acquire lock to serialize YouTube API calls
-        # httplib2 (used by googleapiclient) is NOT thread-safe and causes
-        # SSL errors and memory corruption when called concurrently
-        async with youtube_api_lock:
-            # Get normalized data from YouTubeResolver
-            channel_data = await asyncio.wait_for(
-                youtube_resolver.get_channel_data(channel_id), timeout=SYNC_TIMEOUT
-            )
+        # Get normalized data from YouTubeResolver
+        # Note: Thread-safety is handled internally by YouTubeResolver._execute_async
+        channel_data = await asyncio.wait_for(
+            youtube_resolver.get_channel_data(channel_id), timeout=SYNC_TIMEOUT
+        )
 
         if not channel_data:
             raise Exception("No data returned from YouTube API")
@@ -587,82 +584,79 @@ async def _calculate_engagement_score(channel_id: str) -> float:
         if not youtube_resolver:
             return 0.0
 
-        # Acquire lock to serialize YouTube API calls (not thread-safe)
-        async with youtube_api_lock:
-            youtube = youtube_resolver._get_youtube_client()
-            # Convert channel ID to uploads playlist ID: UC... → UU...
-            uploads_playlist_id = "UU" + channel_id[2:]
+        # Thread-safety is handled internally by YouTubeResolver._execute_async
+        youtube = youtube_resolver._get_youtube_client()
+        # Convert channel ID to uploads playlist ID: UC... → UU...
+        uploads_playlist_id = "UU" + channel_id[2:]
 
-            logger.debug(f"Calculating engagement for {channel_id}")
+        logger.debug(f"Calculating engagement for {channel_id}")
 
-            # Fetch last 10 videos
-            try:
-                playlist_response = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: (
-                            youtube.playlistItems()
-                            .list(
-                                part="contentDetails",
-                                playlistId=uploads_playlist_id,
-                                maxResults=10,
-                            )
-                            .execute()
-                        ),
+        # Fetch last 10 videos
+        try:
+            playlist_response = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: (
+                        youtube.playlistItems()
+                        .list(
+                            part="contentDetails",
+                            playlistId=uploads_playlist_id,
+                            maxResults=10,
+                        )
+                        .execute()
                     ),
-                    timeout=5,  # Short timeout for optional data
-                )
-            except Exception as e:
-                logger.debug(
-                    f"  Could not fetch uploads playlist for {channel_id}: {e}"
-                )
-                return 0.0
-
-            items = playlist_response.get("items", [])
-            if not items:
-                return 0.0
-
-            video_ids = [item["contentDetails"]["videoId"] for item in items]
-
-            # Fetch video stats
-            try:
-                stats_response = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: (
-                            youtube.videos()
-                            .list(part="statistics", id=",".join(video_ids))
-                            .execute()
-                        ),
-                    ),
-                    timeout=5,
-                )
-            except Exception as e:
-                logger.debug(f"  Could not fetch video stats for {channel_id}: {e}")
-                return 0.0
-
-            # Calculate engagement
-            engagement_scores = []
-            for video in stats_response.get("items", []):
-                stats = video.get("statistics", {})
-                views = int(stats.get("viewCount", 0) or 0)
-                likes = int(stats.get("likeCount", 0) or 0)
-                comments = int(stats.get("commentCount", 0) or 0)
-
-                if views > 0:
-                    rate = (likes + comments) / views * 100
-                    engagement_scores.append(rate)
-
-            if not engagement_scores:
-                return 0.0
-
-            avg_engagement = sum(engagement_scores) / len(engagement_scores)
-            logger.debug(
-                f"[Engagement] {channel_id}: {avg_engagement:.2f}% "
-                f"(from {len(engagement_scores)} videos)"
+                ),
+                timeout=5,  # Short timeout for optional data
             )
+        except Exception as e:
+            logger.debug(f"  Could not fetch uploads playlist for {channel_id}: {e}")
+            return 0.0
 
-            return avg_engagement
+        items = playlist_response.get("items", [])
+        if not items:
+            return 0.0
+
+        video_ids = [item["contentDetails"]["videoId"] for item in items]
+
+        # Fetch video stats
+        try:
+            stats_response = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: (
+                        youtube.videos()
+                        .list(part="statistics", id=",".join(video_ids))
+                        .execute()
+                    ),
+                ),
+                timeout=5,
+            )
+        except Exception as e:
+            logger.debug(f"  Could not fetch video stats for {channel_id}: {e}")
+            return 0.0
+
+        # Calculate engagement
+        engagement_scores = []
+        for video in stats_response.get("items", []):
+            stats = video.get("statistics", {})
+            views = int(stats.get("viewCount", 0) or 0)
+            likes = int(stats.get("likeCount", 0) or 0)
+            comments = int(stats.get("commentCount", 0) or 0)
+
+            if views > 0:
+                rate = (likes + comments) / views * 100
+                engagement_scores.append(rate)
+
+        if not engagement_scores:
+            return 0.0
+
+        avg_engagement = sum(engagement_scores) / len(engagement_scores)
+        logger.debug(
+            f"[Engagement] {channel_id}: {avg_engagement:.2f}% "
+            f"(from {len(engagement_scores)} videos)"
+        )
+
+        return avg_engagement
 
     except Exception as e:
         # Silently return 0 - engagement is optional
@@ -741,13 +735,13 @@ async def _fetch_channel_category_distribution(channel_id: str) -> dict:
         if not youtube_resolver:
             return empty
 
-        async with youtube_api_lock:
-            result = await asyncio.wait_for(
-                youtube_resolver.get_channel_category_distribution(
-                    channel_id, sample_size=50
-                ),
-                timeout=10,  # Short timeout — this is supplementary data
-            )
+        # Thread-safety is handled internally by YouTubeResolver._execute_async
+        result = await asyncio.wait_for(
+            youtube_resolver.get_channel_category_distribution(
+                channel_id, sample_size=50
+            ),
+            timeout=10,  # Short timeout — this is supplementary data
+        )
 
         return result
 
