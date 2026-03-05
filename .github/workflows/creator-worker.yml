@@ -28,8 +28,9 @@ jobs:
       # and segfaults. Each job gets a completely fresh Python process
       # and clean httplib2 state. We loop below to process multiple jobs.
       #
-      # BATCH_SIZE and EXIT_AFTER_JOB are hardcoded in creator_worker.py
-      # Do NOT override them here - memory corruption will return!
+      # BATCH_SIZE=1 and EXIT_AFTER_JOB=True are hardcoded in the Python
+      # code and NOT configurable via environment variables. Attempting to
+      # override them here will have no effect.
 
       CREATOR_WORKER_POLL_INTERVAL: "5"     # Fast poll when queue has jobs
       CREATOR_WORKER_MAX_RUNTIME:   "120"   # 2 min max per job (exits after 1)
@@ -67,35 +68,35 @@ jobs:
             echo "▶ Iteration $ITERATION/$MAX_JOBS - Fresh process start"
             echo "════════════════════════════════════════════════════════════"
 
+            START_TIME=$(date +%s)
+
             # Run worker - it will process exactly 1 job then exit
             if python -m worker.creator_worker; then
-              echo "✅ Worker completed successfully"
-              JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
-              EMPTY_RUNS=0
-            else
-              EXIT_CODE=$?
-              echo "❌ Worker exited with code $EXIT_CODE"
+              END_TIME=$(date +%s)
+              DURATION=$((END_TIME - START_TIME))
 
-              # If queue was empty, worker exits quickly - don't count as failure
-              if [ $EXIT_CODE -eq 0 ]; then
+              # Quick exit (<10s) likely means empty queue
+              if [ $DURATION -lt 10 ]; then
                 EMPTY_RUNS=$((EMPTY_RUNS + 1))
-                echo "ℹ️  Queue may be empty (consecutive: $EMPTY_RUNS/$MAX_EMPTY_RUNS)"
+                echo "⚠️  Quick exit (${DURATION}s) - queue likely empty (consecutive: $EMPTY_RUNS/$MAX_EMPTY_RUNS)"
 
                 if [ $EMPTY_RUNS -ge $MAX_EMPTY_RUNS ]; then
-                  echo "✅ Queue empty after $EMPTY_RUNS checks - stopping loop"
+                  echo "✅ Queue empty after $EMPTY_RUNS quick exits - stopping loop"
                   break
                 fi
                 sleep 5
               else
-                echo "⚠️  Non-zero exit - job may have failed, continuing to next job"
+                echo "✅ Worker completed successfully (${DURATION}s)"
                 JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
+                EMPTY_RUNS=0
               fi
-            fi
+            else
+              EXIT_CODE=$?
+              echo "❌ Worker failed with exit code $EXIT_CODE"
 
-            echo ""
-            sleep 2  # Brief pause between iterations
-          done
-
+              # Continue processing despite failure (fault isolation)
+              JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
+              EMPTY_RUNS=0
           echo "════════════════════════════════════════════════════════════"
           echo "✅ Worker loop complete at $(date)"
           echo "   Jobs processed: $JOBS_PROCESSED"
