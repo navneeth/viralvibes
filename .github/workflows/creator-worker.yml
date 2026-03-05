@@ -20,8 +20,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-      CREATOR_WORKER_POLL_INTERVAL: "30"  # 30 seconds between polls
-      CREATOR_WORKER_BATCH_SIZE: "1"  # Process 1 creator at a time (frugal)
+      CREATOR_WORKER_POLL_INTERVAL: "20"  # 20 seconds between polls
+      CREATOR_WORKER_BATCH_SIZE: "2"  # Process 1 creator at a time (frugal)
       CREATOR_WORKER_MAX_RUNTIME: "3600"  # 1 hour in seconds
       YOUTUBE_DAILY_QUOTA: "10000"  # Standard YouTube API daily quota (tracked and reported)
     steps:
