@@ -1,0 +1,129 @@
+# worker/bootstrap_creators.py
+"""
+Bootstrap script: queues creators that need syncing into creator_sync_jobs.
+
+Handles two disjoint populations:
+  1. Never-synced   — last_synced_at IS NULL  (PostgREST .lt() silently skips these)
+  2. Stale-synced   — sync_status in (synced, synced_partial, invalid, failed)
+                      AND last_synced_at older than STALE_DAYS
+
+Intentionally a thin script that delegates to the same db functions used by
+creator_worker.py so the queuing logic stays in one place.
+
+Run as:
+  python -m worker.bootstrap_creators
+  python -m worker.bootstrap_creators --unsynced-batch 500 --stale-days 14
+"""
+
+import argparse
+import logging
+import sys
+
+from dotenv import load_dotenv
+
+from db import (
+    init_supabase,
+    queue_invalid_creators_for_retry,
+    setup_logging,
+)
+
+# Reuse the two queuing functions directly from creator_worker to avoid
+# duplicating logic. They depend only on supabase_client and queue_creator_sync,
+# both of which are initialised below via init_supabase().
+from worker.creator_worker import (
+    _queue_creators_for_extended_refresh,
+    _queue_unsynced_creators,
+)
+
+load_dotenv()
+setup_logging()
+logger = logging.getLogger("vv_bootstrap")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Queue never-synced and stale creators for the creator worker.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument(
+        "--unsynced-batch",
+        type=int,
+        default=500,
+        metavar="N",
+        help="Max never-synced creators to queue per run (default: 500)",
+    )
+    parser.add_argument(
+        "--stale-days",
+        type=int,
+        default=7,
+        metavar="N",
+        help="Queue synced creators not refreshed in this many days (default: 7)",
+    )
+    parser.add_argument(
+        "--no-unsynced",
+        action="store_true",
+        help="Skip the never-synced pass",
+    )
+    parser.add_argument(
+        "--no-stale",
+        action="store_true",
+        help="Skip the stale-refresh pass",
+    )
+    parser.add_argument(
+        "--no-invalid",
+        action="store_true",
+        help="Skip re-queuing previously-synced invalid/failed creators",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+
+    logger.info("▶ Creator bootstrap starting")
+
+    client = init_supabase()
+    if not client:
+        logger.error("❌ Supabase init failed — check env vars")
+        sys.exit(1)
+
+    logger.info("✅ Supabase connected")
+    total_queued = 0
+
+    # ── 1. Never-synced creators ──────────────────────────────────────────────
+    # PostgREST .lt() silently excludes NULLs, so creator_worker's periodic
+    # check misses these. This is the primary source of the backlog.
+    if not args.no_unsynced:
+        logger.info(f"── Pass 1: never-synced (batch={args.unsynced_batch})")
+        queued = _queue_unsynced_creators(batch_size=args.unsynced_batch)
+        logger.info(f"   Queued: {queued}")
+        total_queued += queued
+    else:
+        logger.info("── Pass 1: never-synced skipped (--no-unsynced)")
+
+    # ── 2. Stale synced creators ──────────────────────────────────────────────
+    if not args.no_stale:
+        logger.info(f"── Pass 2: stale refresh (>{args.stale_days} days since sync)")
+        queued = _queue_creators_for_extended_refresh(
+            days_since_last_sync=args.stale_days
+        )
+        logger.info(f"   Queued: {queued}")
+        total_queued += queued
+    else:
+        logger.info("── Pass 2: stale refresh skipped (--no-stale)")
+
+    # ── 3. Previously-synced invalid/failed creators ──────────────────────────
+    if not args.no_invalid:
+        logger.info("── Pass 3: invalid/failed creators (>24 h since last sync)")
+        queued = queue_invalid_creators_for_retry(hours_since_last_sync=24)
+        logger.info(f"   Queued: {queued}")
+        total_queued += queued
+    else:
+        logger.info("── Pass 3: invalid/failed skipped (--no-invalid)")
+
+    logger.info(f"✅ Bootstrap complete — {total_queued} total creators queued")
+
+
+if __name__ == "__main__":
+    main()

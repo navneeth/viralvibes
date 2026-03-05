@@ -1,15 +1,16 @@
 name: Creator Bootstrap
 
-# Separate concern: queuing never-synced creators into creator_sync_jobs.
-# This is the job that was previously causing the 74-minute startup freeze
-# inside creator-worker.yml by running at time=0 before any jobs were processed.
+# Queues never-synced and stale creators into creator_sync_jobs so the
+# creator-worker.yml has jobs to process. Runs 30 min after each sync
+# window so the queue is always primed before the worker starts.
 #
-# By moving it here it runs independently, on its own schedule, and never
-# blocks the sync worker from processing jobs.
+# Separated from creator-worker.yml deliberately: bootstrapping is pure
+# DB work (no YouTube API calls) and completes in < 2 min. Keeping it
+# separate means a slow bootstrap never delays job processing.
 
 on:
   schedule:
-    - cron: '30 */6 * * *'  # 30 min after creator-worker runs (00:30, 06:30, 12:30, 18:30)
+    - cron: '30 */6 * * *'  # 00:30, 06:30, 12:30, 18:30 UTC (30 min before worker)
   workflow_dispatch:
 
 permissions:
@@ -20,9 +21,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  bootstrap-unsynced-creators:
+  bootstrap:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # This should complete in under 2 min
+    timeout-minutes: 10
 
     env:
       NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -34,79 +35,16 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
           cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements-backend.txt
 
-      - name: Queue never-synced and stale creators
+      - name: Queue creators for sync
         run: |
           echo "▶ Bootstrap starting at $(date)"
-          python - <<'EOF'
-          import os, sys, logging
-          from dotenv import load_dotenv
-
-          load_dotenv()
-          logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-          log = logging.getLogger("bootstrap")
-
-          sys.path.insert(0, ".")
-          from db import init_supabase, queue_creator_sync, supabase_client as _sc
-          from constants import CREATOR_TABLE, CREATOR_SYNC_JOBS_TABLE
-
-          client = init_supabase()
-          if not client:
-              log.error("❌ Supabase init failed")
-              sys.exit(1)
-
-          # ── 1. Queue never-synced creators (last_synced_at IS NULL) ──────────
-          # Large batch: this is the backlog that was growing unbounded.
-          resp = (
-              client.table(CREATOR_TABLE)
-              .select("id, channel_id")
-              .is_("last_synced_at", "null")
-              .limit(500)
-              .execute()
-          )
-          never_synced = resp.data or []
-          log.info(f"Found {len(never_synced)} never-synced creators")
-
-          queued = skipped = 0
-          for row in never_synced:
-              if queue_creator_sync(row["id"], source="bootstrap"):
-                  queued += 1
-              else:
-                  skipped += 1
-
-          log.info(f"Never-synced: {queued} queued, {skipped} skipped (already pending)")
-
-          # ── 2. Queue stale synced creators (> 7 days since last sync) ────────
-          from datetime import datetime, timedelta, timezone
-          cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-
-          stale_resp = (
-              client.table(CREATOR_TABLE)
-              .select("id, channel_id, last_synced_at")
-              .in_("sync_status", ["synced", "synced_partial"])
-              .lt("last_synced_at", cutoff)
-              .limit(200)
-              .execute()
-          )
-          stale = stale_resp.data or []
-          log.info(f"Found {len(stale)} stale creators (>7 days)")
-
-          stale_queued = stale_skipped = 0
-          for row in stale:
-              if queue_creator_sync(row["id"], source="stale_refresh"):
-                  stale_queued += 1
-              else:
-                  stale_skipped += 1
-
-          log.info(f"Stale refresh: {stale_queued} queued, {stale_skipped} skipped")
-
-          # ── Summary ───────────────────────────────────────────────────────────
-          total = queued + stale_queued
-          log.info(f"✅ Bootstrap complete: {total} total creators queued for sync")
-          EOF
+          python -m worker.bootstrap_creators \
+            --unsynced-batch 500 \
+            --stale-days 7
           echo "✅ Bootstrap finished at $(date)"
