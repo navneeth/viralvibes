@@ -267,9 +267,7 @@ See [db/migrations/README.md](migrations/README.md) for migration instructions.
 
 ### Current Migrations
 
-1. Initial schema (creators, jobs tables)
-2. Add creator sync jobs table
-3. **003_add_growth_tracking_columns.sql** - Add 30-day growth tracking
+1. **001_add_growth_tracking_columns.sql** - Add 30-day growth tracking
 
 ---
 

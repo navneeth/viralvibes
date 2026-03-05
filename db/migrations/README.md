@@ -21,7 +21,7 @@ NNN_descriptive_name.sql
 export DATABASE_URL="postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
 
 # Run a specific migration
-psql $DATABASE_URL -f db/migrations/003_add_growth_tracking_columns.sql
+psql $DATABASE_URL -f db/migrations/001_add_growth_tracking_columns.sql
 
 # Run all migrations in order
 for f in db/migrations/*.sql; do
@@ -51,7 +51,7 @@ done
 
 | # | File | Description | Status |
 |---|------|-------------|--------|
-| 003 | add_growth_tracking_columns.sql | Adds prev_* columns for 30-day growth tracking | ✅ Ready |
+| 001 | add_growth_tracking_columns.sql | Adds prev_* columns for 30-day growth tracking | ✅ Ready |
 
 ## Schema Documentation
 
