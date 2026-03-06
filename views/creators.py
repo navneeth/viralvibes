@@ -431,11 +431,11 @@ def _render_filter_bar(
 ) -> Div:
     """
     Adaptive filter bar with database-driven options.
-    
+
     Shows ALL available countries and languages from the database,
     sorted by popularity (creator count). Each option displays the count
     for better decision-making.
-    
+
     UX Principles:
     - Show what's actually available (not hardcoded options)
     - Display counts for informed filtering
@@ -541,15 +541,15 @@ def _render_filter_bar(
     # Build language options from database stats (sorted by popularity)
     if all_languages is None:
         all_languages = []
-    
+
     language_options = [("all", "All Languages", "🌍", None)]
-    
+
     # Add all languages from database with counts
     for lang_code, count in all_languages:
         emoji = get_language_emoji(lang_code) or "🗣️"
         name = get_language_name(lang_code) or lang_code.upper()
         language_options.append((lang_code, name, emoji, count))
-    
+
     language_pills = Div(
         *[
             A(

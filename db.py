@@ -2147,15 +2147,13 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         active_percentage = (
             (active_count / len(stats_source)) * 100 if stats_source else 0
         )
-        
+
         # Sort all countries and languages by count (most popular first)
-        all_countries = sorted(
-            country_counts.items(), key=lambda x: x[1], reverse=True
-        )
+        all_countries = sorted(country_counts.items(), key=lambda x: x[1], reverse=True)
         all_languages = sorted(
             language_counts.items(), key=lambda x: x[1], reverse=True
         )
-        
+
         # Also keep top N for backward compatibility (hero display)
         top_countries = all_countries[:3]
         top_languages = all_languages[:5]
