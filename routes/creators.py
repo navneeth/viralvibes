@@ -31,6 +31,10 @@ def creators_route(request):
     age_filter = request.query_params.get(
         "age", "all"
     )  # all, new, established, veteran
+    # Country filter
+    country_filter = request.query_params.get(
+        "country", "all"
+    )  # all, or specific country code
 
     # Pagination parameters
     try:
@@ -52,6 +56,7 @@ def creators_route(request):
         language_filter=language_filter,
         activity_filter=activity_filter,
         age_filter=age_filter,
+        country_filter=country_filter,
         limit=per_page,
         offset=(page - 1) * per_page,
         return_count=True,
@@ -74,6 +79,7 @@ def creators_route(request):
             "language": language_filter,
             "activity": activity_filter,
             "age": age_filter,
+            "country": country_filter,
             "page": str(total_pages),
             "per_page": str(per_page),
         }
@@ -89,6 +95,7 @@ def creators_route(request):
             "language": language_filter,
             "activity": activity_filter,
             "age": age_filter,
+            "country": country_filter,
             "page": "1",
             "per_page": str(per_page),
         }
@@ -108,6 +115,7 @@ def creators_route(request):
         language_filter=language_filter,
         activity_filter=activity_filter,
         age_filter=age_filter,
+        country_filter=country_filter,
         stats=stats,
         page=page,
         per_page=per_page,

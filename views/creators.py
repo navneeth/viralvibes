@@ -170,6 +170,7 @@ def render_creators_page(
     language_filter: str = "all",
     activity_filter: str = "all",
     age_filter: str = "all",
+    country_filter: str = "all",
     stats: dict = None,
     page: int = 1,
     per_page: int = 50,
@@ -220,6 +221,7 @@ def render_creators_page(
         or language_filter != "all"
         or activity_filter != "all"
         or age_filter != "all"
+        or country_filter != "all"
     )
 
     return Container(
@@ -237,7 +239,9 @@ def render_creators_page(
             language_filter=language_filter,
             activity_filter=activity_filter,
             age_filter=age_filter,
+            country_filter=country_filter,
             grade_counts=grade_counts,
+            top_countries=stats.get("top_countries", []) if stats else [],
         ),
         # Creators grid or empty state
         (
@@ -253,6 +257,7 @@ def render_creators_page(
                     language_filter=language_filter,
                     activity_filter=activity_filter,
                     age_filter=age_filter,
+                    country_filter=country_filter,
                     per_page=per_page,
                     total_count=total_count,
                 ),
@@ -419,6 +424,8 @@ def _render_filter_bar(
     language_filter: str = "all",
     activity_filter: str = "all",
     age_filter: str = "all",
+    country_filter: str = "all",
+    top_countries: list = None,
 ) -> Div:
     """
     Clean horizontal card-based filter bar.
@@ -448,6 +455,7 @@ def _render_filter_bar(
         Input(type="hidden", name="language", value=language_filter),
         Input(type="hidden", name="activity", value=activity_filter),
         Input(type="hidden", name="age", value=age_filter),
+        Input(type="hidden", name="country", value=country_filter),
         method="GET",
         action="/creators",
         cls="flex-1",
@@ -486,6 +494,7 @@ def _render_filter_bar(
         Input(type="hidden", name="language", value=language_filter),
         Input(type="hidden", name="activity", value=activity_filter),
         Input(type="hidden", name="age", value=age_filter),
+        Input(type="hidden", name="country", value=country_filter),
         method="GET",
         action="/creators",
     )
@@ -506,7 +515,7 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter})}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -537,7 +546,7 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter})}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -565,7 +574,7 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter})}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter, 'country': country_filter})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -594,7 +603,7 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val})}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val, 'country': country_filter})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -610,14 +619,56 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 7. COUNT ACTIVE FILTERS
+    # 7. COUNTRY FILTER PILLS
     # ═══════════════════════════════════════════════════════════════
-    active_filters = sum(
-        f != "all" for f in (grade_filter, language_filter, activity_filter, age_filter)
+    # Use top countries from stats, default to popular ones if not provided
+    if top_countries is None:
+        top_countries = []
+
+    country_options = [("all", "All", "🌍")]
+
+    # Add top countries from database stats
+    for country_code, count in top_countries[:8] if top_countries else []:
+        flag = get_country_flag(country_code)
+        country_options.append((country_code, f"{flag} {country_code.upper()}", flag))
+
+    country_pills = Div(
+        *[
+            A(
+                (
+                    label if emoji == "🌍" else f"{emoji} {label.split()[-1]}"
+                ),  # Show just flag + code
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': val})}",
+                cls=(
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    + (
+                        "bg-orange-100 text-orange-700 border border-orange-300"
+                        if country_filter == val
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                    )
+                ),
+            )
+            for val, label, emoji in country_options
+        ],
+        cls="flex gap-1.5 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 8. BUILD FLOATING FILTER BUTTON
+    # 8. COUNT ACTIVE FILTERS
+    # ═══════════════════════════════════════════════════════════════
+    active_filters = sum(
+        f != "all"
+        for f in (
+            grade_filter,
+            language_filter,
+            activity_filter,
+            age_filter,
+            country_filter,
+        )
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 9. BUILD FLOATING FILTER BUTTON
     # ═══════════════════════════════════════════════════════════════
     filter_button = A(
         # Icon and text
@@ -705,6 +756,11 @@ def _render_filter_bar(
                         "Language",
                         language_pills,
                         open=(language_filter != "all"),
+                    ),
+                    AccordionItem(
+                        "Country",
+                        country_pills,
+                        open=(country_filter != "all"),
                     ),
                     AccordionItem(
                         "Activity Level",
@@ -1380,6 +1436,7 @@ def _render_pagination(
     language_filter: str,
     activity_filter: str,
     age_filter: str,
+    country_filter: str,
     per_page: int,
     total_count: int,
 ) -> Div:
@@ -1403,6 +1460,7 @@ def _render_pagination(
         "language": language_filter,
         "activity": activity_filter,
         "age": age_filter,
+        "country": country_filter,
         "per_page": str(per_page),
     }
 
