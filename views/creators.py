@@ -25,6 +25,7 @@ import json
 import logging
 import urllib.parse
 from urllib.parse import urlencode
+from typing import Optional
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -126,6 +127,43 @@ def get_topic_category_emoji(category_name: str) -> str:
 
     # Default fallback
     return "🏷️"
+
+
+# ============================================================================
+# TYPE DEFINITIONS FOR FILTER OPTIONS
+# ============================================================================
+
+# Type alias for filter option data from database
+FilterOption = tuple[str, int]  # (code, count) e.g., ("us", 245)
+
+
+def _build_filter_url(
+    sort: str,
+    search: str,
+    grade: str = "all",
+    language: str = "all",
+    activity: str = "all",
+    age: str = "all",
+    country: str = "all",
+) -> str:
+    """
+    Build consistent /creators URL with all filter parameters.
+
+    Centralizes URL construction to avoid duplication and sync issues.
+
+    Args:
+        sort: Sort order
+        search: Search query
+        grade: Grade filter (all, A+, A, B+, B, C)
+        language: Language filter (all, en, ja, etc)
+        activity: Activity filter (all, active, dormant)
+        age: Age filter (all, new, established, veteran)
+        country: Country filter (all, us, jp, etc)
+
+    Returns:
+        URL string for /creators with all filters encoded
+    """
+    return f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade, 'language': language, 'activity': activity, 'age': age, 'country': country})}"
 
 
 def _filter_valid_creators(creators: list[dict]) -> list[dict]:
@@ -241,7 +279,8 @@ def render_creators_page(
             age_filter=age_filter,
             country_filter=country_filter,
             grade_counts=grade_counts,
-            top_countries=stats.get("top_countries", []) if stats else [],
+            all_countries=stats.get("all_countries", []) if stats else [],
+            all_languages=stats.get("all_languages", []) if stats else [],
         ),
         # Creators grid or empty state
         (
@@ -425,18 +464,30 @@ def _render_filter_bar(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
-    top_countries: list = None,
+    all_countries: Optional[list[FilterOption]] = None,
+    all_languages: Optional[list[FilterOption]] = None,
 ) -> Div:
     """
-    Clean horizontal card-based filter bar.
+    Adaptive filter bar with database-driven options.
 
-    Shows search + sort on top line, then 4 filter cards below.
-    All filters visible at once, no accordion clicks needed.
+    Shows available countries and languages from the database,
+    sorted by popularity (creator count). Each option displays the count
+    for better decision-making.
 
-    Space: ~150px, all filters visible
-    Clicks: 0 (vs 1-4 with accordion)
-    Design: Modern, card-based, professional
+    UX Principles:
+    - Show what's actually available (not hardcoded options)
+    - Display counts for informed filtering
+    - Sort by popularity (most creators first)
+    - Cap at reasonable limit with "Show more" pattern for large lists
+    - Handle overflow gracefully with scrollable accordions
+
+    Args:
+        all_countries: List of (country_code, count) tuples sorted by popularity
+        all_languages: List of (language_code, count) tuples sorted by popularity
     """
+
+    # Maximum items to show before requiring scroll
+    MAX_FILTER_OPTIONS = 15
 
     # ═══════════════════════════════════════════════════════════════
     # 1. SEARCH FORM
@@ -515,7 +566,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=val,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -531,22 +590,43 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 4. LANGUAGE FILTER PILLS
+    # 4. LANGUAGE FILTER PILLS (ADAPTIVE)
     # ═══════════════════════════════════════════════════════════════
-    language_options = [
-        ("all", "All", "🌍"),
-        ("en", "English", "🇺🇸"),
-        ("ja", "日本語", "🇯🇵"),
-        ("es", "Español", "🇪🇸"),
-        ("ko", "Korean", "🇰🇷"),
-        ("zh", "Chinese", "🇨🇳"),
+    # Build language options from database stats (sorted by popularity)
+    if all_languages is None:
+        all_languages = []
+
+    language_options: list[tuple[str, str, str, Optional[int]]] = [
+        ("all", "All Languages", "🌍", None)
     ]
+
+    # Add languages from database with counts
+    # Cap at MAX_FILTER_OPTIONS to keep UI manageable
+    languages_to_show = all_languages[:MAX_FILTER_OPTIONS]
+    has_more_languages = len(all_languages) > MAX_FILTER_OPTIONS
+
+    for lang_code, count in languages_to_show:
+        emoji = get_language_emoji(lang_code) or "🗣️"
+        name = get_language_name(lang_code) or lang_code.upper()
+        language_options.append((lang_code, name, emoji, count))
 
     language_pills = Div(
         *[
             A(
-                f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
+                (
+                    f"{emoji} {label}"
+                    if count is None
+                    else f"{emoji} {label} ({format_number(count)})"
+                ),
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=val,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -556,9 +636,18 @@ def _render_filter_bar(
                     )
                 ),
             )
-            for val, label, emoji in language_options
+            for val, label, emoji, count in language_options
         ],
-        cls="flex gap-1.5 flex-wrap",
+        # Add hint if more options available
+        (
+            P(
+                f"+ {len(all_languages) - MAX_FILTER_OPTIONS} more (scroll to see all)",
+                cls="text-xs text-gray-500 italic mt-2 px-2",
+            )
+            if has_more_languages
+            else None
+        ),
+        cls="flex gap-1.5 flex-wrap max-h-64 overflow-y-auto",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -574,7 +663,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=val,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -603,7 +700,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=val,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -619,26 +724,42 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 7. COUNTRY FILTER PILLS
+    # 7. COUNTRY FILTER PILLS (ADAPTIVE)
     # ═══════════════════════════════════════════════════════════════
-    # Use top countries from stats, default to popular ones if not provided
-    if top_countries is None:
-        top_countries = []
+    # Build country options from database stats (sorted by popularity)
+    if all_countries is None:
+        all_countries = []
 
-    country_options = [("all", "All", "🌍")]
+    country_options: list[tuple[str, str, str, Optional[int]]] = [
+        ("all", "All Countries", "🌍", None)
+    ]
 
-    # Add top countries from database stats
-    for country_code, count in top_countries[:8] if top_countries else []:
-        flag = get_country_flag(country_code)
-        country_options.append((country_code, f"{flag} {country_code.upper()}", flag))
+    # Add countries from database with counts
+    # Cap at MAX_FILTER_OPTIONS to keep UI manageable
+    countries_to_show = all_countries[:MAX_FILTER_OPTIONS]
+    has_more_countries = len(all_countries) > MAX_FILTER_OPTIONS
+
+    for country_code, count in countries_to_show:
+        flag = get_country_flag(country_code) or "🏴"
+        country_options.append((country_code, country_code.upper(), flag, count))
 
     country_pills = Div(
         *[
             A(
                 (
-                    label if emoji == "🌍" else f"{emoji} {label.split()[-1]}"
-                ),  # Show just flag + code
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': val})}",
+                    f"{emoji} {label}"
+                    if count is None
+                    else f"{emoji} {label} ({format_number(count)})"
+                ),
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=val,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -648,9 +769,18 @@ def _render_filter_bar(
                     )
                 ),
             )
-            for val, label, emoji in country_options
+            for val, label, emoji, count in country_options
         ],
-        cls="flex gap-1.5 flex-wrap",
+        # Add hint if more options available
+        (
+            P(
+                f"+ {len(all_countries) - MAX_FILTER_OPTIONS} more (scroll to see all)",
+                cls="text-xs text-gray-500 italic mt-2 px-2",
+            )
+            if has_more_countries
+            else None
+        ),
+        cls="flex gap-1.5 flex-wrap max-h-64 overflow-y-auto",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -705,7 +835,7 @@ def _render_filter_bar(
     reset_link = (
         A(
             "Reset All Filters",
-            href=f"/creators?{urlencode({'sort': sort, 'search': search})}",
+            href=_build_filter_url(sort=sort, search=search),
             cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
         )
         if active_filters > 0
@@ -753,12 +883,12 @@ def _render_filter_bar(
                         open=(grade_filter != "all"),
                     ),
                     AccordionItem(
-                        "Language",
+                        f"Language ({len(all_languages) if all_languages else 0} available)",
                         language_pills,
                         open=(language_filter != "all"),
                     ),
                     AccordionItem(
-                        "Country",
+                        f"Country ({len(all_countries) if all_countries else 0} available)",
                         country_pills,
                         open=(country_filter != "all"),
                     ),
