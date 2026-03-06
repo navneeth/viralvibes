@@ -579,7 +579,7 @@ def _render_filter_bar(
                 title=(
                     "View all quality grades"
                     if val == "all"
-                    else f"Filter by creators with quality grade {val}"
+                    else f"Filter by {label} creators (grade {val})"
                 ),
                 cls=(
                     "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
@@ -695,11 +695,40 @@ def _render_filter_bar(
     # ═══════════════════════════════════════════════════════════════
     # 6. CHANNEL AGE FILTER PILLS (improved UX with clearer labels)
     # ═══════════════════════════════════════════════════════════════
+    # Format: (value, label, emoji, title_text, active_classes, inactive_classes)
     age_options = [
-        ("all", "All Ages", "📅", "gray"),
-        ("new", "New (0-1yr)", "🆕", "green"),
-        ("established", "Established (1-10yr)", "🏆", "blue"),
-        ("veteran", "Veteran (10yr+)", "👑", "amber"),
+        (
+            "all",
+            "All Ages",
+            "📅",
+            "View all channel ages",
+            "bg-gray-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-gray-400 text-gray-700 hover:bg-gray-50",
+        ),
+        (
+            "new",
+            "New (0-1yr)",
+            "🆕",
+            "Filter by new channels (less than 1 year old)",
+            "bg-green-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-green-400 text-green-700 hover:bg-green-50",
+        ),
+        (
+            "established",
+            "Established (1-10yr)",
+            "🏆",
+            "Filter by established channels (1-10 years old)",
+            "bg-blue-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-blue-400 text-blue-700 hover:bg-blue-50",
+        ),
+        (
+            "veteran",
+            "Veteran (10yr+)",
+            "👑",
+            "Filter by veteran channels (10+ years old)",
+            "bg-amber-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-amber-400 text-amber-700 hover:bg-amber-50",
+        ),
     ]
 
     age_pills = Div(
@@ -715,21 +744,13 @@ def _render_filter_bar(
                     age=val,
                     country=country_filter,
                 ),
-                title=(
-                    "View all channel ages"
-                    if val == "all"
-                    else f"Filter by {label.split('(')[0].strip().lower()} channels"
-                ),
+                title=title_text,
                 cls=(
                     "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
-                    + (
-                        f"bg-{color}-600 text-white shadow-md scale-105"
-                        if age_filter == val
-                        else f"bg-white border-2 border-{color}-400 text-{color}-700 hover:bg-{color}-50"
-                    )
+                    + (active_classes if age_filter == val else inactive_classes)
                 ),
             )
-            for val, label, emoji, color in age_options
+            for val, label, emoji, title_text, active_classes, inactive_classes in age_options
         ],
         cls="flex gap-2 flex-wrap",
     )
