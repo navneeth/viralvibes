@@ -2061,11 +2061,11 @@ def get_creators(
             elif age_filter == "veteran":
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
 
-        # Apply country filter (normalize to handle case variations)
+        # Apply country filter (case-insensitive: DB stores "US", URL may pass "us")
         if country_filter and country_filter != "all":
-            normalized_country = country_filter.strip().lower()
+            normalized_country = country_filter.strip()
             if normalized_country:
-                query = query.eq("country_code", normalized_country)
+                query = query.ilike("country_code", normalized_country)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
@@ -2285,7 +2285,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         )
         top_countries = sorted(
             country_counts.items(), key=lambda x: x[1], reverse=True
-        )[:3]
+        )[:8]
         top_languages = sorted(
             language_counts.items(), key=lambda x: x[1], reverse=True
         )[:5]

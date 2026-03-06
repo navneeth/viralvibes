@@ -448,7 +448,7 @@ def _render_filter_bar(
             name="search",
             placeholder="Search creators by name or @handle...",
             value=search,
-            cls="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100",
+            cls="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100",
             autofocus=bool(search),
         ),
         Input(type="hidden", name="sort", value=sort),
@@ -478,7 +478,9 @@ def _render_filter_bar(
 
     sort_form = Form(
         Div(
-            Label("Sort:", cls="text-sm font-semibold text-gray-700 whitespace-nowrap"),
+            Label(
+                "Sort:", cls="text-sm font-semibold text-foreground whitespace-nowrap"
+            ),
             Select(
                 *[
                     Option(label, value=val, selected=(sort == val))
@@ -522,7 +524,7 @@ def _render_filter_bar(
                     + (
                         "bg-blue-600 text-white shadow-sm"
                         if grade_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        else "bg-background border border-border hover:bg-accent text-foreground"
                     )
                 ),
             )
@@ -553,7 +555,7 @@ def _render_filter_bar(
                     + (
                         "bg-blue-100 text-blue-700 border border-blue-300"
                         if language_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        else "bg-background border border-border hover:bg-accent text-foreground"
                     )
                 ),
             )
@@ -581,7 +583,7 @@ def _render_filter_bar(
                     + (
                         "bg-green-100 text-green-700 border border-green-300"
                         if activity_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        else "bg-background border border-border hover:bg-accent text-foreground"
                     )
                 ),
             )
@@ -610,7 +612,7 @@ def _render_filter_bar(
                     + (
                         "bg-purple-100 text-purple-700 border border-purple-300"
                         if age_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        else "bg-background border border-border hover:bg-accent text-foreground"
                     )
                 ),
             )
@@ -645,7 +647,7 @@ def _render_filter_bar(
                     + (
                         "bg-orange-100 text-orange-700 border border-orange-300"
                         if country_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        else "bg-background border border-border hover:bg-accent text-foreground"
                     )
                 ),
             )
@@ -721,11 +723,11 @@ def _render_filter_bar(
                     Div(
                         H3(
                             "Filter Creators",
-                            cls="text-xl font-bold text-gray-900 mb-1",
+                            cls="text-xl font-bold text-foreground mb-1",
                         ),
                         P(
                             f"{grade_counts.get('all', 0)} creators available",
-                            cls="text-sm text-gray-600",
+                            cls="text-sm text-muted-foreground",
                         ),
                         cls="flex-1",
                     ),
@@ -735,7 +737,7 @@ def _render_filter_bar(
                         cls="uk-modal-close-default p-2 hover:bg-gray-100 rounded-lg transition-colors",
                         type="button",
                     ),
-                    cls="flex items-start justify-between mb-4 pb-4 border-b border-gray-100",
+                    cls="flex items-start justify-between mb-4 pb-4 border-b border-border",
                 ),
                 # Reset link
                 (
@@ -777,7 +779,7 @@ def _render_filter_bar(
                     collapsible=True,
                     cls="space-y-2",
                 ),
-                cls="uk-modal-body bg-white rounded-t-3xl md:rounded-2xl p-6 max-h-[85vh] overflow-y-auto",
+                cls="uk-modal-body bg-background rounded-t-3xl md:rounded-2xl p-6 max-h-[85vh] overflow-y-auto",
             ),
             cls="uk-modal-dialog uk-margin-auto-vertical",
         ),
@@ -800,7 +802,7 @@ def _render_filter_bar(
         filter_button,
         # Filter modal (hidden until toggled)
         filter_modal,
-        cls="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm z-30",
+        cls="sticky top-0 bg-background border-b border-border p-4 shadow-sm z-30",
     )
 
 
