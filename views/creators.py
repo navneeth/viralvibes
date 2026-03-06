@@ -579,7 +579,7 @@ def _render_filter_bar(
                 title=(
                     "View all quality grades"
                     if val == "all"
-                    else f"Filter by {label} creators (grade {val})"
+                    else f"Filter by creators with quality grade {val}"
                 ),
                 cls=(
                     "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
