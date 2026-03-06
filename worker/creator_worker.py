@@ -1256,12 +1256,10 @@ async def process_creator_syncs():
 
     start_time = time.time()
     empty_poll_count = 0  # Track consecutive empty polls for backoff
-    last_periodic_check = (
-        time.time()
-    )  # defer: first check runs after PERIODIC_CHECK_INTERVAL
-    last_extended_refresh = (
-        time.time()
-    )  # defer: first refresh runs after EXTENDED_REFRESH_INTERVAL
+    # Defer first check/refresh - both run after their respective intervals
+    now = time.time()
+    last_periodic_check = now
+    last_extended_refresh = now
     last_reported_metrics = (0, 0, 0)  # (processed, failed, retried) at last INFO log
     PERIODIC_CHECK_INTERVAL = 1800  # queue invalid/failed creators every 30 min
     EXTENDED_REFRESH_INTERVAL = 3600  # refresh stale synced creators every 60 min

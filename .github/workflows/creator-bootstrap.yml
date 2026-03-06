@@ -10,7 +10,7 @@ name: Creator Bootstrap
 
 on:
   schedule:
-    - cron: '30 */6 * * *'  # 00:30, 06:30, 12:30, 18:30 UTC (30 min before worker)
+    - cron: '30 */6 * * *'  # 00:30, 06:30, 12:30, 18:30 UTC (30 min AFTER worker)
   workflow_dispatch:
 
 permissions:
@@ -30,9 +30,9 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: 'pip'
