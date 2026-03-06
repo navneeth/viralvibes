@@ -1800,6 +1800,7 @@ def get_creators(
     language_filter: str = "all",
     activity_filter: str = "all",
     age_filter: str = "all",
+    country_filter: str = "all",
     limit: int = 50,
     offset: int = 0,
     return_count: bool = False,
@@ -1833,6 +1834,8 @@ def get_creators(
             - new: New channels (<1 year old)
             - established: Established (1-10 years old)
             - veteran: Veteran channels (10+ years old)
+        country_filter: Filter by country code (all, us, jp, kr, gb, etc).
+            Value is normalized (trimmed and lowercased) before applying the filter.
         limit: Maximum number of results (default 50)
         offset: Number of results to skip (for pagination)
         return_count: If True, returns CreatorsResult with total_count
@@ -1922,6 +1925,12 @@ def get_creators(
             elif age_filter == "veteran":
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
 
+        # Apply country filter (normalize to handle case variations)
+        if country_filter and country_filter != "all":
+            normalized_country = country_filter.strip().lower()
+            if normalized_country:
+                query = query.eq("country_code", normalized_country)
+
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
@@ -1946,6 +1955,8 @@ def get_creators(
             filters_applied.append(f"activity={activity_filter}")
         if age_filter != "all":
             filters_applied.append(f"age={age_filter}")
+        if country_filter != "all":
+            filters_applied.append(f"country={country_filter}")
 
         filters_str = ", ".join(filters_applied) if filters_applied else "none"
         logger.info(
