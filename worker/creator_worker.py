@@ -1046,14 +1046,34 @@ async def handle_sync_job(
             full_payload["primary_category_id"] = primary_category_id
             full_payload["category_distribution"] = category_distribution or None
 
+        # Derive monthly_uploads from total video count + channel age.
+        # YouTube API does not expose an upload rate directly.
+        # Falls back to channel_data value if already computed (future-proof).
+        channel_age_days = channel_data.get("channel_age_days")
+        _monthly_uploads_api = channel_data.get("monthly_uploads")
+        if _monthly_uploads_api is not None:
+            computed_monthly_uploads = _monthly_uploads_api
+        elif channel_age_days and channel_age_days > 0 and videos > 0:
+            months_active = max(channel_age_days / 30.0, 1.0)
+            computed_monthly_uploads = round(videos / months_active, 2)
+        else:
+            computed_monthly_uploads = None
+
         full_payload.update(
             {
                 "official": channel_data.get("official", False),
-                "channel_age_days": channel_data.get("channel_age_days"),
-                "monthly_uploads": channel_data.get("monthly_uploads"),
+                "channel_age_days": channel_age_days,
+                "monthly_uploads": computed_monthly_uploads,
                 "hidden_subscriber_count": channel_data.get(
                     "hidden_subscriber_count", False
                 ),
+                # ── Filterable derived fields ──────────────────────────────
+                # quality_grade and engagement_score were previously computed
+                # but never written to the DB, making the grade and activity
+                # filters return zero results for every value. Fixed here.
+                "quality_grade": quality,
+                "engagement_score": round(engagement, 4),
+                # ──────────────────────────────────────────────────────────
                 "sync_status": sync_status,
                 "sync_error_message": sync_error,
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
