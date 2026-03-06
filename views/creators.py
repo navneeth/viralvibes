@@ -128,6 +128,44 @@ def get_topic_category_emoji(category_name: str) -> str:
     return "🏷️"
 
 
+# ============================================================================
+# TYPE DEFINITIONS FOR FILTER OPTIONS
+# ============================================================================
+from typing import Optional
+
+# Type alias for filter option data from database
+FilterOption = tuple[str, int]  # (code, count) e.g., ("us", 245)
+
+
+def _build_filter_url(
+    sort: str,
+    search: str,
+    grade: str = "all",
+    language: str = "all",
+    activity: str = "all",
+    age: str = "all",
+    country: str = "all",
+) -> str:
+    """
+    Build consistent /creators URL with all filter parameters.
+
+    Centralizes URL construction to avoid duplication and sync issues.
+
+    Args:
+        sort: Sort order
+        search: Search query
+        grade: Grade filter (all, A+, A, B+, B, C)
+        language: Language filter (all, en, ja, etc)
+        activity: Activity filter (all, active, dormant)
+        age: Age filter (all, new, established, veteran)
+        country: Country filter (all, us, jp, etc)
+
+    Returns:
+        URL string for /creators with all filters encoded
+    """
+    return f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade, 'language': language, 'activity': activity, 'age': age, 'country': country})}"
+
+
 def _filter_valid_creators(creators: list[dict]) -> list[dict]:
     """
     Filter out creators with incomplete data.
@@ -426,13 +464,13 @@ def _render_filter_bar(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
-    all_countries: list = None,
-    all_languages: list = None,
+    all_countries: Optional[list[FilterOption]] = None,
+    all_languages: Optional[list[FilterOption]] = None,
 ) -> Div:
     """
     Adaptive filter bar with database-driven options.
 
-    Shows ALL available countries and languages from the database,
+    Shows available countries and languages from the database,
     sorted by popularity (creator count). Each option displays the count
     for better decision-making.
 
@@ -440,8 +478,16 @@ def _render_filter_bar(
     - Show what's actually available (not hardcoded options)
     - Display counts for informed filtering
     - Sort by popularity (most creators first)
+    - Cap at reasonable limit with "Show more" pattern for large lists
     - Handle overflow gracefully with scrollable accordions
+
+    Args:
+        all_countries: List of (country_code, count) tuples sorted by popularity
+        all_languages: List of (language_code, count) tuples sorted by popularity
     """
+
+    # Maximum items to show before requiring scroll
+    MAX_FILTER_OPTIONS = 15
 
     # ═══════════════════════════════════════════════════════════════
     # 1. SEARCH FORM
@@ -520,7 +566,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=val,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -542,10 +596,16 @@ def _render_filter_bar(
     if all_languages is None:
         all_languages = []
 
-    language_options = [("all", "All Languages", "🌍", None)]
+    language_options: list[tuple[str, str, str, Optional[int]]] = [
+        ("all", "All Languages", "🌍", None)
+    ]
 
-    # Add all languages from database with counts
-    for lang_code, count in all_languages:
+    # Add languages from database with counts
+    # Cap at MAX_FILTER_OPTIONS to keep UI manageable
+    languages_to_show = all_languages[:MAX_FILTER_OPTIONS]
+    has_more_languages = len(all_languages) > MAX_FILTER_OPTIONS
+
+    for lang_code, count in languages_to_show:
         emoji = get_language_emoji(lang_code) or "🗣️"
         name = get_language_name(lang_code) or lang_code.upper()
         language_options.append((lang_code, name, emoji, count))
@@ -558,7 +618,15 @@ def _render_filter_bar(
                     if count is None
                     else f"{emoji} {label} ({format_number(count)})"
                 ),
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=val,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -570,6 +638,15 @@ def _render_filter_bar(
             )
             for val, label, emoji, count in language_options
         ],
+        # Add hint if more options available
+        (
+            P(
+                f"+ {len(all_languages) - MAX_FILTER_OPTIONS} more (scroll to see all)",
+                cls="text-xs text-gray-500 italic mt-2 px-2",
+            )
+            if has_more_languages
+            else None
+        ),
         cls="flex gap-1.5 flex-wrap max-h-64 overflow-y-auto",
     )
 
@@ -586,7 +663,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=val,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -615,7 +700,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=val,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -637,10 +730,16 @@ def _render_filter_bar(
     if all_countries is None:
         all_countries = []
 
-    country_options = [("all", "All Countries", "🌍", None)]
+    country_options: list[tuple[str, str, str, Optional[int]]] = [
+        ("all", "All Countries", "🌍", None)
+    ]
 
-    # Add all countries from database with counts
-    for country_code, count in all_countries:
+    # Add countries from database with counts
+    # Cap at MAX_FILTER_OPTIONS to keep UI manageable
+    countries_to_show = all_countries[:MAX_FILTER_OPTIONS]
+    has_more_countries = len(all_countries) > MAX_FILTER_OPTIONS
+
+    for country_code, count in countries_to_show:
         flag = get_country_flag(country_code) or "🏴"
         country_options.append((country_code, country_code.upper(), flag, count))
 
@@ -652,7 +751,15 @@ def _render_filter_bar(
                     if count is None
                     else f"{emoji} {label} ({format_number(count)})"
                 ),
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': val})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=val,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -664,6 +771,15 @@ def _render_filter_bar(
             )
             for val, label, emoji, count in country_options
         ],
+        # Add hint if more options available
+        (
+            P(
+                f"+ {len(all_countries) - MAX_FILTER_OPTIONS} more (scroll to see all)",
+                cls="text-xs text-gray-500 italic mt-2 px-2",
+            )
+            if has_more_countries
+            else None
+        ),
         cls="flex gap-1.5 flex-wrap max-h-64 overflow-y-auto",
     )
 
@@ -719,7 +835,7 @@ def _render_filter_bar(
     reset_link = (
         A(
             "Reset All Filters",
-            href=f"/creators?{urlencode({'sort': sort, 'search': search})}",
+            href=_build_filter_url(sort=sort, search=search),
             cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
         )
         if active_filters > 0
