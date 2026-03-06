@@ -159,6 +159,69 @@ def _filter_valid_creators(creators: list[dict]) -> list[dict]:
 
 
 # ============================================================================
+# URL CONSTRUCTION HELPERS
+# ============================================================================
+
+
+def _build_filter_url(
+    *,
+    sort: str,
+    search: str,
+    grade: str = "all",
+    language: str = "all",
+    activity: str = "all",
+    age: str = "all",
+    country: str = "all",
+    page: int = None,
+    per_page: int = None,
+) -> str:
+    """
+    Central helper for building /creators filter URLs.
+
+    Ensures all filter links stay in sync when query parameters change.
+    By consolidating URL construction here, we prevent parameter divergence
+    and reduce maintenance overhead.
+
+    Args:
+        sort: Sort criteria (subscribers, views, engagement, etc.)
+        search: Search query string
+        grade: Quality grade filter (all, A+, A, B+, B, C)
+        language: Language filter (all, en, ja, es, etc.)
+        activity: Activity level filter (all, active, dormant)
+        age: Channel age filter (all, new, established, veteran)
+        country: Country filter (all, or country code)
+        page: Optional page number for pagination
+        per_page: Optional items per page for pagination
+
+    Returns:
+        URL string for /creators with all parameters encoded
+
+    Examples:
+        _build_filter_url(sort='subscribers', search='', grade='A+')
+        → '/creators?sort=subscribers&search=&grade=A%2B&language=all&...'
+
+        _build_filter_url(sort='subscribers', search='', page=2, per_page=20)
+        → '/creators?sort=subscribers&search=&page=2&per_page=20&...'
+    """
+    params = {
+        "sort": sort,
+        "search": search,
+        "grade": grade,
+        "language": language,
+        "activity": activity,
+        "age": age,
+        "country": country,
+    }
+
+    if page is not None:
+        params["page"] = str(page)
+    if per_page is not None:
+        params["per_page"] = str(per_page)
+
+    return f"/creators?{urlencode(params)}"
+
+
+# ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
 
@@ -518,7 +581,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=val,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -549,7 +620,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=val,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -577,7 +656,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=val,
+                    age=age_filter,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -606,7 +693,15 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val, 'country': country_filter})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=val,
+                    country=country_filter,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -641,7 +736,15 @@ def _render_filter_bar(
                 (
                     label if emoji == "🌍" else f"{emoji} {label.split()[-1]}"
                 ),  # Show just flag + code
-                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': val})}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=val,
+                ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -708,7 +811,15 @@ def _render_filter_bar(
     reset_link = (
         A(
             "Reset All Filters",
-            href=f"/creators?{urlencode({'sort': sort, 'search': search})}",
+            href=_build_filter_url(
+                sort=sort,
+                search=search,
+                grade="all",
+                language="all",
+                activity="all",
+                age="all",
+                country="all",
+            ),
             cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
         )
         if active_filters > 0
@@ -1455,25 +1566,22 @@ def _render_pagination(
     if total_pages <= 1:
         return Div()  # No pagination needed
 
-    # Build base query params
-    base_params = {
-        "search": search,
-        "sort": sort,
-        "grade": grade_filter,
-        "language": language_filter,
-        "activity": activity_filter,
-        "age": age_filter,
-        "country": country_filter,
-        "per_page": str(per_page),
-    }
-
     def page_link(page_num: int, label: str = None, is_current: bool = False):
         """Generate a page link button."""
         if label is None:
             label = str(page_num)
 
-        params = {**base_params, "page": str(page_num)}
-        url = f"/creators?{urlencode(params)}"
+        url = _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            page=page_num,
+            per_page=per_page,
+        )
 
         if is_current:
             return Span(
@@ -1525,13 +1633,20 @@ def _render_pagination(
         buttons.append(page_link(total_pages))
 
     # Previous/Next buttons
-    prev_params = {**base_params, "page": str(page - 1)}
-    next_params = {**base_params, "page": str(page + 1)}
-
     prev_button = (
         A(
             "← Previous",
-            href=f"/creators?{urlencode(prev_params)}",
+            href=_build_filter_url(
+                sort=sort,
+                search=search,
+                grade=grade_filter,
+                language=language_filter,
+                activity=activity_filter,
+                age=age_filter,
+                country=country_filter,
+                page=page - 1,
+                per_page=per_page,
+            ),
             cls="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
         )
         if page > 1
@@ -1544,7 +1659,17 @@ def _render_pagination(
     next_button = (
         A(
             "Next →",
-            href=f"/creators?{urlencode(next_params)}",
+            href=_build_filter_url(
+                sort=sort,
+                search=search,
+                grade=grade_filter,
+                language=language_filter,
+                activity=activity_filter,
+                age=age_filter,
+                country=country_filter,
+                page=page + 1,
+                per_page=per_page,
+            ),
             cls="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
         )
         if page < total_pages
