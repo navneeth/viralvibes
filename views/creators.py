@@ -25,6 +25,7 @@ import json
 import logging
 import urllib.parse
 from urllib.parse import urlencode
+from typing import Optional
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -131,7 +132,6 @@ def get_topic_category_emoji(category_name: str) -> str:
 # ============================================================================
 # TYPE DEFINITIONS FOR FILTER OPTIONS
 # ============================================================================
-from typing import Optional
 
 # Type alias for filter option data from database
 FilterOption = tuple[str, int]  # (code, count) e.g., ("us", 245)
