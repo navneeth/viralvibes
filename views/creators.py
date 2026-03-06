@@ -425,29 +425,25 @@ def _render_hero(
                 ),
                 cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200",
             ),
-            # Average engagement (quality indicator)
+            # Growth Momentum (trending creators)
             Div(
                 P(
-                    "Avg Engagement",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                    "Growth Momentum",
+                    cls="text-xs font-semibold text-green-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    (
-                        "–"
-                        if not stats.get("has_engagement_data", False)
-                        else f"{stats.get('avg_engagement', 0):.1f}%"
-                    ),
-                    cls="text-4xl font-bold text-blue-600 mt-2",
+                    f"{format_number(stats.get('growing_creators', 0))}",
+                    cls="text-3xl font-bold text-green-600",
+                ),
+                Div(
+                    Span("📈", cls="text-2xl"),
+                    cls="flex justify-center mt-2",
                 ),
                 P(
-                    (
-                        "No data"
-                        if not stats.get("has_engagement_data", False)
-                        else "Audience quality"
-                    ),
-                    cls="text-xs text-gray-600 mt-1",
+                    "creators growing",
+                    cls="text-xs text-green-500 mt-1",
                 ),
-                cls="text-center",
+                cls="text-center bg-gradient-to-br from-green-50 to-white rounded-xl p-4 border border-green-200",
             ),
             cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-gray-200",
         ),
@@ -551,21 +547,26 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 3. QUALITY GRADE PILLS
+    # 3. QUALITY GRADE PILLS (with counts and visual hierarchy)
     # ═══════════════════════════════════════════════════════════════
     grade_options = [
-        ("all", "All", "🎯"),
-        ("A+", "Elite", "👑"),
-        ("A", "Star", "⭐"),
-        ("B+", "Rising", "📈"),
-        ("B", "Good", "💎"),
-        ("C", "New", "🔍"),
+        ("all", "All Grades", "🎯", None),
+        ("A+", "Elite", "👑", "border-yellow-400 hover:bg-yellow-50"),
+        ("A", "Star", "⭐", "border-orange-400 hover:bg-orange-50"),
+        ("B+", "Rising", "📈", "border-blue-400 hover:bg-blue-50"),
+        ("B", "Good", "💎", "border-purple-400 hover:bg-purple-50"),
+        ("C", "Emerging", "🌱", "border-green-400 hover:bg-green-50"),
     ]
 
     grade_pills = Div(
         *[
             A(
-                f"{emoji} {label}",
+                # Show count for each grade if available
+                (
+                    f"{emoji} {label}"
+                    if val == "all" or grade_counts.get(val, 0) == 0
+                    else f"{emoji} {label} ({format_number(grade_counts.get(val, 0))})"
+                ),
                 href=_build_filter_url(
                     sort=sort,
                     search=search,
@@ -575,18 +576,23 @@ def _render_filter_bar(
                     age=age_filter,
                     country=country_filter,
                 ),
+                title=(
+                    "View all quality grades"
+                    if val == "all"
+                    else f"Filter by {label} creators (grade {val})"
+                ),
                 cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
                     + (
-                        "bg-blue-600 text-white shadow-sm"
+                        "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md scale-105"
                         if grade_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                        else f"bg-white border-2 text-gray-700 {border_cls or 'border-gray-200 hover:bg-gray-50'}"
                     )
                 ),
             )
-            for val, label, emoji in grade_options
+            for val, label, emoji, border_cls in grade_options
         ],
-        cls="flex gap-1.5 flex-wrap",
+        cls="flex gap-2 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -687,13 +693,42 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 6. CHANNEL AGE FILTER PILLS
+    # 6. CHANNEL AGE FILTER PILLS (improved UX with clearer labels)
     # ═══════════════════════════════════════════════════════════════
+    # Format: (value, label, emoji, title_text, active_classes, inactive_classes)
     age_options = [
-        ("all", "All", "📅"),
-        ("new", "0–1 yr", "🆕"),
-        ("established", "1–10 yrs", "🏆"),
-        ("veteran", "10+ yrs", "👑"),
+        (
+            "all",
+            "All Ages",
+            "📅",
+            "View all channel ages",
+            "bg-gray-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-gray-400 text-gray-700 hover:bg-gray-50",
+        ),
+        (
+            "new",
+            "New (0-1yr)",
+            "🆕",
+            "Filter by new channels (less than 1 year old)",
+            "bg-green-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-green-400 text-green-700 hover:bg-green-50",
+        ),
+        (
+            "established",
+            "Established (1-10yr)",
+            "🏆",
+            "Filter by established channels (1-10 years old)",
+            "bg-blue-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-blue-400 text-blue-700 hover:bg-blue-50",
+        ),
+        (
+            "veteran",
+            "Veteran (10yr+)",
+            "👑",
+            "Filter by veteran channels (10+ years old)",
+            "bg-amber-600 text-white shadow-md scale-105",
+            "bg-white border-2 border-amber-400 text-amber-700 hover:bg-amber-50",
+        ),
     ]
 
     age_pills = Div(
@@ -709,18 +744,15 @@ def _render_filter_bar(
                     age=val,
                     country=country_filter,
                 ),
+                title=title_text,
                 cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-purple-100 text-purple-700 border border-purple-300"
-                        if age_filter == val
-                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
-                    )
+                    "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
+                    + (active_classes if age_filter == val else inactive_classes)
                 ),
             )
-            for val, label, emoji in age_options
+            for val, label, emoji, title_text, active_classes, inactive_classes in age_options
         ],
-        cls="flex gap-1.5 flex-wrap",
+        cls="flex gap-2 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
