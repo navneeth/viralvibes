@@ -727,7 +727,7 @@ def _render_filter_bar(
 
     # Add top countries from database stats
     for country_code, count in top_countries[:8] if top_countries else []:
-        flag = get_country_flag(country_code)
+        flag = get_country_flag(country_code) or "🏴"
         country_options.append((country_code, f"{flag} {country_code.upper()}", flag))
 
     country_pills = Div(
