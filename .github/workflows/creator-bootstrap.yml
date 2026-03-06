@@ -1,0 +1,49 @@
+name: Creator Bootstrap
+
+# Queues never-synced and stale creators into creator_sync_jobs so the
+# creator-worker.yml has jobs to process. Runs 30 min after each sync
+# window so the queue is always primed before the worker starts.
+#
+# Separated from creator-worker.yml deliberately: bootstrapping is pure
+# DB work (no YouTube API calls) and completes in < 2 min. Keeping it
+# separate means a slow bootstrap never delays job processing.
+
+on:
+  schedule:
+    - cron: '30 */6 * * *'  # 00:30, 06:30, 12:30, 18:30 UTC (30 min AFTER worker)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements-backend.txt
+
+      - name: Queue creators for sync
+        run: |
+          echo "▶ Bootstrap starting at $(date)"
+          python -m worker.bootstrap_creators \
+            --unsynced-batch 500 \
+            --stale-days 7
+          echo "✅ Bootstrap finished at $(date)"
