@@ -76,6 +76,7 @@ from db import (
     submit_playlist_job,
     supabase_client,
     upsert_playlist_stats,
+    add_creator_by_handle,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
 from utils import compute_dashboard_id, get_columns, sort_dataframe
@@ -1073,9 +1074,23 @@ def creators(req, sess):
 
 @rt("/creators/add")
 async def add_creator(req, sess):
-    """POST /creators/add - Add creator by handle to database"""
+    """POST /creators/add - Add creator by handle to database
 
-    from db import add_creator_by_handle
+    PROTECTED: Requires authentication to prevent abuse/quota spam.
+    Authenticated users can submit creators for discovery.
+    """
+
+    # Require authentication - prevents unauthenticated spam
+    auth = sess.get("auth") if sess else None
+    user_id = sess.get("user_id") if sess else None
+
+    if not auth:
+        logger.warning("[AddCreator] Unauthorized submission attempt")
+        return Response("Authentication required", status_code=401)
+
+    if not user_id:
+        logger.warning("[AddCreator] User auth present but no user_id")
+        return Response("User identification failed", status_code=401)
 
     try:
         # Get form data
@@ -1086,7 +1101,9 @@ async def add_creator(req, sess):
         custom_url = form.get("custom_url")
         thumbnail = form.get("thumbnail")
 
-        logger.info(f"[AddCreator] Adding creator: {handle} (ID: {channel_id})")
+        logger.info(
+            f"[AddCreator] User {user_id} adding creator: {handle} (ID: {channel_id})"
+        )
 
         # Add to database and queue for sync
         creator_id = add_creator_by_handle(
@@ -1099,7 +1116,7 @@ async def add_creator(req, sess):
 
         if creator_id:
             logger.info(
-                f"[AddCreator] Successfully added creator {handle} (UUID: {creator_id})"
+                f"[AddCreator] Successfully added creator {handle} (UUID: {creator_id}) by user {user_id}"
             )
             # Redirect to creators page to show the new creator
             # Use search to filter to just this creator
