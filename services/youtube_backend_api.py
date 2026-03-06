@@ -97,6 +97,65 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             raise ValueError(f"Invalid playlist URL: {playlist_url}")
         return m.group(1)
 
+    def get_channel_by_handle(self, handle: str) -> Optional[Dict[str, Any]]:
+        """Fetch basic channel information by YouTube handle.
+
+        Args:
+            handle: YouTube handle (e.g., "@MrBeast" or "MrBeast")
+
+        Returns:
+            Dict with channel_id, title, custom_url, thumbnail, subscriber_count
+            or None if not found
+        """
+        try:
+            # Normalize handle (remove @ if present)
+            normalized_handle = handle.lstrip("@")
+
+            logger.info(f"[YouTubeAPI] Fetching channel by handle: {normalized_handle}")
+
+            # Use forHandle parameter to find channel
+            resp = (
+                self.youtube.channels()
+                .list(
+                    part="snippet,statistics", forHandle=normalized_handle, maxResults=1
+                )
+                .execute()
+            )
+
+            if not resp.get("items"):
+                logger.warning(f"Channel not found for handle: {handle}")
+                return None
+
+            item = resp["items"][0]
+            snippet = item.get("snippet", {})
+            stats = item.get("statistics", {})
+
+            channel_info = {
+                "channel_id": item["id"],
+                "title": snippet.get("title", "Unknown"),
+                "custom_url": snippet.get("customUrl", normalized_handle),
+                "thumbnail": snippet.get("thumbnails", {})
+                .get("high", {})
+                .get("url", ""),
+                "description": snippet.get("description", ""),
+                "subscriber_count": int(stats.get("subscriberCount", 0)),
+                "view_count": int(stats.get("viewCount", 0)),
+                "video_count": int(stats.get("videoCount", 0)),
+                "country": snippet.get("country"),
+                "published_at": snippet.get("publishedAt", ""),
+            }
+
+            logger.info(
+                f"[YouTubeAPI] Found channel: {channel_info['title']} "
+                f"(ID: {channel_info['channel_id']}, Subs: {format(channel_info['subscriber_count'], ',')})"
+            )
+
+            return channel_info
+
+        except Exception as e:
+            logger.exception(f"Error fetching channel by handle {handle}: {e}")
+            return None
+
     async def get_playlist_preview(
         self, playlist_url: str
     ) -> Tuple[str, str, str, int, str, str, str]:

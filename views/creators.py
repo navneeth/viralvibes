@@ -25,7 +25,6 @@ import json
 import logging
 import urllib.parse
 from urllib.parse import urlencode
-from typing import Optional
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -48,6 +47,7 @@ from utils.creator_metrics import (
     get_language_name,
     get_sync_status_badge,
 )
+from db import add_creator_by_handle
 
 logger = logging.getLogger(__name__)
 
@@ -127,43 +127,6 @@ def get_topic_category_emoji(category_name: str) -> str:
 
     # Default fallback
     return "🏷️"
-
-
-# ============================================================================
-# TYPE DEFINITIONS FOR FILTER OPTIONS
-# ============================================================================
-
-# Type alias for filter option data from database
-FilterOption = tuple[str, int]  # (code, count) e.g., ("us", 245)
-
-
-def _build_filter_url(
-    sort: str,
-    search: str,
-    grade: str = "all",
-    language: str = "all",
-    activity: str = "all",
-    age: str = "all",
-    country: str = "all",
-) -> str:
-    """
-    Build consistent /creators URL with all filter parameters.
-
-    Centralizes URL construction to avoid duplication and sync issues.
-
-    Args:
-        sort: Sort order
-        search: Search query
-        grade: Grade filter (all, A+, A, B+, B, C)
-        language: Language filter (all, en, ja, etc)
-        activity: Activity filter (all, active, dormant)
-        age: Age filter (all, new, established, veteran)
-        country: Country filter (all, us, jp, etc)
-
-    Returns:
-        URL string for /creators with all filters encoded
-    """
-    return f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade, 'language': language, 'activity': activity, 'age': age, 'country': country})}"
 
 
 def _filter_valid_creators(creators: list[dict]) -> list[dict]:
@@ -279,8 +242,7 @@ def render_creators_page(
             age_filter=age_filter,
             country_filter=country_filter,
             grade_counts=grade_counts,
-            all_countries=stats.get("all_countries", []) if stats else [],
-            all_languages=stats.get("all_languages", []) if stats else [],
+            top_countries=stats.get("top_countries", []) if stats else [],
         ),
         # Creators grid or empty state
         (
@@ -425,25 +387,29 @@ def _render_hero(
                 ),
                 cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200",
             ),
-            # Growth Momentum (trending creators)
+            # Average engagement (quality indicator)
             Div(
                 P(
-                    "Growth Momentum",
-                    cls="text-xs font-semibold text-green-600 uppercase tracking-wider mb-2",
+                    "Avg Engagement",
+                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
                 ),
                 H2(
-                    f"{format_number(stats.get('growing_creators', 0))}",
-                    cls="text-3xl font-bold text-green-600",
-                ),
-                Div(
-                    Span("📈", cls="text-2xl"),
-                    cls="flex justify-center mt-2",
+                    (
+                        "–"
+                        if not stats.get("has_engagement_data", False)
+                        else f"{stats.get('avg_engagement', 0):.1f}%"
+                    ),
+                    cls="text-4xl font-bold text-blue-600 mt-2",
                 ),
                 P(
-                    "creators growing",
-                    cls="text-xs text-green-500 mt-1",
+                    (
+                        "No data"
+                        if not stats.get("has_engagement_data", False)
+                        else "Audience quality"
+                    ),
+                    cls="text-xs text-gray-600 mt-1",
                 ),
-                cls="text-center bg-gradient-to-br from-green-50 to-white rounded-xl p-4 border border-green-200",
+                cls="text-center",
             ),
             cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-gray-200",
         ),
@@ -460,30 +426,18 @@ def _render_filter_bar(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
-    all_countries: Optional[list[FilterOption]] = None,
-    all_languages: Optional[list[FilterOption]] = None,
+    top_countries: list = None,
 ) -> Div:
     """
-    Adaptive filter bar with database-driven options.
+    Clean horizontal card-based filter bar.
 
-    Shows available countries and languages from the database,
-    sorted by popularity (creator count). Each option displays the count
-    for better decision-making.
+    Shows search + sort on top line, then 4 filter cards below.
+    All filters visible at once, no accordion clicks needed.
 
-    UX Principles:
-    - Show what's actually available (not hardcoded options)
-    - Display counts for informed filtering
-    - Sort by popularity (most creators first)
-    - Cap at reasonable limit with "Show more" pattern for large lists
-    - Handle overflow gracefully with scrollable accordions
-
-    Args:
-        all_countries: List of (country_code, count) tuples sorted by popularity
-        all_languages: List of (language_code, count) tuples sorted by popularity
+    Space: ~150px, all filters visible
+    Clicks: 0 (vs 1-4 with accordion)
+    Design: Modern, card-based, professional
     """
-
-    # Maximum items to show before requiring scroll
-    MAX_FILTER_OPTIONS = 15
 
     # ═══════════════════════════════════════════════════════════════
     # 1. SEARCH FORM
@@ -547,92 +501,53 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 3. QUALITY GRADE PILLS (with counts and visual hierarchy)
+    # 3. QUALITY GRADE PILLS
     # ═══════════════════════════════════════════════════════════════
     grade_options = [
-        ("all", "All Grades", "🎯", None),
-        ("A+", "Elite", "👑", "border-yellow-400 hover:bg-yellow-50"),
-        ("A", "Star", "⭐", "border-orange-400 hover:bg-orange-50"),
-        ("B+", "Rising", "📈", "border-blue-400 hover:bg-blue-50"),
-        ("B", "Good", "💎", "border-purple-400 hover:bg-purple-50"),
-        ("C", "Emerging", "🌱", "border-green-400 hover:bg-green-50"),
+        ("all", "All", "🎯"),
+        ("A+", "Elite", "👑"),
+        ("A", "Star", "⭐"),
+        ("B+", "Rising", "📈"),
+        ("B", "Good", "💎"),
+        ("C", "New", "🔍"),
     ]
 
     grade_pills = Div(
         *[
             A(
-                # Show count for each grade if available
-                (
-                    f"{emoji} {label}"
-                    if val == "all" or grade_counts.get(val, 0) == 0
-                    else f"{emoji} {label} ({format_number(grade_counts.get(val, 0))})"
-                ),
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=val,
-                    language=language_filter,
-                    activity=activity_filter,
-                    age=age_filter,
-                    country=country_filter,
-                ),
-                title=(
-                    "View all quality grades"
-                    if val == "all"
-                    else f"Filter by {label} creators (grade {val})"
-                ),
+                f"{emoji} {label}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': val, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
                 cls=(
-                    "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
-                        "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md scale-105"
+                        "bg-blue-600 text-white shadow-sm"
                         if grade_filter == val
-                        else f"bg-white border-2 text-gray-700 {border_cls or 'border-gray-200 hover:bg-gray-50'}"
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
                     )
                 ),
             )
-            for val, label, emoji, border_cls in grade_options
+            for val, label, emoji in grade_options
         ],
-        cls="flex gap-2 flex-wrap",
+        cls="flex gap-1.5 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 4. LANGUAGE FILTER PILLS (ADAPTIVE)
+    # 4. LANGUAGE FILTER PILLS
     # ═══════════════════════════════════════════════════════════════
-    # Build language options from database stats (sorted by popularity)
-    if all_languages is None:
-        all_languages = []
-
-    language_options: list[tuple[str, str, str, Optional[int]]] = [
-        ("all", "All Languages", "🌍", None)
+    language_options = [
+        ("all", "All", "🌍"),
+        ("en", "English", "🇺🇸"),
+        ("ja", "日本語", "🇯🇵"),
+        ("es", "Español", "🇪🇸"),
+        ("ko", "Korean", "🇰🇷"),
+        ("zh", "Chinese", "🇨🇳"),
     ]
-
-    # Add languages from database with counts
-    # Cap at MAX_FILTER_OPTIONS to keep UI manageable
-    languages_to_show = all_languages[:MAX_FILTER_OPTIONS]
-    has_more_languages = len(all_languages) > MAX_FILTER_OPTIONS
-
-    for lang_code, count in languages_to_show:
-        emoji = get_language_emoji(lang_code) or "🗣️"
-        name = get_language_name(lang_code) or lang_code.upper()
-        language_options.append((lang_code, name, emoji, count))
 
     language_pills = Div(
         *[
             A(
-                (
-                    f"{emoji} {label}"
-                    if count is None
-                    else f"{emoji} {label} ({format_number(count)})"
-                ),
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=val,
-                    activity=activity_filter,
-                    age=age_filter,
-                    country=country_filter,
-                ),
+                f"{emoji} {label}",
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': val, 'activity': activity_filter, 'age': age_filter, 'country': country_filter})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -642,18 +557,9 @@ def _render_filter_bar(
                     )
                 ),
             )
-            for val, label, emoji, count in language_options
+            for val, label, emoji in language_options
         ],
-        # Add hint if more options available
-        (
-            P(
-                f"+ {len(all_languages) - MAX_FILTER_OPTIONS} more (scroll to see all)",
-                cls="text-xs text-gray-500 italic mt-2 px-2",
-            )
-            if has_more_languages
-            else None
-        ),
-        cls="flex gap-1.5 flex-wrap max-h-64 overflow-y-auto",
+        cls="flex gap-1.5 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -669,15 +575,7 @@ def _render_filter_bar(
         *[
             A(
                 f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=language_filter,
-                    activity=val,
-                    age=age_filter,
-                    country=country_filter,
-                ),
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': val, 'age': age_filter, 'country': country_filter})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -693,105 +591,55 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 6. CHANNEL AGE FILTER PILLS (improved UX with clearer labels)
+    # 6. CHANNEL AGE FILTER PILLS
     # ═══════════════════════════════════════════════════════════════
-    # Format: (value, label, emoji, title_text, active_classes, inactive_classes)
     age_options = [
-        (
-            "all",
-            "All Ages",
-            "📅",
-            "View all channel ages",
-            "bg-gray-600 text-white shadow-md scale-105",
-            "bg-white border-2 border-gray-400 text-gray-700 hover:bg-gray-50",
-        ),
-        (
-            "new",
-            "New (0-1yr)",
-            "🆕",
-            "Filter by new channels (less than 1 year old)",
-            "bg-green-600 text-white shadow-md scale-105",
-            "bg-white border-2 border-green-400 text-green-700 hover:bg-green-50",
-        ),
-        (
-            "established",
-            "Established (1-10yr)",
-            "🏆",
-            "Filter by established channels (1-10 years old)",
-            "bg-blue-600 text-white shadow-md scale-105",
-            "bg-white border-2 border-blue-400 text-blue-700 hover:bg-blue-50",
-        ),
-        (
-            "veteran",
-            "Veteran (10yr+)",
-            "👑",
-            "Filter by veteran channels (10+ years old)",
-            "bg-amber-600 text-white shadow-md scale-105",
-            "bg-white border-2 border-amber-400 text-amber-700 hover:bg-amber-50",
-        ),
+        ("all", "All", "📅"),
+        ("new", "0–1 yr", "🆕"),
+        ("established", "1–10 yrs", "🏆"),
+        ("veteran", "10+ yrs", "👑"),
     ]
 
     age_pills = Div(
         *[
             A(
                 f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=language_filter,
-                    activity=activity_filter,
-                    age=val,
-                    country=country_filter,
-                ),
-                title=title_text,
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': val, 'country': country_filter})}",
                 cls=(
-                    "px-3 py-1.5 rounded-md transition-all inline-block no-underline text-xs font-semibold "
-                    + (active_classes if age_filter == val else inactive_classes)
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    + (
+                        "bg-purple-100 text-purple-700 border border-purple-300"
+                        if age_filter == val
+                        else "bg-white border border-gray-200 hover:bg-gray-50 text-gray-700"
+                    )
                 ),
             )
-            for val, label, emoji, title_text, active_classes, inactive_classes in age_options
+            for val, label, emoji in age_options
         ],
-        cls="flex gap-2 flex-wrap",
+        cls="flex gap-1.5 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 7. COUNTRY FILTER PILLS (ADAPTIVE)
+    # 7. COUNTRY FILTER PILLS
     # ═══════════════════════════════════════════════════════════════
-    # Build country options from database stats (sorted by popularity)
-    if all_countries is None:
-        all_countries = []
+    # Use top countries from stats, default to popular ones if not provided
+    if top_countries is None:
+        top_countries = []
 
-    country_options: list[tuple[str, str, str, Optional[int]]] = [
-        ("all", "All Countries", "🌍", None)
-    ]
+    country_options = [("all", "All", "🌍")]
 
-    # Add countries from database with counts
-    # Cap at MAX_FILTER_OPTIONS to keep UI manageable
-    countries_to_show = all_countries[:MAX_FILTER_OPTIONS]
-    has_more_countries = len(all_countries) > MAX_FILTER_OPTIONS
-
-    for country_code, count in countries_to_show:
-        flag = get_country_flag(country_code) or "🏴"
-        country_options.append((country_code, country_code.upper(), flag, count))
+    # Add top countries from database stats
+    for country_code, count in top_countries[:8] if top_countries else []:
+        flag = get_country_flag(country_code)
+        country_options.append((country_code, f"{flag} {country_code.upper()}", flag))
 
     country_pills = Div(
         *[
             A(
                 (
-                    f"{emoji} {label}"
-                    if count is None
-                    else f"{emoji} {label} ({format_number(count)})"
-                ),
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=language_filter,
-                    activity=activity_filter,
-                    age=age_filter,
-                    country=val,
-                ),
+                    label if emoji == "🌍" else f"{emoji} {label.split()[-1]}"
+                ),  # Show just flag + code
+                href=f"/creators?{urlencode({'sort': sort, 'search': search, 'grade': grade_filter, 'language': language_filter, 'activity': activity_filter, 'age': age_filter, 'country': val})}",
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
                     + (
@@ -801,18 +649,9 @@ def _render_filter_bar(
                     )
                 ),
             )
-            for val, label, emoji, count in country_options
+            for val, label, emoji in country_options
         ],
-        # Add hint if more options available
-        (
-            P(
-                f"+ {len(all_countries) - MAX_FILTER_OPTIONS} more (scroll to see all)",
-                cls="text-xs text-gray-500 italic mt-2 px-2",
-            )
-            if has_more_countries
-            else None
-        ),
-        cls="flex gap-1.5 flex-wrap max-h-64 overflow-y-auto",
+        cls="flex gap-1.5 flex-wrap",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -867,7 +706,7 @@ def _render_filter_bar(
     reset_link = (
         A(
             "Reset All Filters",
-            href=_build_filter_url(sort=sort, search=search),
+            href=f"/creators?{urlencode({'sort': sort, 'search': search})}",
             cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
         )
         if active_filters > 0
@@ -915,12 +754,12 @@ def _render_filter_bar(
                         open=(grade_filter != "all"),
                     ),
                     AccordionItem(
-                        f"Language ({len(all_languages) if all_languages else 0} available)",
+                        "Language",
                         language_pills,
                         open=(language_filter != "all"),
                     ),
                     AccordionItem(
-                        f"Country ({len(all_countries) if all_countries else 0} available)",
+                        "Country",
                         country_pills,
                         open=(country_filter != "all"),
                     ),
@@ -1739,6 +1578,36 @@ def _render_pagination(
 
 def _render_empty_state(search: str, grade_filter: str) -> Div:
     """Empty state when no creators found."""
+
+    # Special handling for handle searches that weren't found
+    if search and search.startswith("@"):
+        return Card(
+            Div(
+                Span("🔍", cls="text-6xl block text-center mb-4"),
+                H2(
+                    f"Handle {search} not found",
+                    cls="text-center text-2xl font-bold mb-2",
+                ),
+                P(
+                    "This creator might not exist on YouTube or has a different handle.",
+                    cls="text-center text-gray-600 mb-2",
+                ),
+                P(
+                    "💡 Try searching without the @ symbol or verify the handle on YouTube first.",
+                    cls="text-center text-sm text-gray-500 mb-6",
+                ),
+                Div(
+                    A(
+                        Button("← Back to All Creators", cls=ButtonT.secondary),
+                        href="/creators",
+                    ),
+                    cls="flex justify-center",
+                ),
+                cls="space-y-4 p-12",
+            ),
+            cls="bg-gray-50 max-w-md mx-auto",
+        )
+
     if search or grade_filter != "all":
         return Card(
             Div(
@@ -1746,7 +1615,11 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
                 H2("No creators found", cls="text-center text-2xl font-bold mb-2"),
                 P(
                     "Try adjusting your filters or search terms",
-                    cls="text-center text-gray-600 mb-6",
+                    cls="text-center text-gray-600 mb-2",
+                ),
+                P(
+                    "💡 Tip: Search by handle like @MrBeast to add creators directly from YouTube",
+                    cls="text-center text-sm text-blue-600 mb-6",
                 ),
                 Div(
                     A(Button("Clear Filters", cls=ButtonT.secondary), href="/creators"),
@@ -1766,7 +1639,11 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
                 ),
                 P(
                     "Analyze YouTube playlists to automatically discover and track creators.",
-                    cls="text-center text-gray-600 mb-6",
+                    cls="text-center text-gray-600 mb-2",
+                ),
+                P(
+                    "💡 Or search by handle like @MrBeast to add them directly!",
+                    cls="text-center text-sm text-blue-600 mb-6",
                 ),
                 Div(
                     A(
@@ -1799,3 +1676,136 @@ def _count_by_grade(creators: list[dict]) -> dict:
 # NOTE: Helper functions moved to utils/creator_metrics.py for better organization
 # - get_language_emoji, get_language_name, get_activity_badge
 # - estimate_monthly_revenue (replaces _estimate_monthly_revenue)
+
+
+# ============================================================================
+# HANDLE SEARCH PREVIEW CARD
+# ============================================================================
+
+
+def render_creator_preview(
+    handle: str, channel_info: dict, search: str = ""
+) -> Container:
+    """Render preview card for new creator found via handle search.
+
+    Shows basic info from YouTube API with "Add to Database" button.
+    """
+    channel_id = channel_info.get("channel_id")
+    title = channel_info.get("title", "Unknown Creator")
+    custom_url = channel_info.get("custom_url", handle.lstrip("@"))
+    thumbnail = channel_info.get("thumbnail", "")
+    description = channel_info.get("description", "")
+    subs = channel_info.get("subscriber_count", 0)
+    views = channel_info.get("view_count", 0)
+    videos = channel_info.get("video_count", 0)
+    country = channel_info.get("country")
+
+    return Container(
+        # Hero banner
+        Div(
+            H1(
+                "📍 Creator Found on YouTube",
+                cls="text-4xl font-bold text-gray-900 mb-2",
+            ),
+            P(
+                f"Found {handle} on YouTube. Add them to your database to track their stats.",
+                cls="text-lg text-gray-600",
+            ),
+            cls="mb-8",
+        ),
+        # Preview card
+        Card(
+            # Channel header with avatar
+            Div(
+                Div(
+                    Img(
+                        src=thumbnail or "/static/favicon.jpeg",
+                        alt=title,
+                        cls="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg",
+                    ),
+                    cls="flex-shrink-0",
+                ),
+                Div(
+                    H2(title, cls="text-2xl font-bold text-gray-900"),
+                    P(
+                        handle,
+                        cls="text-lg text-gray-600 font-mono",
+                    ),
+                    (
+                        Div(
+                            get_country_flag(country),
+                            Span(country.upper(), cls="ml-2 text-sm text-gray-600"),
+                            cls="flex items-center mt-2",
+                        )
+                        if country
+                        else None
+                    ),
+                    cls="ml-6",
+                ),
+                cls="flex items-center mb-6",
+            ),
+            # Stats grid
+            Div(
+                Div(
+                    P("Subscribers", cls="text-xs text-gray-500 uppercase"),
+                    P(format_number(subs), cls="text-2xl font-bold text-gray-900 mt-1"),
+                    cls="text-center bg-blue-50 rounded-lg p-4",
+                ),
+                Div(
+                    P("Total Views", cls="text-xs text-gray-500 uppercase"),
+                    P(
+                        format_number(views),
+                        cls="text-2xl font-bold text-gray-900 mt-1",
+                    ),
+                    cls="text-center bg-green-50 rounded-lg p-4",
+                ),
+                Div(
+                    P("Videos", cls="text-xs text-gray-500 uppercase"),
+                    P(
+                        format_number(videos),
+                        cls="text-2xl font-bold text-gray-900 mt-1",
+                    ),
+                    cls="text-center bg-purple-50 rounded-lg p-4",
+                ),
+                cls="grid grid-cols-3 gap-4 mb-6",
+            ),
+            # Description
+            (
+                Div(
+                    P("About", cls="text-sm font-semibold text-gray-700 mb-2"),
+                    P(
+                        description[:200] + ("..." if len(description) > 200 else ""),
+                        cls="text-sm text-gray-600 leading-relaxed",
+                    ),
+                    cls="mb-6",
+                )
+                if description
+                else None
+            ),
+            # Action buttons
+            Div(
+                Form(
+                    Input(type="hidden", name="handle", value=handle),
+                    Input(type="hidden", name="channel_id", value=channel_id),
+                    Input(type="hidden", name="channel_name", value=title),
+                    Input(type="hidden", name="custom_url", value=custom_url),
+                    Input(type="hidden", name="thumbnail", value=thumbnail),
+                    Button(
+                        "✅ Add to Database & Track Stats",
+                        type="submit",
+                        cls="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-blue-700 hover:to-blue-600 transition-all shadow-md hover:shadow-lg",
+                    ),
+                    method="POST",
+                    action="/creators/add",
+                ),
+                A(
+                    "← Back to Search",
+                    href="/creators",
+                    cls="block text-center text-gray-600 hover:text-gray-900 font-medium mt-4 no-underline",
+                ),
+                cls="border-t pt-6 mt-6",
+            ),
+            cls="max-w-2xl mx-auto",
+        ),
+        cls=ContainerT.xl,
+    )

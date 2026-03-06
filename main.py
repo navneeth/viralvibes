@@ -1071,6 +1071,51 @@ def creators(req, sess):
     )
 
 
+@rt("/creators/add")
+async def add_creator(req, sess):
+    """POST /creators/add - Add creator by handle to database"""
+
+    from db import add_creator_by_handle
+
+    try:
+        # Get form data
+        form = await req.form()
+        handle = form.get("handle")
+        channel_id = form.get("channel_id")
+        channel_name = form.get("channel_name")
+        custom_url = form.get("custom_url")
+        thumbnail = form.get("thumbnail")
+
+        logger.info(f"[AddCreator] Adding creator: {handle} (ID: {channel_id})")
+
+        # Add to database and queue for sync
+        creator_id = add_creator_by_handle(
+            handle=handle,
+            channel_id=channel_id,
+            channel_name=channel_name,
+            custom_url=custom_url,
+            channel_thumbnail_url=thumbnail,
+        )
+
+        if creator_id:
+            logger.info(
+                f"[AddCreator] Successfully added creator {handle} (UUID: {creator_id})"
+            )
+            # Redirect to creators page to show the new creator
+            # Use search to filter to just this creator
+            return RedirectResponse(
+                f"/creators?search={quote_plus(handle)}",
+                status_code=303,
+            )
+        else:
+            logger.error(f"[AddCreator] Failed to add creator {handle}")
+            return RedirectResponse("/creators", status_code=303)
+
+    except Exception as e:
+        logger.exception(f"[AddCreator] Error adding creator: {e}")
+        return RedirectResponse("/creators", status_code=303)
+
+
 @rt("/me/dashboards")
 def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
     """User's personal dashboards page - PROTECTED route"""
