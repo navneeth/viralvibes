@@ -2137,7 +2137,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             if safe_get_value(c, "monthly_uploads", 0) > 5:
                 active_count += 1
 
-        # Calculate percentages and top lists
+        # Calculate percentages and lists (sorted by count)
         total_countries = len(countries)
         total_languages = len(languages)
         total_categories = len(categories)
@@ -2147,12 +2147,18 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         active_percentage = (
             (active_count / len(stats_source)) * 100 if stats_source else 0
         )
-        top_countries = sorted(
+        
+        # Sort all countries and languages by count (most popular first)
+        all_countries = sorted(
             country_counts.items(), key=lambda x: x[1], reverse=True
-        )[:3]
-        top_languages = sorted(
+        )
+        all_languages = sorted(
             language_counts.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        )
+        
+        # Also keep top N for backward compatibility (hero display)
+        top_countries = all_countries[:3]
+        top_languages = all_languages[:5]
 
         return {
             # Original metrics (keep for backward compatibility)
@@ -2172,6 +2178,9 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "active_percentage": round(active_percentage, 1),
             "top_countries": top_countries,
             "top_languages": top_languages,
+            # NEW: Full lists for adaptive filters
+            "all_countries": all_countries,  # All countries sorted by popularity
+            "all_languages": all_languages,  # All languages sorted by popularity
         }
 
     except Exception as e:
