@@ -7,8 +7,14 @@ from urllib.parse import urlencode
 
 from fasthtml.common import RedirectResponse
 
-from db import calculate_creator_stats, get_creators
-from views.creators import render_creators_page
+from db import (
+    add_creator_by_handle,
+    calculate_creator_stats,
+    find_creator_by_handle,
+    get_creators,
+)
+from services.youtube_backend_api import YouTubeBackendAPI
+from views.creators import render_creator_preview, render_creators_page
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +23,53 @@ def creators_route(request):
     """GET /creators - Creators discovery page."""
 
     # Get query parameters
+    search = request.query_params.get("search", "")
+
+    # ═══════════════════════════════════════════════════════════════
+    # HANDLE SEARCH MODE (@username)
+    # ═══════════════════════════════════════════════════════════════
+    if search.strip().startswith("@"):
+        handle = search.strip()
+        logger.info(f"[HandleSearch] Detected handle search: {handle}")
+
+        # Check if creator already exists in DB
+        existing_creator = find_creator_by_handle(handle)
+
+        if existing_creator:
+            # Creator exists - redirect to show their card in results
+            logger.info(
+                f"[HandleSearch] Found existing creator: {existing_creator.get('channel_name')}"
+            )
+            # Fall through to normal search (will match by custom_url)
+        else:
+            # Creator not in DB - fetch from YouTube and show preview
+            logger.info(f"[HandleSearch] Creator not found, fetching from YouTube...")
+
+            try:
+                youtube_api = YouTubeBackendAPI()
+                channel_info = youtube_api.get_channel_by_handle(handle)
+
+                if channel_info:
+                    # Show preview card with "Add to Database" option
+                    return render_creator_preview(
+                        handle=handle,
+                        channel_info=channel_info,
+                        search=search,
+                    )
+                else:
+                    # Handle not found on YouTube
+                    logger.warning(
+                        f"[HandleSearch] Handle not found on YouTube: {handle}"
+                    )
+                    # Fall through to show empty results with helpful message
+
+            except Exception as e:
+                logger.exception(f"[HandleSearch] Error fetching handle {handle}: {e}")
+                # Fall through to normal search
+
+    # ═══════════════════════════════════════════════════════════════
+    # NORMAL SEARCH MODE
+    # ═══════════════════════════════════════════════════════════════
     search = request.query_params.get("search", "")
     sort = request.query_params.get("sort", "subscribers")
     grade_filter = request.query_params.get("grade", "all")

@@ -645,7 +645,7 @@ def submit_playlist_job(
         "playlist_url": playlist_url,
         "user_id": user_id,  # ✅ Store user ownership
         "status": JobStatus.PENDING,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "retry_count": 0,
     }
 
@@ -886,7 +886,7 @@ def mark_creator_sync_processing(job_id: int) -> bool:
             .update(
                 {
                     "status": "processing",
-                    "started_at": datetime.utcnow().isoformat(),
+                    "started_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             .eq("id", job_id)
@@ -912,7 +912,7 @@ def mark_creator_sync_completed(job_id: int) -> bool:
             .update(
                 {
                     "status": "completed",
-                    "completed_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             .eq("id", job_id)
@@ -951,7 +951,7 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
             status = "pending"
             backoff_seconds = CREATOR_WORKER_RETRY_BASE * (2**retry_count)
             next_retry = (
-                datetime.utcnow() + timedelta(seconds=backoff_seconds)
+                datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
             ).isoformat()
             logger.info(f"Creator sync job {job_id} will retry in {backoff_seconds}s")
 
@@ -1071,7 +1071,7 @@ def update_creator_stats(
             "current_subscribers": stats.get("subscriber_count", 0),
             "current_view_count": stats.get("view_count", 0),
             "current_video_count": stats.get("video_count", 0),
-            "last_updated_at": datetime.utcnow().isoformat(),
+            "last_updated_at": datetime.now(timezone.utc).isoformat(),
             "channel_name": stats.get("channel_name"),
             "channel_thumbnail_url": stats.get("channel_thumbnail"),
             "channel_url": f"https://www.youtube.com/channel/{stats.get('channel_id')}",
@@ -1615,7 +1615,7 @@ def get_or_create_creator_from_playlist(
                 update_payload = {
                     "channel_name": channel_name,
                     "channel_url": channel_url,
-                    "last_seen_at": datetime.utcnow().isoformat(),
+                    "last_seen_at": datetime.now(timezone.utc).isoformat(),
                 }
                 # Only update thumbnail if we have a new value (avoid overwriting with None)
                 if channel_thumbnail_url:
@@ -1653,9 +1653,7 @@ def get_or_create_creator_from_playlist(
                     last_synced_dt = datetime.fromisoformat(
                         last_synced.replace("Z", "+00:00")
                     )
-                    days_since_sync = (
-                        datetime.utcnow() - last_synced_dt.replace(tzinfo=None)
-                    ).days
+                    days_since_sync = (datetime.now(timezone.utc) - last_synced_dt).days
                     should_queue = days_since_sync >= sync_threshold
 
                     if not should_queue:
@@ -1778,6 +1776,142 @@ def add_creator_manually(
 
     except Exception as e:
         logger.exception(f"Error adding creator manually: {e}")
+        return None
+
+
+def find_creator_by_handle(handle: str) -> Optional[Dict[str, Any]]:
+    """
+    Find creator by YouTube handle (@username) or custom_url.
+
+    Searches custom_url field (case-insensitive) which stores the handle without @.
+
+    Args:
+        handle: YouTube handle (e.g., "@MrBeast" or "MrBeast")
+
+    Returns:
+        Creator dict if found, None otherwise
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available for handle search")
+        return None
+
+    try:
+        # Normalize handle (remove @ if present, lowercase)
+        normalized_handle = handle.lstrip("@").lower()
+
+        # Search by custom_url (case-insensitive)
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("*")
+            .ilike("custom_url", normalized_handle)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            logger.info(f"Found creator by handle: {handle}")
+            return response.data[0]
+
+        logger.debug(f"No creator found with handle: {handle}")
+        return None
+
+    except Exception as e:
+        logger.exception(f"Error finding creator by handle {handle}: {e}")
+        return None
+
+
+def add_creator_by_handle(
+    handle: str,
+    channel_id: str,
+    channel_name: str,
+    custom_url: str,
+    channel_thumbnail_url: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Add creator to database by YouTube handle with metadata.
+
+    This is called after fetching basic channel info from YouTube API.
+    Automatically queues the creator for full stats sync.
+
+    Args:
+        handle: YouTube handle (e.g., "@MrBeast")
+        channel_id: YouTube channel ID (UCxxxxx)
+        channel_name: Creator's display name
+        custom_url: Custom URL slug (without @)
+        channel_thumbnail_url: Avatar/thumbnail URL
+
+    Returns:
+        Creator UUID if successful, None otherwise
+    """
+    if not supabase_client:
+        logger.warning("Supabase client not available for creator addition")
+        return None
+
+    try:
+        # Check if already exists by channel_id (more reliable than handle)
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id")
+            .eq("channel_id", channel_id)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            creator_id = response.data[0]["id"]
+            logger.info(f"Creator {channel_id} already exists with id={creator_id}")
+
+            # Update handle/custom_url if it's changed
+            try:
+                supabase_client.table(CREATOR_TABLE).update(
+                    {
+                        "custom_url": custom_url.lstrip("@").lower(),
+                        "channel_name": channel_name,
+                        "channel_thumbnail_url": channel_thumbnail_url,
+                        "last_seen_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ).eq("id", creator_id).execute()
+                logger.debug(f"Updated metadata for creator {channel_id}")
+            except Exception as e:
+                logger.debug(f"Metadata update failed (non-critical): {e}")
+
+            return creator_id
+
+        # Create new creator
+        insert_payload = {
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "channel_url": f"https://www.youtube.com/channel/{channel_id}",
+            "channel_thumbnail_url": channel_thumbnail_url,
+            "custom_url": custom_url.lstrip("@").lower(),
+            "current_subscribers": 0,
+            "current_view_count": 0,
+            "current_video_count": 0,
+        }
+
+        insert_resp = (
+            supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
+        )
+
+        if not insert_resp.data:
+            logger.error(f"Failed to insert creator with handle {handle}")
+            return None
+
+        creator_id = insert_resp.data[0]["id"]
+        logger.info(
+            f"Added creator {handle} (channel_id={channel_id}, id={creator_id})"
+        )
+
+        # Queue for immediate stats sync
+        if not queue_creator_sync(creator_id, source="handle_search"):
+            logger.warning(f"Failed to queue creator {creator_id} for sync")
+        else:
+            logger.info(f"Queued creator {creator_id} for stats sync")
+
+        return creator_id
+
+    except Exception as e:
+        logger.exception(f"Error adding creator by handle {handle}: {e}")
         return None
 
 
@@ -1925,11 +2059,11 @@ def get_creators(
             elif age_filter == "veteran":
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
 
-        # Apply country filter (normalize to handle case variations)
+        # Apply country filter (case-insensitive: DB stores "US", URL may pass "us")
         if country_filter and country_filter != "all":
-            normalized_country = country_filter.strip().lower()
+            normalized_country = country_filter.strip()
             if normalized_country:
-                query = query.eq("country_code", normalized_country)
+                query = query.ilike("country_code", normalized_country)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
@@ -2137,7 +2271,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             if safe_get_value(c, "monthly_uploads", 0) > 5:
                 active_count += 1
 
-        # Calculate percentages and lists (sorted by count)
+        # Calculate percentages and top lists
         total_countries = len(countries)
         total_languages = len(languages)
         total_categories = len(categories)
@@ -2147,16 +2281,12 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         active_percentage = (
             (active_count / len(stats_source)) * 100 if stats_source else 0
         )
-
-        # Sort all countries and languages by count (most popular first)
-        all_countries = sorted(country_counts.items(), key=lambda x: x[1], reverse=True)
-        all_languages = sorted(
+        top_countries = sorted(
+            country_counts.items(), key=lambda x: x[1], reverse=True
+        )[:8]
+        top_languages = sorted(
             language_counts.items(), key=lambda x: x[1], reverse=True
-        )
-
-        # Also keep top N for backward compatibility (hero display)
-        top_countries = all_countries[:3]
-        top_languages = all_languages[:5]
+        )[:5]
 
         return {
             # Original metrics (keep for backward compatibility)
@@ -2176,9 +2306,6 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "active_percentage": round(active_percentage, 1),
             "top_countries": top_countries,
             "top_languages": top_languages,
-            # NEW: Full lists for adaptive filters
-            "all_countries": all_countries,  # All countries sorted by popularity
-            "all_languages": all_languages,  # All languages sorted by popularity
         }
 
     except Exception as e:
