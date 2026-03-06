@@ -645,7 +645,7 @@ def submit_playlist_job(
         "playlist_url": playlist_url,
         "user_id": user_id,  # ✅ Store user ownership
         "status": JobStatus.PENDING,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "retry_count": 0,
     }
 
@@ -886,7 +886,7 @@ def mark_creator_sync_processing(job_id: int) -> bool:
             .update(
                 {
                     "status": "processing",
-                    "started_at": datetime.utcnow().isoformat(),
+                    "started_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             .eq("id", job_id)
@@ -912,7 +912,7 @@ def mark_creator_sync_completed(job_id: int) -> bool:
             .update(
                 {
                     "status": "completed",
-                    "completed_at": datetime.utcnow().isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             .eq("id", job_id)
@@ -951,7 +951,7 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
             status = "pending"
             backoff_seconds = CREATOR_WORKER_RETRY_BASE * (2**retry_count)
             next_retry = (
-                datetime.utcnow() + timedelta(seconds=backoff_seconds)
+                datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
             ).isoformat()
             logger.info(f"Creator sync job {job_id} will retry in {backoff_seconds}s")
 
@@ -1071,7 +1071,7 @@ def update_creator_stats(
             "current_subscribers": stats.get("subscriber_count", 0),
             "current_view_count": stats.get("view_count", 0),
             "current_video_count": stats.get("video_count", 0),
-            "last_updated_at": datetime.utcnow().isoformat(),
+            "last_updated_at": datetime.now(timezone.utc).isoformat(),
             "channel_name": stats.get("channel_name"),
             "channel_thumbnail_url": stats.get("channel_thumbnail"),
             "channel_url": f"https://www.youtube.com/channel/{stats.get('channel_id')}",
@@ -1615,7 +1615,7 @@ def get_or_create_creator_from_playlist(
                 update_payload = {
                     "channel_name": channel_name,
                     "channel_url": channel_url,
-                    "last_seen_at": datetime.utcnow().isoformat(),
+                    "last_seen_at": datetime.now(timezone.utc).isoformat(),
                 }
                 # Only update thumbnail if we have a new value (avoid overwriting with None)
                 if channel_thumbnail_url:
@@ -1653,9 +1653,7 @@ def get_or_create_creator_from_playlist(
                     last_synced_dt = datetime.fromisoformat(
                         last_synced.replace("Z", "+00:00")
                     )
-                    days_since_sync = (
-                        datetime.utcnow() - last_synced_dt.replace(tzinfo=None)
-                    ).days
+                    days_since_sync = (datetime.now(timezone.utc) - last_synced_dt).days
                     should_queue = days_since_sync >= sync_threshold
 
                     if not should_queue:
@@ -1870,7 +1868,7 @@ def add_creator_by_handle(
                         "custom_url": custom_url.lstrip("@").lower(),
                         "channel_name": channel_name,
                         "channel_thumbnail_url": channel_thumbnail_url,
-                        "last_seen_at": datetime.utcnow().isoformat(),
+                        "last_seen_at": datetime.now(timezone.utc).isoformat(),
                     }
                 ).eq("id", creator_id).execute()
                 logger.debug(f"Updated metadata for creator {channel_id}")
