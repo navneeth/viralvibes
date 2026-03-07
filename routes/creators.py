@@ -13,7 +13,8 @@ from db import (
     find_creator_by_handle,
     get_creators,
 )
-from services.youtube_backend_api import YouTubeBackendAPI
+
+# from services.youtube_backend_api import YouTubeBackendAPI
 from views.creators import render_creator_preview, render_creators_page
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,8 @@ def creators_route(request):
             logger.info(f"[HandleSearch] Creator not found, fetching from YouTube...")
 
             try:
-                youtube_api = YouTubeBackendAPI()
-                channel_info = youtube_api.get_channel_by_handle(handle)
+                youtube_api = None  # YouTubeBackendAPI()
+                channel_info = None  # youtube_api.get_channel_by_handle(handle)
 
                 if channel_info:
                     # Show preview card with "Add to Database" option
