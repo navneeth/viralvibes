@@ -1072,6 +1072,25 @@ def creators(req, sess):
     )
 
 
+@rt("/lists")
+def lists(req, sess):
+    """Creator Lists page - curated, pre-filtered creator rankings"""
+
+    from routes.lists import lists_route
+
+    # Call the route handler
+    page_content = lists_route(req)
+
+    # Render with navigation
+    return Titled(
+        "Creator Lists - YouTube",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
 @rt("/creators/add")
 async def add_creator(req, sess):
     """POST /creators/add - Add creator by handle to database
