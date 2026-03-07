@@ -72,6 +72,9 @@ POLL_INTERVAL = int(
 # Each job gets a completely fresh Python process and clean httplib2 state
 BATCH_SIZE = 1  # Changed from 15 - prevents memory corruption in httplib2 C library
 EXIT_AFTER_JOB = True  # Exit after processing 1 job for complete memory isolation
+_job_processed = (
+    False  # Set True when a job is processed; used for exit code signalling
+)
 MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
@@ -1423,6 +1426,8 @@ async def process_creator_syncs():
                     "✅ Job processing complete - exiting for fresh process start "
                     "(prevents httplib2 memory corruption)"
                 )
+                global _job_processed
+                _job_processed = True
                 break
 
             await asyncio.sleep(POLL_INTERVAL)
@@ -1458,6 +1463,12 @@ async def main():
     except Exception as e:
         logger.exception(f"Fatal error: {e}")
         raise SystemExit(1)
+    else:
+        # Signal to the bash loop whether a job was actually processed.
+        # Exit 0 = job processed. Exit 2 = queue was empty (no job found).
+        # Exit 1 = unhandled exception (handled above).
+        # This replaces the unreliable duration-based heuristic in the shell loop.
+        raise SystemExit(0 if _job_processed else 2)
     finally:
         logger.info(
             f"Worker shutdown complete | "
