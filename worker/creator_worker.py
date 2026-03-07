@@ -1260,8 +1260,14 @@ async def init():
     metrics.start_time = time.time()
     logger.info("✅ Worker initialization complete")
 
-    # Run DB diagnosis immediately so we know the actual state
-    _diagnose_creator_db_state()
+    # Run DB diagnosis on first startup only.
+    # When the bash loop restarts the process 500 times, running 4 HTTP
+    # queries on every boot wastes ~2,000 DB round trips per workflow run.
+    # Set CREATOR_WORKER_SKIP_DIAGNOSIS=true to suppress after first iteration.
+    if os.getenv("CREATOR_WORKER_SKIP_DIAGNOSIS", "").lower() != "true":
+        _diagnose_creator_db_state()
+    else:
+        logger.debug("Skipping DB diagnosis (CREATOR_WORKER_SKIP_DIAGNOSIS=true)")
 
 
 # =============================================================================
