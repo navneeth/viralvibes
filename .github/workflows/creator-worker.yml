@@ -46,6 +46,7 @@ jobs:
       - name: Run creator worker (loop for memory isolation)
         run: |
           # Disable set -e so the loop owns all exit code handling.
+          # We'll re-enable it after the loop to ensure any post-loop failures are caught.
           # Without this, a Python crash (exit 134, SIGABRT from httplib2 heap
           # corruption) kills the entire bash script before EXIT_CODE=$? is reached.
           set +e
@@ -56,6 +57,7 @@ jobs:
           MAX_JOBS=500
           EMPTY_RUNS=0
           MAX_EMPTY_RUNS=3
+          CRASHED_JOBS=0
 
           while [ $JOBS_PROCESSED -lt $MAX_JOBS ]; do
             # First iteration: run diagnosis. Subsequent: skip to save DB round trips.
@@ -68,12 +70,12 @@ jobs:
             python -m worker.creator_worker
             EXIT_CODE=$?
 
-            if [ $EXIT_CODE -eq 0 ]; then
+            if [ "$EXIT_CODE" -eq 0 ]; then
               # Job processed successfully
               JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
               EMPTY_RUNS=0
 
-            elif [ $EXIT_CODE -eq 2 ]; then
+            elif [ "$EXIT_CODE" -eq 2 ]; then
               # Queue was empty — no job found
               EMPTY_RUNS=$((EMPTY_RUNS + 1))
               echo "Queue empty (consecutive: $EMPTY_RUNS/$MAX_EMPTY_RUNS)"
@@ -86,11 +88,15 @@ jobs:
             else
               # Non-zero, non-2: crash or unhandled error (e.g. exit 134 SIGABRT).
               # Log and continue — do not let a single bad channel stop the run.
-              echo "Worker exited with code $EXIT_CODE — skipping and continuing"
-              JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
+              echo "Worker crashed with code $EXIT_CODE (channel error) — skipping and continuing"
+              CRASHED_JOBS=$((CRASHED_JOBS + 1))
               EMPTY_RUNS=0
               sleep 2
             fi
           done
 
-          echo "Worker loop finished at $(date) — jobs processed: $JOBS_PROCESSED"
+          # Re-enable error handling for any post-loop commands
+          set -e
+
+          echo "Worker loop finished at $(date)"
+          echo "Summary: $JOBS_PROCESSED jobs processed, $CRASHED_JOBS jobs crashed"
