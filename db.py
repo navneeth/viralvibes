@@ -2016,6 +2016,10 @@ def get_creators(
         # Using .not_.is_() for NULL check - only works after .select() is called
         query = query.not_.is_("channel_name", "null")
         query = query.gt("current_subscribers", 0)
+        # Only show fully-synced creators — mirrors calculate_creator_stats() behaviour.
+        # Excludes "pending" / "error" rows that have no real stats yet, which would
+        # otherwise appear as blank cards and skew pagination counts.
+        query = query.eq("sync_status", "synced")
 
         # Apply search filter (also search custom_url and keywords)
         if search:
