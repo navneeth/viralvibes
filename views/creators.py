@@ -327,7 +327,7 @@ def render_creators_page(
                 ),
             )
             if creators
-            else _render_empty_state(search, grade_filter)
+            else _render_empty_state(search, grade_filter, has_active_filters)
         ),
         cls=ContainerT.xl,
     )
@@ -1031,7 +1031,11 @@ def _build_primary_metrics(
                 cls="text-3xl font-bold text-blue-600 mt-1",
             ),
             P(
-                f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)",
+                (
+                    f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)"
+                    if subs_change is not None
+                    else "—"  # Show dash if tracking not started
+                ),
                 cls="text-xs text-gray-600 mt-1",
             ),
             cls="bg-blue-50 rounded-lg p-3 text-center",
@@ -1047,7 +1051,11 @@ def _build_primary_metrics(
                 cls="text-3xl font-bold text-purple-600 mt-1",
             ),
             P(
-                f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)",
+                (
+                    f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)"
+                    if views_change is not None
+                    else "—"  # Show dash if tracking not started
+                ),
                 cls="text-xs text-gray-600 mt-1",
             ),
             cls="bg-purple-50 rounded-lg p-3 text-center",
@@ -1404,8 +1412,11 @@ def _render_creator_card(creator: dict) -> Div:
     current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
     current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
-    subs_change = int(safe_get_value(creator, "subscribers_change_30d", 0) or 0)
-    views_change = int(safe_get_value(creator, "views_change_30d", 0) or 0)
+    # Preserve None for delta fields (growth tracking initializing)
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d")
+    subs_change = int(subs_change_raw) if subs_change_raw is not None else None
+    views_change_raw = safe_get_value(creator, "views_change_30d")
+    views_change = int(views_change_raw) if views_change_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
     last_updated = safe_get_value(creator, "last_updated_at", "")
 
@@ -1657,7 +1668,9 @@ def _render_pagination(
     )
 
 
-def _render_empty_state(search: str, grade_filter: str) -> Div:
+def _render_empty_state(
+    search: str, grade_filter: str, has_active_filters: bool
+) -> Div:
     """Empty state when no creators found."""
 
     # Special handling for handle searches that weren't found
@@ -1689,7 +1702,7 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
             cls="bg-gray-50 max-w-md mx-auto",
         )
 
-    if search or grade_filter != "all":
+    if has_active_filters:
         return Card(
             Div(
                 Span("🔍", cls="text-6xl block text-center mb-4"),
