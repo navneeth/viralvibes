@@ -311,6 +311,7 @@ def render_creators_page(
             category_filter=category_filter,
             grade_counts=grade_counts,
             top_countries=stats.get("top_countries", []) if stats else [],
+            top_categories=stats.get("top_categories", []) if stats else [],
         ),
         # Creators grid or empty state
         (
@@ -497,6 +498,7 @@ def _render_filter_bar(
     country_filter: str = "all",
     category_filter: str = "all",
     top_countries: list = None,
+    top_categories: list = None,
 ) -> Div:
     """
     Clean horizontal card-based filter bar.
@@ -774,7 +776,48 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 8. COUNT ACTIVE FILTERS
+    # 8. CATEGORY FILTER PILLS (dynamic from DB stats)
+    # ═══════════════════════════════════════════════════════════════
+    if top_categories is None:
+        top_categories = []
+
+    category_options = [("all", "All", "🏷️")]
+    for cat_name, _count in top_categories[:9]:
+        emoji = get_topic_category_emoji(cat_name)
+        # Shorten long Wikipedia-style names for pill display
+        short_name = cat_name.split("/")[-1].strip()  # "Music" not "https://...Music"
+        category_options.append((cat_name, short_name, emoji))
+
+    category_pills = Div(
+        *[
+            A(
+                f"{emoji} {label}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                    category=val,
+                ),
+                cls=(
+                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+                    + (
+                        "bg-pink-100 text-pink-700 border border-pink-300"
+                        if category_filter == val
+                        else "bg-background border border-border hover:bg-accent text-foreground"
+                    )
+                ),
+            )
+            for val, label, emoji in category_options
+        ],
+        cls="flex gap-1.5 flex-wrap",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 9. COUNT ACTIVE FILTERS
     # ═══════════════════════════════════════════════════════════════
     active_filters = sum(
         f != "all"
@@ -789,7 +832,7 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 9. BUILD FLOATING FILTER BUTTON
+    # 10. BUILD FLOATING FILTER BUTTON
     # ═══════════════════════════════════════════════════════════════
     filter_button = A(
         # Icon and text
@@ -819,7 +862,7 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 9. BUILD FILTER MODAL WITH ACCORDION
+    # 11. BUILD FILTER MODAL WITH ACCORDION
     # ═══════════════════════════════════════════════════════════════
 
     # Reset filters link
@@ -883,6 +926,11 @@ def _render_filter_bar(
                         open=(grade_filter != "all"),
                     ),
                     AccordionItem(
+                        "Category",
+                        category_pills,
+                        open=(category_filter != "all"),
+                    ),
+                    AccordionItem(
                         "Language",
                         language_pills,
                         open=(language_filter != "all"),
@@ -916,7 +964,7 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 10. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
+    # 12. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
     # ═══════════════════════════════════════════════════════════════
     return Div(
         # Compact top bar: Search + Sort only

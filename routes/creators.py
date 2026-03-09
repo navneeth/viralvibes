@@ -92,7 +92,7 @@ def creators_route(request):
     # Category filter (topic categories from YouTube)
     category_filter = request.query_params.get(
         "category", "all"
-    )  # all, or specific category
+    )  # all, or specific category e.g. "Music"
 
     # Pagination parameters
     # NOTE: max(1, ...) clamps page to >= 1, so page < 1 is impossible.
