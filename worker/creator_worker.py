@@ -118,6 +118,21 @@ class JobStatus(Enum):
     RETRY = "retry"
 
 
+class ChannelNotFoundException(Exception):
+    """
+    Raised when YouTube confirms a channel ID does not exist.
+
+    This is a PERMANENT failure — distinct from transient API errors or
+    timeouts. A channel that YouTube can't find will never be found on retry,
+    so jobs that raise this exception must be purged immediately without
+    scheduling any backoff retry.
+    """
+
+    def __init__(self, channel_id: str):
+        self.channel_id = channel_id
+        super().__init__(f"Channel not found on YouTube: {channel_id}")
+
+
 @dataclass
 class WorkerMetrics:
     """Metrics tracking for worker health."""
@@ -547,7 +562,10 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         )
 
         if not channel_data:
-            raise Exception("No data returned from YouTube API")
+            # YouTubeResolver returns None specifically when the channel ID is not
+            # found on YouTube (distinct from network errors, which raise exceptions).
+            # Raise a typed exception so the job handler can purge without retrying.
+            raise ChannelNotFoundException(channel_id)
 
         subs = channel_data.get("current_subscribers", 0)
         views = channel_data.get("current_view_count", 0)
@@ -1163,6 +1181,50 @@ async def handle_sync_job(
 
         metrics.syncs_failed += 1
 
+        # ── Permanent failure: channel does not exist on YouTube ──────────────
+        # Do NOT retry — the channel is gone. Purge it from creators + jobs so
+        # it never wastes quota again.
+        if isinstance(e, ChannelNotFoundException):
+            logger.warning(
+                f"{job_tag} 🗑️  Channel not found on YouTube — purging creator "
+                f"({creator_id}) and sync job ({job_id}) permanently. No retry."
+            )
+            try:
+                # Mark the creator row as not_found so it is excluded from all
+                # future queuing queries (see queue_invalid_creators_for_retry).
+                supabase_client.table(CREATOR_TABLE).update(
+                    {
+                        "sync_status": "not_found",
+                        "sync_error_message": str(e),
+                        "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ).eq("id", creator_id).execute()
+
+                # Hard-delete the creator row — no point keeping a dead channel.
+                # Comment out and keep only the update above if you prefer soft-delete.
+                supabase_client.table(CREATOR_TABLE).delete().eq(
+                    "id", creator_id
+                ).execute()
+
+                # Mark job permanently failed (no retry_at, no re-queue).
+                mark_creator_sync_failed(job_id, str(e))
+
+                logger.info(
+                    f"{job_tag} ✅ Purge complete — creator {creator_id} "
+                    f"({e.channel_id}) removed from DB."
+                )
+            except Exception as purge_error:
+                logger.error(
+                    f"{job_tag} ❌ Purge failed for creator {creator_id}: {purge_error}. "
+                    "Falling back to marking job as permanently failed."
+                )
+                mark_creator_sync_failed(
+                    job_id, f"Channel not found + purge failed: {purge_error}"
+                )
+
+            return False
+
+        # ── Transient failure: schedule exponential backoff retry ─────────────
         # Handle retries
         try:
             retry_response = (
