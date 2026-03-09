@@ -57,7 +57,7 @@ LISTS_TABS = [
 ]
 
 
-def _placeholder_content(tab_id: str, description: str, coming_soon: bool = False):
+def _placeholder_content(description: str, coming_soon: bool = False):
     """Renders the placeholder body for a single tab panel."""
 
     if coming_soon:
@@ -157,10 +157,16 @@ def render_lists_page(active_tab: str = "top-rated") -> FT:
     tab_items = []
     panel_items = []
 
+    # Normalize active_tab to a known tab id; fall back to the first tab if invalid.
+    valid_tab_ids = [tab_id for tab_id, *_ in LISTS_TABS]
+    normalized_active_tab = (
+        active_tab if active_tab in valid_tab_ids else valid_tab_ids[0]
+    )
+
     for i, (tab_id, label, icon, description, coming_soon) in enumerate(LISTS_TABS):
-        is_active = tab_id == active_tab or (i == 0 and active_tab == "top-rated")
+        is_active = tab_id == normalized_active_tab
         tab_items.append(_tab_li(tab_id, label, icon, is_active))
-        panel_items.append(Li(_placeholder_content(tab_id, description, coming_soon)))
+        panel_items.append(Li(_placeholder_content(description, coming_soon)))
 
     return Div(
         # ── Page header ────────────────────────────────────────────────────────
