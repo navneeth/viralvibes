@@ -783,9 +783,13 @@ def _render_filter_bar(
 
     category_options = [("all", "All", "🏷️")]
     for cat_name, _count in top_categories[:9]:
+        if not cat_name:  # Skip None/empty to avoid crashes
+            continue
         emoji = get_topic_category_emoji(cat_name)
         # Shorten long Wikipedia-style names for pill display
         short_name = cat_name.split("/")[-1].strip()  # "Music" not "https://...Music"
+        if not short_name:  # Skip if splitting resulted in empty string
+            continue
         category_options.append((cat_name, short_name, emoji))
 
     category_pills = Div(
