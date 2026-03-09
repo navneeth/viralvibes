@@ -1935,6 +1935,7 @@ def get_creators(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
+    category_filter: str = "all",
     limit: int = 50,
     offset: int = 0,
     return_count: bool = False,
@@ -2016,6 +2017,10 @@ def get_creators(
         # Using .not_.is_() for NULL check - only works after .select() is called
         query = query.not_.is_("channel_name", "null")
         query = query.gt("current_subscribers", 0)
+        # Only show fully-synced creators — mirrors calculate_creator_stats() behaviour.
+        # Excludes "pending" / "error" rows that have no real stats yet, which would
+        # otherwise appear as blank cards and skew pagination counts.
+        query = query.eq("sync_status", "synced")
 
         # Apply search filter (also search custom_url and keywords)
         if search:
@@ -2065,6 +2070,13 @@ def get_creators(
             if normalized_country:
                 query = query.ilike("country_code", normalized_country)
 
+        # Apply category filter — topic_categories stored as JSON array string or
+        # comma-separated text; ilike %term% safely matches both formats.
+        # ⚠️ PERFORMANCE WARNING: Leading wildcard (%text%) prevents index usage.
+        # For large datasets, consider normalizing to separate table or JSONB array.
+        if category_filter and category_filter != "all":
+            query = query.ilike("topic_categories", f"%{category_filter}%")
+
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
@@ -2091,6 +2103,8 @@ def get_creators(
             filters_applied.append(f"age={age_filter}")
         if country_filter != "all":
             filters_applied.append(f"country={country_filter}")
+        if category_filter != "all":
+            filters_applied.append(f"category={category_filter}")
 
         filters_str = ", ".join(filters_applied) if filters_applied else "none"
         logger.info(
@@ -2238,6 +2252,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         grade_counts = {}
         country_counts = {}
         language_counts = {}
+        category_counts = {}
         verified_count = 0
         active_count = 0
 
@@ -2255,11 +2270,13 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             # Content categories (can be list or comma-separated string)
             if cats := safe_get_value(c, "topic_categories", None):
                 if isinstance(cats, list):
-                    categories.update(cats)
+                    for cat in cats:
+                        categories.add(cat)
+                        category_counts[cat] = category_counts.get(cat, 0) + 1
                 elif isinstance(cats, str):
-                    categories.update(
-                        cat.strip() for cat in cats.split(",") if cat.strip()
-                    )
+                    for cat in (cat.strip() for cat in cats.split(",") if cat.strip()):
+                        categories.add(cat)
+                        category_counts[cat] = category_counts.get(cat, 0) + 1
 
             # Grade distribution
             grade = safe_get_value(c, "quality_grade", "C")
@@ -2287,6 +2304,9 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         top_languages = sorted(
             language_counts.items(), key=lambda x: x[1], reverse=True
         )[:5]
+        top_categories = sorted(
+            category_counts.items(), key=lambda x: x[1], reverse=True
+        )[:10]
 
         return {
             # Original metrics (keep for backward compatibility)
@@ -2306,6 +2326,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "active_percentage": round(active_percentage, 1),
             "top_countries": top_countries,
             "top_languages": top_languages,
+            "top_categories": top_categories,
         }
 
     except Exception as e:

@@ -172,6 +172,7 @@ def _build_filter_url(
     activity: str = "all",
     age: str = "all",
     country: str = "all",
+    category: str = "all",
     page: int = None,
     per_page: int = None,
 ) -> str:
@@ -211,6 +212,7 @@ def _build_filter_url(
         "activity": activity,
         "age": age,
         "country": country,
+        "category": category,
     }
 
     if page is not None:
@@ -235,6 +237,7 @@ def render_creators_page(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
+    category_filter: str = "all",
     stats: dict = None,
     page: int = 1,
     per_page: int = 50,
@@ -286,6 +289,7 @@ def render_creators_page(
         or activity_filter != "all"
         or age_filter != "all"
         or country_filter != "all"
+        or category_filter != "all"
     )
 
     return Container(
@@ -304,6 +308,7 @@ def render_creators_page(
             activity_filter=activity_filter,
             age_filter=age_filter,
             country_filter=country_filter,
+            category_filter=category_filter,
             grade_counts=grade_counts,
             top_countries=stats.get("top_countries", []) if stats else [],
         ),
@@ -322,12 +327,13 @@ def render_creators_page(
                     activity_filter=activity_filter,
                     age_filter=age_filter,
                     country_filter=country_filter,
+                    category_filter=category_filter,
                     per_page=per_page,
                     total_count=total_count,
                 ),
             )
             if creators
-            else _render_empty_state(search, grade_filter)
+            else _render_empty_state(search, grade_filter, has_active_filters)
         ),
         cls=ContainerT.xl,
     )
@@ -489,6 +495,7 @@ def _render_filter_bar(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
+    category_filter: str = "all",
     top_countries: list = None,
 ) -> Div:
     """
@@ -520,6 +527,7 @@ def _render_filter_bar(
         Input(type="hidden", name="activity", value=activity_filter),
         Input(type="hidden", name="age", value=age_filter),
         Input(type="hidden", name="country", value=country_filter),
+        Input(type="hidden", name="category", value=category_filter),
         method="GET",
         action="/creators",
         cls="flex-1",
@@ -561,6 +569,7 @@ def _render_filter_bar(
         Input(type="hidden", name="activity", value=activity_filter),
         Input(type="hidden", name="age", value=age_filter),
         Input(type="hidden", name="country", value=country_filter),
+        Input(type="hidden", name="category", value=category_filter),
         method="GET",
         action="/creators",
     )
@@ -589,6 +598,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=age_filter,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -628,6 +638,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=age_filter,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -664,6 +675,7 @@ def _render_filter_bar(
                     activity=val,
                     age=age_filter,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -701,6 +713,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=val,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -744,6 +757,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=age_filter,
                     country=val,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -770,6 +784,7 @@ def _render_filter_bar(
             activity_filter,
             age_filter,
             country_filter,
+            category_filter,
         )
     )
 
@@ -819,6 +834,7 @@ def _render_filter_bar(
                 activity="all",
                 age="all",
                 country="all",
+                category="all",
             ),
             cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
         )
@@ -1031,7 +1047,11 @@ def _build_primary_metrics(
                 cls="text-3xl font-bold text-blue-600 mt-1",
             ),
             P(
-                f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)",
+                (
+                    f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)"
+                    if subs_change is not None
+                    else "—"  # Show dash if tracking not started
+                ),
                 cls="text-xs text-gray-600 mt-1",
             ),
             cls="bg-blue-50 rounded-lg p-3 text-center",
@@ -1047,7 +1067,11 @@ def _build_primary_metrics(
                 cls="text-3xl font-bold text-purple-600 mt-1",
             ),
             P(
-                f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)",
+                (
+                    f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)"
+                    if views_change is not None
+                    else "—"  # Show dash if tracking not started
+                ),
                 cls="text-xs text-gray-600 mt-1",
             ),
             cls="bg-purple-50 rounded-lg p-3 text-center",
@@ -1180,52 +1204,6 @@ def _build_growth_trend(
             if growth_rate >= 0
             else "bg-red-50 rounded-lg p-3 mb-4"
         ),
-    )
-
-
-def _render_topic_categories(topic_categories: str | None) -> Div | None:
-    """
-    Render topic categories as elegant emoji strip.
-
-    Args:
-        topic_categories: Comma-separated category names from DB
-                         (e.g., "Music,Entertainment,Video game culture")
-
-    Returns:
-        Div with emoji + text categories, or None if no categories
-
-    Design: Displays as a centered strip with gradient background,
-            limited to 3 categories for clean UX.
-    """
-    if not topic_categories:
-        return None
-
-    # Parse categories (stored as comma-separated text)
-    categories = [
-        cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
-    ]
-
-    if not categories:
-        return None
-
-    # Build category spans with emojis (limit to 3 for clean display)
-    category_items = []
-    for cat in categories[:3]:
-        emoji = get_topic_category_emoji(cat)
-        category_items.append(
-            Span(f"{emoji} {cat}", cls="text-xs font-medium text-gray-700")
-        )
-
-    # Join with bullet separators
-    elements = []
-    for i, item in enumerate(category_items):
-        elements.append(item)
-        if i < len(category_items) - 1:
-            elements.append(Span("•", cls="text-gray-400 mx-2"))
-
-    return Div(
-        *elements,
-        cls="flex items-center justify-center flex-wrap gap-1 py-2.5 px-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100 mb-3",
     )
 
 
@@ -1450,8 +1428,11 @@ def _render_creator_card(creator: dict) -> Div:
     current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
     current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
-    subs_change = int(safe_get_value(creator, "subscribers_change_30d", 0) or 0)
-    views_change = int(safe_get_value(creator, "views_change_30d", 0) or 0)
+    # Preserve None for delta fields (growth tracking initializing)
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d")
+    subs_change = int(subs_change_raw) if subs_change_raw is not None else None
+    views_change_raw = safe_get_value(creator, "views_change_30d")
+    views_change = int(views_change_raw) if views_change_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
     last_updated = safe_get_value(creator, "last_updated_at", "")
 
@@ -1551,6 +1532,7 @@ def _render_pagination(
     activity_filter: str,
     age_filter: str,
     country_filter: str,
+    category_filter: str,
     per_page: int,
     total_count: int,
 ) -> Div:
@@ -1579,6 +1561,7 @@ def _render_pagination(
             activity=activity_filter,
             age=age_filter,
             country=country_filter,
+            category=category_filter,
             page=page_num,
             per_page=per_page,
         )
@@ -1644,6 +1627,7 @@ def _render_pagination(
                 activity=activity_filter,
                 age=age_filter,
                 country=country_filter,
+                category=category_filter,
                 page=page - 1,
                 per_page=per_page,
             ),
@@ -1667,6 +1651,7 @@ def _render_pagination(
                 activity=activity_filter,
                 age=age_filter,
                 country=country_filter,
+                category=category_filter,
                 page=page + 1,
                 per_page=per_page,
             ),
@@ -1703,7 +1688,9 @@ def _render_pagination(
     )
 
 
-def _render_empty_state(search: str, grade_filter: str) -> Div:
+def _render_empty_state(
+    search: str, grade_filter: str, has_active_filters: bool
+) -> Div:
     """Empty state when no creators found."""
 
     # Special handling for handle searches that weren't found
@@ -1735,7 +1722,7 @@ def _render_empty_state(search: str, grade_filter: str) -> Div:
             cls="bg-gray-50 max-w-md mx-auto",
         )
 
-    if search or grade_filter != "all":
+    if has_active_filters:
         return Card(
             Div(
                 Span("🔍", cls="text-6xl block text-center mb-4"),
