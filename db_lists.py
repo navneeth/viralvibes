@@ -163,7 +163,13 @@ def get_creators_by_category(category: str, limit: int = 10) -> list[dict]:
 
 def get_rising_creators(limit: int = 20) -> list[dict]:
     """
-    Get fastest-growing creators by 30-day growth rate.
+    Get fastest-growing creators by 30-day growth rate (percentage).
+
+    Growth rate = (subscribers_change_30d / current_subscribers) * 100
+
+    This favors channels with explosive percentage growth regardless of size,
+    so a 10k channel doubling (+10k, 100% growth) ranks higher than a 10M
+    channel gaining 50k (+50k, 0.5% growth).
 
     Filters for creators with:
     - Positive subscriber growth
@@ -173,13 +179,14 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
         limit: Maximum number of creators to return
 
     Returns:
-        List of creator dicts sorted by growth rate descending
+        List of creator dicts sorted by growth rate (%) descending
     """
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
 
     try:
+        # Fetch extra creators to ensure we have enough after calculating rates
         response = (
             supabase_client.table("creators")
             .select("*")
@@ -187,12 +194,30 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
             .gt("current_subscribers", 1000)
             .not_.is_("subscribers_change_30d", "null")
             .gt("subscribers_change_30d", 0)
-            .order("subscribers_change_30d", desc=True)
-            .limit(limit)
+            .limit(limit * 3)  # Fetch 3x to allow for rate calculation and sorting
             .execute()
         )
 
-        return response.data if response.data else []
+        creators = response.data if response.data else []
+
+        # Calculate growth rate for each creator and attach it
+        for creator in creators:
+            subs_change = creator.get("subscribers_change_30d", 0)
+            current_subs = creator.get(
+                "current_subscribers", 1
+            )  # Avoid division by zero
+
+            if current_subs > 0:
+                # Growth rate as percentage
+                growth_rate = (subs_change / current_subs) * 100
+                creator["_growth_rate"] = growth_rate
+            else:
+                creator["_growth_rate"] = 0
+
+        # Sort by growth rate descending
+        creators.sort(key=lambda c: c.get("_growth_rate", 0), reverse=True)
+
+        return creators[:limit]
 
     except Exception as e:
         logger.exception(f"Error fetching rising creators: {e}")
@@ -243,6 +268,20 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     Returns list of (country_code, creator_count) tuples.
     Used for "By Country" tab to show which countries to display.
 
+    Performance note: This performs client-side aggregation. For production scale
+    (10k+ creators), consider creating a database RPC or materialized view:
+
+        CREATE FUNCTION get_top_countries_with_counts(p_limit INT)
+        RETURNS TABLE (country_code TEXT, creator_count BIGINT)
+        AS $$
+            SELECT country_code, COUNT(*) as creator_count
+            FROM creators
+            WHERE country_code IS NOT NULL AND current_subscribers > 0
+            GROUP BY country_code
+            ORDER BY creator_count DESC
+            LIMIT p_limit;
+        $$ LANGUAGE SQL;
+
     Args:
         limit: Maximum number of countries to return
 
@@ -254,13 +293,17 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         return []
 
     try:
-        # Aggregate count by country
+        # Fetch with reasonable limit to avoid loading entire table
+        # Limit to 50k creators (enough for aggregation, not entire DB)
+        MAX_FETCH = 50000
+
         response = (
             supabase_client.table("creators")
             .select("country_code")
             .not_.is_("channel_name", "null")
             .not_.is_("country_code", "null")
             .gt("current_subscribers", 0)
+            .limit(MAX_FETCH)
             .execute()
         )
 
@@ -292,6 +335,11 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     Returns list of (category_name, creator_count) tuples.
     Used for "By Category" tab to show which categories to display.
 
+    Performance note: This performs client-side aggregation with comma-separated
+    category parsing. For production scale, consider creating a database RPC that
+    handles the aggregation server-side after normalizing categories to a separate
+    table or JSONB array.
+
     Args:
         limit: Maximum number of categories to return
 
@@ -303,13 +351,17 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         return []
 
     try:
-        # Fetch all creators with topic categories
+        # Fetch with reasonable limit to avoid loading entire table
+        # Limit to 50k creators (enough for aggregation, not entire DB)
+        MAX_FETCH = 50000
+
         response = (
             supabase_client.table("creators")
             .select("topic_categories")
             .not_.is_("channel_name", "null")
             .not_.is_("topic_categories", "null")
             .gt("current_subscribers", 0)
+            .limit(MAX_FETCH)
             .execute()
         )
 
