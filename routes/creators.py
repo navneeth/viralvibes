@@ -89,6 +89,10 @@ def creators_route(request):
     country_filter = request.query_params.get(
         "country", "all"
     )  # all, or specific country code
+    # Category filter (topic categories from YouTube)
+    category_filter = request.query_params.get(
+        "category", "all"
+    )  # all, or specific category
 
     # Pagination parameters
     # NOTE: max(1, ...) clamps page to >= 1, so page < 1 is impossible.
@@ -113,6 +117,7 @@ def creators_route(request):
         activity_filter=activity_filter,
         age_filter=age_filter,
         country_filter=country_filter,
+        category_filter=category_filter,
         limit=per_page,
         offset=(page - 1) * per_page,
         return_count=True,
@@ -136,6 +141,7 @@ def creators_route(request):
             "activity": activity_filter,
             "age": age_filter,
             "country": country_filter,
+            "category": category_filter,
             "page": str(total_pages),
             "per_page": str(per_page),
         }
@@ -156,6 +162,7 @@ def creators_route(request):
         activity_filter=activity_filter,
         age_filter=age_filter,
         country_filter=country_filter,
+        category_filter=category_filter,
         stats=stats,
         page=page,
         per_page=per_page,

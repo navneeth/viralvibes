@@ -2072,6 +2072,8 @@ def get_creators(
 
         # Apply category filter — topic_categories stored as JSON array string or
         # comma-separated text; ilike %term% safely matches both formats.
+        # ⚠️ PERFORMANCE WARNING: Leading wildcard (%text%) prevents index usage.
+        # For large datasets, consider normalizing to separate table or JSONB array.
         if category_filter and category_filter != "all":
             query = query.ilike("topic_categories", f"%{category_filter}%")
 

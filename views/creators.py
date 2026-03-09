@@ -172,6 +172,7 @@ def _build_filter_url(
     activity: str = "all",
     age: str = "all",
     country: str = "all",
+    category: str = "all",
     page: int = None,
     per_page: int = None,
 ) -> str:
@@ -211,6 +212,7 @@ def _build_filter_url(
         "activity": activity,
         "age": age,
         "country": country,
+        "category": category,
     }
 
     if page is not None:
@@ -235,6 +237,7 @@ def render_creators_page(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
+    category_filter: str = "all",
     stats: dict = None,
     page: int = 1,
     per_page: int = 50,
@@ -286,6 +289,7 @@ def render_creators_page(
         or activity_filter != "all"
         or age_filter != "all"
         or country_filter != "all"
+        or category_filter != "all"
     )
 
     return Container(
@@ -304,6 +308,7 @@ def render_creators_page(
             activity_filter=activity_filter,
             age_filter=age_filter,
             country_filter=country_filter,
+            category_filter=category_filter,
             grade_counts=grade_counts,
             top_countries=stats.get("top_countries", []) if stats else [],
         ),
@@ -322,6 +327,7 @@ def render_creators_page(
                     activity_filter=activity_filter,
                     age_filter=age_filter,
                     country_filter=country_filter,
+                    category_filter=category_filter,
                     per_page=per_page,
                     total_count=total_count,
                 ),
@@ -489,6 +495,7 @@ def _render_filter_bar(
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
+    category_filter: str = "all",
     top_countries: list = None,
 ) -> Div:
     """
@@ -520,6 +527,7 @@ def _render_filter_bar(
         Input(type="hidden", name="activity", value=activity_filter),
         Input(type="hidden", name="age", value=age_filter),
         Input(type="hidden", name="country", value=country_filter),
+        Input(type="hidden", name="category", value=category_filter),
         method="GET",
         action="/creators",
         cls="flex-1",
@@ -561,6 +569,7 @@ def _render_filter_bar(
         Input(type="hidden", name="activity", value=activity_filter),
         Input(type="hidden", name="age", value=age_filter),
         Input(type="hidden", name="country", value=country_filter),
+        Input(type="hidden", name="category", value=category_filter),
         method="GET",
         action="/creators",
     )
@@ -589,6 +598,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=age_filter,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -628,6 +638,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=age_filter,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -664,6 +675,7 @@ def _render_filter_bar(
                     activity=val,
                     age=age_filter,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -701,6 +713,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=val,
                     country=country_filter,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -744,6 +757,7 @@ def _render_filter_bar(
                     activity=activity_filter,
                     age=age_filter,
                     country=val,
+                    category=category_filter,
                 ),
                 cls=(
                     "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
@@ -770,6 +784,7 @@ def _render_filter_bar(
             activity_filter,
             age_filter,
             country_filter,
+            category_filter,
         )
     )
 
@@ -819,6 +834,7 @@ def _render_filter_bar(
                 activity="all",
                 age="all",
                 country="all",
+                category="all",
             ),
             cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
         )
@@ -1516,6 +1532,7 @@ def _render_pagination(
     activity_filter: str,
     age_filter: str,
     country_filter: str,
+    category_filter: str,
     per_page: int,
     total_count: int,
 ) -> Div:
@@ -1544,6 +1561,7 @@ def _render_pagination(
             activity=activity_filter,
             age=age_filter,
             country=country_filter,
+            category=category_filter,
             page=page_num,
             per_page=per_page,
         )
@@ -1609,6 +1627,7 @@ def _render_pagination(
                 activity=activity_filter,
                 age=age_filter,
                 country=country_filter,
+                category=category_filter,
                 page=page - 1,
                 per_page=per_page,
             ),
@@ -1632,6 +1651,7 @@ def _render_pagination(
                 activity=activity_filter,
                 age=age_filter,
                 country=country_filter,
+                category=category_filter,
                 page=page + 1,
                 per_page=per_page,
             ),
