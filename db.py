@@ -2074,12 +2074,15 @@ def get_creators(
             if normalized_country:
                 query = query.ilike("country_code", normalized_country)
 
-        # Apply category filter — topic_categories stored as JSON array string or
-        # comma-separated text; ilike %term% safely matches both formats.
+        # Apply category filter — topic_categories stored as JSON array string.
+        # Clean the filter term (replace underscores with spaces) to match how
+        # categories are normalized in get_top_categories_with_counts().
         # ⚠️ PERFORMANCE WARNING: Leading wildcard (%text%) prevents index usage.
         # For large datasets, consider normalizing to separate table or JSONB array.
         if category_filter and category_filter != "all":
-            query = query.ilike("topic_categories", f"%{category_filter}%")
+            # Normalize filter term to match cleaned category names
+            normalized_category = category_filter.replace("_", " ")
+            query = query.ilike("topic_categories", f"%{normalized_category}%")
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
