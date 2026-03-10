@@ -1191,33 +1191,37 @@ async def handle_sync_job(
             )
             try:
                 # Hard-delete the creator row — channel confirmed gone from YouTube.
-                # The .neq("sync_status", "not_found") guards in queuing functions
-                # are belt-and-suspenders; deleted rows won't match any query anyway.
                 supabase_client.table(CREATOR_TABLE).delete().eq(
                     "id", creator_id
                 ).execute()
 
-                # Mark job permanently failed (no retry_at, no re-queue).
-                mark_creator_sync_failed(job_id, str(e))
+                # Delete the job row to prevent it from re-entering the queue.
+                # Don't use mark_creator_sync_failed — it expects the job to exist
+                # and has retry logic. Just delete it.
+                supabase_client.table(CREATOR_SYNC_JOBS_TABLE).delete().eq(
+                    "id", job_id
+                ).execute()
 
                 logger.info(
                     f"{job_tag} ✅ Purge complete — creator {creator_id} "
-                    f"({e.channel_id}) removed from DB."
+                    f"({e.channel_id}) and job {job_id} removed from DB."
                 )
             except Exception as purge_error:
                 logger.error(
                     f"{job_tag} ❌ Purge failed for creator {creator_id}: {purge_error}. "
-                    "Marking job permanently failed — no retry."
+                    "Attempting to mark job permanently failed."
                 )
-                # Do NOT call mark_creator_sync_failed — it schedules retries.
-                # Write terminal state directly to prevent retry loop.
-                supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
-                    {
-                        "status": JobStatus.FAILED.value,
-                        "retry_at": None,  # Clear any pending backoff
-                        "error_message": f"Channel not found + purge failed: {purge_error}",
-                    }
-                ).eq("id", job_id).execute()
+                # Try to mark job as permanently failed, but don't crash if job is gone
+                try:
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE).delete().eq(
+                        "id", job_id
+                    ).execute()
+                    logger.info(f"{job_tag} Job {job_id} deleted after purge failure")
+                except Exception as job_delete_error:
+                    logger.warning(
+                        f"{job_tag} Could not delete job {job_id}: {job_delete_error}. "
+                        "Job may have been cascade-deleted or doesn't exist."
+                    )
 
             return False
 
@@ -1325,6 +1329,17 @@ async def init():
     # Set CREATOR_WORKER_SKIP_DIAGNOSIS=true to suppress after first iteration.
     if os.getenv("CREATOR_WORKER_SKIP_DIAGNOSIS", "").lower() != "true":
         _diagnose_creator_db_state()
+
+        # Bootstrap unsynced creators on first run
+        logger.info("─" * 60)
+        logger.info("🔄 STARTUP: Queuing never-synced creators...")
+        unsynced_count = _queue_unsynced_creators(batch_size=100)
+        if unsynced_count > 0:
+            logger.info(
+                f"✅ Queued {unsynced_count} never-synced creators for first sync"
+            )
+        else:
+            logger.info("✅ All creators have been synced at least once")
     else:
         logger.debug("Skipping DB diagnosis (CREATOR_WORKER_SKIP_DIAGNOSIS=true)")
 
@@ -1427,6 +1442,15 @@ async def process_creator_syncs():
 
             if not jobs:
                 empty_poll_count += 1
+
+                # Exit early if queue stays empty - don't waste time polling
+                if empty_poll_count >= 3:
+                    logger.info(
+                        f"Queue empty for {empty_poll_count} consecutive polls - "
+                        "exiting (shell loop will retry)"
+                    )
+                    break
+
                 backoff = min(
                     EMPTY_QUEUE_BACKOFF_BASE * (2 ** (empty_poll_count - 1)),
                     EMPTY_QUEUE_BACKOFF_MAX,

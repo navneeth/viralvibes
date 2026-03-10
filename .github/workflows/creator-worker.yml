@@ -1,5 +1,19 @@
 name: Creator Stats Worker
 
+# Processes creator sync jobs queued by creator-bootstrap.yml
+#
+# Architecture:
+#   1. Bootstrap queues jobs:  23:50, 05:50, 11:50, 17:50 UTC (runs BEFORE worker)
+#   2. Worker processes jobs:  00:00, 06:00, 12:00, 18:00 UTC (this file)
+#
+# Worker features:
+#   - Processes up to 500 jobs per run (frugal quota usage)
+#   - Fresh Python process per job (prevents httplib2 memory corruption)
+#   - Early exit when queue exhausted (saves Actions minutes)
+#   - Bootstraps small batches on startup (safety net if bootstrap delayed)
+#
+# Quota budget: 500 jobs × 3 units = 1,500/run × 4 runs/day = 6,000/day (60% of 10k limit)
+
 on:
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
@@ -58,9 +72,11 @@ jobs:
           EMPTY_RUNS=0
           MAX_EMPTY_RUNS=3
           CRASHED_JOBS=0
+          PURGED_CHANNELS=0
 
           while [ $JOBS_PROCESSED -lt $MAX_JOBS ]; do
-            # First iteration: run diagnosis. Subsequent: skip to save DB round trips.
+            # First iteration: run diagnosis + queue unsynced creators.
+            # Subsequent: skip to save DB round trips.
             if [ $JOBS_PROCESSED -eq 0 ] && [ $EMPTY_RUNS -eq 0 ]; then
               unset CREATOR_WORKER_SKIP_DIAGNOSIS
             else
@@ -74,21 +90,25 @@ jobs:
               # Job processed successfully
               JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
               EMPTY_RUNS=0
+              echo "✅ Job $JOBS_PROCESSED completed"
 
             elif [ "$EXIT_CODE" -eq 2 ]; then
               # Queue was empty — no job found
               EMPTY_RUNS=$((EMPTY_RUNS + 1))
               echo "Queue empty (consecutive: $EMPTY_RUNS/$MAX_EMPTY_RUNS)"
               if [ $EMPTY_RUNS -ge $MAX_EMPTY_RUNS ]; then
-                echo "Queue empty - stopping loop after $JOBS_PROCESSED jobs"
+                echo "✅ Queue exhausted - stopping after $JOBS_PROCESSED jobs processed"
                 break
               fi
-              sleep 5
+              # Shorter sleep when queue is empty - poll more frequently
+              sleep 3
 
             else
               # Non-zero, non-2: crash or unhandled error (e.g. exit 134 SIGABRT).
-              # Log and continue — do not let a single bad channel stop the run.
-              echo "Worker crashed with code $EXIT_CODE (channel error) — skipping and continuing"
+              # Could be ChannelNotFoundException purge (which counts as "failed" job)
+              # or actual Python crash. Log and continue.
+              echo "⚠️  Worker exited with code $EXIT_CODE - counting as processed"
+              JOBS_PROCESSED=$((JOBS_PROCESSED + 1))
               CRASHED_JOBS=$((CRASHED_JOBS + 1))
               EMPTY_RUNS=0
               sleep 2
@@ -98,5 +118,11 @@ jobs:
           # Re-enable error handling for any post-loop commands
           set -e
 
-          echo "Worker loop finished at $(date)"
-          echo "Summary: $JOBS_PROCESSED jobs processed, $CRASHED_JOBS jobs crashed"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "Creator worker loop finished at $(date)"
+          echo "Summary:"
+          echo "  - Jobs processed: $JOBS_PROCESSED"
+          echo "  - Crashed/purged: $CRASHED_JOBS"
+          echo "  - Empty queue runs: $EMPTY_RUNS"
+          echo "═══════════════════════════════════════════════════════════"
