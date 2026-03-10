@@ -700,7 +700,9 @@ def queue_invalid_creators_for_retry(
         # - 'synced': (optional) Force refresh all data
         cutoff_iso = cutoff_time.isoformat()
 
-        # Query 1: creators that previously failed and whose last sync is old enough
+        # Query 1: creators that previously failed and whose last sync is old enough.
+        # Note: 'not_found' channels are hard-deleted by the worker, so they won't
+        # appear here. The .in_() filter already restricts to specific statuses.
         failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
@@ -713,7 +715,9 @@ def queue_invalid_creators_for_retry(
 
         # Query 2: creators that have NEVER been synced (last_synced_at IS NULL)
         # These were being silently excluded by the original .lt() filter.
-        # Also include NULL sync_status (creators inserted without a status).
+        # Includes NULL sync_status (creators inserted without a status).
+        # Note: .neq() would exclude NULLs due to SQL NULL behavior, so we omit it.
+        # 'not_found' channels are hard-deleted by worker anyway.
         never_synced_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
