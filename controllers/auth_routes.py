@@ -10,6 +10,7 @@ from fasthtml.common import *
 from monsterui.all import ButtonT, AlertT
 
 from components import NavComponent
+from components.auth_components import OneTapLoginCard
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +60,6 @@ def build_onetap_login_page(
     Returns:
         OneTapLoginCard component
     """
-    from components.auth_components import OneTapLoginCard
-
     # Get remembered user info from session/cookie
     if sess and not remembered_email:
         remembered_email = sess.get("last_email")

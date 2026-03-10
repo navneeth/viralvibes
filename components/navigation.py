@@ -3,6 +3,8 @@ Navigation component with auth-aware rendering and user profile display.
 Shows personalized content when user is logged in (avatar dropdown with menu).
 """
 
+import logging
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -51,8 +53,6 @@ def NavComponent(oauth, req=None, sess=None):
             if login_url and isinstance(login_url, str):
                 login_href = login_url
         except Exception as e:
-            import logging
-
             logging.warning(f"Failed to generate OAuth login link: {e}")
 
     if is_authenticated:
