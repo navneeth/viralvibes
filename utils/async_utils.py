@@ -5,6 +5,7 @@ Async utilities and decorators.
 import asyncio
 import functools
 import logging
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,6 @@ def with_retries(
                         raise
                     delay = base_delay * (backoff**attempt)
                     if jitter:
-                        import random
-
                         delay += random.uniform(-jitter, jitter)
                     logger.warning(
                         f"{func.__name__} attempt {attempt + 1}/{max_retries} failed: {e}. "
