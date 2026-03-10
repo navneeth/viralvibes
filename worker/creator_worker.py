@@ -910,7 +910,11 @@ async def handle_sync_job(
         subs = channel_data["current_subscribers"]
         views = channel_data["current_view_count"]
         videos = channel_data["current_video_count"]
-        topic_url_labels = _format_categories(channel_data.get("topic_categories", []))
+        
+        # Format topic categories from Wikipedia URLs to readable names
+        # This converts URLs like "https://en.wikipedia.org/wiki/Music" to "Music"
+        # and stores cleaned names in the database for better filtering/aggregation
+        topic_categories = _format_categories(channel_data.get("topic_categories", []))
 
         primary_category = cat_data.get("primary_category")
         primary_category_id = cat_data.get("primary_category_id")
@@ -934,10 +938,10 @@ async def handle_sync_job(
             )
         else:
             logger.debug(f"{job_tag} No video category data available for {channel_id}")
-        if topic_url_labels:
+        if topic_categories:
             logger.debug(
-                f"{job_tag} Topic URLs ({len(topic_url_labels)}): "
-                + ", ".join(topic_url_labels)
+                f"{job_tag} Topic categories ({len(topic_categories)}): "
+                + ", ".join(topic_categories)
             )
 
         # STAGE 3.5: Validate stats quality
@@ -1049,7 +1053,7 @@ async def handle_sync_job(
             "keywords": channel_data.get("keywords"),
             "featured_channels_count": channel_data.get("featured_channels_count", 0),
             "featured_channels_urls": channel_data.get("featured_channels_urls"),
-            "topic_categories": channel_data.get("topic_categories", []),
+            "topic_categories": topic_categories,  # Store cleaned category names
             "primary_category": primary_category,
         }
 
