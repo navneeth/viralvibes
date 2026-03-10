@@ -53,6 +53,7 @@ from db import (
     setup_logging,
     supabase_client,
 )
+from utils import normalize_category_name
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
@@ -699,6 +700,8 @@ def _format_categories(topic_categories: list) -> list[str]:
     These are distinct from the video-level categoryId used by
     _fetch_channel_category_distribution — topic_categories come from
     channels.list topicDetails and are kept for reference only.
+
+    Uses shared normalize_category_name() helper to ensure consistent normalization.
     """
     if not topic_categories:
         return []
@@ -706,7 +709,8 @@ def _format_categories(topic_categories: list) -> list[str]:
     names = []
     for url in topic_categories:
         slug = str(url).rstrip("/").rsplit("/", 1)[-1]
-        name = slug.replace("_", " ")
+        # Use shared normalization helper for consistency
+        name = normalize_category_name(slug)
         if name and name not in seen:
             seen.add(name)
             names.append(name)

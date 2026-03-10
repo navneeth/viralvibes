@@ -29,7 +29,7 @@ from constants import (
     SIGNUPS_TABLE,
     JobStatus,
 )
-from utils import compute_dashboard_id, safe_get_value
+from utils import compute_dashboard_id, normalize_category_name, safe_get_value
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -2075,13 +2075,16 @@ def get_creators(
                 query = query.ilike("country_code", normalized_country)
 
         # Apply category filter — topic_categories stored as JSON array string.
-        # Clean the filter term (replace underscores with spaces) to match how
-        # categories are normalized in get_top_categories_with_counts().
+        # Clean the filter term to match how categories are normalized in
+        # get_top_categories_with_counts() (strip, normalize spaces, replace underscores).
         # ⚠️ PERFORMANCE WARNING: Leading wildcard (%text%) prevents index usage.
         # For large datasets, consider normalizing to separate table or JSONB array.
         if category_filter and category_filter != "all":
-            # Normalize filter term to match cleaned category names
-            normalized_category = category_filter.replace("_", " ")
+            # Normalize filter term to match cleaned category names:
+            # - Strip leading/trailing whitespace
+            # - Replace underscores with spaces
+            # - Collapse internal whitespace to single spaces
+            normalized_category = normalize_category_name(category_filter)
             query = query.ilike("topic_categories", f"%{normalized_category}%")
 
         # Apply sorting, limit, and offset (DB does the work for pagination)

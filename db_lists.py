@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 
 from db import supabase_client, safe_get_value
+from utils import normalize_category_name
 
 logger = logging.getLogger(__name__)
 
@@ -393,8 +394,8 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
             # Count each category, cleaning up names
             for cat in categories:
                 if cat:
-                    # Clean up category name: remove underscores, strip whitespace
-                    clean_cat = str(cat).replace("_", " ").strip()
+                    # Clean up category name using shared helper
+                    clean_cat = normalize_category_name(str(cat))
                     if clean_cat:
                         category_counts[clean_cat] = (
                             category_counts.get(clean_cat, 0) + 1
