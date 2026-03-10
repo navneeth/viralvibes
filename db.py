@@ -2385,6 +2385,6 @@ def get_creator_hero_stats() -> dict:
             "growing_creators": int(data.get("growing_creators") or 0),
             "premium_creators": int(data.get("premium_creators") or 0),
         }
-    except Exception as e:
-        logger.error(f"Failed to fetch creator hero stats: {e}")
+    except Exception:
+        logger.exception("Failed to fetch creator hero stats")
         return {}
