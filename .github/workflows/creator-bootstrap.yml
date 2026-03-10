@@ -1,16 +1,27 @@
 name: Creator Bootstrap
 
-# Queues never-synced and stale creators into creator_sync_jobs so the
-# creator-worker.yml has jobs to process. Runs 30 min after each sync
-# window so the queue is always primed before the worker starts.
+# Prime the creator_sync_jobs queue BEFORE the worker runs.
 #
-# Separated from creator-worker.yml deliberately: bootstrapping is pure
-# DB work (no YouTube API calls) and completes in < 2 min. Keeping it
-# separate means a slow bootstrap never delays job processing.
+# This runs 10 minutes before each worker cycle to ensure jobs are ready.
+# Handles large-scale queuing (500+ creators) that would slow down worker startup.
+#
+# Architecture:
+#   1. Bootstrap (this file):  00:50, 06:50, 12:50, 18:50 UTC
+#   2. Worker runs:            00:00, 06:00, 12:00, 18:00 UTC
+#
+# Bootstrap handles:
+#   - Never-synced creators (last_synced_at IS NULL) - up to 500/run
+#   - Stale synced creators (>7 days old) - up to 100/run
+#   - Previously failed/invalid creators - up to 100/run
+#
+# Worker handles (on first iteration only):
+#   - Small batches of unsynced creators found during startup (up to 100)
+#   - This prevents race conditions if bootstrap is delayed
 
 on:
   schedule:
-    - cron: '30 */6 * * *'  # 00:30, 06:30, 12:30, 18:30 UTC (30 min AFTER worker)
+    # Run 10 minutes BEFORE each worker cycle
+    - cron: '50 23,5,11,17 * * *'  # 23:50, 05:50, 11:50, 17:50 UTC
   workflow_dispatch:
 
 permissions:
@@ -42,8 +53,15 @@ jobs:
 
       - name: Queue creators for sync
         run: |
+          echo "════════════════════════════════════════════════════════════"
           echo "▶ Bootstrap starting at $(date)"
+          echo "════════════════════════════════════════════════════════════"
+
           python -m worker.bootstrap_creators \
             --unsynced-batch 500 \
             --stale-days 7
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
           echo "✅ Bootstrap finished at $(date)"
+          echo "════════════════════════════════════════════════════════════"
