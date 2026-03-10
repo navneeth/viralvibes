@@ -910,7 +910,7 @@ async def handle_sync_job(
         subs = channel_data["current_subscribers"]
         views = channel_data["current_view_count"]
         videos = channel_data["current_video_count"]
-        
+
         # Format topic categories from Wikipedia URLs to readable names
         # This converts URLs like "https://en.wikipedia.org/wiki/Music" to "Music"
         # and stores cleaned names in the database for better filtering/aggregation
