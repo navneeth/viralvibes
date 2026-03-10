@@ -10,6 +10,7 @@ FastAI-style organization:
 # Core utilities
 from .core import (
     clamp,
+    normalize_category_name,
     safe_cell,
     safe_channel_name,
     safe_get,

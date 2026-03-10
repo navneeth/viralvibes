@@ -69,3 +69,40 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
         clamp(4.2, 0, 3.5)     # → 3.5
     """
     return max(min_val, min(value, max_val))
+
+
+def normalize_category_name(category: str) -> str:
+    """
+    Normalize a category name to canonical form for storage and filtering.
+
+    Normalization steps:
+    1. Strip leading/trailing whitespace
+    2. Replace underscores with spaces
+    3. Collapse multiple spaces to single space
+
+    This ensures consistent category names whether they come from:
+    - Wikipedia URLs (e.g., "Video_game_culture")
+    - User input filters (e.g., "  video game  ")
+    - Database storage
+
+    Args:
+        category: Raw category name (may have underscores, extra spaces, etc)
+
+    Returns:
+        Normalized category name (e.g., "Video game culture")
+
+    Examples:
+        >>> normalize_category_name("Video_game_culture")
+        'Video game culture'
+        >>> normalize_category_name("  hip_hop  ")
+        'Hip hop'
+        >>> normalize_category_name("Music")
+        'Music'
+    """
+    if not category:
+        return ""
+
+    # Strip, replace underscores, collapse whitespace
+    normalized = " ".join(category.strip().replace("_", " ").split())
+
+    return normalized
