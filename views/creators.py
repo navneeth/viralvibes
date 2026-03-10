@@ -47,7 +47,7 @@ from utils.creator_metrics import (
     get_language_name,
     get_sync_status_badge,
 )
-from db import add_creator_by_handle
+from db import add_creator_by_handle, calculate_creator_stats, get_creator_hero_stats
 
 logger = logging.getLogger(__name__)
 
@@ -258,28 +258,14 @@ def render_creators_page(
     grade_counts = _count_by_grade(creators)
     creators = _filter_valid_creators(creators)
 
-    # Use provided stats or calculate from creators
+    # Use provided stats or build them from the current page + RPC global counts.
+    # Must use the merge pattern so distribution keys (top_countries, top_languages,
+    # grade_counts, etc.) are always present — get_creator_hero_stats() alone only
+    # returns the 5 numeric hero keys and would leave _render_filter_bar with nothing.
     if stats is None:
-        stats = {
-            "total_subscribers": sum(
-                safe_get_value(c, "current_subscribers", 0) for c in creators
-            ),
-            "total_views": sum(
-                safe_get_value(c, "current_view_count", 0) for c in creators
-            ),
-            "avg_engagement": (
-                sum(safe_get_value(c, "engagement_score", 0) for c in creators)
-                / len(creators)
-                if creators
-                else 0
-            ),
-            "total_revenue": int(
-                sum(
-                    (safe_get_value(c, "current_view_count", 0) * 4) / 1000
-                    for c in creators
-                )
-            ),
-        }
+        page_stats = calculate_creator_stats(creators)
+        hero_stats = get_creator_hero_stats()
+        stats = {**page_stats, **hero_stats}
 
     # Check if any filters are active
     has_active_filters = (
