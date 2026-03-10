@@ -1207,11 +1207,17 @@ async def handle_sync_job(
             except Exception as purge_error:
                 logger.error(
                     f"{job_tag} ❌ Purge failed for creator {creator_id}: {purge_error}. "
-                    "Falling back to marking job as permanently failed."
+                    "Marking job permanently failed — no retry."
                 )
-                mark_creator_sync_failed(
-                    job_id, f"Channel not found + purge failed: {purge_error}"
-                )
+                # Do NOT call mark_creator_sync_failed — it schedules retries.
+                # Write terminal state directly to prevent retry loop.
+                supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
+                    {
+                        "status": JobStatus.FAILED.value,
+                        "retry_at": None,  # Clear any pending backoff
+                        "error_message": f"Channel not found + purge failed: {purge_error}",
+                    }
+                ).eq("id", job_id).execute()
 
             return False
 
