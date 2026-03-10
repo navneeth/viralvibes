@@ -4,6 +4,7 @@ import hashlib
 import html
 import json
 import logging
+import random
 import re
 import isodate
 from datetime import datetime, timezone
@@ -139,8 +140,6 @@ def with_retries(
                         raise
                     delay = base_delay * (backoff**attempt)
                     if jitter:
-                        import random
-
                         delay += random.uniform(-jitter, jitter)
                     logger.warning(
                         f"{func.__name__} attempt {attempt + 1}/{max_retries} failed: {e}. "
