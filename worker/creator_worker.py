@@ -53,6 +53,7 @@ from db import (
     setup_logging,
     supabase_client,
 )
+from utils import normalize_category_name
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
@@ -699,6 +700,8 @@ def _format_categories(topic_categories: list) -> list[str]:
     These are distinct from the video-level categoryId used by
     _fetch_channel_category_distribution — topic_categories come from
     channels.list topicDetails and are kept for reference only.
+
+    Uses shared normalize_category_name() helper to ensure consistent normalization.
     """
     if not topic_categories:
         return []
@@ -706,7 +709,8 @@ def _format_categories(topic_categories: list) -> list[str]:
     names = []
     for url in topic_categories:
         slug = str(url).rstrip("/").rsplit("/", 1)[-1]
-        name = slug.replace("_", " ")
+        # Use shared normalization helper for consistency
+        name = normalize_category_name(slug)
         if name and name not in seen:
             seen.add(name)
             names.append(name)
@@ -910,7 +914,11 @@ async def handle_sync_job(
         subs = channel_data["current_subscribers"]
         views = channel_data["current_view_count"]
         videos = channel_data["current_video_count"]
-        topic_url_labels = _format_categories(channel_data.get("topic_categories", []))
+
+        # Format topic categories from Wikipedia URLs to readable names
+        # This converts URLs like "https://en.wikipedia.org/wiki/Music" to "Music"
+        # and stores cleaned names in the database for better filtering/aggregation
+        topic_categories = _format_categories(channel_data.get("topic_categories", []))
 
         primary_category = cat_data.get("primary_category")
         primary_category_id = cat_data.get("primary_category_id")
@@ -934,10 +942,10 @@ async def handle_sync_job(
             )
         else:
             logger.debug(f"{job_tag} No video category data available for {channel_id}")
-        if topic_url_labels:
+        if topic_categories:
             logger.debug(
-                f"{job_tag} Topic URLs ({len(topic_url_labels)}): "
-                + ", ".join(topic_url_labels)
+                f"{job_tag} Topic categories ({len(topic_categories)}): "
+                + ", ".join(topic_categories)
             )
 
         # STAGE 3.5: Validate stats quality
@@ -1049,7 +1057,7 @@ async def handle_sync_job(
             "keywords": channel_data.get("keywords"),
             "featured_channels_count": channel_data.get("featured_channels_count", 0),
             "featured_channels_urls": channel_data.get("featured_channels_urls"),
-            "topic_categories": channel_data.get("topic_categories", []),
+            "topic_categories": topic_categories,  # Store cleaned category names
             "primary_category": primary_category,
         }
 

@@ -4,6 +4,7 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 Includes Google OAuth with token revocation support.
 """
 
+import json
 import logging
 import mimetypes
 import os
@@ -1031,8 +1032,6 @@ def export_json(dashboard_id: str, req, sess):
     summary_stats = data["summary_stats"]
 
     # Convert to JSON
-    import json
-
     export_data = {
         "dashboard_id": dashboard_id,
         "playlist_name": data["playlist_name"],

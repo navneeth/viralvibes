@@ -3,10 +3,12 @@ Database queries for creator lists/rankings.
 Specialized functions for the /lists page tab content.
 """
 
+import json
 import logging
 from typing import Optional
 
 from db import supabase_client, safe_get_value
+from utils import normalize_category_name
 
 logger = logging.getLogger(__name__)
 
@@ -367,16 +369,37 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
 
         creators = response.data if response.data else []
 
-        # Count categories (topic_categories can be comma-separated)
+        # Count categories (topic_categories stored as JSON array or PostgreSQL array)
         category_counts = {}
         for c in creators:
-            categories_str = c.get("topic_categories", "")
-            if categories_str:
-                # Split on comma and clean up
-                categories = [cat.strip() for cat in categories_str.split(",")]
-                for cat in categories:
-                    if cat:
-                        category_counts[cat] = category_counts.get(cat, 0) + 1
+            categories_raw = c.get("topic_categories")
+            if not categories_raw:
+                continue
+
+            # Parse categories - can be JSON array string, Python list, or PostgreSQL array
+            categories = []
+            if isinstance(categories_raw, list):
+                # Already a list (from PostgreSQL array type)
+                categories = categories_raw
+            elif isinstance(categories_raw, str):
+                # JSON array string - parse it
+                try:
+                    categories = json.loads(categories_raw)
+                    if not isinstance(categories, list):
+                        categories = []
+                except (json.JSONDecodeError, ValueError):
+                    # Fallback: treat as comma-separated for old data
+                    categories = [cat.strip() for cat in categories_raw.split(",")]
+
+            # Count each category, cleaning up names
+            for cat in categories:
+                if cat:
+                    # Clean up category name using shared helper
+                    clean_cat = normalize_category_name(str(cat))
+                    if clean_cat:
+                        category_counts[clean_cat] = (
+                            category_counts.get(clean_cat, 0) + 1
+                        )
 
         # Sort by count descending
         sorted_categories = sorted(

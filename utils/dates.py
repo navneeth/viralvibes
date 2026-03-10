@@ -2,6 +2,7 @@
 Date and time formatting utilities.
 """
 
+import isodate
 import logging
 from datetime import datetime, timezone
 
@@ -113,8 +114,6 @@ def parse_iso_duration(duration: str) -> str:
     Returns:
         Formatted duration string (e.g., "01:30:00")
     """
-    import isodate
-
     try:
         td = isodate.parse_duration(duration)
         total_seconds = int(td.total_seconds())

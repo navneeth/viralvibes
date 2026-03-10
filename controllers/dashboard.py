@@ -14,6 +14,7 @@ from fasthtml.common import *
 from starlette.responses import Response, RedirectResponse
 from monsterui.all import *
 
+from components import NavComponent
 from components.errors import ErrorAlert
 from db import (
     supabase_client,  # ✅ Global client
@@ -21,6 +22,7 @@ from db import (
     get_dashboard_event_counts,
 )
 from utils import load_df_from_json
+from views.dashboard import render_dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -141,8 +143,6 @@ def view_dashboard_controller(
 
     # Render dashboard
     try:
-        from views.dashboard import render_dashboard
-
         logger.debug(f"Rendering dashboard for {dashboard_id}")
         dashboard_html = render_dashboard(
             df=df,
@@ -202,9 +202,6 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
     # Get Supabase client
     if not supabase_client:
         logger.error("Supabase client not initialized")
-        # Import NavComponent here to avoid circular import
-        from components import NavComponent
-
         return Titled(
             "My Dashboards",
             NavComponent(oauth, req, sess),
@@ -232,8 +229,6 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
 
     except Exception as e:
         logger.exception(f"Failed to fetch user playlists for {user_id}: {e}")
-        from components import NavComponent
-
         return Titled(
             "My Dashboards",
             NavComponent(oauth, req, sess),
@@ -245,9 +240,6 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
                 cls="p-6",
             ),
         )
-
-    # Import NavComponent (avoid circular import at module level)
-    from components import NavComponent
 
     # Empty state
     if not playlists:
