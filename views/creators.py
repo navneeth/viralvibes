@@ -47,7 +47,7 @@ from utils.creator_metrics import (
     get_language_name,
     get_sync_status_badge,
 )
-from db import add_creator_by_handle
+from db import add_creator_by_handle, get_creator_hero_stats
 
 logger = logging.getLogger(__name__)
 
@@ -260,26 +260,7 @@ def render_creators_page(
 
     # Use provided stats or calculate from creators
     if stats is None:
-        stats = {
-            "total_subscribers": sum(
-                safe_get_value(c, "current_subscribers", 0) for c in creators
-            ),
-            "total_views": sum(
-                safe_get_value(c, "current_view_count", 0) for c in creators
-            ),
-            "avg_engagement": (
-                sum(safe_get_value(c, "engagement_score", 0) for c in creators)
-                / len(creators)
-                if creators
-                else 0
-            ),
-            "total_revenue": int(
-                sum(
-                    (safe_get_value(c, "current_view_count", 0) * 4) / 1000
-                    for c in creators
-                )
-            ),
-        }
+        stats = get_creator_hero_stats()
 
     # Check if any filters are active
     has_active_filters = (

@@ -11,6 +11,7 @@ from db import (
     add_creator_by_handle,
     calculate_creator_stats,
     find_creator_by_handle,
+    get_creator_hero_stats,
     get_creators,
 )
 
@@ -148,9 +149,13 @@ def creators_route(request):
         redirect_url = f"/creators?{urlencode(redirect_params)}"
         return RedirectResponse(redirect_url, status_code=303)
 
-    # Calculate aggregate stats for hero section from ALL creators in DB
-    # (not just the filtered/displayed ones) for accurate totals
-    stats = calculate_creator_stats(creators, include_all=True)
+    # Global counts come from the DB RPC (no row transfer, always accurate).
+    # Distribution keys (top_countries, top_categories, grade_counts) come
+    # from the current page — fast and good enough for the filter bar.
+    # RPC keys win on overlap, eliminating the 5000-creator Python scan.
+    page_stats = calculate_creator_stats(creators)
+    hero_stats = get_creator_hero_stats()
+    stats = {**page_stats, **hero_stats}
 
     # Render page
     return render_creators_page(

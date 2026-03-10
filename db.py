@@ -2350,3 +2350,41 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
             "total_subscribers": 0,
             "total_videos": 0,
         }
+
+
+def get_creator_hero_stats() -> dict:
+    """
+    Fetch global aggregate creator stats from DB via RPC (zero row transfer).
+
+    Returns a *partial* stats dict whose keys take precedence when merged
+    with a page-level ``calculate_creator_stats(creators)`` result::
+
+        page_stats = calculate_creator_stats(creators)   # distribution keys
+        hero_stats = get_creator_hero_stats()             # global counts (RPC)
+        stats = {**page_stats, **hero_stats}              # RPC wins on overlap
+
+    Keys returned:
+        total_creators, avg_engagement, has_engagement_data,
+        growing_creators, premium_creators
+
+    Falls back to ``{}`` on any error so callers can degrade gracefully.
+    """
+    if not supabase_client:
+        return {}
+    try:
+        resp = supabase_client.rpc("get_creator_hero_stats").execute()
+        if not resp.data:
+            logger.warning("get_creator_hero_stats RPC returned no data")
+            return {}
+        data = resp.data[0]
+        avg_engagement = float(data.get("avg_engagement") or 0)
+        return {
+            "total_creators": int(data.get("total_creators") or 0),
+            "avg_engagement": round(avg_engagement, 2),
+            "has_engagement_data": avg_engagement > 0,
+            "growing_creators": int(data.get("growing_creators") or 0),
+            "premium_creators": int(data.get("premium_creators") or 0),
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch creator hero stats: {e}")
+        return {}
