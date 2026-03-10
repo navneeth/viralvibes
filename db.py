@@ -701,14 +701,12 @@ def queue_invalid_creators_for_retry(
         cutoff_iso = cutoff_time.isoformat()
 
         # Query 1: creators that previously failed and whose last sync is old enough.
-        # Explicitly exclude 'not_found' — those channels no longer exist on YouTube
-        # and were hard-deleted by the worker; this guard is a belt-and-suspenders
-        # safety net in case a row slipped through with that status.
+        # Note: 'not_found' channels are hard-deleted by the worker, so they won't
+        # appear here. The .in_() filter already restricts to specific statuses.
         failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
             .in_("sync_status", ["invalid", "failed", "synced_partial"])
-            .neq("sync_status", "not_found")  # never re-queue purged channels
             .not_.is_("last_synced_at", "null")  # ← only rows where value exists
             .lt("last_synced_at", cutoff_iso)
             .limit(100)
@@ -717,13 +715,13 @@ def queue_invalid_creators_for_retry(
 
         # Query 2: creators that have NEVER been synced (last_synced_at IS NULL)
         # These were being silently excluded by the original .lt() filter.
-        # Also include NULL sync_status (creators inserted without a status).
-        # Exclude 'not_found' here too — these rows should not exist but guard anyway.
+        # Includes NULL sync_status (creators inserted without a status).
+        # Note: .neq() would exclude NULLs due to SQL NULL behavior, so we omit it.
+        # 'not_found' channels are hard-deleted by worker anyway.
         never_synced_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
             .is_("last_synced_at", "null")
-            .neq("sync_status", "not_found")  # never re-queue purged channels
             .limit(100)
             .execute()
         )

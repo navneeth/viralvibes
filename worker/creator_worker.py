@@ -561,7 +561,7 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
             youtube_resolver.get_channel_data(channel_id), timeout=SYNC_TIMEOUT
         )
 
-        if not channel_data:
+        if channel_data is None:
             # YouTubeResolver returns None specifically when the channel ID is not
             # found on YouTube (distinct from network errors, which raise exceptions).
             # Raise a typed exception so the job handler can purge without retrying.
@@ -1182,26 +1182,17 @@ async def handle_sync_job(
         metrics.syncs_failed += 1
 
         # ── Permanent failure: channel does not exist on YouTube ──────────────
-        # Do NOT retry — the channel is gone. Purge it from creators + jobs so
-        # it never wastes quota again.
+        # Do NOT retry — the channel is gone. Hard-delete from creators table
+        # to prevent wasting quota on future syncs.
         if isinstance(e, ChannelNotFoundException):
             logger.warning(
                 f"{job_tag} 🗑️  Channel not found on YouTube — purging creator "
                 f"({creator_id}) and sync job ({job_id}) permanently. No retry."
             )
             try:
-                # Mark the creator row as not_found so it is excluded from all
-                # future queuing queries (see queue_invalid_creators_for_retry).
-                supabase_client.table(CREATOR_TABLE).update(
-                    {
-                        "sync_status": "not_found",
-                        "sync_error_message": str(e),
-                        "last_updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                ).eq("id", creator_id).execute()
-
-                # Hard-delete the creator row — no point keeping a dead channel.
-                # Comment out and keep only the update above if you prefer soft-delete.
+                # Hard-delete the creator row — channel confirmed gone from YouTube.
+                # The .neq("sync_status", "not_found") guards in queuing functions
+                # are belt-and-suspenders; deleted rows won't match any query anyway.
                 supabase_client.table(CREATOR_TABLE).delete().eq(
                     "id", creator_id
                 ).execute()
