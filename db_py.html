@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for db.py: 12.65%</title>
+    <title>Coverage for db.py: 12.54%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_9ff733b0.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>db.py</b>:
-            <span class="pc_cov">12.65%</span>
+            <span class="pc_cov">12.54%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,9 +55,9 @@
             </div>
         </aside>
         <h2>
-            <span class="text">856 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">129<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">727<span class="text"> missing</span></button>
+            <span class="text">870 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">130<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">740<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">12<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-03-10 06:15 +0000
+            created at 2026-03-10 09:57 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -2434,6 +2434,44 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t2350" href="#t2350">2350</a></span><span class="t">            <span class="str">"total_subscribers"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t2351" href="#t2351">2351</a></span><span class="t">            <span class="str">"total_videos"</span><span class="op">:</span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t2352" href="#t2352">2352</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2353" href="#t2353">2353</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2354" href="#t2354">2354</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t2355" href="#t2355">2355</a></span><span class="t"><span class="key">def</span> <span class="nam">get_creator_hero_stats</span><span class="op">(</span><span class="op">)</span> <span class="op">-></span> <span class="nam">dict</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2356" href="#t2356">2356</a></span><span class="t">    <span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2357" href="#t2357">2357</a></span><span class="t"><span class="str">    Fetch global aggregate creator stats from DB via RPC (zero row transfer).</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2358" href="#t2358">2358</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2359" href="#t2359">2359</a></span><span class="t"><span class="str">    Returns a *partial* stats dict whose keys take precedence when merged</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2360" href="#t2360">2360</a></span><span class="t"><span class="str">    with a page-level ``calculate_creator_stats(creators)`` result::</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2361" href="#t2361">2361</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2362" href="#t2362">2362</a></span><span class="t"><span class="str">        page_stats = calculate_creator_stats(creators)   # distribution keys</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2363" href="#t2363">2363</a></span><span class="t"><span class="str">        hero_stats = get_creator_hero_stats()             # global counts (RPC)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2364" href="#t2364">2364</a></span><span class="t"><span class="str">        stats = {**page_stats, **hero_stats}              # RPC wins on overlap</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2365" href="#t2365">2365</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2366" href="#t2366">2366</a></span><span class="t"><span class="str">    Keys returned:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2367" href="#t2367">2367</a></span><span class="t"><span class="str">        total_creators, avg_engagement, has_engagement_data,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2368" href="#t2368">2368</a></span><span class="t"><span class="str">        growing_creators, premium_creators</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2369" href="#t2369">2369</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2370" href="#t2370">2370</a></span><span class="t"><span class="str">    Falls back to ``{}`` on any error so callers can degrade gracefully.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2371" href="#t2371">2371</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2372" href="#t2372">2372</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">supabase_client</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2373" href="#t2373">2373</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2374" href="#t2374">2374</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2375" href="#t2375">2375</a></span><span class="t">        <span class="nam">resp</span> <span class="op">=</span> <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">rpc</span><span class="op">(</span><span class="str">"get_creator_hero_stats"</span><span class="op">)</span><span class="op">.</span><span class="nam">execute</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2376" href="#t2376">2376</a></span><span class="t">        <span class="key">if</span> <span class="key">not</span> <span class="nam">resp</span><span class="op">.</span><span class="nam">data</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2377" href="#t2377">2377</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">warning</span><span class="op">(</span><span class="str">"get_creator_hero_stats RPC returned no data"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2378" href="#t2378">2378</a></span><span class="t">            <span class="key">return</span> <span class="op">{</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2379" href="#t2379">2379</a></span><span class="t">        <span class="nam">data</span> <span class="op">=</span> <span class="nam">resp</span><span class="op">.</span><span class="nam">data</span><span class="op">[</span><span class="num">0</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2380" href="#t2380">2380</a></span><span class="t">        <span class="nam">avg_engagement</span> <span class="op">=</span> <span class="nam">float</span><span class="op">(</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"avg_engagement"</span><span class="op">)</span> <span class="key">or</span> <span class="num">0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2381" href="#t2381">2381</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2382" href="#t2382">2382</a></span><span class="t">            <span class="str">"total_creators"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"total_creators"</span><span class="op">)</span> <span class="key">or</span> <span class="num">0</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2383" href="#t2383">2383</a></span><span class="t">            <span class="str">"avg_engagement"</span><span class="op">:</span> <span class="nam">round</span><span class="op">(</span><span class="nam">avg_engagement</span><span class="op">,</span> <span class="num">2</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2384" href="#t2384">2384</a></span><span class="t">            <span class="str">"has_engagement_data"</span><span class="op">:</span> <span class="nam">avg_engagement</span> <span class="op">></span> <span class="num">0</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2385" href="#t2385">2385</a></span><span class="t">            <span class="str">"growing_creators"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"growing_creators"</span><span class="op">)</span> <span class="key">or</span> <span class="num">0</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2386" href="#t2386">2386</a></span><span class="t">            <span class="str">"premium_creators"</span><span class="op">:</span> <span class="nam">int</span><span class="op">(</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"premium_creators"</span><span class="op">)</span> <span class="key">or</span> <span class="num">0</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2387" href="#t2387">2387</a></span><span class="t">        <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2388" href="#t2388">2388</a></span><span class="t">    <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2389" href="#t2389">2389</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span><span class="str">"Failed to fetch creator hero stats"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2390" href="#t2390">2390</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -2443,7 +2481,7 @@
             <a class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-03-10 06:15 +0000
+            created at 2026-03-10 09:57 +0000
         </p>
     </div>
 </footer>
