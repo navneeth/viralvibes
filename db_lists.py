@@ -163,6 +163,126 @@ def get_creators_by_category(category: str, limit: int = 10) -> list[dict]:
         return []
 
 
+def get_top_creators_by_countries(
+    country_codes: list[str], limit_per_country: int = 5
+) -> dict[str, list[dict]]:
+    """
+    Batch-fetch top creators for a list of countries in a single DB query.
+
+    Replaces N separate get_creators_by_country() calls when many country
+    groups need to be rendered (e.g. the /lists page).
+
+    Args:
+        country_codes: ISO 3166-1 alpha-2 codes, e.g. ["US", "GB", "JP"]
+        limit_per_country: Max creators to return per country
+
+    Returns:
+        Dict of {country_code: [creators sorted by subscribers desc]}
+    """
+    if not supabase_client or not country_codes:
+        return {}
+
+    try:
+        fetch_limit = min(len(country_codes) * limit_per_country * 3, 2000)
+
+        response = (
+            supabase_client.table("creators")
+            .select("*")
+            .in_("country_code", country_codes)
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
+            .order("current_subscribers", desc=True)
+            .limit(fetch_limit)
+            .execute()
+        )
+
+        creators = response.data if response.data else []
+
+        # Group by country_code, keep top N per country
+        result: dict[str, list[dict]] = {code: [] for code in country_codes}
+        for creator in creators:
+            code = creator.get("country_code", "")
+            if code in result and len(result[code]) < limit_per_country:
+                result[code].append(creator)
+
+        return result
+
+    except Exception as e:
+        logger.exception(f"Error batch-fetching creators for countries: {e}")
+        return {}
+
+
+def get_top_creators_by_categories(
+    categories: list[str], limit_per_category: int = 5
+) -> dict[str, list[dict]]:
+    """
+    Batch-fetch top creators for a list of normalized category names in one query.
+
+    Fetches a large result set ordered by subscribers, then groups client-side
+    by normalized category name.  One query replaces N ILIKE queries.
+
+    Args:
+        categories: Normalized category names (output of normalize_category_name)
+        limit_per_category: Max creators to return per category
+
+    Returns:
+        Dict of {category: [creators sorted by subscribers desc]}
+    """
+    if not supabase_client or not categories:
+        return {}
+
+    try:
+        fetch_limit = min(len(categories) * limit_per_category * 5, 3000)
+
+        response = (
+            supabase_client.table("creators")
+            .select("*")
+            .not_.is_("channel_name", "null")
+            .not_.is_("topic_categories", "null")
+            .gt("current_subscribers", 0)
+            .order("current_subscribers", desc=True)
+            .limit(fetch_limit)
+            .execute()
+        )
+
+        creators = response.data if response.data else []
+        cat_set = set(categories)
+        result: dict[str, list[dict]] = {cat: [] for cat in categories}
+
+        for creator in creators:
+            raw = creator.get("topic_categories")
+            if not raw:
+                continue
+
+            # Parse topic_categories — JSON array string, Python list, or CSV
+            if isinstance(raw, list):
+                creator_cats = raw
+            elif isinstance(raw, str):
+                try:
+                    parsed = json.loads(raw)
+                    creator_cats = parsed if isinstance(parsed, list) else []
+                except (json.JSONDecodeError, ValueError):
+                    creator_cats = [c.strip() for c in raw.split(",")]
+            else:
+                continue
+
+            # Match against each requested category
+            for raw_cat in creator_cats:
+                normalized = normalize_category_name(str(raw_cat))
+                if (
+                    normalized in cat_set
+                    and len(result[normalized]) < limit_per_category
+                ):
+                    result[normalized].append(creator)
+                    # Don't break — a creator can belong to multiple categories
+
+        return result
+
+    except Exception as e:
+        logger.exception(f"Error batch-fetching creators for categories: {e}")
+        return {}
+
+
 def get_rising_creators(limit: int = 20) -> list[dict]:
     """
     Get fastest-growing creators by 30-day growth rate (percentage).
@@ -328,6 +448,153 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     except Exception as e:
         logger.exception(f"Error fetching top countries: {e}")
         return []
+
+
+def get_lists_meta() -> dict:
+    """
+    Return aggregate stats used to drive dynamic tab badges and load-more limits.
+
+    Returns a dict with:
+        total_countries  – number of distinct countries represented
+        total_categories – number of distinct normalised topic categories
+        total_creators   – total creators with valid channel_name + subscribers
+
+    This is a single function so the route only pays the aggregation cost once.
+    The heavy lifting is the same scan used by get_top_countries_with_counts /
+    get_top_categories_with_counts, but we do it in ONE combined pass.
+    """
+    if not supabase_client:
+        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+
+    try:
+        MAX_FETCH = 50000
+
+        # Fetch the columns we need for both aggregations in a single call
+        response = (
+            supabase_client.table("creators")
+            .select("country_code, topic_categories")
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
+            .limit(MAX_FETCH)
+            .execute()
+        )
+
+        rows = response.data if response.data else []
+
+        countries: set[str] = set()
+        categories: set[str] = set()
+
+        for row in rows:
+            cc = row.get("country_code")
+            if cc:
+                countries.add(cc)
+
+            cats_raw = row.get("topic_categories")
+            if cats_raw:
+                if isinstance(cats_raw, list):
+                    cat_list = cats_raw
+                elif isinstance(cats_raw, str):
+                    try:
+                        cat_list = json.loads(cats_raw)
+                        if not isinstance(cat_list, list):
+                            cat_list = []
+                    except (json.JSONDecodeError, ValueError):
+                        cat_list = [c.strip() for c in cats_raw.split(",")]
+                else:
+                    cat_list = []
+
+                for cat in cat_list:
+                    clean = normalize_category_name(str(cat))
+                    if clean:
+                        categories.add(clean)
+
+        return {
+            "total_countries": len(countries),
+            "total_categories": len(categories),
+            "total_creators": len(rows),
+        }
+
+    except Exception as e:
+        logger.exception(f"Error fetching lists meta: {e}")
+        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+
+
+def get_country_groups(
+    offset: int = 0, limit: int = 8, creators_per_group: int = 5
+) -> list[dict]:
+    """
+    Return paginated country groups, each with their top creators.
+
+    Uses a single batch DB query for the creators rather than one per country.
+    Each item: { country_code, count, creators }
+
+    Args:
+        offset: How many top countries to skip (for load-more pagination)
+        limit: How many country groups to return
+        creators_per_group: How many creators per country
+
+    Returns:
+        List of country group dicts
+    """
+    top_countries = get_top_countries_with_counts(limit=offset + limit)
+    page = top_countries[offset : offset + limit]
+
+    if not page:
+        return []
+
+    # Batch-fetch creators for all countries in this page — 1 query instead of N
+    country_codes = [cc for cc, _ in page]
+    creators_by_country = get_top_creators_by_countries(
+        country_codes, limit_per_country=creators_per_group
+    )
+
+    return [
+        {
+            "country_code": country_code,
+            "count": count,
+            "creators": creators_by_country.get(country_code, []),
+        }
+        for country_code, count in page
+    ]
+
+
+def get_category_groups(
+    offset: int = 0, limit: int = 8, creators_per_group: int = 5
+) -> list[dict]:
+    """
+    Return paginated category groups, each with their top creators.
+
+    Uses a single batch DB query for the creators rather than one per category.
+    Each item: { category, count, creators }
+
+    Args:
+        offset: How many top categories to skip (for load-more pagination)
+        limit: How many category groups to return
+        creators_per_group: How many creators per category
+
+    Returns:
+        List of category group dicts
+    """
+    top_categories = get_top_categories_with_counts(limit=offset + limit)
+    page = top_categories[offset : offset + limit]
+
+    if not page:
+        return []
+
+    # Batch-fetch creators for all categories in this page — 1 query instead of N
+    category_names = [cat for cat, _ in page]
+    creators_by_category = get_top_creators_by_categories(
+        category_names, limit_per_category=creators_per_group
+    )
+
+    return [
+        {
+            "category": category,
+            "count": count,
+            "creators": creators_by_category.get(category, []),
+        }
+        for category, count in page
+    ]
 
 
 def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:

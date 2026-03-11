@@ -3,6 +3,8 @@ Creator Lists view — curated, pre-filtered creator rankings.
 Each tab is a different lens on the creators database.
 """
 
+import re
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -16,6 +18,220 @@ from utils.creator_metrics import (
     format_channel_age,
 )
 from views.creators import get_topic_category_emoji
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ISO 3166-1 country code → display name
+# ─────────────────────────────────────────────────────────────────────────────
+_COUNTRY_NAMES: dict[str, str] = {
+    "AD": "Andorra",
+    "AE": "UAE",
+    "AF": "Afghanistan",
+    "AG": "Antigua & Barbuda",
+    "AL": "Albania",
+    "AM": "Armenia",
+    "AO": "Angola",
+    "AR": "Argentina",
+    "AT": "Austria",
+    "AU": "Australia",
+    "AZ": "Azerbaijan",
+    "BA": "Bosnia",
+    "BB": "Barbados",
+    "BD": "Bangladesh",
+    "BE": "Belgium",
+    "BF": "Burkina Faso",
+    "BG": "Bulgaria",
+    "BH": "Bahrain",
+    "BI": "Burundi",
+    "BJ": "Benin",
+    "BN": "Brunei",
+    "BO": "Bolivia",
+    "BR": "Brazil",
+    "BS": "Bahamas",
+    "BT": "Bhutan",
+    "BW": "Botswana",
+    "BY": "Belarus",
+    "BZ": "Belize",
+    "CA": "Canada",
+    "CD": "DR Congo",
+    "CF": "C. African Rep.",
+    "CG": "Congo",
+    "CH": "Switzerland",
+    "CI": "Côte d'Ivoire",
+    "CL": "Chile",
+    "CM": "Cameroon",
+    "CN": "China",
+    "CO": "Colombia",
+    "CR": "Costa Rica",
+    "CU": "Cuba",
+    "CV": "Cape Verde",
+    "CY": "Cyprus",
+    "CZ": "Czech Republic",
+    "DE": "Germany",
+    "DJ": "Djibouti",
+    "DK": "Denmark",
+    "DM": "Dominica",
+    "DO": "Dominican Rep.",
+    "DZ": "Algeria",
+    "EC": "Ecuador",
+    "EE": "Estonia",
+    "EG": "Egypt",
+    "ER": "Eritrea",
+    "ES": "Spain",
+    "ET": "Ethiopia",
+    "FI": "Finland",
+    "FJ": "Fiji",
+    "FR": "France",
+    "GA": "Gabon",
+    "GB": "United Kingdom",
+    "GD": "Grenada",
+    "GE": "Georgia",
+    "GH": "Ghana",
+    "GM": "Gambia",
+    "GN": "Guinea",
+    "GQ": "Equatorial Guinea",
+    "GR": "Greece",
+    "GT": "Guatemala",
+    "GW": "Guinea-Bissau",
+    "GY": "Guyana",
+    "HN": "Honduras",
+    "HR": "Croatia",
+    "HT": "Haiti",
+    "HU": "Hungary",
+    "ID": "Indonesia",
+    "IE": "Ireland",
+    "IL": "Israel",
+    "IN": "India",
+    "IQ": "Iraq",
+    "IR": "Iran",
+    "IS": "Iceland",
+    "IT": "Italy",
+    "JM": "Jamaica",
+    "JO": "Jordan",
+    "JP": "Japan",
+    "KE": "Kenya",
+    "KG": "Kyrgyzstan",
+    "KH": "Cambodia",
+    "KI": "Kiribati",
+    "KM": "Comoros",
+    "KN": "St Kitts",
+    "KP": "North Korea",
+    "KR": "South Korea",
+    "KW": "Kuwait",
+    "KZ": "Kazakhstan",
+    "LA": "Laos",
+    "LB": "Lebanon",
+    "LC": "St Lucia",
+    "LI": "Liechtenstein",
+    "LK": "Sri Lanka",
+    "LR": "Liberia",
+    "LS": "Lesotho",
+    "LT": "Lithuania",
+    "LU": "Luxembourg",
+    "LV": "Latvia",
+    "LY": "Libya",
+    "MA": "Morocco",
+    "MC": "Monaco",
+    "MD": "Moldova",
+    "ME": "Montenegro",
+    "MG": "Madagascar",
+    "MH": "Marshall Islands",
+    "MK": "North Macedonia",
+    "ML": "Mali",
+    "MM": "Myanmar",
+    "MN": "Mongolia",
+    "MR": "Mauritania",
+    "MT": "Malta",
+    "MU": "Mauritius",
+    "MV": "Maldives",
+    "MW": "Malawi",
+    "MX": "Mexico",
+    "MY": "Malaysia",
+    "MZ": "Mozambique",
+    "NA": "Namibia",
+    "NE": "Niger",
+    "NG": "Nigeria",
+    "NI": "Nicaragua",
+    "NL": "Netherlands",
+    "NO": "Norway",
+    "NP": "Nepal",
+    "NR": "Nauru",
+    "NZ": "New Zealand",
+    "OM": "Oman",
+    "PA": "Panama",
+    "PE": "Peru",
+    "PG": "Papua New Guinea",
+    "PH": "Philippines",
+    "PK": "Pakistan",
+    "PL": "Poland",
+    "PT": "Portugal",
+    "PW": "Palau",
+    "PY": "Paraguay",
+    "QA": "Qatar",
+    "RO": "Romania",
+    "RS": "Serbia",
+    "RU": "Russia",
+    "RW": "Rwanda",
+    "SA": "Saudi Arabia",
+    "SB": "Solomon Islands",
+    "SC": "Seychelles",
+    "SD": "Sudan",
+    "SE": "Sweden",
+    "SG": "Singapore",
+    "SI": "Slovenia",
+    "SK": "Slovakia",
+    "SL": "Sierra Leone",
+    "SM": "San Marino",
+    "SN": "Senegal",
+    "SO": "Somalia",
+    "SR": "Suriname",
+    "SS": "South Sudan",
+    "ST": "São Tomé",
+    "SV": "El Salvador",
+    "SY": "Syria",
+    "SZ": "Eswatini",
+    "TD": "Chad",
+    "TG": "Togo",
+    "TH": "Thailand",
+    "TJ": "Tajikistan",
+    "TL": "Timor-Leste",
+    "TM": "Turkmenistan",
+    "TN": "Tunisia",
+    "TO": "Tonga",
+    "TR": "Turkey",
+    "TT": "Trinidad & Tobago",
+    "TV": "Tuvalu",
+    "TZ": "Tanzania",
+    "UA": "Ukraine",
+    "UG": "Uganda",
+    "US": "United States",
+    "UY": "Uruguay",
+    "UZ": "Uzbekistan",
+    "VA": "Vatican",
+    "VC": "St Vincent",
+    "VE": "Venezuela",
+    "VN": "Vietnam",
+    "VU": "Vanuatu",
+    "WS": "Samoa",
+    "YE": "Yemen",
+    "ZA": "South Africa",
+    "ZM": "Zambia",
+    "ZW": "Zimbabwe",
+}
+
+
+def get_country_name(country_code: str) -> str:
+    """Return a human-readable country name for a two-letter ISO code."""
+    return _COUNTRY_NAMES.get(country_code.upper(), country_code)
+
+
+def _slugify(text: str) -> str:
+    """Convert a display name into a URL-safe slug for detail page hrefs."""
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip("-") or "unknown"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -263,6 +479,115 @@ def _creator_mini_row(creator: dict, rank: int):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Group card builders (country / category) — used by both initial render
+# and HTMX load-more partials
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _country_group_card(country_data: dict) -> Div:
+    """Render a single country group card with its top creators."""
+    country_code = country_data["country_code"]
+    count = country_data["count"]
+    creators = country_data["creators"]
+
+    country_name = get_country_name(country_code)
+
+    return Div(
+        # Header links to the full ranked list (detail route added in next step)
+        A(
+            Span(get_country_flag(country_code), cls="text-2xl shrink-0"),
+            Div(
+                H3(
+                    country_name,
+                    cls="text-base font-bold text-foreground leading-tight",
+                ),
+                Span(country_code, cls="text-xs text-muted-foreground font-mono"),
+                cls="flex flex-col min-w-0",
+            ),
+            Span(
+                f"{format_number(count)} creators →",
+                cls="ml-auto shrink-0 text-xs font-medium text-primary",
+            ),
+            href=f"/lists/country/{country_code}",
+            cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
+        ),
+        (
+            Div(
+                *[_creator_mini_row(c, rank=i + 1) for i, c in enumerate(creators)],
+                cls="space-y-2 mt-3",
+            )
+            if creators
+            else P("No creators yet", cls="text-xs text-muted-foreground mt-2")
+        ),
+        cls="p-4 rounded-xl border border-border bg-background hover:border-primary/40 transition-colors",
+    )
+
+
+def _category_group_card(category_data: dict) -> Div:
+    """Render a single category group card with its top creators."""
+    category = category_data["category"]
+    count = category_data["count"]
+    creators = category_data["creators"]
+
+    emoji = get_topic_category_emoji(category)
+    # Strip any Wikipedia URL prefix that may slip through
+    display_name = category.split("/")[-1].strip() if "/" in category else category
+    # Title-case for readability
+    display_name = (
+        display_name.title() if display_name == display_name.lower() else display_name
+    )
+
+    return Div(
+        # Header links to the full ranked list (detail route added in next step)
+        A(
+            Span(emoji, cls="text-2xl shrink-0"),
+            Span(
+                display_name,
+                cls="text-base font-bold text-foreground leading-tight flex-1 min-w-0",
+            ),
+            Span(
+                f"{format_number(count)} creators →",
+                cls="ml-auto shrink-0 text-xs font-medium text-primary",
+            ),
+            href=f"/lists/category/{_slugify(display_name)}",
+            cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
+        ),
+        (
+            Div(
+                *[_creator_mini_row(c, rank=i + 1) for i, c in enumerate(creators)],
+                cls="space-y-2 mt-3",
+            )
+            if creators
+            else P("No creators yet", cls="text-xs text-muted-foreground mt-2")
+        ),
+        cls="p-4 rounded-xl border border-border bg-background hover:border-primary/40 transition-colors",
+    )
+
+
+def _load_more_button(url: str, target_id: str, next_offset: int, label: str) -> Div:
+    """
+    HTMX "Show more" button that appends the next batch into *target_id*.
+    Uses hx-get + hx-swap=beforeend so existing cards stay in place.
+    """
+    return Div(
+        Button(
+            UkIcon("chevrons-down", cls="size-4"),
+            label,
+            hx_get=f"{url}?offset={next_offset}",
+            hx_target=f"#{target_id}",
+            hx_swap="beforeend",
+            hx_indicator=f"#{target_id}-spinner",
+            cls="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+        ),
+        Span(id=f"{target_id}-spinner", cls="htmx-indicator"),
+        id=f"{target_id}-load-more",
+        # Replace this wrapper when the partial responds (partial includes its own button or nothing)
+        hx_swap_oob="true" if False else None,
+        cls="flex justify-center mt-4",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tab Content Renderers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -322,153 +647,119 @@ def _render_most_active_content(creators: list[dict], description: str) -> Div:
     )
 
 
-def _render_by_country_content(country_rankings: list[dict], description: str) -> Div:
+def _render_by_country_content(
+    country_rankings: list[dict],
+    description: str,
+    total_countries: int = 0,
+) -> Div:
     """
     Renders By Country tab with grouped country sections.
 
+    Shows the initial batch of country cards plus a dynamic load-more button
+    when more countries exist in the database.
+
     Args:
-        country_rankings: List of dicts with {country_code, count, creators}
+        country_rankings: First page of {country_code, count, creators} dicts
         description: Tab description text
+        total_countries: Total distinct countries in DB (for load-more badge)
     """
     if not country_rankings:
         return _placeholder_content(description, coming_soon=False)
 
-    total_creators = sum(r["count"] for r in country_rankings)
-    total_countries = len(country_rankings)
-
-    country_sections = []
-    for country_data in country_rankings:
-        country_code = country_data["country_code"]
-        count = country_data["count"]
-        creators = country_data["creators"]
-
-        if not creators:
-            continue
-
-        # Country header
-        country_sections.append(
-            Div(
-                # Country flag + name
-                Div(
-                    Span(get_country_flag(country_code), cls="text-2xl"),
-                    H3(
-                        country_code,
-                        cls="text-lg font-bold text-foreground",
-                    ),
-                    Span(
-                        f"{count} creators",
-                        cls="text-sm text-muted-foreground",
-                    ),
-                    cls="flex items-center gap-2",
-                ),
-                # Top 5 creators from this country
-                Div(
-                    *[
-                        _creator_mini_row(creator, rank=i + 1)
-                        for i, creator in enumerate(creators)
-                    ],
-                    cls="space-y-2 mt-3",
-                ),
-                cls="p-4 rounded-xl border border-border bg-background",
-            )
-        )
+    shown = len(country_rankings)
+    has_more = total_countries > shown
 
     return Div(
-        # Description + total stats
         DivFullySpaced(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
                 Span(
-                    f"{total_countries} countries · {total_creators} creators",
+                    (
+                        f"{total_countries} countries"
+                        if total_countries
+                        else f"{shown} countries"
+                    ),
                     cls="text-sm font-medium text-foreground",
                 ),
                 cls="shrink-0 hidden sm:block",
             ),
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
-        # Country sections grid
+        # Country cards grid — HTMX load-more appends into this div
         Div(
-            *country_sections,
+            *[_country_group_card(c) for c in country_rankings],
+            id="country-groups-grid",
             cls="grid grid-cols-1 md:grid-cols-2 gap-4",
+        ),
+        # Load-more button (only shown when more exist)
+        (
+            _load_more_button(
+                url="/lists/more-countries",
+                target_id="country-groups-grid",
+                next_offset=shown,
+                label=f"Show more countries ({total_countries - shown} remaining)",
+            )
+            if has_more
+            else None
         ),
         cls="min-h-64",
     )
 
 
-def _render_by_category_content(category_rankings: list[dict], description: str) -> Div:
+def _render_by_category_content(
+    category_rankings: list[dict],
+    description: str,
+    total_categories: int = 0,
+) -> Div:
     """
     Renders By Category tab with grouped category sections.
 
+    Shows the initial batch of category cards plus a dynamic load-more button
+    when more categories exist in the database.
+
     Args:
-        category_rankings: List of dicts with {category, count, creators}
+        category_rankings: First page of {category, count, creators} dicts
         description: Tab description text
+        total_categories: Total distinct categories in DB (for load-more badge)
     """
     if not category_rankings:
         return _placeholder_content(description, coming_soon=False)
 
-    total_creators = sum(r["count"] for r in category_rankings)
-    total_categories = len(category_rankings)
-
-    category_sections = []
-    for category_data in category_rankings:
-        category = category_data["category"]
-        count = category_data["count"]
-        creators = category_data["creators"]
-
-        if not creators:
-            continue
-
-        # Get emoji for category
-        emoji = get_topic_category_emoji(category)
-
-        # Clean category name (remove Wikipedia URL prefix)
-        display_name = category.split("/")[-1].strip() if "/" in category else category
-
-        # Category header
-        category_sections.append(
-            Div(
-                # Category emoji + name
-                Div(
-                    Span(emoji, cls="text-2xl"),
-                    H3(
-                        display_name,
-                        cls="text-lg font-bold text-foreground",
-                    ),
-                    Span(
-                        f"{count} creators",
-                        cls="text-sm text-muted-foreground",
-                    ),
-                    cls="flex items-center gap-2",
-                ),
-                # Top 5 creators from this category
-                Div(
-                    *[
-                        _creator_mini_row(creator, rank=i + 1)
-                        for i, creator in enumerate(creators)
-                    ],
-                    cls="space-y-2 mt-3",
-                ),
-                cls="p-4 rounded-xl border border-border bg-background",
-            )
-        )
+    shown = len(category_rankings)
+    has_more = total_categories > shown
 
     return Div(
-        # Description + total stats
         DivFullySpaced(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
                 Span(
-                    f"{total_categories} categories · {total_creators} creators",
+                    (
+                        f"{total_categories} categories"
+                        if total_categories
+                        else f"{shown} categories"
+                    ),
                     cls="text-sm font-medium text-foreground",
                 ),
                 cls="shrink-0 hidden sm:block",
             ),
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
-        # Category sections grid
+        # Category cards grid — HTMX load-more appends into this div
         Div(
-            *category_sections,
+            *[_category_group_card(c) for c in category_rankings],
+            id="category-groups-grid",
             cls="grid grid-cols-1 md:grid-cols-2 gap-4",
+        ),
+        # Load-more button (only shown when more exist)
+        (
+            _load_more_button(
+                url="/lists/more-categories",
+                target_id="category-groups-grid",
+                next_offset=shown,
+                label=f"Show more categories ({total_categories - shown} remaining)",
+            )
+            if has_more
+            else None
         ),
         cls="min-h-64",
     )
@@ -603,18 +894,100 @@ def _skeleton_row(index: int):
     )
 
 
-def _tab_li(tab_id: str, label: str, icon: str, is_active: bool):
-    """Renders a single tab <li> with icon + label."""
+def _tab_li(tab_id: str, label: str, icon: str, is_active: bool, badge: str = ""):
+    """Renders a single tab <li> with icon + label and optional count badge."""
     active_cls = "uk-active" if is_active else ""
     return Li(
         A(
             UkIcon(icon, cls="size-4 shrink-0"),
             Span(label, cls="hidden sm:inline"),
             Span(label[0], cls="sm:hidden font-medium"),  # Initial on mobile
+            # Live count badge (e.g. "24" countries)
+            (
+                Span(
+                    badge,
+                    cls="hidden sm:inline text-xs font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full ml-0.5",
+                )
+                if badge
+                else None
+            ),
             href="#",
             cls="flex items-center gap-1.5 text-sm font-medium",
         ),
         cls=active_cls,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HTMX Partial Renderers — called by routes/lists.py partial handlers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def render_more_countries(
+    groups: list[dict],
+    next_offset: int,
+    has_more: bool,
+) -> FT:
+    """
+    HTMX partial response for load-more countries.
+
+    Returns:
+        - New country group cards (appended into #country-groups-grid by hx-swap=beforeend)
+        - An oob-swap to replace the old load-more button div
+    """
+    cards = [_country_group_card(g) for g in groups]
+
+    # Build the new load-more button (or nothing if exhausted)
+    new_button = (
+        _load_more_button(
+            url="/lists/more-countries",
+            target_id="country-groups-grid",
+            next_offset=next_offset,
+            label=f"Show more countries",
+        )
+        if has_more
+        else Div(
+            id="country-groups-grid-load-more"
+        )  # empty replacement removes the button
+    )
+
+    # hx-swap-oob replaces the old button div out-of-band while the cards
+    # are appended into the grid via the normal hx-swap=beforeend
+    return Div(
+        *cards,
+        # Out-of-band swap: replace the load-more button
+        Div(new_button, id="country-groups-grid-load-more", hx_swap_oob="true"),
+    )
+
+
+def render_more_categories(
+    groups: list[dict],
+    next_offset: int,
+    has_more: bool,
+) -> FT:
+    """
+    HTMX partial response for load-more categories.
+
+    Returns:
+        - New category group cards (appended into #category-groups-grid)
+        - An oob-swap to replace the old load-more button div
+    """
+    cards = [_category_group_card(g) for g in groups]
+
+    new_button = (
+        _load_more_button(
+            url="/lists/more-categories",
+            target_id="category-groups-grid",
+            next_offset=next_offset,
+            label=f"Show more categories",
+        )
+        if has_more
+        else Div(id="category-groups-grid-load-more")
+    )
+
+    return Div(
+        *cards,
+        Div(new_button, id="category-groups-grid-load-more", hx_swap_oob="true"),
     )
 
 
@@ -625,10 +998,21 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
 
     Args:
         active_tab: Currently active tab ID
-        tab_data: Dict with data for each tab type
+        tab_data: Dict with data for each tab type, including total_countries
+                  and total_categories counts for dynamic badges + load-more
     """
     if tab_data is None:
         tab_data = {}
+
+    total_countries = tab_data.get("total_countries", 0)
+    total_categories = tab_data.get("total_categories", 0)
+
+    # Dynamic badges driven by live DB counts
+    tab_badges: dict[str, str] = {}
+    if total_countries:
+        tab_badges["by-country"] = str(total_countries)
+    if total_categories:
+        tab_badges["by-category"] = str(total_categories)
 
     tab_items = []
     panel_items = []
@@ -641,7 +1025,8 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
 
     for i, (tab_id, label, icon, description, coming_soon) in enumerate(LISTS_TABS):
         is_active = tab_id == normalized_active_tab
-        tab_items.append(_tab_li(tab_id, label, icon, is_active))
+        badge = tab_badges.get(tab_id, "")
+        tab_items.append(_tab_li(tab_id, label, icon, is_active, badge=badge))
 
         # Render appropriate content based on tab type
         if coming_soon:
@@ -655,12 +1040,24 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
         elif tab_id == "by-country":
             country_rankings = tab_data.get("country_rankings", [])
             panel_items.append(
-                Li(_render_by_country_content(country_rankings, description))
+                Li(
+                    _render_by_country_content(
+                        country_rankings,
+                        description,
+                        total_countries=total_countries,
+                    )
+                )
             )
         elif tab_id == "by-category":
             category_rankings = tab_data.get("category_rankings", [])
             panel_items.append(
-                Li(_render_by_category_content(category_rankings, description))
+                Li(
+                    _render_by_category_content(
+                        category_rankings,
+                        description,
+                        total_categories=total_categories,
+                    )
+                )
             )
         elif tab_id == "rising":
             creators = tab_data.get("rising", [])
