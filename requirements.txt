@@ -13,6 +13,7 @@ uvicorn>=0.30.1
 tenacity
 requests
 emoji-country-flag
+pycountry
 isodate
 # introducing google-api-python-client causes vercel deployment issues due to size > 250 MB
 #google-api-python-client
