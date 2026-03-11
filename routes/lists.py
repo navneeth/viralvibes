@@ -105,7 +105,9 @@ def lists_more_countries_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_countries(groups, next_offset=next_offset, has_more=has_more, total=total)
+    return render_more_countries(
+        groups, next_offset=next_offset, has_more=has_more, total=total
+    )
 
 
 def lists_more_categories_route(request):
@@ -135,4 +137,6 @@ def lists_more_categories_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_categories(groups, next_offset=next_offset, has_more=has_more, total=total)
+    return render_more_categories(
+        groups, next_offset=next_offset, has_more=has_more, total=total
+    )

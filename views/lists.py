@@ -970,7 +970,9 @@ def render_more_countries(
             total=total,
         )
         if has_more
-        else Div(id="country-groups-grid-load-more", hx_swap_oob="true")  # clears the button
+        else Div(
+            id="country-groups-grid-load-more", hx_swap_oob="true"
+        )  # clears the button
     )
 
     return Div(*cards, new_button)
@@ -1001,7 +1003,9 @@ def render_more_categories(
             total=total,
         )
         if has_more
-        else Div(id="category-groups-grid-load-more", hx_swap_oob="true")  # clears the button
+        else Div(
+            id="category-groups-grid-load-more", hx_swap_oob="true"
+        )  # clears the button
     )
 
     return Div(*cards, new_button)
