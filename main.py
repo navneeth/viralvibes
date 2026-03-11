@@ -1090,6 +1090,22 @@ def lists(req, sess):
     )
 
 
+@rt("/lists/more-countries")
+def lists_more_countries(req, sess):
+    """HTMX partial — next batch of country group cards for the By Country tab."""
+    from routes.lists import lists_more_countries_route
+
+    return lists_more_countries_route(req)
+
+
+@rt("/lists/more-categories")
+def lists_more_categories(req, sess):
+    """HTMX partial — next batch of category group cards for the By Category tab."""
+    from routes.lists import lists_more_categories_route
+
+    return lists_more_categories_route(req)
+
+
 @rt("/creators/add")
 async def add_creator(req, sess):
     """POST /creators/add - Add creator by handle to database
