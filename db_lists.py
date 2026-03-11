@@ -394,24 +394,15 @@ def get_veteran_creators(limit: int = 20) -> list[dict]:
 
 def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     """
-    Get top countries by creator count.
+    Get top countries by creator count via DB-side RPC aggregation.
 
     Returns list of (country_code, creator_count) tuples.
     Used for "By Country" tab to show which countries to display.
 
-    Performance note: This performs client-side aggregation. For production scale
-    (10k+ creators), consider creating a database RPC or materialized view:
-
-        CREATE FUNCTION get_top_countries_with_counts(p_limit INT)
-        RETURNS TABLE (country_code TEXT, creator_count BIGINT)
-        AS $$
-            SELECT country_code, COUNT(*) as creator_count
-            FROM creators
-            WHERE country_code IS NOT NULL AND current_subscribers > 0
-            GROUP BY country_code
-            ORDER BY creator_count DESC
-            LIMIT p_limit;
-        $$ LANGUAGE SQL;
+    Uses the ``get_top_countries_with_counts`` Supabase RPC function
+    (see db/migrations/002_lists_page_rpc_functions.sql), which runs a
+    server-side GROUP BY with zero row transfer.  Falls back to a client-side
+    scan if the RPC is unavailable.
 
     Args:
         limit: Maximum number of countries to return
@@ -424,10 +415,23 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         return []
 
     try:
-        # Fetch with reasonable limit to avoid loading entire table
-        # Limit to 50k creators (enough for aggregation, not entire DB)
-        MAX_FETCH = 50000
+        resp = supabase_client.rpc(
+            "get_top_countries_with_counts", {"p_limit": limit}
+        ).execute()
+        if resp.data:
+            return [(row["country_code"], row["creator_count"]) for row in resp.data]
+        logger.warning("[Lists] get_top_countries_with_counts RPC returned no data")
+        return []
 
+    except Exception as e:
+        logger.exception(f"Error fetching top countries via RPC: {e}")
+        return _get_top_countries_with_counts_fallback(limit)
+
+
+def _get_top_countries_with_counts_fallback(limit: int) -> list[tuple[str, int]]:
+    """Client-side fallback for get_top_countries_with_counts (RPC unavailable)."""
+    try:
+        MAX_FETCH = 50000
         response = (
             supabase_client.table("creators")
             .select("country_code")
@@ -437,25 +441,15 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
             .limit(MAX_FETCH)
             .execute()
         )
-
         creators = response.data if response.data else []
-
-        # Count by country
-        country_counts = {}
+        country_counts: dict[str, int] = {}
         for c in creators:
             country = c.get("country_code")
             if country:
                 country_counts[country] = country_counts.get(country, 0) + 1
-
-        # Sort by count descending
-        sorted_countries = sorted(
-            country_counts.items(), key=lambda x: x[1], reverse=True
-        )
-
-        return sorted_countries[:limit]
-
+        return sorted(country_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
     except Exception as e:
-        logger.exception(f"Error fetching top countries: {e}")
+        logger.exception(f"Error in country counts fallback: {e}")
         return []
 
 
@@ -464,28 +458,40 @@ def get_lists_meta() -> dict:
     Return aggregate stats used to drive dynamic tab badges and load-more limits.
 
     Returns a dict with:
-        total_creators   – exact DB-side COUNT(*) via PostgREST count header
-        total_countries  – approximate: distinct countries seen in the first
-                           MAX_FETCH rows; may under-count beyond that threshold
-        total_categories – approximate: same sampling caveat as total_countries
+        total_creators   – exact DB COUNT(*)
+        total_countries  – exact COUNT(DISTINCT country_code)
+        total_categories – exact COUNT(DISTINCT normalised category)
 
-    ``total_creators`` is exact because it comes from ``response.count``, which
-    PostgREST populates via a ``Prefer: count=exact`` header independently of
-    the row-fetch limit.  The distinct-value counts rely on a capped client-side
-    scan and should be treated as lower-bound estimates if the table exceeds
-    MAX_FETCH rows.
-
-    This is a single function so the route only pays the aggregation cost once.
+    All three values come from the ``get_lists_meta`` Supabase RPC function
+    (see db/migrations/002_lists_page_rpc_functions.sql), which computes
+    everything in a single server-side pass with zero row transfer.  Falls
+    back to a combined client-side scan (approximate) if the RPC is
+    unavailable.
     """
     if not supabase_client:
         return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
 
     try:
-        MAX_FETCH = 50000
+        resp = supabase_client.rpc("get_lists_meta").execute()
+        if resp.data:
+            row = resp.data[0]
+            return {
+                "total_creators": int(row.get("total_creators") or 0),
+                "total_countries": int(row.get("total_countries") or 0),
+                "total_categories": int(row.get("total_categories") or 0),
+            }
+        logger.warning("[Lists] get_lists_meta RPC returned no data")
+        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
 
-        # count="exact" adds `Prefer: count=exact`; response.count is the full
-        # DB COUNT(*) and is NOT capped by .limit().  Rows are still limited so
-        # we don't pull the whole table just for the distinct-value scan.
+    except Exception as e:
+        logger.exception(f"Error fetching lists meta via RPC: {e}")
+        return _get_lists_meta_fallback()
+
+
+def _get_lists_meta_fallback() -> dict:
+    """Client-side fallback for get_lists_meta (RPC unavailable)."""
+    try:
+        MAX_FETCH = 50000
         response = (
             supabase_client.table("creators")
             .select("country_code, topic_categories", count="exact")
@@ -494,19 +500,13 @@ def get_lists_meta() -> dict:
             .limit(MAX_FETCH)
             .execute()
         )
-
         rows = response.data if response.data else []
-        # response.count is exact; fall back to len(rows) if the header is absent
         total_creators = response.count if response.count is not None else len(rows)
-
         countries: set[str] = set()
         categories: set[str] = set()
-
         for row in rows:
-            cc = row.get("country_code")
-            if cc:
+            if cc := row.get("country_code"):
                 countries.add(cc)
-
             cats_raw = row.get("topic_categories")
             if cats_raw:
                 if isinstance(cats_raw, list):
@@ -520,20 +520,17 @@ def get_lists_meta() -> dict:
                         cat_list = [c.strip() for c in cats_raw.split(",")]
                 else:
                     cat_list = []
-
                 for cat in cat_list:
                     clean = normalize_category_name(str(cat))
                     if clean:
                         categories.add(clean)
-
         return {
+            "total_creators": total_creators,
             "total_countries": len(countries),
             "total_categories": len(categories),
-            "total_creators": total_creators,
         }
-
     except Exception as e:
-        logger.exception(f"Error fetching lists meta: {e}")
+        logger.exception(f"Error in lists meta fallback: {e}")
         return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
 
 
@@ -617,15 +614,15 @@ def get_category_groups(
 
 def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     """
-    Get top topic categories by creator count.
+    Get top topic categories by creator count via DB-side RPC aggregation.
 
     Returns list of (category_name, creator_count) tuples.
     Used for "By Category" tab to show which categories to display.
 
-    Performance note: This performs client-side aggregation with comma-separated
-    category parsing. For production scale, consider creating a database RPC that
-    handles the aggregation server-side after normalizing categories to a separate
-    table or JSONB array.
+    Uses the ``get_top_categories_with_counts`` Supabase RPC function
+    (see db/migrations/002_lists_page_rpc_functions.sql), which unnests
+    and normalises ``topic_categories`` server-side with zero row transfer.
+    Falls back to a client-side scan if the RPC is unavailable.
 
     Args:
         limit: Maximum number of categories to return
@@ -638,10 +635,23 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         return []
 
     try:
-        # Fetch with reasonable limit to avoid loading entire table
-        # Limit to 50k creators (enough for aggregation, not entire DB)
-        MAX_FETCH = 50000
+        resp = supabase_client.rpc(
+            "get_top_categories_with_counts", {"p_limit": limit}
+        ).execute()
+        if resp.data:
+            return [(row["category"], row["creator_count"]) for row in resp.data]
+        logger.warning("[Lists] get_top_categories_with_counts RPC returned no data")
+        return []
 
+    except Exception as e:
+        logger.exception(f"Error fetching top categories via RPC: {e}")
+        return _get_top_categories_with_counts_fallback(limit)
+
+
+def _get_top_categories_with_counts_fallback(limit: int) -> list[tuple[str, int]]:
+    """Client-side fallback for get_top_categories_with_counts (RPC unavailable)."""
+    try:
+        MAX_FETCH = 50000
         response = (
             supabase_client.table("creators")
             .select("topic_categories")
@@ -651,48 +661,31 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
             .limit(MAX_FETCH)
             .execute()
         )
-
         creators = response.data if response.data else []
-
-        # Count categories (topic_categories stored as JSON array or PostgreSQL array)
-        category_counts = {}
+        category_counts: dict[str, int] = {}
         for c in creators:
             categories_raw = c.get("topic_categories")
             if not categories_raw:
                 continue
-
-            # Parse categories - can be JSON array string, Python list, or PostgreSQL array
-            categories = []
             if isinstance(categories_raw, list):
-                # Already a list (from PostgreSQL array type)
                 categories = categories_raw
             elif isinstance(categories_raw, str):
-                # JSON array string - parse it
                 try:
                     categories = json.loads(categories_raw)
                     if not isinstance(categories, list):
                         categories = []
                 except (json.JSONDecodeError, ValueError):
-                    # Fallback: treat as comma-separated for old data
                     categories = [cat.strip() for cat in categories_raw.split(",")]
-
-            # Count each category, cleaning up names
+            else:
+                continue
             for cat in categories:
                 if cat:
-                    # Clean up category name using shared helper
                     clean_cat = normalize_category_name(str(cat))
                     if clean_cat:
                         category_counts[clean_cat] = (
                             category_counts.get(clean_cat, 0) + 1
                         )
-
-        # Sort by count descending
-        sorted_categories = sorted(
-            category_counts.items(), key=lambda x: x[1], reverse=True
-        )
-
-        return sorted_categories[:limit]
-
+        return sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
     except Exception as e:
-        logger.exception(f"Error fetching top categories: {e}")
+        logger.exception(f"Error in category counts fallback: {e}")
         return []
