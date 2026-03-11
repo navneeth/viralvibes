@@ -178,6 +178,15 @@ def get_top_creators_by_countries(
 
     Returns:
         Dict of {country_code: [creators sorted by subscribers desc]}
+
+    Note:
+        Results are globally ordered by subscribers before the per-country
+        cap is applied.  In highly skewed datasets (e.g. US has far more
+        creators than every other country combined) the global fetch cap
+        (``* 3``, max 2000) may exhaust before low-subscriber countries are
+        reached, leaving those slots empty.  This is an accepted trade-off
+        for the /lists preview cards; the full detail page queries each
+        country directly.
     """
     if not supabase_client or not country_codes:
         return {}
@@ -455,13 +464,18 @@ def get_lists_meta() -> dict:
     Return aggregate stats used to drive dynamic tab badges and load-more limits.
 
     Returns a dict with:
-        total_countries  – number of distinct countries represented
-        total_categories – number of distinct normalised topic categories
-        total_creators   – total creators with valid channel_name + subscribers
+        total_creators   – exact DB-side COUNT(*) via PostgREST count header
+        total_countries  – approximate: distinct countries seen in the first
+                           MAX_FETCH rows; may under-count beyond that threshold
+        total_categories – approximate: same sampling caveat as total_countries
+
+    ``total_creators`` is exact because it comes from ``response.count``, which
+    PostgREST populates via a ``Prefer: count=exact`` header independently of
+    the row-fetch limit.  The distinct-value counts rely on a capped client-side
+    scan and should be treated as lower-bound estimates if the table exceeds
+    MAX_FETCH rows.
 
     This is a single function so the route only pays the aggregation cost once.
-    The heavy lifting is the same scan used by get_top_countries_with_counts /
-    get_top_categories_with_counts, but we do it in ONE combined pass.
     """
     if not supabase_client:
         return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
@@ -469,10 +483,12 @@ def get_lists_meta() -> dict:
     try:
         MAX_FETCH = 50000
 
-        # Fetch the columns we need for both aggregations in a single call
+        # count="exact" adds `Prefer: count=exact`; response.count is the full
+        # DB COUNT(*) and is NOT capped by .limit().  Rows are still limited so
+        # we don't pull the whole table just for the distinct-value scan.
         response = (
             supabase_client.table("creators")
-            .select("country_code, topic_categories")
+            .select("country_code, topic_categories", count="exact")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .limit(MAX_FETCH)
@@ -480,6 +496,8 @@ def get_lists_meta() -> dict:
         )
 
         rows = response.data if response.data else []
+        # response.count is exact; fall back to len(rows) if the header is absent
+        total_creators = response.count if response.count is not None else len(rows)
 
         countries: set[str] = set()
         categories: set[str] = set()
@@ -511,7 +529,7 @@ def get_lists_meta() -> dict:
         return {
             "total_countries": len(countries),
             "total_categories": len(categories),
-            "total_creators": len(rows),
+            "total_creators": total_creators,
         }
 
     except Exception as e:

@@ -78,16 +78,23 @@ def lists_route(request):
 
 def lists_more_countries_route(request):
     """
-    GET /lists/more-countries?offset=N
+    GET /lists/more-countries?offset=N&total=N
     HTMX partial — returns the next batch of country group cards.
+
+    ``total`` is forwarded from the initial page load so that we avoid
+    re-running the 50k-row get_lists_meta() scan on every click.
     """
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
     except (TypeError, ValueError):
         offset = INITIAL_GROUPS
 
-    meta = get_lists_meta()
-    total = meta["total_countries"]
+    # Prefer the precomputed total forwarded from the client; only fall back
+    # to a fresh DB scan when it is missing or invalid.
+    try:
+        total = int(request.query_params["total"])
+    except (KeyError, TypeError, ValueError):
+        total = get_lists_meta()["total_countries"]
 
     groups = get_country_groups(
         offset=offset,
@@ -98,21 +105,26 @@ def lists_more_countries_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_countries(groups, next_offset=next_offset, has_more=has_more)
+    return render_more_countries(groups, next_offset=next_offset, has_more=has_more, total=total)
 
 
 def lists_more_categories_route(request):
     """
-    GET /lists/more-categories?offset=N
+    GET /lists/more-categories?offset=N&total=N
     HTMX partial — returns the next batch of category group cards.
+
+    ``total`` is forwarded from the initial page load so that we avoid
+    re-running the 50k-row get_lists_meta() scan on every click.
     """
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
     except (TypeError, ValueError):
         offset = INITIAL_GROUPS
 
-    meta = get_lists_meta()
-    total = meta["total_categories"]
+    try:
+        total = int(request.query_params["total"])
+    except (KeyError, TypeError, ValueError):
+        total = get_lists_meta()["total_categories"]
 
     groups = get_category_groups(
         offset=offset,
@@ -123,4 +135,4 @@ def lists_more_categories_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_categories(groups, next_offset=next_offset, has_more=has_more)
+    return render_more_categories(groups, next_offset=next_offset, has_more=has_more, total=total)

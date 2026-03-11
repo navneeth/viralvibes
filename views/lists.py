@@ -564,16 +564,35 @@ def _category_group_card(category_data: dict) -> Div:
     )
 
 
-def _load_more_button(url: str, target_id: str, next_offset: int, label: str) -> Div:
+def _load_more_button(
+    url: str,
+    target_id: str,
+    next_offset: int,
+    label: str,
+    *,
+    oob: bool = False,
+    total: int = 0,
+) -> Div:
     """
     HTMX "Show more" button that appends the next batch into *target_id*.
     Uses hx-get + hx-swap=beforeend so existing cards stay in place.
+
+    Args:
+        oob: When True, sets hx-swap-oob="true" so HTMX replaces this
+             element out-of-band.  Pass oob=True when this button is part of
+             a load-more partial response (so it swaps itself in place).
+        total: When non-zero, forwarded as &total=N in the URL so the
+               partial handler can skip re-running get_lists_meta().
     """
+    href = f"{url}?offset={next_offset}"
+    if total:
+        href += f"&total={total}"
+
     return Div(
         Button(
             UkIcon("chevrons-down", cls="size-4"),
             label,
-            hx_get=f"{url}?offset={next_offset}",
+            hx_get=href,
             hx_target=f"#{target_id}",
             hx_swap="beforeend",
             hx_indicator=f"#{target_id}-spinner",
@@ -581,8 +600,7 @@ def _load_more_button(url: str, target_id: str, next_offset: int, label: str) ->
         ),
         Span(id=f"{target_id}-spinner", cls="htmx-indicator"),
         id=f"{target_id}-load-more",
-        # Replace this wrapper when the partial responds (partial includes its own button or nothing)
-        hx_swap_oob="true" if False else None,
+        hx_swap_oob="true" if oob else None,
         cls="flex justify-center mt-4",
     )
 
@@ -698,6 +716,7 @@ def _render_by_country_content(
                 target_id="country-groups-grid",
                 next_offset=shown,
                 label=f"Show more countries ({total_countries - shown} remaining)",
+                total=total_countries,
             )
             if has_more
             else None
@@ -757,6 +776,7 @@ def _render_by_category_content(
                 target_id="category-groups-grid",
                 next_offset=shown,
                 label=f"Show more categories ({total_categories - shown} remaining)",
+                total=total_categories,
             )
             if has_more
             else None
@@ -927,6 +947,7 @@ def render_more_countries(
     groups: list[dict],
     next_offset: int,
     has_more: bool,
+    total: int = 0,
 ) -> FT:
     """
     HTMX partial response for load-more countries.
@@ -937,33 +958,29 @@ def render_more_countries(
     """
     cards = [_country_group_card(g) for g in groups]
 
-    # Build the new load-more button (or nothing if exhausted)
+    # Build the replacement load-more element; oob=True makes the element
+    # carry hx-swap-oob itself so no extra wrapper div is needed.
     new_button = (
         _load_more_button(
             url="/lists/more-countries",
             target_id="country-groups-grid",
             next_offset=next_offset,
-            label=f"Show more countries",
+            label="Show more countries",
+            oob=True,
+            total=total,
         )
         if has_more
-        else Div(
-            id="country-groups-grid-load-more"
-        )  # empty replacement removes the button
+        else Div(id="country-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
-    # hx-swap-oob replaces the old button div out-of-band while the cards
-    # are appended into the grid via the normal hx-swap=beforeend
-    return Div(
-        *cards,
-        # Out-of-band swap: replace the load-more button
-        Div(new_button, id="country-groups-grid-load-more", hx_swap_oob="true"),
-    )
+    return Div(*cards, new_button)
 
 
 def render_more_categories(
     groups: list[dict],
     next_offset: int,
     has_more: bool,
+    total: int = 0,
 ) -> FT:
     """
     HTMX partial response for load-more categories.
@@ -979,16 +996,15 @@ def render_more_categories(
             url="/lists/more-categories",
             target_id="category-groups-grid",
             next_offset=next_offset,
-            label=f"Show more categories",
+            label="Show more categories",
+            oob=True,
+            total=total,
         )
         if has_more
-        else Div(id="category-groups-grid-load-more")
+        else Div(id="category-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
-    return Div(
-        *cards,
-        Div(new_button, id="category-groups-grid-load-more", hx_swap_oob="true"),
-    )
+    return Div(*cards, new_button)
 
 
 def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> FT:
