@@ -962,3 +962,152 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
         ),
         cls="max-w-4xl mx-auto px-4 pb-16",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Country Detail Page View
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def render_country_detail_page(
+    country_code: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+) -> Div:
+    """
+    Render the detailed country-wise creator rankings page.
+
+    Shows all creators from a specific country with pagination support.
+
+    Args:
+        country_code: ISO 3166-1 alpha-2 country code
+        creators: List of creator dicts for this page
+        page: Current page number (1-based)
+        total_pages: Total number of pages
+        total_count: Total creator count for this country
+
+    Returns:
+        Div component with full detail page
+    """
+    country_name = get_country_name(country_code)
+    country_flag = get_country_flag(country_code) or "🌍"
+
+    # Pagination info
+    start_rank = (page - 1) * 20 + 1
+    end_rank = min(page * 20, total_count)
+
+    return Div(
+        # ── Page header ────────────────────────────────────────────────────
+        Div(
+            Div(
+                Span(country_flag, cls="text-5xl mr-4"),
+                Div(
+                    H1(
+                        country_name,
+                        cls="text-3xl sm:text-4xl font-bold text-foreground",
+                    ),
+                    P(
+                        f"{format_number(total_count)} creators from {country_name}",
+                        cls="text-muted-foreground mt-1",
+                    ),
+                    cls="flex-1",
+                ),
+                cls="flex items-center gap-2 mb-6",
+            ),
+            # Back button
+            A(
+                "← Back to Lists",
+                href="/lists?tab=by-country",
+                cls="inline-block text-sm text-primary hover:underline",
+            ),
+            cls="pt-6 pb-4 border-b border-border",
+        ),
+        # ── Creator list ───────────────────────────────────────────────────
+        Div(
+            # Pagination info
+            Div(
+                P(
+                    f"Showing {format_number(start_rank)}–{format_number(end_rank)} of {format_number(total_count)} creators",
+                    cls="text-sm text-muted-foreground mb-6",
+                ),
+                cls="",
+            ),
+            # Creator rows
+            Div(
+                *[
+                    _creator_row(creator, rank=start_rank + i)
+                    for i, creator in enumerate(creators)
+                ],
+                id="country-creators-list",
+                cls="space-y-3",
+            ),
+            cls="mt-6",
+        ),
+        # ── Load-more pagination ───────────────────────────────────────────
+        (
+            Div(
+                Button(
+                    "Load More Creators",
+                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}&country={country_code}",
+                    hx_target="#country-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+                ),
+                cls="mt-8 text-center",
+            )
+            if page < total_pages
+            else None
+        ),
+        cls="max-w-4xl mx-auto px-4 pb-16",
+    )
+
+
+def render_country_creators_rows(
+    country_code: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+) -> Div:
+    """
+    Render just the creator rows for the HTMX load-more endpoint.
+
+    This is used by the /lists/country/{country_code}/more endpoint
+    to return new creator rows without page headers/footers.
+
+    Args:
+        country_code: ISO 3166-1 alpha-2 country code
+        creators: List of creator dicts for this page
+        page: Current page number (1-based)
+        total_pages: Total number of pages
+        total_count: Total creator count (unused here, for signature consistency)
+
+    Returns:
+        FT with creator rows and optional load-more button
+    """
+    start_rank = (page - 1) * 20 + 1
+
+    return Div(
+        # Creator rows
+        *[
+            _creator_row(creator, rank=start_rank + i)
+            for i, creator in enumerate(creators)
+        ],
+        # Load-more button (if not last page)
+        (
+            Div(
+                Button(
+                    "Load More",
+                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}&country={country_code}",
+                    hx_target="#country-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
+                ),
+                cls="",
+            )
+            if page < total_pages
+            else None
+        ),
+    )

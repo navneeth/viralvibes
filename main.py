@@ -1106,6 +1106,31 @@ def lists_more_categories(req, sess):
     return lists_more_categories_route(req)
 
 
+@rt("/lists/country/{country_code}")
+def lists_country_detail(req, sess, country_code: str):
+    """Detailed creator rankings for a specific country."""
+    from routes.lists import country_detail_route
+
+    page_content = country_detail_route(req, country_code)
+    return Titled(
+        f"{country_code} Creators - YouTube",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
+@rt("/lists/country/{country_code}/more")
+def lists_country_more(req, sess, country_code: str):
+    """HTMX partial — load more creators for a specific country."""
+    from routes.lists import country_detail_more_route
+
+    # Pass country_code from path parameter to ensure correct data
+    req.country_code = country_code.upper()
+    return country_detail_more_route(req)
+
+
 @rt("/creators/add")
 async def add_creator(req, sess):
     """POST /creators/add - Add creator by handle to database
