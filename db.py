@@ -2384,6 +2384,9 @@ def get_creator_hero_stats() -> dict:
             "has_engagement_data": avg_engagement > 0,
             "growing_creators": int(data.get("growing_creators") or 0),
             "premium_creators": int(data.get("premium_creators") or 0),
+            # Added in migration 003 — same source of truth as /lists page
+            "total_countries": int(data.get("total_countries") or 0),
+            "total_languages": int(data.get("total_languages") or 0),
         }
     except Exception:
         logger.exception("Failed to fetch creator hero stats")

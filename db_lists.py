@@ -5,12 +5,15 @@ Specialized functions for the /lists page tab content.
 
 import json
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 from db import supabase_client, safe_get_value
 from utils import normalize_category_name
 
 logger = logging.getLogger(__name__)
+
+# Maximum rows fetched in client-side fallback scans (when RPC is unavailable).
+_MAX_FALLBACK_FETCH = 50_000
 
 
 def get_top_rated_creators(limit: int = 20) -> list[dict]:
@@ -392,65 +395,117 @@ def get_veteran_creators(limit: int = 20) -> list[dict]:
         return []
 
 
-def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
+# ─── Private helpers shared by all three get_top_*_with_counts functions ─────
+
+
+def _fetch_top_counts(
+    rpc_name: str,
+    key_name: str,
+    fallback: Callable[[int], list[tuple[str, int]]],
+    limit: int,
+) -> list[tuple[str, int]]:
     """
-    Get top countries by creator count via DB-side RPC aggregation.
+    Dispatch a count-aggregation RPC, falling back to *fallback* on failure.
 
-    Returns list of (country_code, creator_count) tuples.
-    Used for "By Country" tab to show which countries to display.
-
-    Uses the ``get_top_countries_with_counts`` Supabase RPC function
-    (see db/migrations/002_lists_page_rpc_functions.sql), which runs a
-    server-side GROUP BY with zero row transfer.  Falls back to a client-side
-    scan if the RPC is unavailable.
+    All ``get_top_*_with_counts`` public functions delegate here so the
+    RPC-dispatch, logging, and fallback policy live in one place.
 
     Args:
-        limit: Maximum number of countries to return
-
-    Returns:
-        List of (country_code, count) tuples sorted by count descending
+        rpc_name:  Supabase RPC function name.
+        key_name:  Key in each response row that holds the group value.
+        fallback:  ``Callable(limit)`` invoked when the RPC raises.
+        limit:     Maximum rows to return.
     """
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
 
     try:
-        resp = supabase_client.rpc(
-            "get_top_countries_with_counts", {"p_limit": limit}
-        ).execute()
+        resp = supabase_client.rpc(rpc_name, {"p_limit": limit}).execute()
         if resp.data:
-            return [(row["country_code"], row["creator_count"]) for row in resp.data]
-        logger.warning("[Lists] get_top_countries_with_counts RPC returned no data")
+            return [(row[key_name], row["creator_count"]) for row in resp.data]
+        logger.warning("[Lists] %s RPC returned no data", rpc_name)
         return []
 
     except Exception as e:
-        logger.exception(f"Error fetching top countries via RPC: {e}")
-        return _get_top_countries_with_counts_fallback(limit)
+        logger.exception("Error fetching %s via RPC: %s", rpc_name, e)
+        return fallback(limit)
 
 
-def _get_top_countries_with_counts_fallback(limit: int) -> list[tuple[str, int]]:
-    """Client-side fallback for get_top_countries_with_counts (RPC unavailable)."""
+def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
+    """
+    Client-side fallback: GROUP BY a single non-null creators column.
+
+    Scans up to ``_MAX_FALLBACK_FETCH`` rows and returns the top *limit*
+    ``(value, count)`` tuples sorted by count descending.  Used by the
+    country and language fallbacks when their RPC is unavailable.
+
+    Args:
+        column: Column name in the ``creators`` table (e.g. ``"country_code"``).
+        limit:  Maximum tuples to return.
+    """
     try:
-        MAX_FETCH = 50000
         response = (
             supabase_client.table("creators")
-            .select("country_code")
+            .select(column)
             .not_.is_("channel_name", "null")
-            .not_.is_("country_code", "null")
+            .not_.is_(column, "null")
             .gt("current_subscribers", 0)
-            .limit(MAX_FETCH)
+            .limit(_MAX_FALLBACK_FETCH)
             .execute()
         )
-        creators = response.data if response.data else []
-        country_counts: dict[str, int] = {}
-        for c in creators:
-            country = c.get("country_code")
-            if country:
-                country_counts[country] = country_counts.get(country, 0) + 1
-        return sorted(country_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+        counts: dict[str, int] = {}
+        for row in response.data or []:
+            val = row.get(column)
+            if val:
+                counts[val] = counts.get(val, 0) + 1
+        return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
     except Exception as e:
-        logger.exception(f"Error in country counts fallback: {e}")
+        logger.exception("Error in %s column scan fallback: %s", column, e)
         return []
+
+
+# ─── Public RPC-backed aggregation functions ─────────────────────────────────
+
+
+def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
+    """
+    Get top countries by creator count via DB-side RPC aggregation.
+
+    Returns list of (country_code, creator_count) tuples.
+    Used for the "By Country" tab and the /creators hero flag strip.
+
+    Delegates to the ``get_top_countries_with_counts`` Supabase RPC
+    (see db/migrations/002_lists_page_rpc_functions.sql) with a
+    client-side column-scan fallback if the RPC is unavailable.
+    """
+    return _fetch_top_counts(
+        "get_top_countries_with_counts",
+        "country_code",
+        lambda lim: _scan_column_counts("country_code", lim),
+        limit,
+    )
+
+
+def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
+    """
+    Get top content languages by creator count via DB-side RPC aggregation.
+
+    Returns list of (language_code, creator_count) tuples.
+    Used for the /creators filter bar and hero language stats.
+
+    Delegates to the ``get_top_languages_with_counts`` Supabase RPC
+    (see db/migrations/003_shared_stats_rpc_update.sql) with a
+    client-side column-scan fallback.  Note: the DB column is
+    ``default_language`` while the RPC returns it as ``language_code``;
+    the fallback scans the raw column name directly.
+    """
+    return _fetch_top_counts(
+        "get_top_languages_with_counts",
+        "language_code",
+        lambda lim: _scan_column_counts("default_language", lim),
+        limit,
+    )
 
 
 def get_lists_meta() -> dict:
@@ -491,13 +546,12 @@ def get_lists_meta() -> dict:
 def _get_lists_meta_fallback() -> dict:
     """Client-side fallback for get_lists_meta (RPC unavailable)."""
     try:
-        MAX_FETCH = 50000
         response = (
             supabase_client.table("creators")
             .select("country_code, topic_categories", count="exact")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
-            .limit(MAX_FETCH)
+            .limit(_MAX_FALLBACK_FETCH)
             .execute()
         )
         rows = response.data if response.data else []
@@ -530,8 +584,73 @@ def _get_lists_meta_fallback() -> dict:
             "total_categories": len(categories),
         }
     except Exception as e:
-        logger.exception(f"Error in lists meta fallback: {e}")
+        logger.exception("Error in lists meta fallback: %s", e)
         return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+
+
+def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
+    """
+    Get top topic categories by creator count via DB-side RPC aggregation.
+
+    Returns list of (category_name, creator_count) tuples.
+    Used for the "By Category" tab and the /creators filter dropdown.
+
+    Delegates to the ``get_top_categories_with_counts`` Supabase RPC
+    (see db/migrations/002_lists_page_rpc_functions.sql), which unnests
+    and normalises ``topic_categories`` server-side with zero row transfer.
+    Falls back to ``_scan_categories_fallback`` if the RPC is unavailable.
+    """
+    return _fetch_top_counts(
+        "get_top_categories_with_counts",
+        "category",
+        _scan_categories_fallback,
+        limit,
+    )
+
+
+def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
+    """
+    Client-side fallback for get_top_categories_with_counts (RPC unavailable).
+
+    Categories require JSONB unnesting and normalisation that can't be expressed
+    as a simple column scan, so this has its own implementation rather than
+    delegating to ``_scan_column_counts``.
+    """
+    try:
+        response = (
+            supabase_client.table("creators")
+            .select("topic_categories")
+            .not_.is_("channel_name", "null")
+            .not_.is_("topic_categories", "null")
+            .gt("current_subscribers", 0)
+            .limit(_MAX_FALLBACK_FETCH)
+            .execute()
+        )
+        category_counts: dict[str, int] = {}
+        for row in response.data or []:
+            categories_raw = row.get("topic_categories")
+            if not categories_raw:
+                continue
+            if isinstance(categories_raw, list):
+                cat_list = categories_raw
+            elif isinstance(categories_raw, str):
+                try:
+                    cat_list = json.loads(categories_raw)
+                    if not isinstance(cat_list, list):
+                        cat_list = []
+                except (json.JSONDecodeError, ValueError):
+                    cat_list = [c.strip() for c in categories_raw.split(",")]
+            else:
+                continue
+            for cat in cat_list:
+                if cat:
+                    clean = normalize_category_name(str(cat))
+                    if clean:
+                        category_counts[clean] = category_counts.get(clean, 0) + 1
+        return sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    except Exception as e:
+        logger.exception("Error in categories scan fallback: %s", e)
+        return []
 
 
 def get_country_groups(
@@ -610,82 +729,3 @@ def get_category_groups(
         }
         for category, count in page
     ]
-
-
-def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
-    """
-    Get top topic categories by creator count via DB-side RPC aggregation.
-
-    Returns list of (category_name, creator_count) tuples.
-    Used for "By Category" tab to show which categories to display.
-
-    Uses the ``get_top_categories_with_counts`` Supabase RPC function
-    (see db/migrations/002_lists_page_rpc_functions.sql), which unnests
-    and normalises ``topic_categories`` server-side with zero row transfer.
-    Falls back to a client-side scan if the RPC is unavailable.
-
-    Args:
-        limit: Maximum number of categories to return
-
-    Returns:
-        List of (category, count) tuples sorted by count descending
-    """
-    if not supabase_client:
-        logger.warning("[Lists] No Supabase client - returning empty list")
-        return []
-
-    try:
-        resp = supabase_client.rpc(
-            "get_top_categories_with_counts", {"p_limit": limit}
-        ).execute()
-        if resp.data:
-            return [(row["category"], row["creator_count"]) for row in resp.data]
-        logger.warning("[Lists] get_top_categories_with_counts RPC returned no data")
-        return []
-
-    except Exception as e:
-        logger.exception(f"Error fetching top categories via RPC: {e}")
-        return _get_top_categories_with_counts_fallback(limit)
-
-
-def _get_top_categories_with_counts_fallback(limit: int) -> list[tuple[str, int]]:
-    """Client-side fallback for get_top_categories_with_counts (RPC unavailable)."""
-    try:
-        MAX_FETCH = 50000
-        response = (
-            supabase_client.table("creators")
-            .select("topic_categories")
-            .not_.is_("channel_name", "null")
-            .not_.is_("topic_categories", "null")
-            .gt("current_subscribers", 0)
-            .limit(MAX_FETCH)
-            .execute()
-        )
-        creators = response.data if response.data else []
-        category_counts: dict[str, int] = {}
-        for c in creators:
-            categories_raw = c.get("topic_categories")
-            if not categories_raw:
-                continue
-            if isinstance(categories_raw, list):
-                categories = categories_raw
-            elif isinstance(categories_raw, str):
-                try:
-                    categories = json.loads(categories_raw)
-                    if not isinstance(categories, list):
-                        categories = []
-                except (json.JSONDecodeError, ValueError):
-                    categories = [cat.strip() for cat in categories_raw.split(",")]
-            else:
-                continue
-            for cat in categories:
-                if cat:
-                    clean_cat = normalize_category_name(str(cat))
-                    if clean_cat:
-                        category_counts[clean_cat] = (
-                            category_counts.get(clean_cat, 0) + 1
-                        )
-        return sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
-    except Exception as e:
-        logger.exception(f"Error in category counts fallback: {e}")
-        return []
