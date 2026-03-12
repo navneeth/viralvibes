@@ -453,6 +453,67 @@ def _get_top_countries_with_counts_fallback(limit: int) -> list[tuple[str, int]]
         return []
 
 
+def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
+    """
+    Get top content languages by creator count via DB-side RPC aggregation.
+
+    Returns list of (language_code, creator_count) tuples.
+    Used for the /creators filter bar and hero language stats.
+
+    Uses the ``get_top_languages_with_counts`` Supabase RPC function
+    (see db/migrations/003_shared_stats_rpc_update.sql), which runs a
+    server-side GROUP BY with zero row transfer.  Falls back to a client-side
+    scan if the RPC is unavailable.
+
+    Args:
+        limit: Maximum number of languages to return
+
+    Returns:
+        List of (language_code, count) tuples sorted by count descending
+    """
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return []
+
+    try:
+        resp = supabase_client.rpc(
+            "get_top_languages_with_counts", {"p_limit": limit}
+        ).execute()
+        if resp.data:
+            return [(row["language_code"], row["creator_count"]) for row in resp.data]
+        logger.warning("[Lists] get_top_languages_with_counts RPC returned no data")
+        return []
+
+    except Exception as e:
+        logger.exception(f"Error fetching top languages via RPC: {e}")
+        return _get_top_languages_with_counts_fallback(limit)
+
+
+def _get_top_languages_with_counts_fallback(limit: int) -> list[tuple[str, int]]:
+    """Client-side fallback for get_top_languages_with_counts (RPC unavailable)."""
+    try:
+        MAX_FETCH = 50000
+        response = (
+            supabase_client.table("creators")
+            .select("default_language")
+            .not_.is_("channel_name", "null")
+            .not_.is_("default_language", "null")
+            .gt("current_subscribers", 0)
+            .limit(MAX_FETCH)
+            .execute()
+        )
+        creators = response.data if response.data else []
+        lang_counts: dict[str, int] = {}
+        for c in creators:
+            lang = c.get("default_language")
+            if lang:
+                lang_counts[lang] = lang_counts.get(lang, 0) + 1
+        return sorted(lang_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    except Exception as e:
+        logger.exception(f"Error in language counts fallback: {e}")
+        return []
+
+
 def get_lists_meta() -> dict:
     """
     Return aggregate stats used to drive dynamic tab badges and load-more limits.

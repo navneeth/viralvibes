@@ -347,15 +347,15 @@ def _render_hero(
 
     return Div(
         Div(
-            H1(
+            P(
                 "Creator Intelligence",
-                cls="text-5xl font-bold text-gray-900 tracking-tight",
+                cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
             ),
             P(
                 "Discover high-performing creators for brand collaborations.",
-                cls="text-lg text-gray-600 mt-2",
+                cls="text-sm text-muted-foreground mt-1",
             ),
-            cls="mb-8",
+            cls="mb-5",
         ),
         # Metric Strip - marketing-focused metrics from DB
         Div(
@@ -371,7 +371,7 @@ def _render_hero(
                         if has_filters
                         else format_number(total_creators)
                     ),
-                    cls="text-4xl font-bold text-gray-900 mt-2",
+                    cls="text-2xl font-bold text-foreground mt-1",
                 ),
                 P(
                     "matching filters" if has_filters else "In database",
@@ -387,7 +387,7 @@ def _render_hero(
                 ),
                 H2(
                     f"{format_number(total_countries)} Nations",
-                    cls="text-3xl font-bold text-blue-600",
+                    cls="text-xl font-bold text-blue-600",
                 ),
                 # Top country flags (visual diversity indicator)
                 Div(
@@ -418,8 +418,8 @@ def _render_hero(
                     cls="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    f"{format_number(total_languages)} ",
-                    cls="text-3xl font-bold text-purple-600",
+                    format_number(total_languages),
+                    cls="text-xl font-bold text-purple-600",
                 ),
                 # Top language flags (linguistic diversity)
                 Div(
@@ -443,27 +443,19 @@ def _render_hero(
                 ),
                 cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200",
             ),
-            # Average engagement (quality indicator)
+            # Growing channels — positive subscriber momentum (from RPC, always accurate)
             Div(
                 P(
-                    "Avg Engagement",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                    "Growing Channels",
+                    cls="text-xs font-semibold text-emerald-600 uppercase tracking-wider",
                 ),
                 H2(
-                    (
-                        "–"
-                        if not stats.get("has_engagement_data", False)
-                        else f"{stats.get('avg_engagement', 0):.1f}%"
-                    ),
-                    cls="text-4xl font-bold text-blue-600 mt-2",
+                    format_number(stats.get("growing_creators", 0)),
+                    cls="text-2xl font-bold text-emerald-600 mt-1",
                 ),
                 P(
-                    (
-                        "No data"
-                        if not stats.get("has_engagement_data", False)
-                        else "Audience quality"
-                    ),
-                    cls="text-xs text-gray-600 mt-1",
+                    "gaining subscribers",
+                    cls="text-xs text-emerald-500 mt-1",
                 ),
                 cls="text-center",
             ),

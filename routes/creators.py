@@ -14,6 +14,11 @@ from db import (
     get_creator_hero_stats,
     get_creators,
 )
+from db_lists import (
+    get_top_categories_with_counts,
+    get_top_countries_with_counts,
+    get_top_languages_with_counts,
+)
 
 # from services.youtube_backend_api import YouTubeBackendAPI
 from views.creators import render_creator_preview, render_creators_page
@@ -149,13 +154,18 @@ def creators_route(request):
         redirect_url = f"/creators?{urlencode(redirect_params)}"
         return RedirectResponse(redirect_url, status_code=303)
 
-    # Global counts come from the DB RPC (no row transfer, always accurate).
-    # Distribution keys (top_countries, top_categories, grade_counts) come
-    # from the current page — fast and good enough for the filter bar.
-    # RPC keys win on overlap, eliminating the 5000-creator Python scan.
+    # page_stats supplies grade_counts and per-page distributions (fast).
+    # hero_stats overrides the scalar totals (total_creators, total_countries,
+    # total_languages, growing_creators, premium_creators) with exact DB-side
+    # counts from the RPC — same source of truth as the /lists page.
+    # The three top_* lists are then replaced with full-DB RPC results so the
+    # hero flags and filter dropdowns are consistent across both pages.
     page_stats = calculate_creator_stats(creators)
     hero_stats = get_creator_hero_stats()
     stats = {**page_stats, **hero_stats}
+    stats["top_countries"] = get_top_countries_with_counts(limit=8)
+    stats["top_languages"] = get_top_languages_with_counts(limit=5)
+    stats["top_categories"] = get_top_categories_with_counts(limit=10)
 
     # Render page
     return render_creators_page(
