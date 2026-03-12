@@ -443,21 +443,37 @@ def _render_hero(
                 ),
                 cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200",
             ),
-            # Growing channels — positive subscriber momentum (from RPC, always accurate)
+            # Categories — content topic diversity (same source as /lists page)
             Div(
                 P(
-                    "Growing Channels",
-                    cls="text-xs font-semibold text-emerald-600 uppercase tracking-wider",
+                    "Categories",
+                    cls="text-xs font-semibold text-pink-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    format_number(stats.get("growing_creators", 0)),
-                    cls="text-2xl font-bold text-emerald-600 mt-1",
+                    format_number(stats.get("total_categories", 0)),
+                    cls="text-xl font-bold text-pink-600",
+                ),
+                # Top category emojis (topic diversity indicator)
+                Div(
+                    *(
+                        [
+                            Span(
+                                get_topic_category_emoji(cat_name) or "🏷️",
+                                title=f"{cat_name}: {count} creators",
+                                cls="text-2xl",
+                            )
+                            for cat_name, count in stats.get("top_categories", [])[:4]
+                        ]
+                        if stats.get("top_categories")
+                        else [Span("🏷️", cls="text-2xl")]
+                    ),
+                    cls="flex gap-1 justify-center mt-2 flex-wrap",
                 ),
                 P(
-                    "gaining subscribers",
-                    cls="text-xs text-emerald-500 mt-1",
+                    "content topics",
+                    cls="text-xs text-pink-500 mt-1",
                 ),
-                cls="text-center",
+                cls="text-center bg-gradient-to-br from-pink-50 to-white rounded-xl p-4 border border-pink-200",
             ),
             cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-gray-200",
         ),
