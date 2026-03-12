@@ -343,7 +343,10 @@ def _render_hero(
     total_creators = stats.get("total_creators", 0)
     total_countries = stats.get("total_countries", 0)
     total_languages = stats.get("total_languages", 0)
-    top_countries = stats.get("top_countries", [])
+    total_categories = stats.get("total_categories", 0)
+    top_countries = stats.get("top_countries") or []
+    top_languages = stats.get("top_languages") or []
+    top_categories = stats.get("top_categories") or []
 
     return Div(
         Div(
@@ -430,9 +433,9 @@ def _render_hero(
                                 title=f"{get_language_name(lang_code)}: {count} creators",
                                 cls="text-2xl",
                             )
-                            for lang_code, count in stats.get("top_languages", [])[:5]
+                            for lang_code, count in top_languages
                         ]
-                        if stats.get("top_languages")
+                        if top_languages
                         else [Span("🗣️", cls="text-2xl")]
                     ),
                     cls="flex gap-1 justify-center mt-2 flex-wrap",
@@ -450,7 +453,7 @@ def _render_hero(
                     cls="text-xs font-semibold text-pink-600 uppercase tracking-wider mb-2",
                 ),
                 H2(
-                    format_number(stats.get("total_categories", 0)),
+                    format_number(total_categories),
                     cls="text-xl font-bold text-pink-600",
                 ),
                 # Top category emojis (topic diversity indicator)
@@ -462,9 +465,9 @@ def _render_hero(
                                 title=f"{cat_name}: {count} creators",
                                 cls="text-2xl",
                             )
-                            for cat_name, count in stats.get("top_categories", [])[:4]
+                            for cat_name, count in top_categories
                         ]
-                        if stats.get("top_categories")
+                        if top_categories
                         else [Span("🏷️", cls="text-2xl")]
                     ),
                     cls="flex gap-1 justify-center mt-2 flex-wrap",
