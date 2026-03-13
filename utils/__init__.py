@@ -15,6 +15,7 @@ from .core import (
     safe_channel_name,
     safe_get,
     safe_get_value,
+    slugify,
 )
 
 # Formatting

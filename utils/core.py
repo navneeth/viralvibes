@@ -2,6 +2,8 @@
 Core utility functions for safe data access and basic operations.
 """
 
+import re
+
 from fasthtml.common import *
 
 
@@ -106,3 +108,22 @@ def normalize_category_name(category: str) -> str:
     normalized = " ".join(category.strip().replace("_", " ").split())
 
     return normalized
+
+
+def slugify(text: str) -> str:
+    """
+    Convert a display name into a URL-safe slug.
+
+    Centralised here so both ``views.lists`` and ``views.creators`` produce
+    identical slugs without a circular import.
+
+    Examples::
+
+        slugify("Video game culture") → "video-game-culture"
+        slugify("Music")             → "music"
+    """
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip("-") or "unknown"

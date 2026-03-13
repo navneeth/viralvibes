@@ -29,7 +29,7 @@ from urllib.parse import urlencode
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import format_date_relative, format_number, safe_get_value
+from utils import format_date_relative, format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
@@ -384,22 +384,29 @@ def _render_hero(
             ),
             # Global Reach - Countries with flag showcase
             Div(
+                # Card-level link — navigates to the full country rankings list
+                A(
+                    href="/lists?tab=by-country",
+                    cls="absolute inset-0 z-0 rounded-xl focus:outline-none",
+                    aria_label="Browse all countries",
+                ),
                 P(
                     "Global Reach",
-                    cls="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2",
+                    cls="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2 relative z-10",
                 ),
                 H2(
                     f"{format_number(total_countries)} Nations",
-                    cls="text-xl font-bold text-blue-600",
+                    cls="text-xl font-bold text-blue-600 relative z-10",
                 ),
-                # Top country flags (visual diversity indicator)
+                # Top country flags — each links to that country's ranked creator list
                 Div(
                     *(
                         [
-                            Span(
+                            A(
                                 get_country_flag(country_code) or "🌍",
+                                href=f"/lists/country/{country_code.upper()}",
                                 title=f"{country_code.upper()}: {count} creators",
-                                cls="text-2xl",
+                                cls="text-2xl relative z-10 hover:scale-110 transition-transform inline-block",
                             )
                             for country_code, count in top_countries[:4]
                         ]
@@ -410,28 +417,35 @@ def _render_hero(
                 ),
                 P(
                     "worldwide creators",
-                    cls="text-xs text-blue-500 mt-1",
+                    cls="text-xs text-blue-500 mt-1 relative z-10",
                 ),
-                cls="text-center bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-200",
+                cls="text-center bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-200 relative overflow-hidden cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all",
             ),
-            # Linguistic Diversity - Languages with flag showcase
+            # Linguistic Diversity - Languages with emoji showcase
             Div(
+                # Card-level link — navigates to creators page (language filter available there)
+                A(
+                    href="/creators",
+                    cls="absolute inset-0 z-0 rounded-xl focus:outline-none",
+                    aria_label="Browse creators by language",
+                ),
                 P(
                     "Languages",
-                    cls="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-2",
+                    cls="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-2 relative z-10",
                 ),
                 H2(
                     format_number(total_languages),
-                    cls="text-xl font-bold text-purple-600",
+                    cls="text-xl font-bold text-purple-600 relative z-10",
                 ),
-                # Top language flags (linguistic diversity)
+                # Top language emojis — each filters creators to that language
                 Div(
                     *(
                         [
-                            Span(
+                            A(
                                 get_language_emoji(lang_code) or "🗣️",
+                                href=f"/creators?language={lang_code}",
                                 title=f"{get_language_name(lang_code)}: {count} creators",
-                                cls="text-2xl",
+                                cls="text-2xl relative z-10 hover:scale-110 transition-transform inline-block",
                             )
                             for lang_code, count in top_languages
                         ]
@@ -442,28 +456,35 @@ def _render_hero(
                 ),
                 P(
                     "content languages",
-                    cls="text-xs text-purple-500 mt-1",
+                    cls="text-xs text-purple-500 mt-1 relative z-10",
                 ),
-                cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200",
+                cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200 relative overflow-hidden cursor-pointer hover:border-purple-400 hover:shadow-sm transition-all",
             ),
             # Categories — content topic diversity (same source as /lists page)
             Div(
+                # Card-level link — navigates to the full category rankings list
+                A(
+                    href="/lists?tab=by-category",
+                    cls="absolute inset-0 z-0 rounded-xl focus:outline-none",
+                    aria_label="Browse all categories",
+                ),
                 P(
                     "Categories",
-                    cls="text-xs font-semibold text-pink-600 uppercase tracking-wider mb-2",
+                    cls="text-xs font-semibold text-pink-600 uppercase tracking-wider mb-2 relative z-10",
                 ),
                 H2(
                     format_number(total_categories),
-                    cls="text-xl font-bold text-pink-600",
+                    cls="text-xl font-bold text-pink-600 relative z-10",
                 ),
-                # Top category emojis (topic diversity indicator)
+                # Top category emojis — each links to that category's ranked creator list
                 Div(
                     *(
                         [
-                            Span(
+                            A(
                                 get_topic_category_emoji(cat_name) or "🏷️",
+                                href=f"/lists/category/{slugify(cat_name)}",
                                 title=f"{cat_name}: {count} creators",
-                                cls="text-2xl",
+                                cls="text-2xl relative z-10 hover:scale-110 transition-transform inline-block",
                             )
                             for cat_name, count in top_categories
                         ]
@@ -474,9 +495,9 @@ def _render_hero(
                 ),
                 P(
                     "content topics",
-                    cls="text-xs text-pink-500 mt-1",
+                    cls="text-xs text-pink-500 mt-1 relative z-10",
                 ),
-                cls="text-center bg-gradient-to-br from-pink-50 to-white rounded-xl p-4 border border-pink-200",
+                cls="text-center bg-gradient-to-br from-pink-50 to-white rounded-xl p-4 border border-pink-200 relative overflow-hidden cursor-pointer hover:border-pink-400 hover:shadow-sm transition-all",
             ),
             cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-gray-200",
         ),

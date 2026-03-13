@@ -3,13 +3,11 @@ Creator Lists view — curated, pre-filtered creator rankings.
 Each tab is a different lens on the creators database.
 """
 
-import re
-
 import pycountry
 from fasthtml.common import *
 from monsterui.all import *
 
-from utils import format_number, safe_get_value
+from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     get_country_flag,
     get_grade_info,
@@ -70,11 +68,7 @@ def get_country_name(country_code: str) -> str:
 
 def _slugify(text: str) -> str:
     """Convert a display name into a URL-safe slug for detail page hrefs."""
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"[\s_]+", "-", text)
-    text = re.sub(r"-+", "-", text)
-    return text.strip("-") or "unknown"
+    return slugify(text)
 
 
 def _unslugify(slug: str) -> str:
