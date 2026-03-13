@@ -77,6 +77,11 @@ def _slugify(text: str) -> str:
     return text.strip("-") or "unknown"
 
 
+def _unslugify(slug: str) -> str:
+    """Convert a URL slug back to a space-separated search term / display name."""
+    return slug.replace("-", " ")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tab definitions
 # Each entry: (id, label, icon, description, coming_soon)
@@ -1106,6 +1111,157 @@ def render_country_creators_rows(
                     "Load More",
                     hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
                     hx_target="#country-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
+                ),
+                cls="",
+            )
+            if page < total_pages
+            else None
+        ),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Category Detail Page View
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def render_category_detail_page(
+    category_slug: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+    page_size: int = 20,
+) -> Div:
+    """
+    Render the detailed category-wise creator rankings page.
+
+    Shows all creators in a specific topic category with pagination support.
+
+    Args:
+        category_slug: URL slug derived from the category display name
+        creators: List of creator dicts for this page
+        page: Current page number (1-based)
+        total_pages: Total number of pages
+        total_count: Total creator count for this category
+        page_size: Number of creators per page (must match the route limit)
+
+    Returns:
+        Div component with full detail page
+    """
+    display_name = _unslugify(category_slug).title()
+    emoji = get_topic_category_emoji(display_name)
+
+    start_rank = (page - 1) * page_size + 1
+    end_rank = min(page * page_size, total_count)
+
+    return Div(
+        # ── Page header ────────────────────────────────────────────────────
+        Div(
+            Div(
+                Span(emoji, cls="text-5xl mr-4"),
+                Div(
+                    H1(
+                        display_name,
+                        cls="text-3xl sm:text-4xl font-bold text-foreground",
+                    ),
+                    P(
+                        f"{format_number(total_count)} creators in {display_name}",
+                        cls="text-muted-foreground mt-1",
+                    ),
+                    cls="flex-1",
+                ),
+                cls="flex items-center gap-2 mb-6",
+            ),
+            # Back button
+            A(
+                "← Back to Lists",
+                href="/lists?tab=by-category",
+                cls="inline-block text-sm text-primary hover:underline",
+            ),
+            cls="pt-6 pb-4 border-b border-border",
+        ),
+        # ── Creator list ───────────────────────────────────────────────────
+        Div(
+            # Pagination info
+            Div(
+                P(
+                    f"Showing {format_number(start_rank)}\u2013{format_number(end_rank)} of {format_number(total_count)} creators",
+                    cls="text-sm text-muted-foreground mb-6",
+                ),
+            ),
+            # Creator rows
+            Div(
+                *[
+                    _creator_row(creator, rank=start_rank + i)
+                    for i, creator in enumerate(creators)
+                ],
+                id="category-creators-list",
+                cls="space-y-3",
+            ),
+            cls="mt-6",
+        ),
+        # ── Load-more pagination ───────────────────────────────────────────
+        (
+            Div(
+                Button(
+                    "Load More Creators",
+                    hx_get=f"/lists/category/{category_slug}/more?page={page + 1}",
+                    hx_target="#category-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+                ),
+                cls="mt-8 text-center",
+            )
+            if page < total_pages
+            else None
+        ),
+        cls="max-w-4xl mx-auto px-4 pb-16",
+    )
+
+
+def render_category_creators_rows(
+    category_slug: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+    page_size: int = 20,
+) -> Div:
+    """
+    Render just the creator rows for the HTMX load-more endpoint.
+
+    Used by /lists/category/{category_slug}/more to return creator rows
+    without page headers/footers.
+
+    Args:
+        category_slug: URL slug for the category
+        creators: List of creator dicts for this page
+        page: Current page number (1-based)
+        total_pages: Total number of pages
+        total_count: Total creator count (unused here, for signature consistency)
+        page_size: Number of creators per page (must match the route limit)
+
+    Returns:
+        Div with creator rows and optional load-more button
+    """
+    start_rank = (page - 1) * page_size + 1
+
+    return Div(
+        # Creator rows
+        *[
+            _creator_row(creator, rank=start_rank + i)
+            for i, creator in enumerate(creators)
+        ],
+        # Load-more button (if not last page)
+        (
+            Div(
+                Button(
+                    "Load More",
+                    hx_get=f"/lists/category/{category_slug}/more?page={page + 1}",
+                    hx_target="#category-creators-list",
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
                 ),
