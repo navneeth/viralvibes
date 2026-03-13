@@ -52,6 +52,7 @@ Usage
   python scripts/seed_creators.py --no-csv --quota-budget 5000   # smaller quota for daily incremental runs
 """
 
+import argparse
 import asyncio
 import csv
 import logging
@@ -1014,8 +1015,6 @@ async def seed_creators(
 
 
 def _parse_args():
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Seed YouTube creators into the ViralVibes database.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

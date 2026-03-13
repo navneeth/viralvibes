@@ -15,6 +15,7 @@ tenacity
 requests
 google-api-python-client
 isodate
+pycountry>=24.1.0
 click
 pytest
 pytest-asyncio
