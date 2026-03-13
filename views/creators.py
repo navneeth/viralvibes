@@ -1960,7 +1960,6 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     country_flag = get_country_flag(country_code) if country_code else ""
     lang_emoji = get_language_emoji(language) if language else ""
     lang_name = get_language_name(language) if language else ""
-    sync_badge = get_sync_status_badge(sync_status)
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _delta_str(val, suffix="30d"):
