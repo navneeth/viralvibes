@@ -4,6 +4,9 @@ Lists route — curated creator list pages.
 
 import logging
 
+from fasthtml.common import Div
+
+from db import get_creators
 from db_lists import (
     get_category_groups,
     get_country_groups,
@@ -17,6 +20,8 @@ from views.lists import (
     render_lists_page,
     render_more_categories,
     render_more_countries,
+    render_country_detail_page,
+    render_country_creators_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,4 +144,109 @@ def lists_more_categories_route(request):
 
     return render_more_categories(
         groups, next_offset=next_offset, has_more=has_more, total=total
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Country Detail Page — GET /lists/country/{country_code}
+# ─────────────────────────────────────────────────────────────────────────────
+
+DETAIL_PAGE_LIMIT = 20  # Creators per page on detail view
+
+
+def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
+    """
+    Fetch one page of creators for a country detail view.
+
+    Shared by ``country_detail_route`` and ``country_detail_more_route`` so
+    the query parameters, sort order, and pagination formula stay in sync.
+
+    Args:
+        country_code: Normalised (uppercase) ISO 3166-1 alpha-2 code.
+        page: 1-based page number.
+
+    Returns:
+        ``(creators, total_count, total_pages)`` tuple.
+    """
+    result = get_creators(
+        country_filter=country_code,
+        sort="subscribers",
+        limit=DETAIL_PAGE_LIMIT,
+        offset=(page - 1) * DETAIL_PAGE_LIMIT,
+        return_count=True,
+    )
+    creators = result.creators if result else []
+    total_count = result.total_count if result else 0
+    total_pages = (
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
+        if total_count > 0
+        else 1
+    )
+    return creators, total_count, total_pages
+
+
+def country_detail_route(request, country_code: str):
+    """
+    GET /lists/country/{country_code} — Detailed country-wise creator rankings.
+
+    Fetches all creators from a specific country with pagination.
+
+    Args:
+        request: Request object
+        country_code: ISO 3166-1 alpha-2 country code (e.g., "US", "JP")
+
+    Returns:
+        FT component with detailed creator list
+    """
+    country_code = country_code.upper()
+
+    try:
+        page = max(1, int(request.query_params.get("page", "1")))
+    except (TypeError, ValueError):
+        page = 1
+
+    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+
+    return render_country_detail_page(
+        country_code=country_code,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
+
+
+def country_detail_more_route(request):
+    """
+    GET /lists/country/{country_code}/more?page=N
+    HTMX partial — returns the next batch of creator rows.
+
+    ``country_code`` is always injected as ``request.country_code`` by the
+    ``@rt`` handler in main.py before this function is called.
+
+    Returns:
+        FT component with creator rows
+    """
+    country_code = getattr(request, "country_code", "")
+    country_code = country_code.upper() if country_code else ""
+
+    if not country_code:
+        logger.warning("No country_code provided to country_detail_more_route")
+        return Div("Error: Invalid country", cls="text-red-500")
+
+    try:
+        page = max(1, int(request.query_params.get("page", "1")))
+    except (TypeError, ValueError):
+        page = 1
+
+    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+
+    return render_country_creators_rows(
+        country_code=country_code,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
     )
