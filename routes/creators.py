@@ -5,6 +5,7 @@ Creators routes - browse and filter discovered YouTube creators.
 import logging
 from urllib.parse import urlencode
 
+from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 
 from db import (
@@ -12,6 +13,7 @@ from db import (
     calculate_creator_stats,
     find_creator_by_handle,
     get_creator_hero_stats,
+    get_creator_stats,
     get_creators,
 )
 from db_lists import (
@@ -22,7 +24,11 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
-from views.creators import render_creator_preview, render_creators_page
+from views.creators import (
+    render_creator_preview,
+    render_creator_profile_page,
+    render_creators_page,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,3 +192,38 @@ def creators_route(request):
         total_count=total_count,
         total_pages=total_pages,
     )
+
+
+def creator_profile_route(request, creator_id: str):
+    """
+    GET /creator/{creator_id} — Full profile page for a single creator.
+
+    Args:
+        request: Starlette request (used for back_url via Referer/from param).
+        creator_id: Creator UUID (primary key of the creators table).
+
+    Returns:
+        FT component with full profile, or a 404 message Div.
+    """
+    creator = get_creator_stats(creator_id)
+
+    if not creator:
+        logger.warning(f"[CreatorProfile] Creator not found: {creator_id}")
+        return Div(
+            H2("Creator not found", cls="text-2xl font-bold text-gray-800 mb-2"),
+            P(
+                f"No creator with ID {creator_id!r} exists in the database.",
+                cls="text-gray-500",
+            ),
+            A(
+                "← Back to Creators",
+                href="/creators",
+                cls="mt-4 inline-block text-blue-600 hover:underline",
+            ),
+            cls="max-w-2xl mx-auto px-4 py-16 text-center",
+        )
+
+    # Respect ?from= query param for the back-link (e.g. a country/category list)
+    back_url = request.query_params.get("from", "/creators")
+
+    return render_creator_profile_page(creator, back_url=back_url)

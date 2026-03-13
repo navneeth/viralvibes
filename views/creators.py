@@ -1094,7 +1094,7 @@ def _build_card_header(
             ),
             cls="flex justify-between items-start gap-3 flex-1",
         ),
-        cls="flex gap-3 mb-4 pb-4 border-b border-gray-100",
+        cls="flex gap-3",
     )
 
 
@@ -1391,7 +1391,7 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
             rel="noopener noreferrer",
             cls="text-xs font-semibold text-blue-600 hover:text-blue-700 no-underline",
         ),
-        cls="flex justify-between items-center pt-3 border-t border-gray-100 text-sm",
+        cls="flex justify-between items-center text-sm",
     )
 
 
@@ -1529,32 +1529,8 @@ def _render_creator_card(creator: dict) -> Div:
     )
 
     # === COMPOSE CARD ===
-    return Div(
-        # Sync status badge (if not synced)
-        (
-            Div(
-                f"{sync_badge_info[0]} {sync_badge_info[1]}",
-                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[2]}",
-            )
-            if sync_badge_info
-            else None
-        ),
-        # Header section
-        _build_card_header(
-            thumbnail_url,
-            channel_name,
-            channel_url,
-            custom_url,
-            current_subs,
-            current_videos,
-            rank,
-            grade_icon,
-            grade_label,
-            grade_bg,
-            quality_grade,
-            channel_age_days,
-        ),
-        # Topic categories emoji strip (NEW)
+    return Card(
+        # Topic categories emoji strip
         _render_topic_categories(safe_get_value(creator, "topic_categories")),
         # Bio — shown when present, truncated to keep cards uniform
         _render_bio(
@@ -1576,16 +1552,51 @@ def _render_creator_card(creator: dict) -> Div:
                     keywords,
                     cls="text-xs text-gray-500 italic line-clamp-1 text-center",
                 ),
-                cls="mb-2",
             )
             if keywords
             else None
         ),
         # Info strip at bottom (clean emoji display)
         info_strip,
-        # Footer
-        _build_card_footer(last_updated, channel_url),
-        cls=f"bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:scale-[1.02] transition-all duration-300 cursor-pointer {card_border}",
+        header=[
+            # Sync status banner (only shown when not yet synced)
+            (
+                Div(
+                    f"{sync_badge_info[0]} {sync_badge_info[1]}",
+                    cls=f"text-xs font-semibold px-3 py-1 {sync_badge_info[2]}",
+                )
+                if sync_badge_info
+                else None
+            ),
+            _build_card_header(
+                thumbnail_url,
+                channel_name,
+                channel_url,
+                custom_url,
+                current_subs,
+                current_videos,
+                rank,
+                grade_icon,
+                grade_label,
+                grade_bg,
+                quality_grade,
+                channel_age_days,
+            ),
+        ],
+        footer=_build_card_footer(last_updated, channel_url),
+        body_cls="space-y-3",
+        cls=f"hover:shadow-md hover:scale-[1.02] transition-all duration-300 {card_border}",
+    )
+    # Wrap the whole card in a block link so clicking anywhere navigates to
+    # the creator's profile page.  We use CSS pointer-events on the inner
+    # channel link to let it still open YouTube directly.
+    creator_uuid = safe_get_value(creator, "id", "")
+    if not creator_uuid:
+        return card
+    return A(
+        card,
+        href=f"/creator/{creator_uuid}?name={urllib.parse.quote(channel_name)}",
+        cls="block no-underline group",
     )
 
 
@@ -1857,6 +1868,531 @@ def _count_by_grade(creators: list[dict]) -> dict:
 # NOTE: Helper functions moved to utils/creator_metrics.py for better organization
 # - get_language_emoji, get_language_name, get_activity_badge
 # - estimate_monthly_revenue (replaces _estimate_monthly_revenue)
+
+
+# ============================================================================
+# CREATOR PROFILE PAGE
+# ============================================================================
+
+
+def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> Div:
+    """
+    Full-page creator profile.
+
+    Sections:
+      1. Banner + hero identity (avatar, name, handle, grade, tags)
+      2. Stats row  (subscribers, views, videos, revenue)
+      3. Two-column body:
+           Left  – About (bio, channel info, keywords)
+           Right – Performance (metrics, 30-day trend, topic categories)
+      4. Category distribution bar chart (when available)
+      5. Sync / freshness footer
+    """
+    # ── identity ──────────────────────────────────────────────────────────────
+    creator_id = safe_get_value(creator, "id", "")
+    channel_id = safe_get_value(creator, "channel_id", "")
+    channel_name = safe_get_value(creator, "channel_name", "Unknown Creator")
+    custom_url = safe_get_value(creator, "custom_url", "")
+    channel_url = (
+        safe_get_value(creator, "channel_url")
+        or f"https://www.youtube.com/channel/{channel_id}"
+    )
+    thumbnail_url = (
+        safe_get_value(creator, "channel_thumbnail_url") or "/static/favicon.jpeg"
+    )
+    banner_url = safe_get_value(creator, "banner_image_url", "")
+    bio = safe_get_value(creator, "channel_description") or safe_get_value(
+        creator, "bio", ""
+    )
+    keywords = safe_get_value(creator, "keywords", "")
+    country_code = safe_get_value(creator, "country_code", "")
+    language = safe_get_value(creator, "default_language", "")
+    quality_grade = safe_get_value(creator, "quality_grade", "C")
+    official = safe_get_value(creator, "official", False)
+    published_at = safe_get_value(creator, "published_at", "")
+    channel_age_days = safe_get_value(creator, "channel_age_days", 0) or 0
+    monthly_uploads = safe_get_value(creator, "monthly_uploads", 0) or 0
+    topic_categories_raw = safe_get_value(creator, "topic_categories")
+    category_distribution = safe_get_value(creator, "category_distribution")
+    last_updated = safe_get_value(creator, "last_updated_at", "")
+    last_synced = safe_get_value(creator, "last_synced_at", "")
+    sync_status = safe_get_value(creator, "sync_status", "pending")
+
+    # ── numeric stats ─────────────────────────────────────────────────────────
+    current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
+    current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
+    current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d")
+    subs_change = int(subs_change_raw) if subs_change_raw is not None else None
+    views_change_raw = safe_get_value(creator, "views_change_30d")
+    views_change = int(views_change_raw) if views_change_raw is not None else None
+    videos_change_raw = safe_get_value(creator, "videos_change_30d")
+    videos_change = int(videos_change_raw) if videos_change_raw is not None else None
+    engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
+
+    # ── derived ───────────────────────────────────────────────────────────────
+    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
+    growth_rate = calculate_growth_rate(subs_change, current_subs)
+    growth_label, growth_style = get_growth_signal(growth_rate)
+    avg_views = calculate_avg_views_per_video(current_views, current_videos)
+    views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
+    estimated_revenue = estimate_monthly_revenue(current_views)
+    handle_display = f"@{custom_url.lstrip('@')}" if custom_url else ""
+    country_flag = get_country_flag(country_code) if country_code else ""
+    lang_emoji = get_language_emoji(language) if language else ""
+    lang_name = get_language_name(language) if language else ""
+    sync_badge = get_sync_status_badge(sync_status)
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _delta_str(val, suffix="30d"):
+        if val is None:
+            return "—"
+        sign = "+" if val > 0 else ""
+        return f"{sign}{format_number(val)} ({suffix})"
+
+    def _stat_card(label, value, delta, accent_cls, bg_cls):
+        return Div(
+            P(label, cls=f"text-xs font-semibold {accent_cls} uppercase tracking-wide"),
+            P(value, cls=f"text-3xl font-bold {accent_cls} mt-1"),
+            P(delta, cls="text-xs text-gray-500 mt-1"),
+            cls=f"{bg_cls} rounded-xl p-4 text-center",
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — Banner + hero identity
+    # ═══════════════════════════════════════════════════════════════════════════
+    banner_section = Div(
+        # Banner image (or gradient fallback)
+        (
+            Div(
+                style=(
+                    f"background-image:url('{banner_url}');"
+                    "background-size:cover;background-position:center;"
+                    "height:180px;"
+                ),
+                cls="w-full rounded-t-xl",
+            )
+            if banner_url
+            else Div(
+                cls="w-full rounded-t-xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500",
+                style="height:140px;",
+            )
+        ),
+        # Identity row (overlaps bottom of banner)
+        Div(
+            Div(
+                Img(
+                    src=thumbnail_url,
+                    alt=channel_name,
+                    cls="w-24 h-24 rounded-xl object-cover border-4 border-white shadow-lg",
+                ),
+                cls="shrink-0 -mt-12",
+            ),
+            Div(
+                Div(
+                    H1(
+                        channel_name,
+                        cls="text-2xl sm:text-3xl font-bold text-gray-900",
+                    ),
+                    (
+                        Span(
+                            "✓ Official",
+                            cls="ml-2 text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full",
+                        )
+                        if official
+                        else None
+                    ),
+                    cls="flex items-center gap-1 flex-wrap",
+                ),
+                Div(
+                    (
+                        Span(handle_display, cls="text-sm text-gray-500 font-mono")
+                        if handle_display
+                        else None
+                    ),
+                    (
+                        Span(
+                            f"{country_flag} {country_code.upper()}",
+                            title=country_code.upper(),
+                            cls="text-sm text-gray-500",
+                        )
+                        if country_code
+                        else None
+                    ),
+                    (
+                        Span(
+                            f"{lang_emoji} {lang_name}",
+                            cls="text-sm text-gray-500",
+                        )
+                        if language
+                        else None
+                    ),
+                    cls="flex flex-wrap gap-3 mt-1",
+                ),
+                Div(
+                    (
+                        Span(
+                            f"{grade_icon} {grade_label}",
+                            cls=f"text-xs font-bold px-2 py-1 rounded-full {grade_bg}",
+                        )
+                        if quality_grade and quality_grade != "C"
+                        else None
+                    ),
+                    (
+                        Span(
+                            f"📅 {format_channel_age(channel_age_days)}",
+                            cls="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded-full",
+                        )
+                        if channel_age_days
+                        else None
+                    ),
+                    (
+                        Span(
+                            f"📹 {monthly_uploads:.1f}/mo",
+                            cls="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded-full",
+                        )
+                        if monthly_uploads
+                        else None
+                    ),
+                    cls="flex flex-wrap gap-2 mt-2",
+                ),
+                cls="flex-1 min-w-0",
+            ),
+            # Action buttons
+            Div(
+                A(
+                    "▶ View Channel",
+                    href=channel_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="inline-block px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                A(
+                    "← Back",
+                    href=back_url,
+                    cls="inline-block px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                cls="flex gap-2 shrink-0 self-end",
+            ),
+            cls="flex gap-4 items-end mt-4 px-4 pb-4",
+        ),
+        cls="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 overflow-hidden",
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — 4-up stat cards
+    # ═══════════════════════════════════════════════════════════════════════════
+    stats_row = Div(
+        _stat_card(
+            "Subscribers",
+            format_number(current_subs),
+            _delta_str(subs_change),
+            "text-blue-600",
+            "bg-blue-50",
+        ),
+        _stat_card(
+            "Total Views",
+            format_number(current_views),
+            _delta_str(views_change),
+            "text-purple-600",
+            "bg-purple-50",
+        ),
+        _stat_card(
+            "Videos",
+            format_number(current_videos),
+            _delta_str(videos_change),
+            "text-gray-700",
+            "bg-gray-50",
+        ),
+        _stat_card(
+            "Est. Revenue",
+            f"${format_number(estimated_revenue)}/mo",
+            "monthly estimate",
+            "text-green-600",
+            "bg-green-50",
+        ),
+        cls="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6",
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — Two-column body
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Left: About
+    def _info_row(icon, label, value):
+        return Div(
+            Span(icon, cls="text-lg w-6 shrink-0"),
+            Div(
+                Span(label, cls="text-xs text-gray-500 block"),
+                Span(value, cls="text-sm font-medium text-gray-800"),
+            ),
+            cls="flex items-center gap-3",
+        )
+
+    channel_info_items = [
+        _info_row("📅", "Founded", published_at[:10] if published_at else "Unknown"),
+        _info_row(
+            "⏳",
+            "Channel Age",
+            format_channel_age(channel_age_days) if channel_age_days else "Unknown",
+        ),
+        _info_row(
+            "🌍",
+            "Country",
+            f"{country_flag} {country_code.upper()}" if country_code else "Unknown",
+        ),
+        _info_row(
+            "🗣️", "Language", f"{lang_emoji} {lang_name}" if language else "Unknown"
+        ),
+        _info_row("📹", "Videos Published", format_number(current_videos)),
+    ]
+    if handle_display:
+        channel_info_items.insert(0, _info_row("🔗", "Handle", handle_display))
+
+    # Keyword pills
+    keyword_list = (
+        [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
+    )
+    keyword_pills = (
+        Div(
+            *[
+                Span(kw, cls="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full")
+                for kw in keyword_list[:15]
+            ],
+            cls="flex flex-wrap gap-1.5 mt-3",
+        )
+        if keyword_list
+        else None
+    )
+
+    left_col = Div(
+        # Bio
+        Div(
+            H2("About", cls="text-base font-bold text-gray-900 mb-3"),
+            (
+                P(
+                    bio,
+                    cls="text-sm text-gray-600 leading-relaxed whitespace-pre-line",
+                )
+                if bio
+                else P("No description available.", cls="text-sm text-gray-400 italic")
+            ),
+            keyword_pills,
+            cls="bg-white rounded-xl border border-gray-200 p-5 mb-4",
+        ),
+        # Channel info
+        Div(
+            H2("Channel Info", cls="text-base font-bold text-gray-900 mb-4"),
+            Div(*channel_info_items, cls="space-y-3"),
+            cls="bg-white rounded-xl border border-gray-200 p-5",
+        ),
+    )
+
+    # Right: Performance
+    def _perf_row(label, value, value_cls="text-gray-900"):
+        return Div(
+            Span(label, cls="text-sm text-gray-500"),
+            Span(value, cls=f"text-sm font-semibold {value_cls}"),
+            cls="flex justify-between items-center py-2 border-b border-gray-100 last:border-0",
+        )
+
+    # 30-day trend section
+    has_growth_data = subs_change is not None
+    if has_growth_data:
+        bar_width = min(100, max(0, abs(growth_rate) * 5))
+        bar_color = "bg-green-500" if growth_rate >= 0 else "bg-red-500"
+        trend_bg = "bg-green-50" if growth_rate >= 0 else "bg-red-50"
+        trend_section = Div(
+            Div(
+                P("30-Day Trend", cls="text-xs font-semibold text-gray-600"),
+                Div(
+                    P(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-gray-900"),
+                    Span(
+                        growth_label,
+                        cls=f"text-xs font-semibold px-2 py-1 rounded-full border {growth_style}",
+                    ),
+                    cls="flex items-center gap-2",
+                ),
+                cls="flex justify-between items-center mb-2",
+            ),
+            Div(
+                Div(cls=f"h-2 {bar_color} rounded-full", style=f"width:{bar_width}%"),
+                cls="w-full h-2 bg-gray-200 rounded-full overflow-hidden",
+            ),
+            cls=f"{trend_bg} rounded-lg p-3 mt-4",
+        )
+    else:
+        trend_section = Div(
+            Span("📊", cls="text-xl"),
+            P(
+                "Growth tracking initializing — check back in 7+ days",
+                cls="text-xs text-gray-500 mt-1",
+            ),
+            cls="flex flex-col items-center text-center bg-blue-50 rounded-lg p-3 mt-4",
+        )
+
+    # Topic categories pills (parsed same as card)
+    topic_pill_section = None
+    if topic_categories_raw:
+        parsed_cats = []
+        try:
+            parsed = json.loads(topic_categories_raw)
+            raw_list = parsed if isinstance(parsed, list) else [str(parsed)]
+        except (json.JSONDecodeError, TypeError):
+            raw_list = [
+                c.strip() for c in str(topic_categories_raw).split(",") if c.strip()
+            ]
+        for item in raw_list:
+            if "wikipedia.org/wiki/" in str(item):
+                try:
+                    slug = str(item).split("/wiki/")[-1].rstrip("/")
+                    name = urllib.parse.unquote(slug).replace("_", " ")
+                    if name:
+                        parsed_cats.append(name)
+                except Exception:
+                    pass
+            else:
+                clean = str(item).strip("\"'[]").strip()
+                if clean:
+                    parsed_cats.append(clean)
+        if parsed_cats:
+            pill_colors = [
+                "bg-blue-100 text-blue-700",
+                "bg-purple-100 text-purple-700",
+                "bg-green-100 text-green-700",
+                "bg-pink-100 text-pink-700",
+                "bg-indigo-100 text-indigo-700",
+            ]
+            topic_pill_section = Div(
+                H2("Topics", cls="text-base font-bold text-gray-900 mb-3"),
+                Div(
+                    *[
+                        Span(
+                            f"{get_topic_category_emoji(cat)} {cat}",
+                            cls=f"text-xs font-medium px-2.5 py-1 rounded-full {pill_colors[i % len(pill_colors)]}",
+                        )
+                        for i, cat in enumerate(parsed_cats)
+                    ],
+                    cls="flex flex-wrap gap-2",
+                ),
+                cls="bg-white rounded-xl border border-gray-200 p-5 mt-4",
+            )
+
+    right_col = Div(
+        Div(
+            H2("Performance", cls="text-base font-bold text-gray-900 mb-1"),
+            Div(
+                _perf_row("Avg Views / Video", format_number(avg_views)),
+                _perf_row("Views / Subscriber", f"{views_per_sub:.2f}x"),
+                _perf_row(
+                    "Upload Rate",
+                    f"{monthly_uploads:.1f} / month" if monthly_uploads else "—",
+                ),
+                _perf_row(
+                    "Engagement Score",
+                    f"{engagement_score:.2f} / 10",
+                    "text-blue-700" if engagement_score >= 7 else "text-gray-900",
+                ),
+            ),
+            trend_section,
+            cls="bg-white rounded-xl border border-gray-200 p-5",
+        ),
+        topic_pill_section,
+    )
+
+    body_cols = Div(
+        left_col, right_col, cls="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 4 — Category distribution bars (optional)
+    # ═══════════════════════════════════════════════════════════════════════════
+    cat_dist_section = None
+    if category_distribution:
+        try:
+            dist = (
+                json.loads(category_distribution)
+                if isinstance(category_distribution, str)
+                else category_distribution
+            )
+            if isinstance(dist, dict) and dist:
+                total_dist = sum(dist.values()) or 1
+                bars = [
+                    Div(
+                        Div(
+                            Span(
+                                f"{get_topic_category_emoji(cat)} {cat}",
+                                cls="text-sm text-gray-700 w-40 shrink-0 truncate",
+                            ),
+                            Div(
+                                Div(
+                                    cls="h-4 bg-blue-400 rounded-r-full",
+                                    style=f"width:{min(100, round(count / total_dist * 100))}%",
+                                ),
+                                cls="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden",
+                            ),
+                            Span(
+                                f"{round(count / total_dist * 100)}%",
+                                cls="text-xs text-gray-500 w-10 text-right shrink-0",
+                            ),
+                            cls="flex items-center gap-3",
+                        ),
+                        cls="",
+                    )
+                    for cat, count in sorted(dist.items(), key=lambda x: -x[1])[:8]
+                ]
+                cat_dist_section = Div(
+                    H2(
+                        "Category Breakdown",
+                        cls="text-base font-bold text-gray-900 mb-4",
+                    ),
+                    Div(*bars, cls="space-y-3"),
+                    cls="bg-white rounded-xl border border-gray-200 p-5 mb-6",
+                )
+        except Exception:
+            pass
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — Sync / freshness footer
+    # ═══════════════════════════════════════════════════════════════════════════
+    sync_color = {
+        "synced": "text-green-600",
+        "pending": "text-yellow-600",
+        "error": "text-red-600",
+    }.get(sync_status, "text-gray-500")
+    sync_icon = {"synced": "✅", "pending": "⏳", "error": "❌"}.get(sync_status, "⚪")
+
+    footer_section = Div(
+        Span(
+            f"{sync_icon} {sync_status.title()}",
+            cls=f"text-xs font-semibold {sync_color}",
+        ),
+        Span("·", cls="text-gray-300"),
+        Span(
+            f"Updated {format_date_relative(last_updated)}",
+            cls="text-xs text-gray-400",
+        ),
+        Span("·", cls="text-gray-300"),
+        Span(
+            f"Synced {format_date_relative(last_synced)}",
+            cls="text-xs text-gray-400",
+        ),
+        Span("·", cls="text-gray-300"),
+        Span(
+            f"ID: {creator_id[:8]}…",
+            cls="text-xs text-gray-300 font-mono",
+            title=creator_id,
+        ),
+        cls="flex items-center gap-2 flex-wrap text-center justify-center py-4",
+    )
+
+    return Div(
+        banner_section,
+        stats_row,
+        body_cols,
+        cat_dist_section,
+        footer_section,
+        cls="max-w-5xl mx-auto px-4 pb-16 pt-6",
+    )
 
 
 # ============================================================================

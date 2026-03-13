@@ -203,8 +203,11 @@ def _creator_row(
         Div(
             A(
                 channel_name,
-                href=channel_url,
-                target="_blank",
+                href=(
+                    f"/creator/{safe_get_value(creator, 'id', '')}"
+                    if safe_get_value(creator, "id")
+                    else channel_url
+                ),
                 cls="text-sm font-semibold text-foreground hover:underline line-clamp-1",
             ),
             Div(
