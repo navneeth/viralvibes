@@ -970,6 +970,20 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Detail Page Shared Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _empty_detail_state(message: str) -> Div:
+    """Empty-state body for detail pages when no creators are found."""
+    return Div(
+        UkIcon("users", cls="size-10 text-muted-foreground mb-3"),
+        P(message, cls="text-sm text-muted-foreground"),
+        cls="mt-6 py-16 flex flex-col items-center justify-center text-center",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Country Detail Page View
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1032,25 +1046,24 @@ def render_country_detail_page(
             cls="pt-6 pb-4 border-b border-border",
         ),
         # ── Creator list ───────────────────────────────────────────────────
-        Div(
-            # Pagination info
-            Div(
+        (
+            _empty_detail_state(f"No creators from {country_name} yet.")
+            if not total_count
+            else Div(
                 P(
-                    f"Showing {format_number(start_rank)}–{format_number(end_rank)} of {format_number(total_count)} creators",
+                    f"Showing {format_number(start_rank)}\u2013{format_number(end_rank)} of {format_number(total_count)} creators",
                     cls="text-sm text-muted-foreground mb-6",
                 ),
-                cls="",
-            ),
-            # Creator rows
-            Div(
-                *[
-                    _creator_row(creator, rank=start_rank + i)
-                    for i, creator in enumerate(creators)
-                ],
-                id="country-creators-list",
-                cls="space-y-3",
-            ),
-            cls="mt-6",
+                Div(
+                    *[
+                        _creator_row(creator, rank=start_rank + i)
+                        for i, creator in enumerate(creators)
+                    ],
+                    id="country-creators-list",
+                    cls="space-y-3",
+                ),
+                cls="mt-6",
+            )
         ),
         # ── Load-more pagination ───────────────────────────────────────────
         (
@@ -1096,6 +1109,9 @@ def render_country_creators_rows(
     Returns:
         Div with creator rows and optional load-more button
     """
+    if not creators:
+        return Div()
+
     start_rank = (page - 1) * page_size + 1
 
     return Div(
@@ -1184,24 +1200,24 @@ def render_category_detail_page(
             cls="pt-6 pb-4 border-b border-border",
         ),
         # ── Creator list ───────────────────────────────────────────────────
-        Div(
-            # Pagination info
-            Div(
+        (
+            _empty_detail_state(f"No creators in {display_name} yet.")
+            if not total_count
+            else Div(
                 P(
                     f"Showing {format_number(start_rank)}\u2013{format_number(end_rank)} of {format_number(total_count)} creators",
                     cls="text-sm text-muted-foreground mb-6",
                 ),
-            ),
-            # Creator rows
-            Div(
-                *[
-                    _creator_row(creator, rank=start_rank + i)
-                    for i, creator in enumerate(creators)
-                ],
-                id="category-creators-list",
-                cls="space-y-3",
-            ),
-            cls="mt-6",
+                Div(
+                    *[
+                        _creator_row(creator, rank=start_rank + i)
+                        for i, creator in enumerate(creators)
+                    ],
+                    id="category-creators-list",
+                    cls="space-y-3",
+                ),
+                cls="mt-6",
+            )
         ),
         # ── Load-more pagination ───────────────────────────────────────────
         (
@@ -1247,6 +1263,9 @@ def render_category_creators_rows(
     Returns:
         Div with creator rows and optional load-more button
     """
+    if not creators:
+        return Div()
+
     start_rank = (page - 1) * page_size + 1
 
     return Div(

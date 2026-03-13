@@ -24,6 +24,7 @@ from views.lists import (
     render_country_creators_rows,
     render_category_detail_page,
     render_category_creators_rows,
+    _unslugify,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,14 @@ def lists_more_categories_route(request):
 DETAIL_PAGE_LIMIT = 20  # Creators per page on detail view
 
 
+def _parse_page(request) -> int:
+    """Parse and clamp the ?page= query param to a safe 1-based integer."""
+    try:
+        return max(1, int(request.query_params.get("page", "1")))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     """
     Fetch one page of creators for a country detail view.
@@ -202,10 +211,7 @@ def country_detail_route(request, country_code: str):
     """
     country_code = country_code.upper()
 
-    try:
-        page = max(1, int(request.query_params.get("page", "1")))
-    except (TypeError, ValueError):
-        page = 1
+    page = _parse_page(request)
 
     creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
@@ -237,10 +243,7 @@ def country_detail_more_route(request):
         logger.warning("No country_code provided to country_detail_more_route")
         return Div("Error: Invalid country", cls="text-red-500")
 
-    try:
-        page = max(1, int(request.query_params.get("page", "1")))
-    except (TypeError, ValueError):
-        page = 1
+    page = _parse_page(request)
 
     creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
@@ -278,7 +281,7 @@ def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int]
     Returns:
         ``(creators, total_count, total_pages)`` tuple.
     """
-    category_filter = category_slug.replace("-", " ")
+    category_filter = _unslugify(category_slug)
     result = get_creators(
         category_filter=category_filter,
         sort="subscribers",
@@ -312,10 +315,7 @@ def category_detail_route(request, category_slug: str):
     """
     category_slug = category_slug.lower()
 
-    try:
-        page = max(1, int(request.query_params.get("page", "1")))
-    except (TypeError, ValueError):
-        page = 1
+    page = _parse_page(request)
 
     creators, total_count, total_pages = _fetch_category_page(category_slug, page)
 
@@ -347,10 +347,7 @@ def category_detail_more_route(request):
         logger.warning("No category_slug provided to category_detail_more_route")
         return Div("Error: Invalid category", cls="text-red-500")
 
-    try:
-        page = max(1, int(request.query_params.get("page", "1")))
-    except (TypeError, ValueError):
-        page = 1
+    page = _parse_page(request)
 
     creators, total_count, total_pages = _fetch_category_page(category_slug, page)
 
