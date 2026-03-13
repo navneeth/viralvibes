@@ -85,7 +85,7 @@ from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
-from routes.creators import creators_route
+from routes.creators import creator_profile_route, creators_route
 from routes.lists import (
     category_detail_more_route,
     category_detail_route,
@@ -1160,6 +1160,30 @@ def lists_language_detail(req, sess, language_code: str):
     page_content = language_detail_route(req, language_code)
     return Titled(
         f"{language_name} Creators - YouTube",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
+@rt("/creator/{creator_id}")
+def creator_profile(req, sess, creator_id: str):
+    """Full creator profile page — /creator/{uuid}
+
+    Call chain:
+        main.py  @rt("/creator/{creator_id}")
+          └─ creator_profile_route(req, creator_id)       ← routes/creators.py
+               ├─ get_creator_stats(creator_id)            ← db.py (existing function)
+               ├─ 404 Div if not found
+               └─ render_creator_profile_page(creator)     ← views/creators.py
+    """
+    page_content = creator_profile_route(req, creator_id)
+    # Best-effort: extract channel name from the content for the title.
+    # Fall back to a generic title if the creator was not found.
+    channel_name = req.query_params.get("name", "Creator Profile")
+    return Titled(
+        f"{channel_name} - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             page_content,
