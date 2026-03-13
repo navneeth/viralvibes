@@ -5,7 +5,7 @@ Specialized functions for the /lists page tab content.
 
 import json
 import logging
-from typing import Callable, Optional
+from typing import Callable
 
 from utils import normalize_category_name, safe_get_value
 
@@ -16,7 +16,7 @@ _MAX_FALLBACK_FETCH = 50_000
 
 
 def _get_supabase_client():
-    """Lazy-load the Supabase client at runtime to ensure initialization."""
+    """Access the Supabase client (initialized at app startup via db.init_supabase())."""
     from db import supabase_client
 
     return supabase_client
@@ -460,6 +460,10 @@ def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
         limit:  Maximum tuples to return.
     """
     supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return []
+
     try:
         response = (
             supabase_client.table("creators")
@@ -563,6 +567,10 @@ def get_lists_meta() -> dict:
 def _get_lists_meta_fallback() -> dict:
     """Client-side fallback for get_lists_meta (RPC unavailable)."""
     supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+
     try:
         response = (
             supabase_client.table("creators")
@@ -635,6 +643,10 @@ def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
     delegating to ``_scan_column_counts``.
     """
     supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return []
+
     try:
         response = (
             supabase_client.table("creators")
