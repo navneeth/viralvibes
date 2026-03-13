@@ -1169,7 +1169,15 @@ def lists_language_detail(req, sess, language_code: str):
 
 @rt("/creator/{creator_id}")
 def creator_profile(req, sess, creator_id: str):
-    """Full creator profile page — /creator/{uuid}"""
+    """Full creator profile page — /creator/{uuid}
+
+    Call chain:
+        main.py  @rt("/creator/{creator_id}")
+          └─ creator_profile_route(req, creator_id)       ← routes/creators.py
+               ├─ get_creator_stats(creator_id)            ← db.py (existing function)
+               ├─ 404 Div if not found
+               └─ render_creator_profile_page(creator)     ← views/creators.py
+    """
     page_content = creator_profile_route(req, creator_id)
     # Best-effort: extract channel name from the content for the title.
     # Fall back to a generic title if the creator was not found.
