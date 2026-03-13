@@ -22,6 +22,9 @@ from views.lists import (
     render_more_countries,
     render_country_detail_page,
     render_country_creators_rows,
+    render_category_detail_page,
+    render_category_creators_rows,
+    _unslugify,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,6 +157,14 @@ def lists_more_categories_route(request):
 DETAIL_PAGE_LIMIT = 20  # Creators per page on detail view
 
 
+def _parse_page(request) -> int:
+    """Parse and clamp the ?page= query param to a safe 1-based integer."""
+    try:
+        return max(1, int(request.query_params.get("page", "1")))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     """
     Fetch one page of creators for a country detail view.
@@ -200,10 +211,7 @@ def country_detail_route(request, country_code: str):
     """
     country_code = country_code.upper()
 
-    try:
-        page = max(1, int(request.query_params.get("page", "1")))
-    except (TypeError, ValueError):
-        page = 1
+    page = _parse_page(request)
 
     creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
@@ -235,15 +243,116 @@ def country_detail_more_route(request):
         logger.warning("No country_code provided to country_detail_more_route")
         return Div("Error: Invalid country", cls="text-red-500")
 
-    try:
-        page = max(1, int(request.query_params.get("page", "1")))
-    except (TypeError, ValueError):
-        page = 1
+    page = _parse_page(request)
 
     creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
     return render_country_creators_rows(
         country_code=country_code,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Category Detail Page — GET /lists/category/{category_slug}
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int]:
+    """
+    Fetch one page of creators for a category detail view.
+
+    Shared by ``category_detail_route`` and ``category_detail_more_route`` so
+    the query parameters, sort order, and pagination formula stay in sync.
+
+    The slug is converted back to a space-separated search term
+    (e.g. ``"video-game-culture"`` → ``"video game culture"``), which is
+    then matched via ``get_creators(category_filter=...)`` using
+    ``ilike "%term%"`` against ``topic_categories``.
+
+    Args:
+        category_slug: Lowercase hyphen-separated category slug from the URL.
+        page: 1-based page number.
+
+    Returns:
+        ``(creators, total_count, total_pages)`` tuple.
+    """
+    category_filter = _unslugify(category_slug)
+    result = get_creators(
+        category_filter=category_filter,
+        sort="subscribers",
+        limit=DETAIL_PAGE_LIMIT,
+        offset=(page - 1) * DETAIL_PAGE_LIMIT,
+        return_count=True,
+    )
+    creators = result.creators if result else []
+    total_count = result.total_count if result else 0
+    total_pages = (
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
+        if total_count > 0
+        else 1
+    )
+    return creators, total_count, total_pages
+
+
+def category_detail_route(request, category_slug: str):
+    """
+    GET /lists/category/{category_slug} — Detailed category-wise creator rankings.
+
+    Fetches all creators in a specific topic category with pagination.
+
+    Args:
+        request: Request object
+        category_slug: Hyphen-separated slug derived from the category display
+                       name (e.g. ``"music"``, ``"video-game-culture"``)
+
+    Returns:
+        FT component with detailed creator list
+    """
+    category_slug = category_slug.lower()
+
+    page = _parse_page(request)
+
+    creators, total_count, total_pages = _fetch_category_page(category_slug, page)
+
+    return render_category_detail_page(
+        category_slug=category_slug,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
+
+
+def category_detail_more_route(request):
+    """
+    GET /lists/category/{category_slug}/more?page=N
+    HTMX partial — returns the next batch of creator rows.
+
+    ``category_slug`` is always injected as ``request.category_slug`` by the
+    ``@rt`` handler in main.py before this function is called.
+
+    Returns:
+        FT component with creator rows
+    """
+    category_slug = getattr(request, "category_slug", "")
+    category_slug = category_slug.lower() if category_slug else ""
+
+    if not category_slug:
+        logger.warning("No category_slug provided to category_detail_more_route")
+        return Div("Error: Invalid category", cls="text-red-500")
+
+    page = _parse_page(request)
+
+    creators, total_count, total_pages = _fetch_category_page(category_slug, page)
+
+    return render_category_creators_rows(
+        category_slug=category_slug,
         creators=creators,
         page=page,
         total_pages=total_pages,
