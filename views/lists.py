@@ -66,11 +66,6 @@ def get_country_name(country_code: str) -> str:
     return getattr(country, "common_name", country.name)
 
 
-def _slugify(text: str) -> str:
-    """Convert a display name into a URL-safe slug for detail page hrefs."""
-    return slugify(text)
-
-
 def _unslugify(slug: str) -> str:
     """Convert a URL slug back to a space-separated search term / display name."""
     return slug.replace("-", " ")
@@ -391,7 +386,7 @@ def _category_group_card(category_data: dict) -> Div:
                 f"{format_number(count)} creators →",
                 cls="ml-auto shrink-0 text-xs font-medium text-primary",
             ),
-            href=f"/lists/category/{_slugify(display_name)}",
+            href=f"/lists/category/{slugify(display_name)}",
             cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
         ),
         (
@@ -1275,6 +1270,158 @@ def render_category_creators_rows(
                     "Load More",
                     hx_get=f"/lists/category/{category_slug}/more?page={page + 1}",
                     hx_target="#category-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
+                ),
+                cls="",
+            )
+            if page < total_pages
+            else None
+        ),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Language Detail Page View
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def render_language_detail_page(
+    language_code: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+    page_size: int = 20,
+) -> Div:
+    """
+    Render the detailed language-wise creator rankings page.
+
+    Shows all creators whose primary content language matches *language_code*,
+    with pagination support mirroring the country and category detail pages.
+
+    Args:
+        language_code: ISO 639-1 two-letter language code (e.g. ``"en"``, ``"ja"``).
+        creators: List of creator dicts for this page.
+        page: Current page number (1-based).
+        total_pages: Total number of pages.
+        total_count: Total creator count for this language.
+        page_size: Number of creators per page (must match the route limit).
+
+    Returns:
+        Div component with full detail page.
+    """
+    language_name = get_language_name(language_code)
+    emoji = get_language_emoji(language_code)
+
+    start_rank = (page - 1) * page_size + 1
+    end_rank = min(page * page_size, total_count)
+
+    return Div(
+        # ── Page header ──────────────────────────────────────────────────
+        Div(
+            Div(
+                Span(emoji, cls="text-5xl mr-4"),
+                Div(
+                    H1(
+                        language_name,
+                        cls="text-3xl sm:text-4xl font-bold text-foreground",
+                    ),
+                    P(
+                        f"{format_number(total_count)} {language_name}-language creators",
+                        cls="text-muted-foreground mt-1",
+                    ),
+                    cls="flex-1",
+                ),
+                cls="flex items-center gap-2 mb-6",
+            ),
+            A(
+                "← Back to Creators",
+                href="/creators",
+                cls="inline-block text-sm text-primary hover:underline",
+            ),
+            cls="pt-6 pb-4 border-b border-border",
+        ),
+        # ── Creator list ─────────────────────────────────────────────────
+        (
+            _empty_detail_state(f"No {language_name}-language creators yet.")
+            if not total_count
+            else Div(
+                P(
+                    f"Showing {format_number(start_rank)}\u2013{format_number(end_rank)} of {format_number(total_count)} creators",
+                    cls="text-sm text-muted-foreground mb-6",
+                ),
+                Div(
+                    *[
+                        _creator_row(creator, rank=start_rank + i)
+                        for i, creator in enumerate(creators)
+                    ],
+                    id="language-creators-list",
+                    cls="space-y-3",
+                ),
+                cls="mt-6",
+            )
+        ),
+        # ── Load-more pagination ─────────────────────────────────────────
+        (
+            Div(
+                Button(
+                    "Load More Creators",
+                    hx_get=f"/lists/language/{language_code}/more?page={page + 1}",
+                    hx_target="#language-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+                ),
+                cls="mt-8 text-center",
+            )
+            if page < total_pages
+            else None
+        ),
+        cls="max-w-4xl mx-auto px-4 pb-16",
+    )
+
+
+def render_language_creators_rows(
+    language_code: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+    page_size: int = 20,
+) -> Div:
+    """
+    Render just the creator rows for the HTMX load-more endpoint.
+
+    Used by /lists/language/{language_code}/more to return creator rows
+    without page headers/footers.
+
+    Args:
+        language_code: ISO 639-1 two-letter language code.
+        creators: List of creator dicts for this page.
+        page: Current page number (1-based).
+        total_pages: Total number of pages.
+        total_count: Total creator count (unused, for signature consistency).
+        page_size: Number of creators per page (must match the route limit).
+
+    Returns:
+        Div with creator rows and optional load-more button.
+    """
+    if not creators:
+        return Div()
+
+    start_rank = (page - 1) * page_size + 1
+
+    return Div(
+        *[
+            _creator_row(creator, rank=start_rank + i)
+            for i, creator in enumerate(creators)
+        ],
+        (
+            Div(
+                Button(
+                    "Load More",
+                    hx_get=f"/lists/language/{language_code}/more?page={page + 1}",
+                    hx_target="#language-creators-list",
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
                 ),

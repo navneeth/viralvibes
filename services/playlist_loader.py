@@ -9,6 +9,7 @@ from db import (
     get_dashboard_stats_by_id,
     upsert_playlist_stats,
 )
+from services.youtube_service import YoutubePlaylistService
 from utils import create_empty_dataframe, deserialize_dataframe
 
 logger = logging.getLogger(__name__)
@@ -214,9 +215,6 @@ async def get_playlist_preview(playlist_url: str) -> Optional[Dict[str, Any]]:
         OR None on failure
     """
     try:
-        # Lazy import to avoid bloating main.py
-        from services.youtube_service import YoutubePlaylistService
-
         service = YoutubePlaylistService(backends=["youtubeapi"])
 
         # Call the lightweight get_playlist_preview method

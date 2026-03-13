@@ -24,6 +24,8 @@ from views.lists import (
     render_country_creators_rows,
     render_category_detail_page,
     render_category_creators_rows,
+    render_language_detail_page,
+    render_language_creators_rows,
     _unslugify,
 )
 
@@ -353,6 +355,100 @@ def category_detail_more_route(request):
 
     return render_category_creators_rows(
         category_slug=category_slug,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Language Detail Page — GET /lists/language/{language_code}
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _fetch_language_page(language_code: str, page: int) -> tuple[list, int, int]:
+    """
+    Fetch one page of creators for a language detail view.
+
+    Shared by ``language_detail_route`` and ``language_detail_more_route``.
+
+    Args:
+        language_code: Lowercase ISO 639-1 two-letter code (e.g. ``"en"``).
+        page: 1-based page number.
+
+    Returns:
+        ``(creators, total_count, total_pages)`` tuple.
+    """
+    result = get_creators(
+        language_filter=language_code,
+        sort="subscribers",
+        limit=DETAIL_PAGE_LIMIT,
+        offset=(page - 1) * DETAIL_PAGE_LIMIT,
+        return_count=True,
+    )
+    creators = result.creators if result else []
+    total_count = result.total_count if result else 0
+    total_pages = (
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
+        if total_count > 0
+        else 1
+    )
+    return creators, total_count, total_pages
+
+
+def language_detail_route(request, language_code: str):
+    """
+    GET /lists/language/{language_code} — Ranked creators for a content language.
+
+    Args:
+        request: Request object.
+        language_code: ISO 639-1 two-letter language code (e.g. ``"en"``, ``"ja"``).
+
+    Returns:
+        FT component with detailed creator list.
+    """
+    language_code = language_code.lower()
+
+    page = _parse_page(request)
+
+    creators, total_count, total_pages = _fetch_language_page(language_code, page)
+
+    return render_language_detail_page(
+        language_code=language_code,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
+
+
+def language_detail_more_route(request):
+    """
+    GET /lists/language/{language_code}/more?page=N
+    HTMX partial — returns the next batch of creator rows.
+
+    ``language_code`` is always injected as ``request.language_code`` by the
+    ``@rt`` handler in main.py before this function is called.
+
+    Returns:
+        FT component with creator rows.
+    """
+    language_code = getattr(request, "language_code", "")
+    language_code = language_code.lower() if language_code else ""
+
+    if not language_code:
+        logger.warning("No language_code provided to language_detail_more_route")
+        return Div("Error: Invalid language", cls="text-red-500")
+
+    page = _parse_page(request)
+
+    creators, total_count, total_pages = _fetch_language_page(language_code, page)
+
+    return render_language_creators_rows(
+        language_code=language_code,
         creators=creators,
         page=page,
         total_pages=total_pages,

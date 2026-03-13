@@ -6,6 +6,8 @@ import isodate
 import logging
 from datetime import datetime, timezone
 
+from constants import TimeEstimates
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,9 +65,6 @@ def estimate_remaining_time(video_count: int, progress: float) -> tuple[int, str
         >>> estimate_remaining_time(100, 50.0)
         (125, "~2 min remaining")
     """
-    # Lazy import to avoid circular dependency with constants
-    from constants import TimeEstimates
-
     if video_count <= 0 or progress <= 0:
         return (0, "Calculating...")
 

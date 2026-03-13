@@ -29,7 +29,12 @@ from constants import (
     SIGNUPS_TABLE,
     JobStatus,
 )
-from utils import compute_dashboard_id, normalize_category_name, safe_get_value
+from utils import (
+    compute_dashboard_id,
+    deserialize_dataframe,
+    normalize_category_name,
+    safe_get_value,
+)
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -229,8 +234,6 @@ def get_cached_playlist_stats(
 
             # Deserialize JSON fields
             try:
-                from utils import deserialize_dataframe
-
                 row["df"] = deserialize_dataframe(df_json)
             except Exception as e:
                 logger.error(

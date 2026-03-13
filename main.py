@@ -80,11 +80,24 @@ from db import (
     add_creator_by_handle,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
-from utils import compute_dashboard_id, get_columns, sort_dataframe
+from utils import compute_dashboard_id, get_columns, get_language_name, sort_dataframe
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
+from routes.creators import creators_route
+from routes.lists import (
+    category_detail_more_route,
+    category_detail_route,
+    country_detail_more_route,
+    country_detail_route,
+    language_detail_more_route,
+    language_detail_route,
+    lists_more_categories_route,
+    lists_more_countries_route,
+    lists_route,
+)
+from views.lists import _unslugify
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -1056,8 +1069,6 @@ def export_json(dashboard_id: str, req, sess):
 def creators(req, sess):
     """Creators discovery page - PUBLIC route with filtering and sorting"""
 
-    from routes.creators import creators_route
-
     # Call the route handler
     page_content = creators_route(req)
 
@@ -1075,8 +1086,6 @@ def creators(req, sess):
 def lists(req, sess):
     """Creator Lists page - curated, pre-filtered creator rankings"""
 
-    from routes.lists import lists_route
-
     # Call the route handler
     page_content = lists_route(req)
 
@@ -1093,24 +1102,18 @@ def lists(req, sess):
 @rt("/lists/more-countries")
 def lists_more_countries(req, sess):
     """HTMX partial — next batch of country group cards for the By Country tab."""
-    from routes.lists import lists_more_countries_route
-
     return lists_more_countries_route(req)
 
 
 @rt("/lists/more-categories")
 def lists_more_categories(req, sess):
     """HTMX partial — next batch of category group cards for the By Category tab."""
-    from routes.lists import lists_more_categories_route
-
     return lists_more_categories_route(req)
 
 
 @rt("/lists/country/{country_code}")
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
-    from routes.lists import country_detail_route
-
     page_content = country_detail_route(req, country_code)
     return Titled(
         f"{country_code} Creators - YouTube",
@@ -1124,8 +1127,6 @@ def lists_country_detail(req, sess, country_code: str):
 @rt("/lists/country/{country_code}/more")
 def lists_country_more(req, sess, country_code: str):
     """HTMX partial — load more creators for a specific country."""
-    from routes.lists import country_detail_more_route
-
     # Pass country_code from path parameter to ensure correct data
     req.country_code = country_code.upper()
     return country_detail_more_route(req)
@@ -1134,9 +1135,6 @@ def lists_country_more(req, sess, country_code: str):
 @rt("/lists/category/{category_slug}")
 def lists_category_detail(req, sess, category_slug: str):
     """Detailed creator rankings for a specific topic category."""
-    from routes.lists import category_detail_route
-    from views.lists import _unslugify
-
     display_name = _unslugify(category_slug).title()
     page_content = category_detail_route(req, category_slug)
     return Titled(
@@ -1151,10 +1149,29 @@ def lists_category_detail(req, sess, category_slug: str):
 @rt("/lists/category/{category_slug}/more")
 def lists_category_more(req, sess, category_slug: str):
     """HTMX partial — load more creators for a specific category."""
-    from routes.lists import category_detail_more_route
-
     req.category_slug = category_slug.lower()
     return category_detail_more_route(req)
+
+
+@rt("/lists/language/{language_code}")
+def lists_language_detail(req, sess, language_code: str):
+    """Detailed creator rankings for a specific content language."""
+    language_name = get_language_name(language_code.lower())
+    page_content = language_detail_route(req, language_code)
+    return Titled(
+        f"{language_name} Creators - YouTube",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
+@rt("/lists/language/{language_code}/more")
+def lists_language_more(req, sess, language_code: str):
+    """HTMX partial — load more creators for a specific language."""
+    req.language_code = language_code.lower()
+    return language_detail_more_route(req)
 
 
 @rt("/creators/add")
