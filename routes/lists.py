@@ -154,6 +154,37 @@ def lists_more_categories_route(request):
 DETAIL_PAGE_LIMIT = 20  # Creators per page on detail view
 
 
+def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
+    """
+    Fetch one page of creators for a country detail view.
+
+    Shared by ``country_detail_route`` and ``country_detail_more_route`` so
+    the query parameters, sort order, and pagination formula stay in sync.
+
+    Args:
+        country_code: Normalised (uppercase) ISO 3166-1 alpha-2 code.
+        page: 1-based page number.
+
+    Returns:
+        ``(creators, total_count, total_pages)`` tuple.
+    """
+    result = get_creators(
+        country_filter=country_code,
+        sort="subscribers",
+        limit=DETAIL_PAGE_LIMIT,
+        offset=(page - 1) * DETAIL_PAGE_LIMIT,
+        return_count=True,
+    )
+    creators = result.creators if result else []
+    total_count = result.total_count if result else 0
+    total_pages = (
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
+        if total_count > 0
+        else 1
+    )
+    return creators, total_count, total_pages
+
+
 def country_detail_route(request, country_code: str):
     """
     GET /lists/country/{country_code} — Detailed country-wise creator rankings.
@@ -167,35 +198,14 @@ def country_detail_route(request, country_code: str):
     Returns:
         FT component with detailed creator list
     """
-    # Normalize country code to uppercase
     country_code = country_code.upper()
 
-    # Get page number from query params (default 1)
     try:
-        page = int(request.query_params.get("page", "1"))
-        if page < 1:
-            page = 1
+        page = max(1, int(request.query_params.get("page", "1")))
     except (TypeError, ValueError):
         page = 1
 
-    # Fetch creators for this country with pagination
-    result = get_creators(
-        country_filter=country_code,
-        sort="subscribers",  # Sort by subscribers on detail page
-        limit=DETAIL_PAGE_LIMIT,
-        offset=(page - 1) * DETAIL_PAGE_LIMIT,
-        return_count=True,
-    )
-
-    creators = result.creators if result else []
-    total_count = result.total_count if result else 0
-
-    # Calculate total pages
-    total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
-        if total_count > 0
-        else 1
-    )
+    creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
     return render_country_detail_page(
         country_code=country_code,
@@ -203,6 +213,7 @@ def country_detail_route(request, country_code: str):
         page=page,
         total_pages=total_pages,
         total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
     )
 
 
@@ -211,54 +222,31 @@ def country_detail_more_route(request):
     GET /lists/country/{country_code}/more?page=N
     HTMX partial — returns the next batch of creator rows.
 
-    Args:
-        request: Request object with country_code as optional attribute or query param
+    ``country_code`` is always injected as ``request.country_code`` by the
+    ``@rt`` handler in main.py before this function is called.
 
     Returns:
         FT component with creator rows
     """
-    # Extract country_code from path parameter (set by main.py) or query param
-    country_code = getattr(request, "country_code", None) or request.query_params.get(
-        "country", ""
-    )
+    country_code = getattr(request, "country_code", "")
     country_code = country_code.upper() if country_code else ""
 
     if not country_code:
         logger.warning("No country_code provided to country_detail_more_route")
         return Div("Error: Invalid country", cls="text-red-500")
 
-    # Get page number from query params
     try:
-        page = int(request.query_params.get("page", "1"))
-        if page < 1:
-            page = 1
+        page = max(1, int(request.query_params.get("page", "1")))
     except (TypeError, ValueError):
         page = 1
 
-    # Fetch creators for this country with pagination
-    result = get_creators(
-        country_filter=country_code,
-        sort="subscribers",
-        limit=DETAIL_PAGE_LIMIT,
-        offset=(page - 1) * DETAIL_PAGE_LIMIT,
-        return_count=True,
-    )
+    creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
-    creators = result.creators if result else []
-    total_count = result.total_count if result else 0
-
-    # Calculate total pages
-    total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
-        if total_count > 0
-        else 1
-    )
-
-    # Return just the creator rows (no header/footer)
     return render_country_creators_rows(
         country_code=country_code,
         creators=creators,
         page=page,
         total_pages=total_pages,
         total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
     )

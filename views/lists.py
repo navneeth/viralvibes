@@ -975,6 +975,7 @@ def render_country_detail_page(
     page: int = 1,
     total_pages: int = 1,
     total_count: int = 0,
+    page_size: int = 20,
 ) -> Div:
     """
     Render the detailed country-wise creator rankings page.
@@ -987,6 +988,7 @@ def render_country_detail_page(
         page: Current page number (1-based)
         total_pages: Total number of pages
         total_count: Total creator count for this country
+        page_size: Number of creators per page (must match the route limit)
 
     Returns:
         Div component with full detail page
@@ -995,8 +997,8 @@ def render_country_detail_page(
     country_flag = get_country_flag(country_code) or "🌍"
 
     # Pagination info
-    start_rank = (page - 1) * 20 + 1
-    end_rank = min(page * 20, total_count)
+    start_rank = (page - 1) * page_size + 1
+    end_rank = min(page * page_size, total_count)
 
     return Div(
         # ── Page header ────────────────────────────────────────────────────
@@ -1050,7 +1052,7 @@ def render_country_detail_page(
             Div(
                 Button(
                     "Load More Creators",
-                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}&country={country_code}",
+                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
                     hx_target="#country-creators-list",
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
@@ -1070,6 +1072,7 @@ def render_country_creators_rows(
     page: int = 1,
     total_pages: int = 1,
     total_count: int = 0,
+    page_size: int = 20,
 ) -> Div:
     """
     Render just the creator rows for the HTMX load-more endpoint.
@@ -1083,11 +1086,12 @@ def render_country_creators_rows(
         page: Current page number (1-based)
         total_pages: Total number of pages
         total_count: Total creator count (unused here, for signature consistency)
+        page_size: Number of creators per page (must match the route limit)
 
     Returns:
-        FT with creator rows and optional load-more button
+        Div with creator rows and optional load-more button
     """
-    start_rank = (page - 1) * 20 + 1
+    start_rank = (page - 1) * page_size + 1
 
     return Div(
         # Creator rows
@@ -1100,7 +1104,7 @@ def render_country_creators_rows(
             Div(
                 Button(
                     "Load More",
-                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}&country={country_code}",
+                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
                     hx_target="#country-creators-list",
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
