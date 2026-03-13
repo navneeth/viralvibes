@@ -366,7 +366,7 @@ def _render_hero(
             Div(
                 P(
                     "Filtered Results" if has_filters else "Total Creators",
-                    cls="text-xs font-semibold text-gray-500 uppercase tracking-wider",
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-wider",
                 ),
                 H2(
                     (
@@ -378,7 +378,7 @@ def _render_hero(
                 ),
                 P(
                     "matching filters" if has_filters else "In database",
-                    cls="text-xs text-gray-600 mt-1",
+                    cls="text-xs text-muted-foreground mt-1",
                 ),
                 cls="text-center",
             ),
@@ -418,7 +418,7 @@ def _render_hero(
                     "worldwide creators",
                     cls="text-xs text-blue-500 mt-1",
                 ),
-                cls="text-center bg-gradient-to-br from-blue-50 to-white rounded-xl p-4 border border-blue-200 hover:border-blue-400 hover:shadow-sm transition-all",
+                cls="text-center bg-blue-50 dark:bg-blue-950/30 rounded-xl p-4 border border-blue-200 dark:border-blue-900 hover:border-blue-400 hover:shadow-sm transition-all",
             ),
             # Linguistic Diversity - Languages with emoji showcase
             Div(
@@ -456,7 +456,7 @@ def _render_hero(
                     "content languages",
                     cls="text-xs text-purple-500 mt-1",
                 ),
-                cls="text-center bg-gradient-to-br from-purple-50 to-white rounded-xl p-4 border border-purple-200 hover:border-purple-400 hover:shadow-sm transition-all",
+                cls="text-center bg-purple-50 dark:bg-purple-950/30 rounded-xl p-4 border border-purple-200 dark:border-purple-900 hover:border-purple-400 hover:shadow-sm transition-all",
             ),
             # Categories — content topic diversity (same source as /lists page)
             Div(
@@ -494,11 +494,11 @@ def _render_hero(
                     "content topics",
                     cls="text-xs text-pink-500 mt-1",
                 ),
-                cls="text-center bg-gradient-to-br from-pink-50 to-white rounded-xl p-4 border border-pink-200 hover:border-pink-400 hover:shadow-sm transition-all",
+                cls="text-center bg-pink-50 dark:bg-pink-950/30 rounded-xl p-4 border border-pink-200 dark:border-pink-900 hover:border-pink-400 hover:shadow-sm transition-all",
             ),
-            cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-gray-200",
+            cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-border",
         ),
-        cls="bg-white rounded-lg border border-gray-200 p-6 md:p-8 mb-8",
+        cls="bg-background rounded-lg border border-border p-6 md:p-8 mb-8",
     )
 
 
@@ -1004,7 +1004,7 @@ def _render_creators_grid(creators: list[dict]) -> Div:
     """Grid of creator cards with strict row-based layout."""
     return Div(
         *[_render_creator_card(creator) for creator in creators],
-        cls="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6",
+        cls="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 items-start",
     )
 
 
@@ -1053,27 +1053,27 @@ def _build_card_header(
                 A(
                     H3(
                         channel_name,
-                        cls="font-semibold text-gray-900 dark:text-white truncate mb-0.5 hover:text-blue-600 dark:hover:text-blue-400 transition-colors",
+                        cls="font-semibold text-foreground truncate mb-0.5 hover:text-blue-600 transition-colors",
                     ),
                     href=channel_url,
                     target="_blank",
                     rel="noopener noreferrer",
-                    cls="no-underline",
+                    cls="block min-w-0 no-underline",
                 ),
                 # @handle in small muted text
                 (
                     P(
                         handle_display,
-                        cls="text-xs text-gray-400 dark:text-gray-500 font-medium mb-0.5",
+                        cls="text-xs text-muted-foreground font-medium mb-0.5 truncate",
                     )
                     if handle_display
                     else None
                 ),
                 P(
                     f"{format_number(current_subs)} subscribers · {current_videos} videos",
-                    cls="text-xs text-gray-600 dark:text-gray-400",
+                    cls="text-xs text-muted-foreground truncate",
                 ),
-                cls="flex-1",
+                cls="flex-1 min-w-0",
             ),
             # Quality grade badge — hidden for grade C ("New"), which just means unscored
             (
@@ -1106,7 +1106,7 @@ def _build_primary_metrics(
         Div(
             P(
                 "SUBSCRIBERS",
-                cls="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide",
+                cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
             ),
             H2(
                 format_number(current_subs),
@@ -1116,9 +1116,9 @@ def _build_primary_metrics(
                 (
                     f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)"
                     if subs_change is not None
-                    else "—"  # Show dash if tracking not started
+                    else "—"
                 ),
-                cls="text-xs text-gray-600 dark:text-gray-400 mt-1",
+                cls="text-xs text-muted-foreground mt-1",
             ),
             cls="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center",
         ),
@@ -1126,7 +1126,7 @@ def _build_primary_metrics(
         Div(
             P(
                 "VIEWS",
-                cls="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide",
+                cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
             ),
             H2(
                 format_number(current_views),
@@ -1136,9 +1136,9 @@ def _build_primary_metrics(
                 (
                     f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)"
                     if views_change is not None
-                    else "—"  # Show dash if tracking not started
+                    else "—"
                 ),
-                cls="text-xs text-gray-600 dark:text-gray-400 mt-1",
+                cls="text-xs text-muted-foreground mt-1",
             ),
             cls="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 text-center",
         ),
@@ -1157,26 +1157,26 @@ def _build_performance_metrics(
         Div(
             P(
                 "AVG VIEWS",
-                cls="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase",
+                cls="text-xs font-semibold text-muted-foreground uppercase",
             ),
             P(
                 format_number(avg_views_per_video),
-                cls="text-lg font-bold text-gray-900 dark:text-white mt-1",
+                cls="text-lg font-bold text-foreground mt-1",
             ),
-            P("per video", cls="text-xs text-gray-500 dark:text-gray-400"),
-            cls="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center",
+            P("per video", cls="text-xs text-muted-foreground"),
+            cls="bg-accent rounded-lg p-3 text-center",
         ),
         Div(
             P(
                 "VIDEOS",
-                cls="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase",
+                cls="text-xs font-semibold text-muted-foreground uppercase",
             ),
             P(
                 format_number(current_videos),
-                cls="text-lg font-bold text-gray-900 dark:text-white mt-1",
+                cls="text-lg font-bold text-foreground mt-1",
             ),
-            P("published", cls="text-xs text-gray-500 dark:text-gray-400"),
-            cls="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center",
+            P("published", cls="text-xs text-muted-foreground"),
+            cls="bg-accent rounded-lg p-3 text-center",
         ),
         Div(
             P(
@@ -1193,7 +1193,7 @@ def _build_performance_metrics(
         Div(
             P(
                 "EST. REVENUE",
-                cls="text-xs font-semibold text-green-700 dark:text-green-400 uppercase font-bold",
+                cls="text-xs font-semibold text-green-700 dark:text-green-400 uppercase",
             ),
             P(
                 f"${format_number(estimated_revenue)}",
@@ -1224,12 +1224,11 @@ def _build_growth_trend(
     has_growth_data = subs_change is not None
 
     if not has_growth_data:
-        # Growth tracking initializing - show elegant "in progress" state
         return Div(
             Div(
                 P(
                     "GROWTH TRACKING",
-                    cls="text-xs font-semibold text-gray-600 dark:text-gray-400",
+                    cls="text-xs font-semibold text-muted-foreground",
                 ),
                 Div(
                     Span("📊", cls="text-2xl"),
@@ -1241,7 +1240,7 @@ def _build_growth_trend(
                 ),
                 P(
                     "Growth metrics available in 7+ days",
-                    cls="text-xs text-gray-500 dark:text-gray-400 mt-2",
+                    cls="text-xs text-muted-foreground mt-2",
                 ),
                 cls="flex flex-col items-center justify-center gap-2",
             ),
@@ -1253,12 +1252,12 @@ def _build_growth_trend(
         Div(
             P(
                 "30-DAY TREND",
-                cls="text-xs font-semibold text-gray-600 dark:text-gray-400",
+                cls="text-xs font-semibold text-muted-foreground",
             ),
             Div(
                 P(
                     f"{growth_rate:+.1f}%",
-                    cls="text-sm font-bold text-gray-900 dark:text-white",
+                    cls="text-sm font-bold text-foreground",
                 ),
                 Span(
                     growth_label,
@@ -1278,7 +1277,7 @@ def _build_growth_trend(
                 ),
                 style=f"width: {min(100, max(0, abs(growth_rate) * 5))}%",
             ),
-            cls="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden",
+            cls="w-full h-2 bg-border rounded-full overflow-hidden",
         ),
         cls=(
             "bg-green-50 dark:bg-green-900/20 rounded-lg p-3 mb-4"
@@ -1349,11 +1348,11 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
 
     # Color palette for pills (subtle, professional)
     pill_colors = [
-        "bg-blue-100 hover:bg-blue-200",
-        "bg-purple-100 hover:bg-purple-200",
-        "bg-green-100 hover:bg-green-200",
-        "bg-pink-100 hover:bg-pink-200",
-        "bg-indigo-100 hover:bg-indigo-200",
+        "bg-blue-100 dark:bg-blue-900/40 hover:bg-blue-200 dark:hover:bg-blue-800/60",
+        "bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-800/60",
+        "bg-green-100 dark:bg-green-900/40 hover:bg-green-200 dark:hover:bg-green-800/60",
+        "bg-pink-100 dark:bg-pink-900/40 hover:bg-pink-200 dark:hover:bg-pink-800/60",
+        "bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-800/60",
     ]
 
     # Build emoji-only pills (limit to 5 for clean display)
@@ -1389,7 +1388,7 @@ def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
     text = bio[:max_chars].rstrip() + "…" if len(bio) > max_chars else bio
     return P(
         text,
-        cls="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-4 line-clamp-2",
+        cls="text-xs text-muted-foreground leading-relaxed mb-4 line-clamp-2",
     )
 
 
@@ -1400,7 +1399,7 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
             Span("🕐", cls="mr-1.5"),
             P(
                 format_date_relative(last_updated),
-                cls="text-xs text-gray-500 dark:text-gray-400",
+                cls="text-xs text-muted-foreground",
             ),
             cls="flex items-center",
         ),
@@ -1411,7 +1410,7 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
             rel="noopener noreferrer",
             cls="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 no-underline",
         ),
-        cls="flex justify-between items-center text-sm",
+        cls="flex justify-between items-center text-sm mt-auto pt-3",
     )
 
 
@@ -1447,34 +1446,31 @@ def _build_info_strip(
             )
         )
 
-    # Channel age — show emoji + human-readable text (e.g. "🆕 8mo", "👑 12y")
     if channel_age_days:
         icons.append(
             Span(
                 f"{get_age_emoji(channel_age_days)} {format_channel_age(channel_age_days)}",
                 title=f"Channel age: {get_age_title(channel_age_days)}",
-                cls="text-xs font-medium text-gray-600 dark:text-gray-400",
+                cls="text-xs font-medium text-muted-foreground",
             )
         )
 
-    # Activity level — use get_activity_badge for labelled text (e.g. "🔥 Very Active")
     activity_badge = get_activity_badge(monthly_uploads)
     if activity_badge:
         icons.append(
             Span(
                 activity_badge,
                 title=f"Upload frequency: {get_activity_title(monthly_uploads)}",
-                cls="text-xs font-medium text-gray-600 dark:text-gray-400",
+                cls="text-xs font-medium text-muted-foreground",
             )
         )
-    # Note: custom_url checkmark removed — @handle is now shown in the card header
 
     if not icons:
         return None
 
     return Div(
         *icons,
-        cls="flex items-center justify-center gap-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg",
+        cls="flex items-center justify-center gap-3 py-2 bg-accent rounded-lg",
     )
 
 
@@ -1596,7 +1592,7 @@ def _render_creator_card(creator: dict) -> Div:
             Div(
                 P(
                     keywords,
-                    cls="text-xs text-gray-500 dark:text-gray-400 italic line-clamp-1 text-center",
+                    cls="text-xs text-muted-foreground italic line-clamp-1 text-center",
                 ),
                 cls="mb-2",
             )
@@ -1607,7 +1603,7 @@ def _render_creator_card(creator: dict) -> Div:
         info_strip,
         # Footer
         _build_card_footer(last_updated, channel_url),
-        cls=f"bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-700 p-4 hover:shadow-md dark:hover:shadow-lg hover:scale-[1.02] transition-all duration-300 cursor-pointer {card_border}",
+        cls=f"bg-background rounded-lg border border-border p-4 flex flex-col min-w-0 overflow-hidden w-full hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer {card_border}",
     )
 
     # Wrap the whole card in a block link so clicking anywhere navigates to
@@ -1619,7 +1615,7 @@ def _render_creator_card(creator: dict) -> Div:
     return A(
         card,
         href=f"/creator/{creator_uuid}?name={urllib.parse.quote(channel_name)}",
-        cls="block no-underline group",
+        cls="block no-underline group min-w-0 w-full",
     )
 
 
@@ -1676,7 +1672,7 @@ def _render_pagination(
             return A(
                 label,
                 href=url,
-                cls="px-3 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
+                cls="px-3 py-2 bg-background border border-border text-foreground font-medium rounded-lg hover:bg-accent transition-colors no-underline",
             )
 
     def ellipsis():
@@ -1732,7 +1728,7 @@ def _render_pagination(
                 page=page - 1,
                 per_page=per_page,
             ),
-            cls="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
+            cls="px-4 py-2 bg-background border border-border text-foreground font-medium rounded-lg hover:bg-accent transition-colors no-underline",
         )
         if page > 1
         else Span(
@@ -1756,7 +1752,7 @@ def _render_pagination(
                 page=page + 1,
                 per_page=per_page,
             ),
-            cls="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors no-underline",
+            cls="px-4 py-2 bg-background border border-border text-foreground font-medium rounded-lg hover:bg-accent transition-colors no-underline",
         )
         if page < total_pages
         else Span(
@@ -1820,7 +1816,7 @@ def _render_empty_state(
                 ),
                 cls="space-y-4 p-12",
             ),
-            cls="bg-gray-50 max-w-md mx-auto",
+            cls="bg-accent max-w-md mx-auto",
         )
 
     if has_active_filters:
@@ -1842,7 +1838,7 @@ def _render_empty_state(
                 ),
                 cls="space-y-4 p-12",
             ),
-            cls="bg-gray-50 max-w-md mx-auto",
+            cls="bg-accent max-w-md mx-auto",
         )
     else:
         return Card(
@@ -1869,7 +1865,7 @@ def _render_empty_state(
                 ),
                 cls="space-y-4 p-12",
             ),
-            cls="bg-white max-w-md mx-auto border border-gray-200",
+            cls="bg-background max-w-md mx-auto border border-border",
         )
 
 
@@ -2015,7 +2011,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 Div(
                     H1(
                         channel_name,
-                        cls="text-2xl sm:text-3xl font-bold text-gray-900",
+                        cls="text-2xl sm:text-3xl font-bold text-foreground",
                     ),
                     (
                         Span(
@@ -2099,7 +2095,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             ),
             cls="flex gap-4 items-end mt-4 px-4 pb-4",
         ),
-        cls="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 overflow-hidden",
+        cls="bg-background rounded-xl border border-border shadow-sm mb-6 overflow-hidden",
     )
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2124,8 +2120,8 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             "Videos",
             format_number(current_videos),
             _delta_str(videos_change),
-            "text-gray-700",
-            "bg-gray-50",
+            "text-foreground",
+            "bg-accent",
         ),
         _stat_card(
             "Est. Revenue",
@@ -2190,7 +2186,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     left_col = Div(
         # Bio
         Div(
-            H2("About", cls="text-base font-bold text-gray-900 mb-3"),
+            H2("About", cls="text-base font-bold text-foreground mb-3"),
             (
                 P(
                     bio,
@@ -2200,18 +2196,18 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 else P("No description available.", cls="text-sm text-gray-400 italic")
             ),
             keyword_pills,
-            cls="bg-white rounded-xl border border-gray-200 p-5 mb-4",
+            cls="bg-background rounded-xl border border-border p-5 mb-4",
         ),
         # Channel info
         Div(
-            H2("Channel Info", cls="text-base font-bold text-gray-900 mb-4"),
+            H2("Channel Info", cls="text-base font-bold text-foreground mb-4"),
             Div(*channel_info_items, cls="space-y-3"),
-            cls="bg-white rounded-xl border border-gray-200 p-5",
+            cls="bg-background rounded-xl border border-border p-5",
         ),
     )
 
     # Right: Performance
-    def _perf_row(label, value, value_cls="text-gray-900"):
+    def _perf_row(label, value, value_cls="text-foreground"):
         return Div(
             Span(label, cls="text-sm text-gray-500"),
             Span(value, cls=f"text-sm font-semibold {value_cls}"),
@@ -2228,7 +2224,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             Div(
                 P("30-Day Trend", cls="text-xs font-semibold text-gray-600"),
                 Div(
-                    P(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-gray-900"),
+                    P(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"),
                     Span(
                         growth_label,
                         cls=f"text-xs font-semibold px-2 py-1 rounded-full border {growth_style}",
@@ -2286,7 +2282,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 "bg-indigo-100 text-indigo-700",
             ]
             topic_pill_section = Div(
-                H2("Topics", cls="text-base font-bold text-gray-900 mb-3"),
+                H2("Topics", cls="text-base font-bold text-foreground mb-3"),
                 Div(
                     *[
                         Span(
@@ -2297,12 +2293,12 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                     ],
                     cls="flex flex-wrap gap-2",
                 ),
-                cls="bg-white rounded-xl border border-gray-200 p-5 mt-4",
+                cls="bg-background rounded-xl border border-border p-5 mt-4",
             )
 
     right_col = Div(
         Div(
-            H2("Performance", cls="text-base font-bold text-gray-900 mb-1"),
+            H2("Performance", cls="text-base font-bold text-foreground mb-1"),
             Div(
                 _perf_row("Avg Views / Video", format_number(avg_views)),
                 _perf_row("Views / Subscriber", f"{views_per_sub:.2f}x"),
@@ -2313,11 +2309,11 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 _perf_row(
                     "Engagement Score",
                     f"{engagement_score:.2f} / 10",
-                    "text-blue-700" if engagement_score >= 7 else "text-gray-900",
+                    "text-blue-700" if engagement_score >= 7 else "text-foreground",
                 ),
             ),
             trend_section,
-            cls="bg-white rounded-xl border border-gray-200 p-5",
+            cls="bg-background rounded-xl border border-border p-5",
         ),
         topic_pill_section,
     )
@@ -2366,10 +2362,10 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 cat_dist_section = Div(
                     H2(
                         "Category Breakdown",
-                        cls="text-base font-bold text-gray-900 mb-4",
+                        cls="text-base font-bold text-foreground mb-4",
                     ),
                     Div(*bars, cls="space-y-3"),
-                    cls="bg-white rounded-xl border border-gray-200 p-5 mb-6",
+                    cls="bg-background rounded-xl border border-border p-5 mb-6",
                 )
         except Exception:
             pass
@@ -2381,7 +2377,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         "synced": "text-green-600",
         "pending": "text-yellow-600",
         "error": "text-red-600",
-    }.get(sync_status, "text-gray-500")
+    }.get(sync_status, "text-muted-foreground")
     sync_icon = {"synced": "✅", "pending": "⏳", "error": "❌"}.get(sync_status, "⚪")
 
     footer_section = Div(
@@ -2389,20 +2385,20 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             f"{sync_icon} {sync_status.title()}",
             cls=f"text-xs font-semibold {sync_color}",
         ),
-        Span("·", cls="text-gray-300"),
+        Span("·", cls="text-muted-foreground"),
         Span(
             f"Updated {format_date_relative(last_updated)}",
-            cls="text-xs text-gray-400",
+            cls="text-xs text-muted-foreground",
         ),
-        Span("·", cls="text-gray-300"),
+        Span("·", cls="text-muted-foreground"),
         Span(
             f"Synced {format_date_relative(last_synced)}",
-            cls="text-xs text-gray-400",
+            cls="text-xs text-muted-foreground",
         ),
-        Span("·", cls="text-gray-300"),
+        Span("·", cls="text-muted-foreground"),
         Span(
             f"ID: {creator_id[:8]}…",
-            cls="text-xs text-gray-300 font-mono",
+            cls="text-xs text-muted-foreground font-mono",
             title=creator_id,
         ),
         cls="flex items-center gap-2 flex-wrap text-center justify-center py-4",
@@ -2445,7 +2441,7 @@ def render_creator_preview(
         Div(
             H1(
                 "📍 Creator Found on YouTube",
-                cls="text-4xl font-bold text-gray-900 mb-2",
+                cls="text-4xl font-bold text-foreground mb-2",
             ),
             P(
                 f"Found {handle} on YouTube. Add them to your database to track their stats.",
@@ -2466,7 +2462,7 @@ def render_creator_preview(
                     cls="flex-shrink-0",
                 ),
                 Div(
-                    H2(title, cls="text-2xl font-bold text-gray-900"),
+                    H2(title, cls="text-2xl font-bold text-foreground"),
                     P(
                         handle,
                         cls="text-lg text-gray-600 font-mono",
@@ -2488,14 +2484,17 @@ def render_creator_preview(
             Div(
                 Div(
                     P("Subscribers", cls="text-xs text-gray-500 uppercase"),
-                    P(format_number(subs), cls="text-2xl font-bold text-gray-900 mt-1"),
+                    P(
+                        format_number(subs),
+                        cls="text-2xl font-bold text-foreground mt-1",
+                    ),
                     cls="text-center bg-blue-50 rounded-lg p-4",
                 ),
                 Div(
                     P("Total Views", cls="text-xs text-gray-500 uppercase"),
                     P(
                         format_number(views),
-                        cls="text-2xl font-bold text-gray-900 mt-1",
+                        cls="text-2xl font-bold text-foreground mt-1",
                     ),
                     cls="text-center bg-green-50 rounded-lg p-4",
                 ),
@@ -2503,7 +2502,7 @@ def render_creator_preview(
                     P("Videos", cls="text-xs text-gray-500 uppercase"),
                     P(
                         format_number(videos),
-                        cls="text-2xl font-bold text-gray-900 mt-1",
+                        cls="text-2xl font-bold text-foreground mt-1",
                     ),
                     cls="text-center bg-purple-50 rounded-lg p-4",
                 ),
@@ -2541,7 +2540,7 @@ def render_creator_preview(
                 A(
                     "← Back to Search",
                     href="/creators",
-                    cls="block text-center text-gray-600 hover:text-gray-900 font-medium mt-4 no-underline",
+                    cls="block text-center text-muted-foreground hover:text-foreground font-medium mt-4 no-underline",
                 ),
                 cls="border-t pt-6 mt-6",
             ),
