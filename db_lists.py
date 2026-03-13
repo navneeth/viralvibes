@@ -5,15 +5,21 @@ Specialized functions for the /lists page tab content.
 
 import json
 import logging
-from typing import Callable, Optional
+from typing import Callable
 
-from db import supabase_client, safe_get_value
-from utils import normalize_category_name
+from utils import normalize_category_name, safe_get_value
 
 logger = logging.getLogger(__name__)
 
 # Maximum rows fetched in client-side fallback scans (when RPC is unavailable).
 _MAX_FALLBACK_FETCH = 50_000
+
+
+def _get_supabase_client():
+    """Access the Supabase client (initialized at app startup via db.init_supabase())."""
+    from db import supabase_client
+
+    return supabase_client
 
 
 def get_top_rated_creators(limit: int = 20) -> list[dict]:
@@ -29,6 +35,7 @@ def get_top_rated_creators(limit: int = 20) -> list[dict]:
     Returns:
         List of creator dicts with stats
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -73,6 +80,7 @@ def get_most_active_creators(limit: int = 20) -> list[dict]:
     Returns:
         List of creator dicts sorted by monthly_uploads descending
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -107,6 +115,7 @@ def get_creators_by_country(country_code: str, limit: int = 10) -> list[dict]:
     Returns:
         List of creator dicts sorted by subscribers
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -141,6 +150,7 @@ def get_creators_by_category(category: str, limit: int = 10) -> list[dict]:
     Returns:
         List of creator dicts sorted by subscribers
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -191,6 +201,7 @@ def get_top_creators_by_countries(
         for the /lists preview cards; the full detail page queries each
         country directly.
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client or not country_codes:
         return {}
 
@@ -240,6 +251,7 @@ def get_top_creators_by_categories(
     Returns:
         Dict of {category: [creators sorted by subscribers desc]}
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client or not categories:
         return {}
 
@@ -315,6 +327,7 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
     Returns:
         List of creator dicts sorted by growth rate (%) descending
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -372,6 +385,7 @@ def get_veteran_creators(limit: int = 20) -> list[dict]:
     Returns:
         List of creator dicts sorted by subscribers descending
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -416,6 +430,7 @@ def _fetch_top_counts(
         fallback:  ``Callable(limit)`` invoked when the RPC raises.
         limit:     Maximum rows to return.
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
         return []
@@ -444,6 +459,11 @@ def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
         column: Column name in the ``creators`` table (e.g. ``"country_code"``).
         limit:  Maximum tuples to return.
     """
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return []
+
     try:
         response = (
             supabase_client.table("creators")
@@ -523,6 +543,7 @@ def get_lists_meta() -> dict:
     back to a combined client-side scan (approximate) if the RPC is
     unavailable.
     """
+    supabase_client = _get_supabase_client()
     if not supabase_client:
         return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
 
@@ -545,6 +566,11 @@ def get_lists_meta() -> dict:
 
 def _get_lists_meta_fallback() -> dict:
     """Client-side fallback for get_lists_meta (RPC unavailable)."""
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+
     try:
         response = (
             supabase_client.table("creators")
@@ -616,6 +642,11 @@ def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
     as a simple column scan, so this has its own implementation rather than
     delegating to ``_scan_column_counts``.
     """
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return []
+
     try:
         response = (
             supabase_client.table("creators")
