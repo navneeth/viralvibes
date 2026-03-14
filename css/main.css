@@ -83,13 +83,6 @@
   line-height: 180%; /* 28.8px */
 }
 
-.xs-mono-body {
-  font-family: "Geist Mono";
-  font-size: 0.875rem;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 180%; /* 1.575rem */
-}
 
 .regular-body,
 .s-body {
