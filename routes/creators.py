@@ -175,24 +175,26 @@ def creators_route(request):
     # size (e.g. 50). If get_creator_hero_stats() RPC fails and returns {}, the merge
     # keeps that page-level value, making the unfiltered hero show "50 creators".
     # total_count from get_creators(return_count=True) is always the authoritative
-    # count — it's the exact DB count matching all active filters:
-    #   - No filters active: equals the global synced-creator count (correct)
-    #   - Filters active: equals the filtered total used in the hero "X of Y" display
-    # We only override when no filters are active (unfiltered = global total).
-    # When filters are active, total_count is the filtered count and is passed
-    # separately as filtered_count to _render_hero, not as the global total.
-    has_active_filters = any(
-        [
-            search,
-            grade_filter != "all",
-            language_filter != "all",
-            activity_filter != "all",
-            age_filter != "all",
-            country_filter != "all",
-            category_filter != "all",
-        ]
+    # global count when no filters are active, so we use it as the fallback.
+    # We must NOT override when filters are active: total_count is then a filtered
+    # subset count, and writing it into stats["total_creators"] would make the hero
+    # display the filtered total as if it were the global total.
+    #
+    # Derived from request.query_params — the single source of truth — so adding a
+    # new filter param only needs wiring in one place (the extraction block above).
+    _FILTER_DEFAULTS = {
+        "grade": "all",
+        "language": "all",
+        "activity": "all",
+        "age": "all",
+        "country": "all",
+        "category": "all",
+    }
+    has_active_filters = bool(search) or any(
+        request.query_params.get(k, default) != default
+        for k, default in _FILTER_DEFAULTS.items()
     )
-    if not has_active_filters or not stats.get("total_creators"):
+    if not has_active_filters:
         stats["total_creators"] = total_count
     stats["top_countries"] = get_top_countries_with_counts(limit=8)
     stats["top_languages"] = get_top_languages_with_counts(limit=5)
