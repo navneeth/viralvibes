@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
-import urllib.parse
-from urllib.parse import urlencode
+from urllib.parse import urlencode, unquote, quote
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -47,7 +46,7 @@ from utils.creator_metrics import (
     get_language_name,
     get_sync_status_badge,
 )
-from db import add_creator_by_handle, calculate_creator_stats, get_creator_hero_stats
+from db import calculate_creator_stats, get_creator_hero_stats
 
 logger = logging.getLogger(__name__)
 
@@ -502,6 +501,40 @@ def _render_hero(
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Filter pill helper — DRYs the 6 near-identical pill sections in _render_filter_bar
+# ─────────────────────────────────────────────────────────────────────────────
+_PILL_BASE = "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+_PILL_INACTIVE = "bg-background border border-border hover:bg-accent text-foreground"
+
+
+def _filter_pills(
+    options: list[tuple[str, str, str]],
+    current_val: str,
+    active_cls: str,
+    build_url,
+) -> Div:
+    """Render a row of filter pills.
+
+    Args:
+        options:    [(value, label, emoji), ...]
+        current_val: currently active value
+        active_cls: Tailwind classes for the active state
+        build_url:  zero-arg callable per value → href string
+    """
+    return Div(
+        *[
+            A(
+                f"{emoji} {label}",
+                href=build_url(val),
+                cls=_PILL_BASE + (active_cls if current_val == val else _PILL_INACTIVE),
+            )
+            for val, label, emoji in options
+        ],
+        cls="flex gap-1.5 flex-wrap",
+    )
+
+
 def _render_filter_bar(
     search: str,
     sort: str,
@@ -575,7 +608,7 @@ def _render_filter_bar(
                     for val, label in sort_options
                 ],
                 name="sort",
-                cls="h-10 px-3 rounded-lg border border-gray-300 font-medium",
+                cls="h-10 px-3 rounded-lg border border-border font-medium",
                 onchange="this.form.submit()",
             ),
             cls="flex gap-2 items-center flex-1",
@@ -603,32 +636,20 @@ def _render_filter_bar(
         ("C", "New", "🔍"),
     ]
 
-    grade_pills = Div(
-        *[
-            A(
-                f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=val,
-                    language=language_filter,
-                    activity=activity_filter,
-                    age=age_filter,
-                    country=country_filter,
-                    category=category_filter,
-                ),
-                cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-blue-600 text-white shadow-sm"
-                        if grade_filter == val
-                        else "bg-background border border-border hover:bg-accent text-foreground"
-                    )
-                ),
-            )
-            for val, label, emoji in grade_options
-        ],
-        cls="flex gap-1.5 flex-wrap",
+    grade_pills = _filter_pills(
+        grade_options,
+        grade_filter,
+        active_cls="bg-primary text-primary-foreground shadow-sm",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=v,
+            language=language_filter,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+        ),
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -643,32 +664,20 @@ def _render_filter_bar(
         ("zh", "Chinese", "🇨🇳"),
     ]
 
-    language_pills = Div(
-        *[
-            A(
-                f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=val,
-                    activity=activity_filter,
-                    age=age_filter,
-                    country=country_filter,
-                    category=category_filter,
-                ),
-                cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-blue-100 text-blue-700 border border-blue-300"
-                        if language_filter == val
-                        else "bg-background border border-border hover:bg-accent text-foreground"
-                    )
-                ),
-            )
-            for val, label, emoji in language_options
-        ],
-        cls="flex gap-1.5 flex-wrap",
+    language_pills = _filter_pills(
+        language_options,
+        language_filter,
+        active_cls="bg-blue-100 text-blue-700 border border-blue-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=v,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+        ),
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -680,32 +689,20 @@ def _render_filter_bar(
         ("dormant", "Dormant (<1/mo)", "⚠️"),
     ]
 
-    activity_pills = Div(
-        *[
-            A(
-                f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=language_filter,
-                    activity=val,
-                    age=age_filter,
-                    country=country_filter,
-                    category=category_filter,
-                ),
-                cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-green-100 text-green-700 border border-green-300"
-                        if activity_filter == val
-                        else "bg-background border border-border hover:bg-accent text-foreground"
-                    )
-                ),
-            )
-            for val, label, emoji in activity_options
-        ],
-        cls="flex gap-1.5 flex-wrap",
+    activity_pills = _filter_pills(
+        activity_options,
+        activity_filter,
+        active_cls="bg-green-100 text-green-700 border border-green-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=v,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+        ),
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -718,32 +715,20 @@ def _render_filter_bar(
         ("veteran", "10+ yrs", "👑"),
     ]
 
-    age_pills = Div(
-        *[
-            A(
-                f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=language_filter,
-                    activity=activity_filter,
-                    age=val,
-                    country=country_filter,
-                    category=category_filter,
-                ),
-                cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-purple-100 text-purple-700 border border-purple-300"
-                        if age_filter == val
-                        else "bg-background border border-border hover:bg-accent text-foreground"
-                    )
-                ),
-            )
-            for val, label, emoji in age_options
-        ],
-        cls="flex gap-1.5 flex-wrap",
+    age_pills = _filter_pills(
+        age_options,
+        age_filter,
+        active_cls="bg-purple-100 text-purple-700 border border-purple-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=activity_filter,
+            age=v,
+            country=country_filter,
+            category=category_filter,
+        ),
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -760,12 +745,11 @@ def _render_filter_bar(
         flag = get_country_flag(country_code) or "🏴"
         country_options.append((country_code, f"{flag} {country_code.upper()}", flag))
 
+    # Country pills use a custom label format (flag + code only), so built manually
     country_pills = Div(
         *[
             A(
-                (
-                    label if emoji == "🌍" else f"{emoji} {label.split()[-1]}"
-                ),  # Show just flag + code
+                label if emoji == "🌍" else f"{emoji} {label.split()[-1]}",
                 href=_build_filter_url(
                     sort=sort,
                     search=search,
@@ -776,13 +760,11 @@ def _render_filter_bar(
                     country=val,
                     category=category_filter,
                 ),
-                cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-orange-100 text-orange-700 border border-orange-300"
-                        if country_filter == val
-                        else "bg-background border border-border hover:bg-accent text-foreground"
-                    )
+                cls=_PILL_BASE
+                + (
+                    "bg-orange-100 text-orange-700 border border-orange-300"
+                    if country_filter == val
+                    else _PILL_INACTIVE
                 ),
             )
             for val, label, emoji in country_options
@@ -807,32 +789,20 @@ def _render_filter_bar(
             continue
         category_options.append((cat_name, short_name, emoji))
 
-    category_pills = Div(
-        *[
-            A(
-                f"{emoji} {label}",
-                href=_build_filter_url(
-                    sort=sort,
-                    search=search,
-                    grade=grade_filter,
-                    language=language_filter,
-                    activity=activity_filter,
-                    age=age_filter,
-                    country=country_filter,
-                    category=val,
-                ),
-                cls=(
-                    "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
-                    + (
-                        "bg-pink-100 text-pink-700 border border-pink-300"
-                        if category_filter == val
-                        else "bg-background border border-border hover:bg-accent text-foreground"
-                    )
-                ),
-            )
-            for val, label, emoji in category_options
-        ],
-        cls="flex gap-1.5 flex-wrap",
+    category_pills = _filter_pills(
+        category_options,
+        category_filter,
+        active_cls="bg-pink-100 text-pink-700 border border-pink-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=v,
+        ),
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -923,7 +893,7 @@ def _render_filter_bar(
                     # Close button
                     Button(
                         Span("✕", cls="text-xl"),
-                        cls="uk-modal-close-default p-2 hover:bg-gray-100 rounded-lg transition-colors",
+                        cls="uk-modal-close-default p-2 hover:bg-accent rounded-lg transition-colors",
                         type="button",
                     ),
                     cls="flex items-start justify-between mb-4 pb-4 border-b border-border",
@@ -1331,7 +1301,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
                 # Extract everything after the last /wiki/
                 slug = item.split("/wiki/")[-1].rstrip("/")
                 # Decode URL encoding and convert underscores to spaces
-                name = urllib.parse.unquote(slug).replace("_", " ")
+                name = unquote(slug).replace("_", " ")
                 if name:
                     categories.append(name)
             except Exception:
@@ -1359,7 +1329,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
     for idx, cat in enumerate(categories[:5]):
         emoji = get_topic_category_emoji(cat)
         # Create clean Wikipedia URL from category name (URL-encoded for special characters)
-        wiki_slug = urllib.parse.quote(cat.replace(" ", "_"))
+        wiki_slug = quote(cat.replace(" ", "_"))
         wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
         color = pill_colors[idx % len(pill_colors)]
 
@@ -1626,7 +1596,7 @@ def _render_creator_card(creator: dict) -> Div:
         return card
     return A(
         card,
-        href=f"/creator/{creator_uuid}?name={urllib.parse.quote(channel_name)}",
+        href=f"/creator/{creator_uuid}?name={quote(channel_name)}",
         cls="block no-underline group min-w-0 w-full",
     )
 
@@ -1689,7 +1659,7 @@ def _render_pagination(
 
     def ellipsis():
         """Render ellipsis for skipped pages."""
-        return Span("...", cls="px-2 text-gray-400")
+        return Span("...", cls="px-2 text-muted-foreground")
 
     # Smart page button display logic (like the FastHTML example)
     buttons = []
@@ -1745,7 +1715,7 @@ def _render_pagination(
         if page > 1
         else Span(
             "← Previous",
-            cls="px-4 py-2 bg-gray-100 text-gray-400 font-medium rounded-lg cursor-not-allowed",
+            cls="px-4 py-2 bg-accent text-muted-foreground font-medium rounded-lg cursor-not-allowed",
         )
     )
 
@@ -1769,7 +1739,7 @@ def _render_pagination(
         if page < total_pages
         else Span(
             "Next →",
-            cls="px-4 py-2 bg-gray-100 text-gray-400 font-medium rounded-lg cursor-not-allowed",
+            cls="px-4 py-2 bg-accent text-muted-foreground font-medium rounded-lg cursor-not-allowed",
         )
     )
 
@@ -1782,7 +1752,7 @@ def _render_pagination(
         Div(
             P(
                 f"Showing {start_result:,}–{end_result:,} of {total_count:,} creators",
-                cls="text-sm text-gray-600",
+                cls="text-sm text-muted-foreground",
             ),
             cls="text-center mb-4",
         ),
@@ -1813,11 +1783,11 @@ def _render_empty_state(
                 ),
                 P(
                     "This creator might not exist on YouTube or has a different handle.",
-                    cls="text-center text-gray-600 mb-2",
+                    cls="text-center text-muted-foreground mb-2",
                 ),
                 P(
                     "💡 Try searching without the @ symbol or verify the handle on YouTube first.",
-                    cls="text-center text-sm text-gray-500 mb-6",
+                    cls="text-center text-sm text-muted-foreground mb-6",
                 ),
                 Div(
                     A(
@@ -1838,7 +1808,7 @@ def _render_empty_state(
                 H2("No creators found", cls="text-center text-2xl font-bold mb-2"),
                 P(
                     "Try adjusting your filters or search terms",
-                    cls="text-center text-gray-600 mb-2",
+                    cls="text-center text-muted-foreground mb-2",
                 ),
                 P(
                     "💡 Tip: Search by handle like @MrBeast to add creators directly from YouTube",
@@ -1862,7 +1832,7 @@ def _render_empty_state(
                 ),
                 P(
                     "Analyze YouTube playlists to automatically discover and track creators.",
-                    cls="text-center text-gray-600 mb-2",
+                    cls="text-center text-muted-foreground mb-2",
                 ),
                 P(
                     "💡 Or search by handle like @MrBeast to add them directly!",
@@ -1984,7 +1954,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         return Div(
             P(label, cls=f"text-xs font-semibold {accent_cls} uppercase tracking-wide"),
             P(value, cls=f"text-3xl font-bold {accent_cls} mt-1"),
-            P(delta, cls="text-xs text-gray-500 mt-1"),
+            P(delta, cls="text-xs text-muted-foreground mt-1"),
             cls=f"{bg_cls} rounded-xl p-4 text-center",
         )
 
@@ -2036,7 +2006,10 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 ),
                 Div(
                     (
-                        Span(handle_display, cls="text-sm text-gray-500 font-mono")
+                        Span(
+                            handle_display,
+                            cls="text-sm text-muted-foreground font-mono",
+                        )
                         if handle_display
                         else None
                     ),
@@ -2044,7 +2017,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                         Span(
                             f"{country_flag} {country_code.upper()}",
                             title=country_code.upper(),
-                            cls="text-sm text-gray-500",
+                            cls="text-sm text-muted-foreground",
                         )
                         if country_code
                         else None
@@ -2052,7 +2025,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                     (
                         Span(
                             f"{lang_emoji} {lang_name}",
-                            cls="text-sm text-gray-500",
+                            cls="text-sm text-muted-foreground",
                         )
                         if language
                         else None
@@ -2071,7 +2044,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                     (
                         Span(
                             f"📅 {format_channel_age(channel_age_days)}",
-                            cls="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded-full",
+                            cls="text-xs text-muted-foreground px-2 py-1 bg-accent rounded-full",
                         )
                         if channel_age_days
                         else None
@@ -2079,7 +2052,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                     (
                         Span(
                             f"📹 {monthly_uploads:.1f}/mo",
-                            cls="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded-full",
+                            cls="text-xs text-muted-foreground px-2 py-1 bg-accent rounded-full",
                         )
                         if monthly_uploads
                         else None
@@ -2100,7 +2073,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 A(
                     "← Back",
                     href=back_url,
-                    cls="inline-block px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg no-underline transition-colors",
+                    cls="inline-block px-4 py-2 bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
                 cls="flex gap-2 shrink-0 self-end",
             ),
@@ -2152,8 +2125,8 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         return Div(
             Span(icon, cls="text-lg w-6 shrink-0"),
             Div(
-                Span(label, cls="text-xs text-gray-500 block"),
-                Span(value, cls="text-sm font-medium text-gray-800"),
+                Span(label, cls="text-xs text-muted-foreground block"),
+                Span(value, cls="text-sm font-medium text-foreground"),
             ),
             cls="flex items-center gap-3",
         )
@@ -2185,7 +2158,10 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     keyword_pills = (
         Div(
             *[
-                Span(kw, cls="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full")
+                Span(
+                    kw,
+                    cls="text-xs px-2 py-1 bg-accent text-muted-foreground rounded-full",
+                )
                 for kw in keyword_list[:15]
             ],
             cls="flex flex-wrap gap-1.5 mt-3",
@@ -2201,10 +2177,13 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             (
                 P(
                     bio,
-                    cls="text-sm text-gray-600 leading-relaxed whitespace-pre-line",
+                    cls="text-sm text-muted-foreground leading-relaxed whitespace-pre-line",
                 )
                 if bio
-                else P("No description available.", cls="text-sm text-gray-400 italic")
+                else P(
+                    "No description available.",
+                    cls="text-sm text-muted-foreground italic",
+                )
             ),
             keyword_pills,
             cls="bg-background rounded-xl border border-border p-5 mb-4",
@@ -2220,9 +2199,9 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     # Right: Performance
     def _perf_row(label, value, value_cls="text-foreground"):
         return Div(
-            Span(label, cls="text-sm text-gray-500"),
+            Span(label, cls="text-sm text-muted-foreground"),
             Span(value, cls=f"text-sm font-semibold {value_cls}"),
-            cls="flex justify-between items-center py-2 border-b border-gray-100 last:border-0",
+            cls="flex justify-between items-center py-2 border-b border-border last:border-0",
         )
 
     # 30-day trend section
@@ -2233,7 +2212,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         trend_bg = "bg-green-50" if growth_rate >= 0 else "bg-red-50"
         trend_section = Div(
             Div(
-                P("30-Day Trend", cls="text-xs font-semibold text-gray-600"),
+                P("30-Day Trend", cls="text-xs font-semibold text-muted-foreground"),
                 Div(
                     P(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"),
                     Span(
@@ -2246,7 +2225,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             ),
             Div(
                 Div(cls=f"h-2 {bar_color} rounded-full", style=f"width:{bar_width}%"),
-                cls="w-full h-2 bg-gray-200 rounded-full overflow-hidden",
+                cls="w-full h-2 bg-border rounded-full overflow-hidden",
             ),
             cls=f"{trend_bg} rounded-lg p-3 mt-4",
         )
@@ -2255,7 +2234,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             Span("📊", cls="text-xl"),
             P(
                 "Growth tracking initializing — check back in 7+ days",
-                cls="text-xs text-gray-500 mt-1",
+                cls="text-xs text-muted-foreground mt-1",
             ),
             cls="flex flex-col items-center text-center bg-blue-50 rounded-lg p-3 mt-4",
         )
@@ -2275,7 +2254,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             if "wikipedia.org/wiki/" in str(item):
                 try:
                     slug = str(item).split("/wiki/")[-1].rstrip("/")
-                    name = urllib.parse.unquote(slug).replace("_", " ")
+                    name = unquote(slug).replace("_", " ")
                     if name:
                         parsed_cats.append(name)
                 except Exception:
@@ -2351,18 +2330,18 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                         Div(
                             Span(
                                 f"{get_topic_category_emoji(cat)} {cat}",
-                                cls="text-sm text-gray-700 w-40 shrink-0 truncate",
+                                cls="text-sm text-foreground w-40 shrink-0 truncate",
                             ),
                             Div(
                                 Div(
                                     cls="h-4 bg-blue-400 rounded-r-full",
                                     style=f"width:{min(100, round(count / total_dist * 100))}%",
                                 ),
-                                cls="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden",
+                                cls="flex-1 h-4 bg-accent rounded-full overflow-hidden",
                             ),
                             Span(
                                 f"{round(count / total_dist * 100)}%",
-                                cls="text-xs text-gray-500 w-10 text-right shrink-0",
+                                cls="text-xs text-muted-foreground w-10 text-right shrink-0",
                             ),
                             cls="flex items-center gap-3",
                         ),
@@ -2456,7 +2435,7 @@ def render_creator_preview(
             ),
             P(
                 f"Found {handle} on YouTube. Add them to your database to track their stats.",
-                cls="text-lg text-gray-600",
+                cls="text-lg text-muted-foreground",
             ),
             cls="mb-8",
         ),
@@ -2476,12 +2455,15 @@ def render_creator_preview(
                     H2(title, cls="text-2xl font-bold text-foreground"),
                     P(
                         handle,
-                        cls="text-lg text-gray-600 font-mono",
+                        cls="text-lg text-muted-foreground font-mono",
                     ),
                     (
                         Div(
                             get_country_flag(country),
-                            Span(country.upper(), cls="ml-2 text-sm text-gray-600"),
+                            Span(
+                                country.upper(),
+                                cls="ml-2 text-sm text-muted-foreground",
+                            ),
                             cls="flex items-center mt-2",
                         )
                         if country
@@ -2494,7 +2476,7 @@ def render_creator_preview(
             # Stats grid
             Div(
                 Div(
-                    P("Subscribers", cls="text-xs text-gray-500 uppercase"),
+                    P("Subscribers", cls="text-xs text-muted-foreground uppercase"),
                     P(
                         format_number(subs),
                         cls="text-2xl font-bold text-foreground mt-1",
@@ -2502,7 +2484,7 @@ def render_creator_preview(
                     cls="text-center bg-blue-50 rounded-lg p-4",
                 ),
                 Div(
-                    P("Total Views", cls="text-xs text-gray-500 uppercase"),
+                    P("Total Views", cls="text-xs text-muted-foreground uppercase"),
                     P(
                         format_number(views),
                         cls="text-2xl font-bold text-foreground mt-1",
@@ -2510,7 +2492,7 @@ def render_creator_preview(
                     cls="text-center bg-green-50 rounded-lg p-4",
                 ),
                 Div(
-                    P("Videos", cls="text-xs text-gray-500 uppercase"),
+                    P("Videos", cls="text-xs text-muted-foreground uppercase"),
                     P(
                         format_number(videos),
                         cls="text-2xl font-bold text-foreground mt-1",
@@ -2522,10 +2504,10 @@ def render_creator_preview(
             # Description
             (
                 Div(
-                    P("About", cls="text-sm font-semibold text-gray-700 mb-2"),
+                    P("About", cls="text-sm font-semibold text-foreground mb-2"),
                     P(
                         description[:200] + ("..." if len(description) > 200 else ""),
-                        cls="text-sm text-gray-600 leading-relaxed",
+                        cls="text-sm text-muted-foreground leading-relaxed",
                     ),
                     cls="mb-6",
                 )
