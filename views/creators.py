@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from urllib.parse import urlencode, unquote, quote
 
 from fasthtml.common import *
@@ -512,7 +513,7 @@ def _filter_pills(
     options: list[tuple[str, str, str]],
     current_val: str,
     active_cls: str,
-    build_url,
+    build_url: Callable[[str], str],
 ) -> Div:
     """Render a row of filter pills.
 
@@ -520,7 +521,7 @@ def _filter_pills(
         options:    [(value, label, emoji), ...]
         current_val: currently active value
         active_cls: Tailwind classes for the active state
-        build_url:  zero-arg callable per value → href string
+        build_url:  ``(value: str) -> str`` — returns the href for a given filter value
     """
     return Div(
         *[
@@ -1368,7 +1369,9 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
     card is already wrapped in an <a> (profile link).  Nested <a> tags are
     invalid HTML and cause browsers to silently drop the inner link.
     """
-    safe_url = channel_url.replace("'", "%27")
+    # json.dumps produces a fully JS-safe quoted string (handles backslashes,
+    # newlines, and all special chars), not just single-quote substitution.
+    js_url = json.dumps(channel_url)  # e.g. '"https://youtube.com/..."'
     return Div(
         Div(
             UkIcon("clock", cls="w-3 h-3 mr-1 opacity-50"),
@@ -1383,7 +1386,7 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
             UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
             "YouTube",
             type="button",
-            onclick=f"event.stopPropagation(); event.preventDefault(); window.open('{safe_url}', '_blank', 'noopener,noreferrer')",
+            onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
             cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
         ),
         cls="flex justify-between items-center mt-auto pt-3 border-t border-border",
