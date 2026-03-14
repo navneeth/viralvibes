@@ -95,6 +95,7 @@ from routes.lists import (
     language_detail_route,
     lists_more_categories_route,
     lists_more_countries_route,
+    lists_more_languages_route,
     lists_route,
 )
 from views.lists import _unslugify
@@ -1109,6 +1110,12 @@ def lists_more_countries(req, sess):
 def lists_more_categories(req, sess):
     """HTMX partial — next batch of category group cards for the By Category tab."""
     return lists_more_categories_route(req)
+
+
+@rt("/lists/more-languages")
+def lists_more_languages(req, sess):
+    """HTMX partial — next batch of language group cards for the By Language tab."""
+    return lists_more_languages_route(req)
 
 
 @rt("/lists/country/{country_code}")
