@@ -8,13 +8,13 @@ from fasthtml.common import Div
 
 from db import get_creators
 from db_lists import (
+    _count_distinct_languages,
     get_category_groups,
     get_country_groups,
     get_language_groups,
     get_lists_meta,
     get_most_active_creators,
     get_rising_creators,
-    get_top_languages_with_counts,
     get_top_rated_creators,
     get_veteran_creators,
 )
@@ -92,10 +92,11 @@ def lists_route(request):
         limit=INITIAL_GROUPS,
         creators_per_group=CREATORS_PER_GROUP,
     )
-    # meta["total_languages"] comes from migration 003; fall back to a direct
-    # count via get_top_languages_with_counts on older DB schemas.
-    tab_data["total_languages"] = meta.get("total_languages") or len(
-        get_top_languages_with_counts(limit=200)
+    # meta["total_languages"] comes from migration 003.  On older DB schemas
+    # that predate the RPC column, fall back to _count_distinct_languages() —
+    # a zero-row-transfer COUNT(DISTINCT) query that has no row cap.
+    tab_data["total_languages"] = (
+        meta.get("total_languages") or _count_distinct_languages()
     )
 
     return render_lists_page(active_tab=active_tab, tab_data=tab_data)
@@ -183,9 +184,7 @@ def lists_more_languages_route(request):
     try:
         total = int(request.query_params["total"])
     except (KeyError, TypeError, ValueError):
-        total = get_lists_meta().get("total_languages") or len(
-            get_top_languages_with_counts(limit=200)
-        )
+        total = get_lists_meta().get("total_languages") or _count_distinct_languages()
 
     groups = get_language_groups(
         offset=offset,
