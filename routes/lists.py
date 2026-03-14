@@ -10,9 +10,11 @@ from db import get_creators
 from db_lists import (
     get_category_groups,
     get_country_groups,
+    get_language_groups,
     get_lists_meta,
     get_most_active_creators,
     get_rising_creators,
+    get_top_languages_with_counts,
     get_top_rated_creators,
     get_veteran_creators,
 )
@@ -20,6 +22,7 @@ from views.lists import (
     render_lists_page,
     render_more_categories,
     render_more_countries,
+    render_more_languages,
     render_country_detail_page,
     render_country_creators_rows,
     render_category_detail_page,
@@ -82,6 +85,18 @@ def lists_route(request):
 
     # Veterans: 10+ year channels
     tab_data["veterans"] = get_veteran_creators(limit=20)
+
+    # By Language: first page of groups (offset=0)
+    tab_data["language_rankings"] = get_language_groups(
+        offset=0,
+        limit=INITIAL_GROUPS,
+        creators_per_group=CREATORS_PER_GROUP,
+    )
+    # meta["total_languages"] comes from migration 003; fall back to a direct
+    # count via get_top_languages_with_counts on older DB schemas.
+    tab_data["total_languages"] = meta.get("total_languages") or len(
+        get_top_languages_with_counts(limit=200)
+    )
 
     return render_lists_page(active_tab=active_tab, tab_data=tab_data)
 
@@ -148,6 +163,40 @@ def lists_more_categories_route(request):
     has_more = next_offset < total
 
     return render_more_categories(
+        groups, next_offset=next_offset, has_more=has_more, total=total
+    )
+
+
+def lists_more_languages_route(request):
+    """
+    GET /lists/more-languages?offset=N&total=N
+    HTMX partial — returns the next batch of language group cards.
+
+    ``total`` is forwarded from the initial page load so that we avoid
+    re-running the get_lists_meta() scan on every click.
+    """
+    try:
+        offset = int(request.query_params.get("offset", INITIAL_GROUPS))
+    except (TypeError, ValueError):
+        offset = INITIAL_GROUPS
+
+    try:
+        total = int(request.query_params["total"])
+    except (KeyError, TypeError, ValueError):
+        total = get_lists_meta().get("total_languages") or len(
+            get_top_languages_with_counts(limit=200)
+        )
+
+    groups = get_language_groups(
+        offset=offset,
+        limit=LOAD_MORE_STEP,
+        creators_per_group=CREATORS_PER_GROUP,
+    )
+
+    next_offset = offset + len(groups)
+    has_more = next_offset < total
+
+    return render_more_languages(
         groups, next_offset=next_offset, has_more=has_more, total=total
     )
 

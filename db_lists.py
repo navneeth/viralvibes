@@ -307,6 +307,96 @@ def get_top_creators_by_categories(
         return {}
 
 
+def get_top_creators_by_languages(
+    language_codes: list[str], limit_per_language: int = 5
+) -> dict[str, list[dict]]:
+    """
+    Batch-fetch top creators for a list of language codes in a single DB query.
+
+    Mirrors ``get_top_creators_by_countries`` — replaces N separate per-language
+    queries with one batch fetch that is then grouped client-side.
+
+    Args:
+        language_codes: ISO 639-1 two-letter codes, e.g. ["en", "ja", "es"]
+        limit_per_language: Max creators to return per language
+
+    Returns:
+        Dict of {language_code: [creators sorted by subscribers desc]}
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client or not language_codes:
+        return {}
+
+    try:
+        fetch_limit = min(len(language_codes) * limit_per_language * 3, 2000)
+
+        response = (
+            supabase_client.table("creators")
+            .select("*")
+            .in_("default_language", language_codes)
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
+            .order("current_subscribers", desc=True)
+            .limit(fetch_limit)
+            .execute()
+        )
+
+        creators = response.data if response.data else []
+
+        # Group by default_language, keep top N per language
+        result: dict[str, list[dict]] = {code: [] for code in language_codes}
+        for creator in creators:
+            code = creator.get("default_language", "")
+            if code in result and len(result[code]) < limit_per_language:
+                result[code].append(creator)
+
+        return result
+
+    except Exception as e:
+        logger.exception(f"Error batch-fetching creators for languages: {e}")
+        return {}
+
+
+def get_language_groups(
+    offset: int = 0, limit: int = 8, creators_per_group: int = 5
+) -> list[dict]:
+    """
+    Return paginated language groups, each with their top creators.
+
+    Mirrors ``get_country_groups`` — uses a single batch DB query for the
+    creators rather than one per language.
+    Each item: { language_code, count, creators }
+
+    Args:
+        offset: How many top languages to skip (for load-more pagination)
+        limit: How many language groups to return
+        creators_per_group: How many creators per language
+
+    Returns:
+        List of language group dicts
+    """
+    top_languages = get_top_languages_with_counts(limit=offset + limit)
+    page = top_languages[offset : offset + limit]
+
+    if not page:
+        return []
+
+    # Batch-fetch creators for all languages in this page — 1 query instead of N
+    language_codes = [lc for lc, _ in page]
+    creators_by_language = get_top_creators_by_languages(
+        language_codes, limit_per_language=creators_per_group
+    )
+
+    return [
+        {
+            "language_code": language_code,
+            "count": count,
+            "creators": creators_by_language.get(language_code, []),
+        }
+        for language_code, count in page
+    ]
+
+
 def get_rising_creators(limit: int = 20) -> list[dict]:
     """
     Get fastest-growing creators by 30-day growth rate (percentage).
@@ -536,16 +626,25 @@ def get_lists_meta() -> dict:
         total_creators   – exact DB COUNT(*)
         total_countries  – exact COUNT(DISTINCT country_code)
         total_categories – exact COUNT(DISTINCT normalised category)
+        total_languages  – exact COUNT(DISTINCT default_language)
 
-    All three values come from the ``get_lists_meta`` Supabase RPC function
+    All four values come from the ``get_lists_meta`` Supabase RPC function
     (see db/migrations/002_lists_page_rpc_functions.sql), which computes
     everything in a single server-side pass with zero row transfer.  Falls
     back to a combined client-side scan (approximate) if the RPC is
     unavailable.
+
+    Note: if the DB RPC predates the ``total_languages`` column (migration
+    003), the key defaults to 0 gracefully via ``row.get(...) or 0``.
     """
     supabase_client = _get_supabase_client()
     if not supabase_client:
-        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+        return {
+            "total_creators": 0,
+            "total_countries": 0,
+            "total_categories": 0,
+            "total_languages": 0,
+        }
 
     try:
         resp = supabase_client.rpc("get_lists_meta").execute()
@@ -555,9 +654,16 @@ def get_lists_meta() -> dict:
                 "total_creators": int(row.get("total_creators") or 0),
                 "total_countries": int(row.get("total_countries") or 0),
                 "total_categories": int(row.get("total_categories") or 0),
+                # total_languages added in migration 003; defaults to 0 on older DBs
+                "total_languages": int(row.get("total_languages") or 0),
             }
         logger.warning("[Lists] get_lists_meta RPC returned no data")
-        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+        return {
+            "total_creators": 0,
+            "total_countries": 0,
+            "total_categories": 0,
+            "total_languages": 0,
+        }
 
     except Exception as e:
         logger.exception(f"Error fetching lists meta via RPC: {e}")
@@ -569,12 +675,17 @@ def _get_lists_meta_fallback() -> dict:
     supabase_client = _get_supabase_client()
     if not supabase_client:
         logger.warning("[Lists] No Supabase client - returning empty list")
-        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+        return {
+            "total_creators": 0,
+            "total_countries": 0,
+            "total_categories": 0,
+            "total_languages": 0,
+        }
 
     try:
         response = (
             supabase_client.table("creators")
-            .select("country_code, topic_categories", count="exact")
+            .select("country_code, default_language, topic_categories", count="exact")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .limit(_MAX_FALLBACK_FETCH)
@@ -583,10 +694,13 @@ def _get_lists_meta_fallback() -> dict:
         rows = response.data if response.data else []
         total_creators = response.count if response.count is not None else len(rows)
         countries: set[str] = set()
+        languages: set[str] = set()
         categories: set[str] = set()
         for row in rows:
             if cc := row.get("country_code"):
                 countries.add(cc)
+            if lang := row.get("default_language"):
+                languages.add(lang)
             cats_raw = row.get("topic_categories")
             if cats_raw:
                 if isinstance(cats_raw, list):
@@ -608,10 +722,16 @@ def _get_lists_meta_fallback() -> dict:
             "total_creators": total_creators,
             "total_countries": len(countries),
             "total_categories": len(categories),
+            "total_languages": len(languages),
         }
     except Exception as e:
         logger.exception("Error in lists meta fallback: %s", e)
-        return {"total_countries": 0, "total_categories": 0, "total_creators": 0}
+        return {
+            "total_creators": 0,
+            "total_countries": 0,
+            "total_categories": 0,
+            "total_languages": 0,
+        }
 
 
 def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:

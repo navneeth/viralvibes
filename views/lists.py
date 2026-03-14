@@ -105,6 +105,13 @@ LISTS_TABS = [
         False,
     ),
     (
+        "by-language",
+        "By Language",
+        "languages",
+        "Browse creators grouped by their primary content language. Discover talent across linguistic communities.",
+        False,
+    ),
+    (
         "rising",
         "Rising Stars",
         "trending-up",
@@ -404,6 +411,47 @@ def _category_group_card(category_data: dict) -> Div:
     )
 
 
+def _language_group_card(language_data: dict) -> Div:
+    """Render a single language group card with its top creators."""
+    language_code = language_data["language_code"]
+    count = language_data["count"]
+    creators = language_data["creators"]
+
+    language_name = get_language_name(language_code)
+    emoji = get_language_emoji(language_code) or "🗣️"
+
+    return Div(
+        A(
+            Span(emoji, cls="text-2xl shrink-0"),
+            Div(
+                H3(
+                    language_name,
+                    cls="text-base font-bold text-foreground leading-tight",
+                ),
+                Span(
+                    language_code.upper(), cls="text-xs text-muted-foreground font-mono"
+                ),
+                cls="flex flex-col min-w-0",
+            ),
+            Span(
+                f"{format_number(count)} creators →",
+                cls="ml-auto shrink-0 text-xs font-medium text-primary",
+            ),
+            href=f"/lists/language/{language_code.lower()}",
+            cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
+        ),
+        (
+            Div(
+                *[_creator_mini_row(c, rank=i + 1) for i, c in enumerate(creators)],
+                cls="space-y-2 mt-3",
+            )
+            if creators
+            else P("No creators yet", cls="text-xs text-muted-foreground mt-2")
+        ),
+        cls="p-4 rounded-xl border border-border bg-background hover:border-primary/40 transition-colors",
+    )
+
+
 def _load_more_button(
     url: str,
     target_id: str,
@@ -617,6 +665,66 @@ def _render_by_category_content(
                 next_offset=shown,
                 label=f"Show more categories ({total_categories - shown} remaining)",
                 total=total_categories,
+            )
+            if has_more
+            else None
+        ),
+        cls="min-h-64",
+    )
+
+
+def _render_by_language_content(
+    language_rankings: list[dict],
+    description: str,
+    total_languages: int = 0,
+) -> Div:
+    """
+    Renders By Language tab with grouped language sections.
+
+    Shows the initial batch of language cards plus a dynamic load-more button
+    when more languages exist in the database.
+
+    Args:
+        language_rankings: First page of {language_code, count, creators} dicts
+        description: Tab description text
+        total_languages: Total distinct languages in DB (for load-more badge)
+    """
+    if not language_rankings:
+        return _placeholder_content(description, coming_soon=False)
+
+    shown = len(language_rankings)
+    has_more = total_languages > shown
+
+    return Div(
+        DivFullySpaced(
+            P(description, cls="text-sm text-muted-foreground max-w-xl"),
+            Div(
+                Span(
+                    (
+                        f"{total_languages} languages"
+                        if total_languages
+                        else f"{shown} languages"
+                    ),
+                    cls="text-sm font-medium text-foreground",
+                ),
+                cls="shrink-0 hidden sm:block",
+            ),
+            cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
+        ),
+        # Language cards grid — HTMX load-more appends into this div
+        Div(
+            *[_language_group_card(c) for c in language_rankings],
+            id="language-groups-grid",
+            cls="grid grid-cols-1 md:grid-cols-2 gap-4",
+        ),
+        # Load-more button (only shown when more exist)
+        (
+            _load_more_button(
+                url="/lists/more-languages",
+                target_id="language-groups-grid",
+                next_offset=shown,
+                label=f"Show more languages ({total_languages - shown} remaining)",
+                total=total_languages,
             )
             if has_more
             else None
@@ -851,6 +959,39 @@ def render_more_categories(
     return Div(*cards, new_button)
 
 
+def render_more_languages(
+    groups: list[dict],
+    next_offset: int,
+    has_more: bool,
+    total: int = 0,
+) -> FT:
+    """
+    HTMX partial response for load-more languages.
+
+    Returns:
+        - New language group cards (appended into #language-groups-grid by hx-swap=beforeend)
+        - An oob-swap to replace the old load-more button div
+    """
+    cards = [_language_group_card(g) for g in groups]
+
+    new_button = (
+        _load_more_button(
+            url="/lists/more-languages",
+            target_id="language-groups-grid",
+            next_offset=next_offset,
+            label="Show more languages",
+            oob=True,
+            total=total,
+        )
+        if has_more
+        else Div(
+            id="language-groups-grid-load-more", hx_swap_oob="true"
+        )  # clears the button
+    )
+
+    return Div(*cards, new_button)
+
+
 def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> FT:
     """
     Renders the full /lists page with tabbed creator list navigation.
@@ -866,6 +1007,7 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
 
     total_countries = tab_data.get("total_countries", 0)
     total_categories = tab_data.get("total_categories", 0)
+    total_languages = tab_data.get("total_languages", 0)
 
     # Dynamic badges driven by live DB counts
     tab_badges: dict[str, str] = {}
@@ -873,6 +1015,8 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
         tab_badges["by-country"] = str(total_countries)
     if total_categories:
         tab_badges["by-category"] = str(total_categories)
+    if total_languages:
+        tab_badges["by-language"] = str(total_languages)
 
     tab_items = []
     panel_items = []
@@ -916,6 +1060,17 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
                         category_rankings,
                         description,
                         total_categories=total_categories,
+                    )
+                )
+            )
+        elif tab_id == "by-language":
+            language_rankings = tab_data.get("language_rankings", [])
+            panel_items.append(
+                Li(
+                    _render_by_language_content(
+                        language_rankings,
+                        description,
+                        total_languages=total_languages,
                     )
                 )
             )
