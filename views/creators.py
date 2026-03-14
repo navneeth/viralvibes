@@ -1027,73 +1027,72 @@ def _build_card_header(
     quality_grade: str,
     channel_age_days: int,
 ) -> Div:
-    """Build card header section with avatar, name, rank, and grade badges."""
-    # Normalise handle — strip leading @ and re-add for consistency
+    """Build card header: award-showcase rank badge, avatar, name, grade pill.
+
+    No nested <a> tags — the whole card is already wrapped in an <a> by the
+    caller, so channel_name is plain H3 text.  The YouTube link lives only in
+    the footer as a <button onclick> to avoid invalid HTML nesting.
+    """
+    # Normalize custom URL to handle both "@" and non-"@" formats, but display with "@" for familiarity
     handle_display = f"@{custom_url.lstrip('@')}" if custom_url else None
 
+    # Award-style rank colouring: gold top-3, silver top-10, neutral otherwise
+    try:
+        rank_int = int(rank)
+    except (ValueError, TypeError):
+        rank_int = 999
+    rank_cls = (
+        "bg-amber-400 text-amber-900"
+        if rank_int <= 3
+        else (
+            "bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-200"
+            if rank_int <= 10
+            else "bg-accent text-muted-foreground border border-border"
+        )
+    )
+
     return Div(
-        # Thumbnail with rank badge overlay
+        # Avatar with rank badge anchored to its bottom-left corner
         Div(
             Img(
                 src=thumbnail_url,
                 alt=channel_name,
-                cls="w-16 h-16 rounded-lg object-cover",
+                cls="w-14 h-14 rounded-xl object-cover ring-2 ring-border",
             ),
-            # Rank badge
             Div(
                 f"#{rank}",
-                cls="absolute -top-2 -right-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center",
+                cls=f"absolute -bottom-2 -left-2 {rank_cls} text-xs font-bold px-1.5 py-0.5 rounded-md shadow-sm whitespace-nowrap",
             ),
-            cls="relative",
+            cls="relative shrink-0",
         ),
-        # Channel info
+        # Channel name + handle + quick stats — plain text, no nested <a>
         Div(
-            Div(
-                # Channel name as a link to the channel
-                A(
-                    H3(
-                        channel_name,
-                        cls="font-semibold text-foreground truncate mb-0.5 hover:text-blue-600 transition-colors",
-                    ),
-                    href=channel_url,
-                    target="_blank",
-                    rel="noopener noreferrer",
-                    cls="block min-w-0 no-underline",
-                ),
-                # @handle in small muted text
-                (
-                    P(
-                        handle_display,
-                        cls="text-xs text-muted-foreground font-medium mb-0.5 truncate",
-                    )
-                    if handle_display
-                    else None
-                ),
-                P(
-                    f"{format_number(current_subs)} subscribers · {current_videos} videos",
-                    cls="text-xs text-muted-foreground truncate",
-                ),
-                cls="flex-1 min-w-0",
+            H3(
+                channel_name,
+                cls="font-bold text-base text-foreground leading-tight truncate group-hover:text-primary transition-colors",
             ),
-            # Quality grade badge — hidden for grade C ("New"), which just means unscored
             (
-                Div(
-                    Div(
-                        P(grade_icon, cls="text-lg"),
-                        cls="flex flex-col items-center",
-                    ),
-                    Div(
-                        P(grade_label, cls="text-xs font-semibold text-right"),
-                        cls="text-right",
-                    ),
-                    cls=f"px-3 py-2 rounded-lg {grade_bg} flex gap-2",
-                )
-                if quality_grade and quality_grade != "C"
+                P(handle_display, cls="text-xs text-muted-foreground truncate mt-0.5")
+                if handle_display
                 else None
             ),
-            cls="flex justify-between items-start gap-3 flex-1",
+            P(
+                f"{format_number(current_subs)} subs · {current_videos} videos",
+                cls="text-xs text-muted-foreground truncate mt-0.5",
+            ),
+            cls="flex-1 min-w-0",
         ),
-        cls="flex gap-3",
+        # Grade pill — omitted for grade C (unscored/new channels)
+        (
+            Div(
+                Span(grade_icon, cls="text-base leading-none"),
+                Span(grade_label, cls="text-xs font-semibold leading-none"),
+                cls=f"flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg {grade_bg} shrink-0",
+            )
+            if quality_grade and quality_grade != "C"
+            else None
+        ),
+        cls="flex items-start gap-3",
     )
 
 
@@ -1393,24 +1392,31 @@ def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
 
 
 def _build_card_footer(last_updated: str, channel_url: str) -> Div:
-    """Build card footer with timestamp and CTA link."""
+    """Card footer: last-updated timestamp + YouTube link.
+
+    The YouTube link is a <button onclick> rather than <a> because the whole
+    card is already wrapped in an <a> (profile link).  Nested <a> tags are
+    invalid HTML and cause browsers to silently drop the inner link.
+    """
+    safe_url = channel_url.replace("'", "%27")
     return Div(
         Div(
-            Span("🕐", cls="mr-1.5"),
-            P(
+            UkIcon("clock", cls="w-3 h-3 mr-1 opacity-50"),
+            Span(
                 format_date_relative(last_updated),
                 cls="text-xs text-muted-foreground",
             ),
-            cls="flex items-center",
+            cls="flex items-center gap-0.5",
         ),
-        A(
-            "View Channel →",
-            href=channel_url,
-            target="_blank",
-            rel="noopener noreferrer",
-            cls="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 no-underline",
+        # <button> stops the card-level click; JS opens YouTube in a new tab
+        Button(
+            UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
+            "YouTube",
+            type="button",
+            onclick=f"event.stopPropagation(); event.preventDefault(); window.open('{safe_url}', '_blank', 'noopener,noreferrer')",
+            cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
         ),
-        cls="flex justify-between items-center text-sm mt-auto pt-3",
+        cls="flex justify-between items-center mt-auto pt-3 border-t border-border",
     )
 
 
@@ -1545,19 +1551,25 @@ def _render_creator_card(creator: dict) -> Div:
     )
 
     # === COMPOSE CARD ===
-    # Use explicit Div structure for better dark mode support and visual clarity.
-    # MonsterUI Card component was hiding styling that needs dark mode variants.
-    card = Div(
-        # Sync status badge (if not synced) - rounded-t-lg to integrate with card
-        (
-            Div(
-                f"{sync_badge_info[0]} {sync_badge_info[1]}",
-                cls=f"text-xs font-semibold px-3 py-1 rounded-t-lg {sync_badge_info[2]}",
-            )
-            if sync_badge_info
-            else None
-        ),
-        # Header section
+    # Sync status banner — inline at the top of the body (not a MonsterUI header=
+    # slot) so it doesn't inherit uk-card-header border/padding styling.
+    sync_banner = (
+        Div(
+            f"{sync_badge_info[0]} {sync_badge_info[1]}",
+            cls=f"text-xs font-semibold text-center py-1 px-3 rounded-md {sync_badge_info[2]}",
+        )
+        if sync_badge_info
+        else None
+    )
+
+    # All content goes into the Card body as positional args — including the
+    # channel header block.  This matches the MonsterUI team-card pattern (ex_card3)
+    # where DivLAligned(avatar, info) is the first body child, not a header= slot.
+    # Using header= caused uk-card-header to apply its own border/padding, which
+    # visually hid the body metric sections.
+    card = Card(
+        # ── Identity ──────────────────────────────────────────────────────────
+        sync_banner,
         _build_card_header(
             thumbnail_url,
             channel_name,
@@ -1572,43 +1584,43 @@ def _render_creator_card(creator: dict) -> Div:
             quality_grade,
             channel_age_days,
         ),
-        # Topic categories emoji strip
+        # ── Context ───────────────────────────────────────────────────────────
+        # Topic categories rendered as clean emoji pills with Wikipedia links, plus
         _render_topic_categories(safe_get_value(creator, "topic_categories")),
-        # Bio — shown when present, truncated to keep cards uniform
         _render_bio(
             safe_get_value(creator, "bio")
             or safe_get_value(creator, "channel_description")
         ),
-        # Primary metrics
+        # ── Metrics ───────────────────────────────────────────────────────────
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
-        # Performance metrics
+        # Performance metrics grid: avg views/video, total videos, views/sub, est. revenue
         _build_performance_metrics(
             avg_views_per_video, current_videos, estimated_revenue, views_per_sub
         ),
-        # Growth trend (pass subs_change to detect NULL/tracking state)
+        # Growth trend (pass subs_change to determine if tracking is initializing)
         _build_growth_trend(growth_rate, growth_label, growth_style, subs_change),
-        # Keywords (if available)
+        # Keywords if available, rendered as a single line of small italic text (not a full tag cloud)
         (
-            Div(
-                P(
-                    keywords,
-                    cls="text-xs text-muted-foreground italic line-clamp-1 text-center",
-                ),
-                cls="mb-2",
+            P(
+                keywords,
+                cls="text-xs text-muted-foreground italic line-clamp-1 text-center",
             )
             if keywords
             else None
         ),
-        # Info strip at bottom (clean emoji display)
+        # Info strp at bottom of the card body, showing language, country, channel age, and activity badges as emojis with tooltips
         info_strip,
-        # Footer
-        _build_card_footer(last_updated, channel_url),
-        cls=f"bg-background rounded-lg border border-border p-4 flex flex-col min-w-0 overflow-hidden w-full hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer {card_border}",
+        # ── Footer slot (only the action row — no body content here) ──────────
+        footer=_build_card_footer(last_updated, channel_url),
+        body_cls="space-y-3",
+        cls=(
+            CardT.hover,
+            f"min-w-0 overflow-hidden w-full cursor-pointer {card_border}",
+        ),
     )
 
-    # Wrap the whole card in a block link so clicking anywhere navigates to
-    # the creator's profile page. We use CSS pointer-events on the inner
-    # channel link to let it still open YouTube directly.
+    # Single outer <a> — the only link wrapping the card.
+    # No <a> tags exist inside the card body; the YouTube button uses onclick.
     creator_uuid = safe_get_value(creator, "id", "")
     if not creator_uuid:
         return card
