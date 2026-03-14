@@ -170,6 +170,32 @@ def creators_route(request):
     page_stats = calculate_creator_stats(creators)
     hero_stats = get_creator_hero_stats()
     stats = {**page_stats, **hero_stats}
+
+    # Bug fix: calculate_creator_stats() sets total_creators = len(creators) = page
+    # size (e.g. 50). If get_creator_hero_stats() RPC fails and returns {}, the merge
+    # keeps that page-level value, making the unfiltered hero show "50 creators".
+    # total_count from get_creators(return_count=True) is always the authoritative
+    # global count when no filters are active, so we use it as the fallback.
+    # We must NOT override when filters are active: total_count is then a filtered
+    # subset count, and writing it into stats["total_creators"] would make the hero
+    # display the filtered total as if it were the global total.
+    #
+    # Derived from request.query_params — the single source of truth — so adding a
+    # new filter param only needs wiring in one place (the extraction block above).
+    _FILTER_DEFAULTS = {
+        "grade": "all",
+        "language": "all",
+        "activity": "all",
+        "age": "all",
+        "country": "all",
+        "category": "all",
+    }
+    has_active_filters = bool(search) or any(
+        request.query_params.get(k, default) != default
+        for k, default in _FILTER_DEFAULTS.items()
+    )
+    if not has_active_filters:
+        stats["total_creators"] = total_count
     stats["top_countries"] = get_top_countries_with_counts(limit=8)
     stats["top_languages"] = get_top_languages_with_counts(limit=5)
     stats["top_categories"] = get_top_categories_with_counts(limit=4)
