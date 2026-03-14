@@ -254,9 +254,17 @@ def render_creators_page(
         grade_filter: Quality grade filter (all, A+, A, B+, B, C)
         stats: Aggregate statistics dict from backend
     """
-    # Count creators by grade for filter badges
+    # Grade counts for the filter modal badge ("X creators available").
+    # Computed from the current page — a full-DB per-grade count would require
+    # an extra query.  Acceptable approximation for the badge display.
     grade_counts = _count_by_grade(creators)
-    creators = _filter_valid_creators(creators)
+
+    # NOTE: _filter_valid_creators is intentionally NOT called here.
+    # db.get_creators() already applies the same conditions:
+    #   channel_name IS NOT NULL, current_subscribers > 0, sync_status = "synced"
+    # Applying a second filter on the paginated list would silently reduce the page
+    # size while total_count (used for pagination math) stays based on the DB count,
+    # making some pages appear to have fewer results than expected.
 
     # Use provided stats or build them from the current page + RPC global counts.
     # Must use the merge pattern so distribution keys (top_countries, top_languages,
@@ -282,7 +290,10 @@ def render_creators_page(
         # Hero section with real stats from DB
         _render_hero(
             stats=stats,
-            filtered_count=len(creators),
+            # total_count is the exact DB count for the current query (with or without
+            # filters). Using it instead of len(creators) ensures the hero shows the
+            # real filtered total ("450 of 500"), not just the current page size ("50").
+            filtered_count=total_count,
             has_filters=has_active_filters,
         ),
         # Filter controls (sticky bar)

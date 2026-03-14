@@ -170,6 +170,30 @@ def creators_route(request):
     page_stats = calculate_creator_stats(creators)
     hero_stats = get_creator_hero_stats()
     stats = {**page_stats, **hero_stats}
+
+    # Bug fix: calculate_creator_stats() sets total_creators = len(creators) = page
+    # size (e.g. 50). If get_creator_hero_stats() RPC fails and returns {}, the merge
+    # keeps that page-level value, making the unfiltered hero show "50 creators".
+    # total_count from get_creators(return_count=True) is always the authoritative
+    # count — it's the exact DB count matching all active filters:
+    #   - No filters active: equals the global synced-creator count (correct)
+    #   - Filters active: equals the filtered total used in the hero "X of Y" display
+    # We only override when no filters are active (unfiltered = global total).
+    # When filters are active, total_count is the filtered count and is passed
+    # separately as filtered_count to _render_hero, not as the global total.
+    has_active_filters = any(
+        [
+            search,
+            grade_filter != "all",
+            language_filter != "all",
+            activity_filter != "all",
+            age_filter != "all",
+            country_filter != "all",
+            category_filter != "all",
+        ]
+    )
+    if not has_active_filters or not stats.get("total_creators"):
+        stats["total_creators"] = total_count
     stats["top_countries"] = get_top_countries_with_counts(limit=8)
     stats["top_languages"] = get_top_languages_with_counts(limit=5)
     stats["top_categories"] = get_top_categories_with_counts(limit=4)
