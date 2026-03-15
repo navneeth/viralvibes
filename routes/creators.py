@@ -236,17 +236,18 @@ def creator_profile_route(request, creator_id: str):
     if not creator:
         logger.warning(f"[CreatorProfile] Creator not found: {creator_id}")
         return Div(
-            H2("Creator not found", cls="text-2xl font-bold text-gray-800 mb-2"),
+            UkIcon("user-x", cls="w-12 h-12 text-muted-foreground mx-auto mb-4"),
+            H2("Creator not found", cls="text-2xl font-bold text-foreground mb-2"),
             P(
                 f"No creator with ID {creator_id!r} exists in the database.",
-                cls="text-gray-500",
+                cls="text-muted-foreground",
             ),
             A(
                 "← Back to Creators",
                 href="/creators",
-                cls="mt-4 inline-block text-blue-600 hover:underline",
+                cls="mt-4 inline-flex items-center text-sm font-medium text-primary hover:underline",
             ),
-            cls="max-w-2xl mx-auto px-4 py-16 text-center",
+            cls="max-w-2xl mx-auto px-4 py-24 text-center",
         )
 
     # Respect ?from= query param for the back-link (e.g. a country/category list)
