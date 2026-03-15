@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_f244bf8a352cf537_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-03-14 15:58 +0000
+            created at 2026-03-15 02:51 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -320,23 +320,24 @@
     <p class="mis show_mis"><span class="n"><a id="t236" href="#t236">236</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">creator</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t237" href="#t237">237</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">warning</span><span class="op">(</span><span class="str">f"[CreatorProfile] Creator not found: {creator_id}"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t238" href="#t238">238</a></span><span class="t">        <span class="key">return</span> <span class="nam">Div</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t239" href="#t239">239</a></span><span class="t">            <span class="nam">H2</span><span class="op">(</span><span class="str">"Creator not found"</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-2xl font-bold text-gray-800 mb-2"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t240" href="#t240">240</a></span><span class="t">            <span class="nam">P</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t241" href="#t241">241</a></span><span class="t">                <span class="str">f"No creator with ID {creator_id!r} exists in the database."</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t242" href="#t242">242</a></span><span class="t">                <span class="nam">cls</span><span class="op">=</span><span class="str">"text-gray-500"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t243" href="#t243">243</a></span><span class="t">            <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t244" href="#t244">244</a></span><span class="t">            <span class="nam">A</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t245" href="#t245">245</a></span><span class="t">                <span class="str">"&#8592; Back to Creators"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t246" href="#t246">246</a></span><span class="t">                <span class="nam">href</span><span class="op">=</span><span class="str">"/creators"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t247" href="#t247">247</a></span><span class="t">                <span class="nam">cls</span><span class="op">=</span><span class="str">"mt-4 inline-block text-blue-600 hover:underline"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t248" href="#t248">248</a></span><span class="t">            <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t249" href="#t249">249</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="str">"max-w-2xl mx-auto px-4 py-16 text-center"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t250" href="#t250">250</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t251" href="#t251">251</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t252" href="#t252">252</a></span><span class="t">    <span class="com"># Respect ?from= query param for the back-link (e.g. a country/category list)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t253" href="#t253">253</a></span><span class="t">    <span class="nam">back_url</span> <span class="op">=</span> <span class="nam">request</span><span class="op">.</span><span class="nam">query_params</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"from"</span><span class="op">,</span> <span class="str">"/creators"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">    <span class="key">return</span> <span class="nam">render_creator_profile_page</span><span class="op">(</span><span class="nam">creator</span><span class="op">,</span> <span class="nam">back_url</span><span class="op">=</span><span class="nam">back_url</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t239" href="#t239">239</a></span><span class="t">            <span class="nam">UkIcon</span><span class="op">(</span><span class="str">"user-x"</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"w-12 h-12 text-muted-foreground mx-auto mb-4"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t240" href="#t240">240</a></span><span class="t">            <span class="nam">H2</span><span class="op">(</span><span class="str">"Creator not found"</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">"text-2xl font-bold text-foreground mb-2"</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t241" href="#t241">241</a></span><span class="t">            <span class="nam">P</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t242" href="#t242">242</a></span><span class="t">                <span class="str">f"No creator with ID {creator_id!r} exists in the database."</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t243" href="#t243">243</a></span><span class="t">                <span class="nam">cls</span><span class="op">=</span><span class="str">"text-muted-foreground"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t244" href="#t244">244</a></span><span class="t">            <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t245" href="#t245">245</a></span><span class="t">            <span class="nam">A</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t246" href="#t246">246</a></span><span class="t">                <span class="str">"&#8592; Back to Creators"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t247" href="#t247">247</a></span><span class="t">                <span class="nam">href</span><span class="op">=</span><span class="str">"/creators"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t248" href="#t248">248</a></span><span class="t">                <span class="nam">cls</span><span class="op">=</span><span class="str">"mt-4 inline-flex items-center text-sm font-medium text-primary hover:underline"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t249" href="#t249">249</a></span><span class="t">            <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t250" href="#t250">250</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="str">"max-w-2xl mx-auto px-4 py-24 text-center"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t251" href="#t251">251</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t252" href="#t252">252</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t253" href="#t253">253</a></span><span class="t">    <span class="com"># Respect ?from= query param for the back-link (e.g. a country/category list)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">    <span class="nam">back_url</span> <span class="op">=</span> <span class="nam">request</span><span class="op">.</span><span class="nam">query_params</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"from"</span><span class="op">,</span> <span class="str">"/creators"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t256" href="#t256">256</a></span><span class="t">    <span class="key">return</span> <span class="nam">render_creator_profile_page</span><span class="op">(</span><span class="nam">creator</span><span class="op">,</span> <span class="nam">back_url</span><span class="op">=</span><span class="nam">back_url</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -346,7 +347,7 @@
             <a class="nav" href="z_f244bf8a352cf537_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.4">coverage.py v7.13.4</a>,
-            created at 2026-03-14 15:58 +0000
+            created at 2026-03-15 02:51 +0000
         </p>
     </div>
 </footer>
