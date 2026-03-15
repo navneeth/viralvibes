@@ -1892,15 +1892,15 @@ def _count_by_grade(creators: list[dict]) -> dict:
 
 def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> Div:
     """
-    Full-page creator profile.
+    Full-page creator profile — award-showcase design.
 
-    Sections:
-      1. Banner + hero identity (avatar, name, handle, grade, tags)
-      2. Stats row  (subscribers, views, videos, revenue)
+    Layout:
+      1. Cinematic banner + overlapping avatar + identity strip
+      2. 4-up stat cards with 30d deltas
       3. Two-column body:
-           Left  – About (bio, channel info, keywords)
-           Right – Performance (metrics, 30-day trend, topic categories)
-      4. Category distribution bar chart (when available)
+           Left  — About (bio, channel info, keywords)
+           Right — Performance (hero metrics, secondary table, trend bar)
+      4. Topic categories + category distribution bars
       5. Sync / freshness footer
     """
     # ── identity ──────────────────────────────────────────────────────────────
@@ -1924,6 +1924,8 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     language = safe_get_value(creator, "default_language", "")
     quality_grade = safe_get_value(creator, "quality_grade", "C")
     official = safe_get_value(creator, "official", False)
+    hidden_subs = safe_get_value(creator, "hidden_subscriber_count", False)
+    primary_category = safe_get_value(creator, "primary_category", "")
     published_at = safe_get_value(creator, "published_at", "")
     channel_age_days = safe_get_value(creator, "channel_age_days", 0) or 0
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0) or 0
@@ -1957,215 +1959,233 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     lang_emoji = get_language_emoji(language) if language else ""
     lang_name = get_language_name(language) if language else ""
 
-    # ── helpers ───────────────────────────────────────────────────────────────
-    def _delta_str(val, suffix="30d"):
+    # ── small helpers (private to this call) ─────────────────────────────────
+    def _delta_badge(val: int | None) -> Span | None:
+        """Inline +/- badge for 30-day delta next to a stat value."""
         if val is None:
-            return "—"
+            return None
+        colour = (
+            "text-green-600 bg-green-50 dark:bg-green-900/30"
+            if val >= 0
+            else "text-red-600 bg-red-50 dark:bg-red-900/30"
+        )
         sign = "+" if val > 0 else ""
-        return f"{sign}{format_number(val)} ({suffix})"
+        return Span(
+            f"{sign}{format_number(val)} 30d",
+            cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {colour} ml-1.5",
+        )
 
-    def _stat_card(label, value, delta, accent_cls, bg_cls):
+    def _info_row(icon: str, label: str, value: str):
+        """One metadata row: UkIcon | label / value."""
         return Div(
-            P(label, cls=f"text-xs font-semibold {accent_cls} uppercase tracking-wide"),
-            P(value, cls=f"text-3xl font-bold {accent_cls} mt-1"),
-            P(delta, cls="text-xs text-muted-foreground mt-1"),
-            cls=f"{bg_cls} rounded-xl p-4 text-center",
+            UkIcon(icon, cls="w-4 h-4 text-muted-foreground shrink-0 mt-0.5"),
+            Div(
+                Span(label, cls="text-xs text-muted-foreground block leading-none"),
+                Span(value, cls="text-sm font-medium text-foreground leading-snug"),
+            ),
+            cls="flex items-start gap-2.5",
+        )
+
+    def _perf_row(label: str, value: str, value_cls: str = "text-foreground"):
+        return Div(
+            Span(label, cls="text-sm text-muted-foreground"),
+            Span(value, cls=f"text-sm font-semibold {value_cls}"),
+            cls="flex justify-between items-center py-2 border-b border-border last:border-0",
         )
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # SECTION 1 — Banner + hero identity
+    # SECTION 1 — Cinematic banner + overlapping avatar + identity strip
     # ═══════════════════════════════════════════════════════════════════════════
-    banner_section = Div(
-        # Banner image (or gradient fallback)
-        (
-            Div(
-                style=(
-                    f"background-image:url('{banner_url}');"
-                    "background-size:cover;background-position:center;"
-                    "height:180px;"
-                ),
-                cls="w-full rounded-t-xl",
-            )
-            if banner_url
-            else Div(
-                cls="w-full rounded-t-xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500",
-                style="height:140px;",
-            )
-        ),
-        # Identity row (overlaps bottom of banner)
+    # Banner layer
+    banner_layer = (
         Div(
+            # Dark gradient overlay — ensures text legibility on any banner image
             Div(
-                Img(
-                    src=thumbnail_url,
-                    alt=channel_name,
-                    cls="w-24 h-24 rounded-xl object-cover border-4 border-white shadow-lg",
-                ),
-                cls="shrink-0 -mt-12",
+                cls="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"
             ),
+            style=(
+                f"background-image:url('{banner_url}');"
+                "background-size:cover;background-position:center top;"
+                "height:220px;"
+            ),
+            cls="relative w-full rounded-t-xl",
+        )
+        if banner_url
+        else Div(
+            cls="w-full rounded-t-xl bg-gradient-to-br from-blue-700 via-violet-700 to-pink-600",
+            style="height:220px;",
+        )
+    )
+
+    # Identity strip — sits below the banner, avatar overlaps upward
+    identity_strip = Div(
+        # Avatar
+        Div(
+            Img(
+                src=thumbnail_url,
+                alt=channel_name,
+                cls="w-28 h-28 rounded-2xl object-cover ring-4 ring-background shadow-xl",
+            ),
+            cls="shrink-0 -mt-14",
+        ),
+        # Name + meta
+        Div(
+            # Row 1: name + official badge
             Div(
-                Div(
-                    H1(
-                        channel_name,
-                        cls="text-2xl sm:text-3xl font-bold text-foreground",
-                    ),
-                    (
-                        Span(
-                            "✓ Official",
-                            cls="ml-2 text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full",
-                        )
-                        if official
-                        else None
-                    ),
-                    cls="flex items-center gap-1 flex-wrap",
+                H1(
+                    channel_name,
+                    cls="text-2xl sm:text-3xl font-bold text-foreground leading-tight",
                 ),
-                Div(
-                    (
-                        Span(
-                            handle_display,
-                            cls="text-sm text-muted-foreground font-mono",
-                        )
-                        if handle_display
-                        else None
-                    ),
-                    (
-                        Span(
-                            f"{country_flag} {country_code.upper()}",
-                            title=country_code.upper(),
-                            cls="text-sm text-muted-foreground",
-                        )
-                        if country_code
-                        else None
-                    ),
-                    (
-                        Span(
-                            f"{lang_emoji} {lang_name}",
-                            cls="text-sm text-muted-foreground",
-                        )
-                        if language
-                        else None
-                    ),
-                    cls="flex flex-wrap gap-3 mt-1",
+                (
+                    Span(
+                        UkIcon("badge-check", cls="w-4 h-4 mr-1 inline"),
+                        "Official",
+                        cls="inline-flex items-center text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full",
+                    )
+                    if official
+                    else None
                 ),
-                Div(
-                    (
+                (
+                    Div(
                         Span(
                             f"{grade_icon} {grade_label}",
-                            cls=f"text-xs font-bold px-2 py-1 rounded-full {grade_bg}",
-                        )
-                        if quality_grade and quality_grade != "C"
-                        else None
-                    ),
-                    (
-                        Span(
-                            f"📅 {format_channel_age(channel_age_days)}",
-                            cls="text-xs text-muted-foreground px-2 py-1 bg-accent rounded-full",
-                        )
-                        if channel_age_days
-                        else None
-                    ),
-                    (
-                        Span(
-                            f"📹 {monthly_uploads:.1f}/mo",
-                            cls="text-xs text-muted-foreground px-2 py-1 bg-accent rounded-full",
-                        )
-                        if monthly_uploads
-                        else None
-                    ),
-                    cls="flex flex-wrap gap-2 mt-2",
+                            cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_bg}",
+                        ),
+                    )
+                    if quality_grade and quality_grade != "C"
+                    else None
                 ),
-                cls="flex-1 min-w-0",
+                cls="flex items-center gap-2 flex-wrap",
             ),
-            # Action buttons
+            # Row 2: handle + country + language + age tags
             Div(
-                A(
-                    "▶ View Channel",
-                    href=channel_url,
-                    target="_blank",
-                    rel="noopener noreferrer",
-                    cls="inline-block px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg no-underline transition-colors",
+                (
+                    Span(handle_display, cls="text-sm text-muted-foreground font-mono")
+                    if handle_display
+                    else None
                 ),
-                A(
-                    "← Back",
-                    href=back_url,
-                    cls="inline-block px-4 py-2 bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold rounded-lg no-underline transition-colors",
+                (
+                    Span(
+                        f"{country_flag} {country_code.upper()}",
+                        cls="text-sm text-muted-foreground",
+                        title=country_code.upper(),
+                    )
+                    if country_code
+                    else None
                 ),
-                cls="flex gap-2 shrink-0 self-end",
+                (
+                    Span(
+                        f"{lang_emoji} {lang_name}", cls="text-sm text-muted-foreground"
+                    )
+                    if language
+                    else None
+                ),
+                (
+                    Span(
+                        f"📅 {format_channel_age(channel_age_days)}",
+                        cls="text-xs text-muted-foreground px-2 py-0.5 bg-accent rounded-full",
+                    )
+                    if channel_age_days
+                    else None
+                ),
+                (
+                    Span(
+                        f"📹 {monthly_uploads:.1f}/mo",
+                        cls="text-xs text-muted-foreground px-2 py-0.5 bg-accent rounded-full",
+                    )
+                    if monthly_uploads
+                    else None
+                ),
+                cls="flex flex-wrap gap-2 mt-1.5",
             ),
-            cls="flex gap-4 items-end mt-4 px-4 pb-4",
+            cls="flex-1 min-w-0 mt-2",
         ),
+        # CTA buttons — right-aligned, self-end so they sit at the bottom of the strip
+        Div(
+            A(
+                UkIcon("youtube", cls="w-4 h-4 mr-1.5"),
+                "YouTube",
+                href=channel_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                cls="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg no-underline transition-colors",
+            ),
+            A(
+                UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
+                "Back",
+                href=back_url,
+                cls="inline-flex items-center px-4 py-2 bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold rounded-lg no-underline transition-colors",
+            ),
+            cls="flex gap-2 shrink-0 self-end",
+        ),
+        cls="flex gap-4 items-end px-5 pb-5 pt-3",
+    )
+
+    banner_section = Div(
+        banner_layer,
+        identity_strip,
         cls="bg-background rounded-xl border border-border shadow-sm mb-6 overflow-hidden",
     )
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # SECTION 2 — 4-up stat cards
+    # SECTION 2 — 4-up stat cards (dark-mode safe)
     # ═══════════════════════════════════════════════════════════════════════════
-    stats_row = Div(
+    def _stat_card(label, value, delta_val, number_cls, bg_cls):
+        return Card(
+            Div(
+                P(
+                    label,
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+                ),
+                Div(
+                    Span(value, cls=f"text-3xl font-bold {number_cls}"),
+                    _delta_badge(delta_val),
+                    cls="flex items-baseline flex-wrap mt-1",
+                ),
+            ),
+            cls=f"{bg_cls} border-0",
+            body_cls="p-4",
+        )
+
+    stats_row = Grid(
         _stat_card(
             "Subscribers",
-            format_number(current_subs),
-            _delta_str(subs_change),
-            "text-blue-600",
-            "bg-blue-50",
+            format_number(current_subs) if not hidden_subs else "Hidden",
+            subs_change,
+            "text-blue-600 dark:text-blue-400",
+            "bg-blue-50 dark:bg-blue-950/40",
         ),
         _stat_card(
             "Total Views",
             format_number(current_views),
-            _delta_str(views_change),
-            "text-purple-600",
-            "bg-purple-50",
+            views_change,
+            "text-violet-600 dark:text-violet-400",
+            "bg-violet-50 dark:bg-violet-950/40",
         ),
         _stat_card(
-            "Videos",
+            "Videos Published",
             format_number(current_videos),
-            _delta_str(videos_change),
+            videos_change,
             "text-foreground",
             "bg-accent",
         ),
         _stat_card(
             "Est. Revenue",
             f"${format_number(estimated_revenue)}/mo",
-            "monthly estimate",
-            "text-green-600",
-            "bg-green-50",
+            None,
+            "text-emerald-600 dark:text-emerald-400",
+            "bg-emerald-50 dark:bg-emerald-950/40",
         ),
-        cls="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6",
+        cols_sm=2,
+        cols_lg=4,
+        cls="mb-6",
     )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 3 — Two-column body
     # ═══════════════════════════════════════════════════════════════════════════
-    # Left: About
-    def _info_row(icon, label, value):
-        return Div(
-            Span(icon, cls="text-lg w-6 shrink-0"),
-            Div(
-                Span(label, cls="text-xs text-muted-foreground block"),
-                Span(value, cls="text-sm font-medium text-foreground"),
-            ),
-            cls="flex items-center gap-3",
-        )
 
-    channel_info_items = [
-        _info_row("📅", "Founded", published_at[:10] if published_at else "Unknown"),
-        _info_row(
-            "⏳",
-            "Channel Age",
-            format_channel_age(channel_age_days) if channel_age_days else "Unknown",
-        ),
-        _info_row(
-            "🌍",
-            "Country",
-            f"{country_flag} {country_code.upper()}" if country_code else "Unknown",
-        ),
-        _info_row(
-            "🗣️", "Language", f"{lang_emoji} {lang_name}" if language else "Unknown"
-        ),
-        _info_row("📹", "Videos Published", format_number(current_videos)),
-    ]
-    if handle_display:
-        channel_info_items.insert(0, _info_row("🔗", "Handle", handle_display))
-
-    # Keyword pills
+    # ── Left column: About + Channel Info ─────────────────────────────────────
     keyword_list = (
         [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
     )
@@ -2174,7 +2194,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             *[
                 Span(
                     kw,
-                    cls="text-xs px-2 py-1 bg-accent text-muted-foreground rounded-full",
+                    cls="text-xs px-2.5 py-1 bg-accent text-muted-foreground rounded-full",
                 )
                 for kw in keyword_list[:15]
             ],
@@ -2184,76 +2204,135 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         else None
     )
 
-    left_col = Div(
-        # Bio
-        Div(
-            H2("About", cls="text-base font-bold text-foreground mb-3"),
-            (
-                P(
-                    bio,
-                    cls="text-sm text-muted-foreground leading-relaxed whitespace-pre-line",
-                )
-                if bio
-                else P(
-                    "No description available.",
-                    cls="text-sm text-muted-foreground italic",
-                )
-            ),
-            keyword_pills,
-            cls="bg-background rounded-xl border border-border p-5 mb-4",
+    about_card = Card(
+        H2("About", cls="text-base font-bold text-foreground mb-3"),
+        (
+            P(
+                bio,
+                cls="text-sm text-muted-foreground leading-relaxed whitespace-pre-line",
+            )
+            if bio
+            else P(
+                "No description available.", cls="text-sm text-muted-foreground italic"
+            )
         ),
-        # Channel info
-        Div(
-            H2("Channel Info", cls="text-base font-bold text-foreground mb-4"),
-            Div(*channel_info_items, cls="space-y-3"),
-            cls="bg-background rounded-xl border border-border p-5",
+        keyword_pills,
+        body_cls="p-5",
+    )
+
+    channel_info_items = [
+        _info_row("link", "Handle", handle_display) if handle_display else None,
+        _info_row(
+            "calendar", "Founded", published_at[:10] if published_at else "Unknown"
+        ),
+        _info_row(
+            "clock",
+            "Channel Age",
+            format_channel_age(channel_age_days) if channel_age_days else "Unknown",
+        ),
+        _info_row(
+            "globe",
+            "Country",
+            f"{country_flag} {country_code.upper()}" if country_code else "Unknown",
+        ),
+        _info_row(
+            "languages",
+            "Language",
+            f"{lang_emoji} {lang_name}" if language else "Unknown",
+        ),
+        _info_row("tag", "Category", primary_category) if primary_category else None,
+        _info_row("video", "Total Videos", format_number(current_videos)),
+        _info_row(
+            "upload",
+            "Upload Rate",
+            f"{monthly_uploads:.1f} videos/month" if monthly_uploads else "—",
+        ),
+        (
+            _info_row("eye-off", "Subscriber Count", "Hidden on YouTube")
+            if hidden_subs
+            else None
+        ),
+    ]
+
+    channel_info_card = Card(
+        H2("Channel Info", cls="text-base font-bold text-foreground mb-4"),
+        Div(*[i for i in channel_info_items if i], cls="space-y-3"),
+        body_cls="p-5",
+    )
+
+    left_col = Div(about_card, channel_info_card, cls="flex flex-col gap-4")
+
+    # ── Right column: Performance + Growth trend ───────────────────────────────
+    # Hero-level secondary metrics
+    secondary_metrics = Div(
+        _perf_row("Avg Views / Video", format_number(avg_views)),
+        _perf_row("Views / Subscriber", f"{views_per_sub:.2f}x"),
+        _perf_row(
+            "Upload Rate",
+            f"{monthly_uploads:.1f} / month" if monthly_uploads else "—",
+        ),
+        _perf_row(
+            "Engagement Score",
+            f"{engagement_score:.2f} / 10",
+            "text-blue-600" if engagement_score >= 7 else "text-foreground",
         ),
     )
 
-    # Right: Performance
-    def _perf_row(label, value, value_cls="text-foreground"):
-        return Div(
-            Span(label, cls="text-sm text-muted-foreground"),
-            Span(value, cls=f"text-sm font-semibold {value_cls}"),
-            cls="flex justify-between items-center py-2 border-b border-border last:border-0",
-        )
-
-    # 30-day trend section
+    # Growth trend bar
     has_growth_data = subs_change is not None
     if has_growth_data:
-        bar_width = min(100, max(0, abs(growth_rate) * 5))
-        bar_color = "bg-green-500" if growth_rate >= 0 else "bg-red-500"
-        trend_bg = "bg-green-50" if growth_rate >= 0 else "bg-red-50"
+        bar_width = min(100, max(2, abs(growth_rate) * 5))
+        bar_colour = "bg-emerald-500" if growth_rate >= 0 else "bg-red-500"
+        trend_bg = (
+            "bg-emerald-50 dark:bg-emerald-950/30"
+            if growth_rate >= 0
+            else "bg-red-50 dark:bg-red-950/30"
+        )
         trend_section = Div(
-            Div(
-                P("30-Day Trend", cls="text-xs font-semibold text-muted-foreground"),
+            DivFullySpaced(
+                P(
+                    "30-Day Growth",
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
+                ),
                 Div(
-                    P(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"),
+                    Span(
+                        f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"
+                    ),
                     Span(
                         growth_label,
-                        cls=f"text-xs font-semibold px-2 py-1 rounded-full border {growth_style}",
+                        cls=f"text-xs font-semibold px-2 py-0.5 rounded-full border {growth_style} ml-2",
                     ),
-                    cls="flex items-center gap-2",
+                    cls="flex items-center",
                 ),
-                cls="flex justify-between items-center mb-2",
             ),
             Div(
-                Div(cls=f"h-2 {bar_color} rounded-full", style=f"width:{bar_width}%"),
-                cls="w-full h-2 bg-border rounded-full overflow-hidden",
+                Div(
+                    cls=f"h-2 {bar_colour} rounded-full transition-all",
+                    style=f"width:{bar_width}%",
+                ),
+                cls="w-full h-2 bg-border rounded-full overflow-hidden mt-2",
             ),
-            cls=f"{trend_bg} rounded-lg p-3 mt-4",
+            cls=f"{trend_bg} rounded-xl p-4 mt-4",
         )
     else:
         trend_section = Div(
-            Span("📊", cls="text-xl"),
+            UkIcon("bar-chart-2", cls="w-6 h-6 text-muted-foreground mb-1"),
             P(
-                "Growth tracking initializing — check back in 7+ days",
-                cls="text-xs text-muted-foreground mt-1",
+                "Growth tracking initializing",
+                cls="text-sm font-medium text-foreground",
             ),
-            cls="flex flex-col items-center text-center bg-blue-50 rounded-lg p-3 mt-4",
+            P("Check back in 7+ days", cls="text-xs text-muted-foreground mt-0.5"),
+            cls="flex flex-col items-center text-center bg-accent rounded-xl p-4 mt-4",
         )
 
-    # Topic categories pills (parsed same as card)
+    performance_card = Card(
+        H2("Performance", cls="text-base font-bold text-foreground mb-1"),
+        secondary_metrics,
+        trend_section,
+        body_cls="p-5",
+    )
+
+    # Topic categories card
     topic_pill_section = None
     if topic_categories_raw:
         parsed_cats = []
@@ -2277,57 +2356,36 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 clean = str(item).strip("\"'[]").strip()
                 if clean:
                     parsed_cats.append(clean)
+
         if parsed_cats:
-            pill_colors = [
-                "bg-blue-100 text-blue-700",
-                "bg-purple-100 text-purple-700",
-                "bg-green-100 text-green-700",
-                "bg-pink-100 text-pink-700",
-                "bg-indigo-100 text-indigo-700",
+            pill_palette = [
+                "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+                "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300",
+                "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300",
+                "bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300",
+                "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
             ]
-            topic_pill_section = Div(
+            topic_pill_section = Card(
                 H2("Topics", cls="text-base font-bold text-foreground mb-3"),
                 Div(
                     *[
                         Span(
                             f"{get_topic_category_emoji(cat)} {cat}",
-                            cls=f"text-xs font-medium px-2.5 py-1 rounded-full {pill_colors[i % len(pill_colors)]}",
+                            cls=f"text-xs font-medium px-3 py-1 rounded-full {pill_palette[i % len(pill_palette)]}",
                         )
                         for i, cat in enumerate(parsed_cats)
                     ],
                     cls="flex flex-wrap gap-2",
                 ),
-                cls="bg-background rounded-xl border border-border p-5 mt-4",
+                body_cls="p-5",
             )
 
-    right_col = Div(
-        Div(
-            H2("Performance", cls="text-base font-bold text-foreground mb-1"),
-            Div(
-                _perf_row("Avg Views / Video", format_number(avg_views)),
-                _perf_row("Views / Subscriber", f"{views_per_sub:.2f}x"),
-                _perf_row(
-                    "Upload Rate",
-                    f"{monthly_uploads:.1f} / month" if monthly_uploads else "—",
-                ),
-                _perf_row(
-                    "Engagement Score",
-                    f"{engagement_score:.2f} / 10",
-                    "text-blue-700" if engagement_score >= 7 else "text-foreground",
-                ),
-            ),
-            trend_section,
-            cls="bg-background rounded-xl border border-border p-5",
-        ),
-        topic_pill_section,
-    )
+    right_col = Div(performance_card, topic_pill_section, cls="flex flex-col gap-4")
 
-    body_cols = Div(
-        left_col, right_col, cls="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"
-    )
+    body_cols = Grid(left_col, right_col, cols_sm=1, cols_lg=2, cls="mb-6")
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # SECTION 4 — Category distribution bars (optional)
+    # SECTION 4 — Category distribution bars (horizontal, coloured by rank)
     # ═══════════════════════════════════════════════════════════════════════════
     cat_dist_section = None
     if category_distribution:
@@ -2339,37 +2397,47 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
             )
             if isinstance(dist, dict) and dist:
                 total_dist = sum(dist.values()) or 1
+                bar_colours = [
+                    "bg-blue-400",
+                    "bg-violet-400",
+                    "bg-emerald-400",
+                    "bg-pink-400",
+                    "bg-amber-400",
+                    "bg-indigo-400",
+                    "bg-teal-400",
+                    "bg-rose-400",
+                ]
                 bars = [
                     Div(
-                        Div(
-                            Span(
-                                f"{get_topic_category_emoji(cat)} {cat}",
-                                cls="text-sm text-foreground w-40 shrink-0 truncate",
-                            ),
-                            Div(
-                                Div(
-                                    cls="h-4 bg-blue-400 rounded-r-full",
-                                    style=f"width:{min(100, round(count / total_dist * 100))}%",
-                                ),
-                                cls="flex-1 h-4 bg-accent rounded-full overflow-hidden",
-                            ),
-                            Span(
-                                f"{round(count / total_dist * 100)}%",
-                                cls="text-xs text-muted-foreground w-10 text-right shrink-0",
-                            ),
-                            cls="flex items-center gap-3",
+                        Span(
+                            f"{get_topic_category_emoji(cat)} {cat}",
+                            cls="text-sm text-foreground w-44 shrink-0 truncate",
                         ),
-                        cls="",
+                        Div(
+                            Div(
+                                cls=f"h-4 {bar_colours[i % len(bar_colours)]} rounded-r-full transition-all",
+                                style=f"width:{min(100, round(count / total_dist * 100))}%",
+                            ),
+                            cls="flex-1 h-4 bg-accent rounded-full overflow-hidden",
+                        ),
+                        Span(
+                            f"{round(count / total_dist * 100)}%",
+                            cls="text-xs font-semibold text-muted-foreground w-10 text-right shrink-0",
+                        ),
+                        cls="flex items-center gap-3",
                     )
-                    for cat, count in sorted(dist.items(), key=lambda x: -x[1])[:8]
+                    for i, (cat, count) in enumerate(
+                        sorted(dist.items(), key=lambda x: -x[1])[:8]
+                    )
                 ]
-                cat_dist_section = Div(
+                cat_dist_section = Card(
                     H2(
-                        "Category Breakdown",
+                        "Content Breakdown",
                         cls="text-base font-bold text-foreground mb-4",
                     ),
                     Div(*bars, cls="space-y-3"),
-                    cls="bg-background rounded-xl border border-border p-5 mb-6",
+                    body_cls="p-5",
+                    cls="mb-6",
                 )
         except Exception:
             pass
@@ -2377,35 +2445,34 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 5 — Sync / freshness footer
     # ═══════════════════════════════════════════════════════════════════════════
-    sync_color = {
-        "synced": "text-green-600",
-        "pending": "text-yellow-600",
+    sync_colour = {
+        "synced": "text-emerald-600",
+        "pending": "text-amber-600",
         "error": "text-red-600",
     }.get(sync_status, "text-muted-foreground")
-    sync_icon = {"synced": "✅", "pending": "⏳", "error": "❌"}.get(sync_status, "⚪")
+    sync_icon_map = {"synced": "check-circle", "pending": "clock", "error": "x-circle"}
+    sync_uk_icon = sync_icon_map.get(sync_status, "circle")
 
     footer_section = Div(
-        Span(
-            f"{sync_icon} {sync_status.title()}",
-            cls=f"text-xs font-semibold {sync_color}",
-        ),
-        Span("·", cls="text-muted-foreground"),
+        UkIcon(sync_uk_icon, cls=f"w-3.5 h-3.5 {sync_colour}"),
+        Span(sync_status.title(), cls=f"text-xs font-semibold {sync_colour}"),
+        Span("·", cls="text-border mx-1"),
         Span(
             f"Updated {format_date_relative(last_updated)}",
             cls="text-xs text-muted-foreground",
         ),
-        Span("·", cls="text-muted-foreground"),
+        Span("·", cls="text-border mx-1"),
         Span(
             f"Synced {format_date_relative(last_synced)}",
             cls="text-xs text-muted-foreground",
         ),
-        Span("·", cls="text-muted-foreground"),
+        Span("·", cls="text-border mx-1"),
         Span(
-            f"ID: {creator_id[:8]}…",
+            f"ID {creator_id[:8]}…",
             cls="text-xs text-muted-foreground font-mono",
             title=creator_id,
         ),
-        cls="flex items-center gap-2 flex-wrap text-center justify-center py-4",
+        cls="flex items-center justify-center flex-wrap gap-1 py-4 text-center",
     )
 
     return Div(
