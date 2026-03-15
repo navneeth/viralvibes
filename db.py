@@ -1143,6 +1143,50 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_creator_rank(
+    current_subscribers: int,
+    filter_key: str,
+    filter_val: str,
+) -> int | None:
+    """
+    Return this creator's 1-based subscriber rank within a filtered segment.
+
+    Uses a server-side COUNT — zero rows transferred to the application.
+    Rank = COUNT(synced creators in segment with MORE subscribers) + 1
+
+    Args:
+        current_subscribers: This creator's current subscriber count.
+        filter_key:  Column to filter on. Validated against allowlist.
+        filter_val:  Value to match (e.g. "US", "en", "Gaming").
+
+    Returns:
+        Integer rank (1 = top of segment) or None on any error.
+    """
+    # Allowlist prevents column injection via dynamic filter_key
+    _ALLOWED = frozenset({"country_code", "default_language", "primary_category"})
+    if not supabase_client or not current_subscribers or not filter_val:
+        return None
+    if filter_key not in _ALLOWED:
+        logger.warning("[DB] get_creator_rank: disallowed filter_key %s", filter_key)
+        return None
+    try:
+        resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", current_subscribers)
+            .eq(filter_key, filter_val)
+            .limit(1)
+            .execute()
+        )
+        above = getattr(resp, "count", None)
+        return int(above) + 1 if above is not None else None
+    except Exception:
+        logger.exception("Error computing rank for %s=%s", filter_key, filter_val)
+        return None
+
+
 def get_top_creators_by_growth(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Get top creators by subscriber count.
