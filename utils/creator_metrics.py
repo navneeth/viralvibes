@@ -4,7 +4,6 @@ Creator metrics calculation helpers.
 Extracts calculation logic from views to keep components clean.
 """
 
-import warnings
 from typing import Optional, Tuple
 
 
@@ -16,21 +15,6 @@ def calculate_growth_rate(subs_change: int, current_subs: int) -> float:
 def calculate_avg_views_per_video(total_views: int, video_count: int) -> int:
     """Calculate average views per video."""
     return int(total_views / video_count) if video_count > 0 else 0
-
-
-def estimate_monthly_revenue(total_views: int, cpm: float = 4.0) -> int:
-    """
-    DEPRECATED — use estimate_monthly_revenue_v4() instead.
-
-    Naive single-CPM model kept for backward compatibility.
-    Will be removed once all call sites are migrated to v4.
-    """
-    warnings.warn(
-        "estimate_monthly_revenue() is deprecated; use estimate_monthly_revenue_v4() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return int((total_views * cpm) / 1000)
 
 
 # Market RPM table (creator net take-home per 1 000 views, 2026)
