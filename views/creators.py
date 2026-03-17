@@ -1755,7 +1755,8 @@ def _render_creator_card(creator: dict) -> Div:
         country_code=country_code or "US",
         niche=primary_category,
     )
-    estimated_revenue = int(_rev["est_monthly_total"])
+    # Round to the nearest whole dollar instead of truncating to avoid systematic under-reporting
+    estimated_revenue = round(_rev["est_monthly_total"])
     keywords = safe_get_value(creator, "keywords", "")
 
     info_strip = _build_info_strip(
