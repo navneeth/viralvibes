@@ -2256,45 +2256,66 @@ def render_creator_profile_page(
 
     # Identity strip — sits below the banner, avatar overlaps upward
     identity_strip = Div(
-        # Avatar
+        # ── Row 1: avatar (overlapping banner) + CTA buttons flush right ─────
+        # Keeping avatar and buttons in the same row ensures buttons are always
+        # reachable and never clip off-screen on narrow viewports.
         Div(
             Img(
                 src=thumbnail_url,
                 alt=channel_name,
-                cls="w-28 h-28 rounded-2xl object-cover ring-4 ring-background shadow-xl",
+                # Smaller avatar on mobile so the negative-margin lift stays proportional
+                cls="w-20 h-20 sm:w-28 sm:h-28 rounded-2xl object-cover ring-4 ring-background shadow-xl -mt-10 sm:-mt-14",
             ),
-            cls="shrink-0 -mt-14",
+            Div(
+                A(
+                    UkIcon("youtube", cls="w-4 h-4 mr-1.5"),
+                    "YouTube",
+                    href=channel_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                A(
+                    UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
+                    "Back",
+                    href=back_url,
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                cls="flex gap-2 ml-auto items-center",
+            ),
+            cls="flex items-end justify-between px-4 sm:px-5 pt-3",
         ),
-        # Name + meta
+        # ── Row 2: name + meta — full width so tags can wrap freely ──────────
         Div(
-            # Row 1: name + official badge
+            # Name + badges
             Div(
                 H1(
                     channel_name,
-                    cls="text-2xl sm:text-3xl font-bold text-foreground leading-tight",
+                    cls="text-xl sm:text-2xl lg:text-3xl font-bold text-foreground leading-tight",
                 ),
                 (
                     Span(
                         UkIcon("badge-check", cls="w-4 h-4 mr-1 inline"),
                         "Official",
-                        cls="inline-flex items-center text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full",
+                        cls="inline-flex items-center text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full shrink-0",
                     )
                     if official
                     else None
                 ),
                 (
-                    Div(
-                        Span(
-                            f"{grade_icon} {grade_label}",
-                            cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_bg}",
-                        ),
+                    Span(
+                        f"{grade_icon} {grade_label}",
+                        cls=f"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 {grade_bg}",
                     )
                     if quality_grade and quality_grade != "C"
                     else None
                 ),
                 cls="flex items-center gap-2 flex-wrap",
             ),
-            # Row 2: handle + country + language + age tags
+            # Handle + country + language + age tags
+            # Previously these were width-starved inside a flex child with no
+            # declared width, forcing each tag onto its own line. Now they sit
+            # in a full-width block and wrap naturally.
             Div(
                 (
                     Span(handle_display, cls="text-sm text-muted-foreground font-mono")
@@ -2333,29 +2354,11 @@ def render_creator_profile_page(
                     if monthly_uploads
                     else None
                 ),
-                cls="flex flex-wrap gap-2 mt-1.5",
+                cls="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5",
             ),
-            cls="flex-1 min-w-0 mt-2",
+            cls="px-4 sm:px-5 pb-4 sm:pb-5 pt-3",
         ),
-        # CTA buttons — right-aligned, self-end so they sit at the bottom of the strip
-        Div(
-            A(
-                UkIcon("youtube", cls="w-4 h-4 mr-1.5"),
-                "YouTube",
-                href=channel_url,
-                target="_blank",
-                rel="noopener noreferrer",
-                cls="inline-flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg no-underline transition-colors",
-            ),
-            A(
-                UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
-                "Back",
-                href=back_url,
-                cls="inline-flex items-center px-4 py-2 bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold rounded-lg no-underline transition-colors",
-            ),
-            cls="flex gap-2 shrink-0 self-end",
-        ),
-        cls="flex gap-4 items-end px-5 pb-5 pt-3",
+        cls="bg-background",
     )
 
     banner_section = Div(
