@@ -25,7 +25,7 @@ import json
 import logging
 import re as _re  # private alias — wildcard `from fasthtml.common import *` cannot shadow it
 from collections.abc import Callable
-from urllib.parse import urlencode, unquote, quote
+from urllib.parse import urlencode, unquote, quote, urlparse
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -239,16 +239,22 @@ def _extract_socials(bio: str, keywords: str) -> list[tuple[str, str, str]]:
     return found[:8]
 
 
+# Matches youtube.com (with or without www) and the youtu.be short-link domain.
+_YT_URL_RE = _re.compile(r"https?://(?:(?:www\.)?youtube\.com|youtu\.be)/\S+", _re.I)
+
+
 def _parse_featured_channels(raw: str) -> list[str]:
-    """Parse featured_channels_urls (newline/comma/space separated) → YouTube URLs."""
+    """Parse featured_channels_urls (newline/comma/space separated) → YouTube URLs.
+
+    Accepts both ``youtube.com`` and ``youtu.be`` variants.
+    """
     if not raw:
         return []
-    urls = _re.split(r"[\n,\s]+", raw.strip())
     seen: set[str] = set()
     result = []
-    for u in urls:
+    for u in _re.split(r"[\n,\s]+", raw.strip()):
         u = u.strip()
-        if u and "youtube" in u.lower() and u not in seen:
+        if u and _YT_URL_RE.match(u) and u not in seen:
             seen.add(u)
             result.append(u)
     return result[:6]
@@ -2216,26 +2222,6 @@ def render_creator_profile_page(
             cls="flex justify-between items-center py-2 border-b border-border last:border-0",
         )
 
-    def _rank_chip(rank: int | None, href: str, title: str):
-        """Gold/silver/neutral rank badge linked to the relevant list page."""
-        if rank is None:
-            return None
-        colour = (
-            "bg-amber-400 text-amber-900"
-            if rank <= 3
-            else (
-                "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
-                if rank <= 10
-                else "bg-accent text-muted-foreground"
-            )
-        )
-        return A(
-            f"#{rank}",
-            href=href,
-            cls=f"text-xs font-bold px-1.5 py-0.5 rounded-md {colour} no-underline hover:opacity-80 transition-opacity ml-1.5 shrink-0",
-            title=f"Ranked #{rank} in {title}",
-        )
-
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 1 — Cinematic banner + overlapping avatar + identity strip
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2554,8 +2540,7 @@ def render_creator_profile_page(
                     A(
                         UkIcon("external-link", cls="w-3.5 h-3.5 shrink-0"),
                         Span(
-                            url.split("youtube.com/")[-1].split("?")[0].lstrip("@/")
-                            or url,
+                            urlparse(url).path.lstrip("/@").split("?")[0] or url,
                             cls="text-sm truncate",
                         ),
                         href=url,
