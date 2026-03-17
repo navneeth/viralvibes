@@ -4,6 +4,7 @@ Creator metrics calculation helpers.
 Extracts calculation logic from views to keep components clean.
 """
 
+import warnings
 from typing import Optional, Tuple
 
 
@@ -19,16 +20,97 @@ def calculate_avg_views_per_video(total_views: int, video_count: int) -> int:
 
 def estimate_monthly_revenue(total_views: int, cpm: float = 4.0) -> int:
     """
-    Estimate monthly revenue based on total views.
+    DEPRECATED — use estimate_monthly_revenue_v4() instead.
+
+    Naive single-CPM model kept for backward compatibility.
+    Will be removed once all call sites are migrated to v4.
+    """
+    warnings.warn(
+        "estimate_monthly_revenue() is deprecated; use estimate_monthly_revenue_v4() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return int((total_views * cpm) / 1000)
+
+
+# Market RPM table (creator net take-home per 1 000 views, 2026)
+_MARKET_DATA: dict[str, dict[str, float]] = {
+    "US": {"long": 14.50, "shorts": 0.33},
+    "JP": {"long": 11.20, "shorts": 0.14},
+    "GB": {"long": 10.50, "shorts": 0.17},
+    "IN": {"long": 1.10, "shorts": 0.01},
+    "BR": {"long": 1.40, "shorts": 0.04},
+    "DEFAULT": {"long": 4.50, "shorts": 0.08},
+}
+
+# Niche CPM multipliers (applied to ad revenue only)
+_NICHE_MULTIPLIERS: dict[str, float] = {
+    "finance": 2.2,
+    "tech": 1.7,
+    "science & technology": 1.7,  # YouTube category name
+    "gaming": 0.7,
+}
+
+
+def estimate_monthly_revenue_v4(
+    total_subs: int,
+    total_views: int,
+    video_count: int,
+    country_code: str = "US",
+    niche: str = "general",
+) -> dict:
+    """
+    2026 model: tuned for the Shorts-heavy YouTube economy.
+
+    All inputs come directly from the YouTube API; no extra worker quota needed.
 
     Args:
-        total_views: Total channel views
-        cpm: Cost per mille (default $4 per 1000 views)
+        total_subs:   statistics.subscriberCount
+        total_views:  statistics.viewCount (lifetime)
+        video_count:  statistics.videoCount
+        country_code: snippet.country (2-letter ISO, e.g. "US")
+        niche:        primary_category from DB (e.g. "Gaming", "Finance")
 
-    Returns:
-        Estimated monthly revenue in dollars
+    Returns a dict with keys:
+        est_monthly_total      float  — total estimated monthly revenue ($)
+        revenue_split          dict   — breakdown: adsense_long, adsense_shorts, brand_deals
+        assumed_shorts_pct     str    — e.g. "80%"
     """
-    return int((total_views * cpm) / 1000)
+    rates = _MARKET_DATA.get(country_code.upper(), _MARKET_DATA["DEFAULT"])
+
+    # View-mix heuristic: high video_count relative to subs → Shorts factory
+    shorts_ratio = 0.8 if (video_count / (total_subs + 1)) > 0.01 else 0.4
+
+    # Estimate monthly views (≈6% of lifetime total for an active channel)
+    monthly_views = total_views * 0.06
+    views_long = monthly_views * (1 - shorts_ratio)
+    views_shorts = monthly_views * shorts_ratio
+
+    # Niche multiplier — case-insensitive lookup, default 1.0
+    niche_mod = _NICHE_MULTIPLIERS.get(niche.lower(), 1.0)
+
+    # Ad revenue (AdSense)
+    ad_rev = (views_long / 1_000) * rates["long"] * niche_mod + (
+        views_shorts / 1_000
+    ) * rates["shorts"]
+
+    # Sponsorships: $25 CPM on long-form views only (brands ignore Shorts)
+    sponsorships = (views_long / 1_000) * 25.0 * niche_mod
+
+    # Direct monetisation (merch/memberships): scales with loyal long-form audience
+    direct_mon = ad_rev * (0.25 if total_subs > 500_000 else 0.05)
+
+    total_monthly = ad_rev + sponsorships + direct_mon
+
+    return {
+        "est_monthly_total": round(total_monthly, 2),
+        "revenue_split": {
+            "adsense_long": round((views_long / 1_000) * rates["long"] * niche_mod, 2),
+            "adsense_shorts": round((views_shorts / 1_000) * rates["shorts"], 2),
+            "brand_deals": round(sponsorships, 2),
+        },
+        "assumed_shorts_pct": f"{int(shorts_ratio * 100)}%",
+    }
 
 
 def calculate_views_per_subscriber(total_views: int, current_subs: int) -> float:

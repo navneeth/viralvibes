@@ -35,7 +35,8 @@ from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
     calculate_views_per_subscriber,
-    estimate_monthly_revenue,
+    estimate_monthly_revenue,  # DEPRECATED — kept for profile page until PR 2
+    estimate_monthly_revenue_v4,
     format_channel_age,
     get_activity_badge,
     get_activity_title,
@@ -1727,7 +1728,6 @@ def _render_creator_card(creator: dict) -> Div:
 
     # === CALCULATIONS ===
     avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
-    estimated_revenue = estimate_monthly_revenue(current_views)
     growth_rate = calculate_growth_rate(subs_change, current_subs)
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
 
@@ -1743,7 +1743,20 @@ def _render_creator_card(creator: dict) -> Div:
     custom_url = safe_get_value(creator, "custom_url", "")
     language = safe_get_value(creator, "default_language", "")
     country_code = safe_get_value(creator, "country_code", "")
+    primary_category = (
+        safe_get_value(creator, "primary_category", "general") or "general"
+    )
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
+
+    # v4 revenue model — uses country + niche for accurate CPM, Shorts split, sponsorships
+    _rev = estimate_monthly_revenue_v4(
+        total_subs=current_subs,
+        total_views=current_views,
+        video_count=current_videos,
+        country_code=country_code or "US",
+        niche=primary_category,
+    )
+    estimated_revenue = int(_rev["est_monthly_total"])
     keywords = safe_get_value(creator, "keywords", "")
 
     info_strip = _build_info_strip(
