@@ -35,7 +35,7 @@ from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
     calculate_views_per_subscriber,
-    estimate_monthly_revenue,
+    estimate_monthly_revenue_v4,
     format_channel_age,
     get_activity_badge,
     get_activity_title,
@@ -1727,7 +1727,6 @@ def _render_creator_card(creator: dict) -> Div:
 
     # === CALCULATIONS ===
     avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
-    estimated_revenue = estimate_monthly_revenue(current_views)
     growth_rate = calculate_growth_rate(subs_change, current_subs)
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
 
@@ -1743,7 +1742,21 @@ def _render_creator_card(creator: dict) -> Div:
     custom_url = safe_get_value(creator, "custom_url", "")
     language = safe_get_value(creator, "default_language", "")
     country_code = safe_get_value(creator, "country_code", "")
+    primary_category = (
+        safe_get_value(creator, "primary_category", "general") or "general"
+    )
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
+
+    # v4 revenue model — uses country + niche for accurate CPM, Shorts split, sponsorships
+    _rev = estimate_monthly_revenue_v4(
+        total_subs=current_subs,
+        total_views=current_views,
+        video_count=current_videos,
+        country_code=country_code or "US",
+        niche=primary_category,
+    )
+    # Round to the nearest whole dollar instead of truncating to avoid systematic under-reporting
+    estimated_revenue = round(_rev["est_monthly_total"])
     keywords = safe_get_value(creator, "keywords", "")
 
     info_strip = _build_info_strip(
@@ -2098,7 +2111,7 @@ def _count_by_grade(creators: list[dict]) -> dict:
 
 # NOTE: Helper functions moved to utils/creator_metrics.py for better organization
 # - get_language_emoji, get_language_name, get_activity_badge
-# - estimate_monthly_revenue (replaces _estimate_monthly_revenue)
+# - estimate_monthly_revenue_v4 (revenue model)
 
 
 # ============================================================================
@@ -2181,7 +2194,17 @@ def render_creator_profile_page(
     growth_label, growth_style = get_growth_signal(growth_rate)
     avg_views = calculate_avg_views_per_video(current_views, current_videos)
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
-    estimated_revenue = estimate_monthly_revenue(current_views)
+    # v4 revenue model — country + niche-aware, Shorts-split, sponsorships included
+    _rev = estimate_monthly_revenue_v4(
+        total_subs=current_subs,
+        total_views=current_views,
+        video_count=current_videos,
+        country_code=country_code or "US",
+        niche=primary_category or "general",
+    )
+    estimated_revenue = int(_rev["est_monthly_total"])
+    revenue_split = _rev["revenue_split"]
+    assumed_shorts_pct = _rev["assumed_shorts_pct"]
     handle_display = f"@{custom_url.lstrip('@')}" if custom_url else ""
     country_flag = get_country_flag(country_code) if country_code else ""
     lang_emoji = get_language_emoji(language) if language else ""
@@ -2640,6 +2663,46 @@ def render_creator_profile_page(
         H2("Performance", cls="text-base font-bold text-foreground mb-1"),
         secondary_metrics,
         trend_section,
+        # ── Revenue breakdown (v4 model) ─────────────────────────────────────
+        Div(
+            DivFullySpaced(
+                Div(
+                    UkIcon("circle-dollar-sign", cls="w-4 h-4 text-emerald-500 mr-1.5"),
+                    Span(
+                        "Est. Monthly Revenue",
+                        cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
+                    ),
+                    cls="flex items-center",
+                ),
+                Span(
+                    f"${format_number(estimated_revenue)}",
+                    cls="text-sm font-bold text-emerald-600 dark:text-emerald-400",
+                ),
+                cls="mb-2",
+            ),
+            Div(
+                _perf_row(
+                    "AdSense — long-form",
+                    f"${format_number(revenue_split['adsense_long'])}",
+                    "text-emerald-600 dark:text-emerald-400",
+                ),
+                _perf_row(
+                    "AdSense — Shorts",
+                    f"${format_number(revenue_split['adsense_shorts'])}",
+                    "text-emerald-600 dark:text-emerald-400",
+                ),
+                _perf_row(
+                    "Brand deals (est.)",
+                    f"${format_number(revenue_split['brand_deals'])}",
+                    "text-emerald-600 dark:text-emerald-400",
+                ),
+                _perf_row(
+                    "Assumed Shorts mix",
+                    assumed_shorts_pct,
+                ),
+            ),
+            cls="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 mt-4",
+        ),
         body_cls="p-5",
     )
 
