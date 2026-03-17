@@ -2683,17 +2683,17 @@ def render_creator_profile_page(
             Div(
                 _perf_row(
                     "AdSense — long-form",
-                    f"${format_number(int(revenue_split['adsense_long']))}",
+                    f"${format_number(revenue_split['adsense_long'])}",
                     "text-emerald-600 dark:text-emerald-400",
                 ),
                 _perf_row(
                     "AdSense — Shorts",
-                    f"${format_number(int(revenue_split['adsense_shorts']))}",
+                    f"${format_number(revenue_split['adsense_shorts'])}",
                     "text-emerald-600 dark:text-emerald-400",
                 ),
                 _perf_row(
                     "Brand deals (est.)",
-                    f"${format_number(int(revenue_split['brand_deals']))}",
+                    f"${format_number(revenue_split['brand_deals'])}",
                     "text-emerald-600 dark:text-emerald-400",
                 ),
                 _perf_row(
