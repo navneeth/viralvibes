@@ -147,11 +147,15 @@ _SOCIAL_PATTERNS = [
         "https://linktr.ee/{}",
     ),
     # ── Generic website catch-all (must be last) ──────────────────────────────
+    # group(1) = full URL (used as href); group(2) = bare domain (used for _SKIP_DOMAINS check)
     (
-        _re.compile(r"https?://(?:www\.)?([\w.-]+\.[a-z]{2,})(?:/[^\s]*)?", _re.I),
+        _re.compile(
+            r"(https?://(?:www\.)?([\w.-]+\.[a-z]{2,})(?:/[^\s]*)?)",
+            _re.I,
+        ),
         "globe",
         "Website",
-        "https://{}",
+        "{}",
     ),
 ]
 
@@ -224,14 +228,18 @@ def _extract_socials(bio: str, keywords: str) -> list[tuple[str, str, str]]:
     # Social patterns in priority order (specific before generic)
     for pattern, icon, label, url_tpl in _SOCIAL_PATTERNS:
         for m in pattern.finditer(text):
-            handle = m.group(1).strip("/ .")
-            if not handle or len(handle) < 2:
-                continue
             if icon == "globe":
-                domain = handle.split("/")[0].lower()
+                # group(1) = full URL, group(2) = bare domain
+                full_url = m.group(1)
+                domain = m.group(2).lower()
                 if any(skip in domain for skip in _SKIP_DOMAINS):
                     continue
-            href = url_tpl.format(handle)
+                href = full_url
+            else:
+                handle = m.group(1).strip("/ .")
+                if not handle or len(handle) < 2:
+                    continue
+                href = url_tpl.format(handle)
             if href not in seen:
                 found.append((icon, label, href))
                 seen.add(href)
