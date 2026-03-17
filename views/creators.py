@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re as _re  # private alias — wildcard `from fasthtml.common import *` cannot shadow it
 from collections.abc import Callable
-from urllib.parse import urlencode, unquote, quote
+from urllib.parse import urlencode, unquote, quote, urlparse
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -50,6 +51,221 @@ from utils.creator_metrics import (
 from db import calculate_creator_stats, get_creator_hero_stats
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# SOCIAL LINK EXTRACTION HELPERS
+# ============================================================================
+# FrankenUI uses Lucide icons directly — UkIcon("name") maps 1-to-1 to Lucide.
+# Lucide stopped accepting new brand icons in 2022, so only these social
+# platforms have native icons:
+#   instagram  twitter  facebook  linkedin  github  youtube  mail
+# Semantic fallbacks for platforms without a Lucide brand icon:
+#   TikTok → "music"   Twitch → "monitor-play"
+#   Discord → "message-circle"   Patreon → "heart"   Linktree → "link"
+
+# Each entry: (compiled_regex, lucide_icon, display_label, url_template)
+_SOCIAL_PATTERNS = [
+    # ── Native Lucide brand icons ─────────────────────────────────────────────
+    (
+        _re.compile(r"instagram\.com/(?!(?:p|reel|stories|explore)/)([\w.]+)", _re.I),
+        "instagram",
+        "Instagram",
+        "https://instagram.com/{}",
+    ),
+    (
+        _re.compile(r"(?:instagram|ig)[:\s]+@?([\w.]+)", _re.I),
+        "instagram",
+        "Instagram",
+        "https://instagram.com/{}",
+    ),
+    (
+        _re.compile(r"(?:twitter|x)\.com/([\w]+)", _re.I),
+        "twitter",
+        "X / Twitter",
+        "https://x.com/{}",
+    ),
+    (
+        _re.compile(r"twitter[:\s]+@?([\w]+)", _re.I),
+        "twitter",
+        "X / Twitter",
+        "https://x.com/{}",
+    ),
+    (
+        _re.compile(r"facebook\.com/([\w.]+)", _re.I),
+        "facebook",
+        "Facebook",
+        "https://facebook.com/{}",
+    ),
+    (
+        _re.compile(r"linkedin\.com/(?:in|company)/([\w-]+)", _re.I),
+        "linkedin",
+        "LinkedIn",
+        "https://linkedin.com/in/{}",
+    ),
+    (
+        _re.compile(r"github\.com/([\w-]+)", _re.I),
+        "github",
+        "GitHub",
+        "https://github.com/{}",
+    ),
+    # ── Semantic fallbacks (no Lucide brand icon exists) ──────────────────────
+    (
+        _re.compile(r"tiktok\.com/@([\w.]+)", _re.I),
+        "music",
+        "TikTok",
+        "https://tiktok.com/@{}",
+    ),
+    (
+        _re.compile(r"(?:tiktok|tt)[:\s]+@?([\w.]+)", _re.I),
+        "music",
+        "TikTok",
+        "https://tiktok.com/@{}",
+    ),
+    (
+        _re.compile(r"twitch\.tv/([\w]+)", _re.I),
+        "monitor-play",
+        "Twitch",
+        "https://twitch.tv/{}",
+    ),
+    (
+        _re.compile(r"discord\.gg/([\w-]+)", _re.I),
+        "message-circle",
+        "Discord",
+        "https://discord.gg/{}",
+    ),
+    (
+        _re.compile(r"patreon\.com/([\w-]+)", _re.I),
+        "heart",
+        "Patreon",
+        "https://patreon.com/{}",
+    ),
+    (
+        _re.compile(r"linktr\.ee/([\w-]+)", _re.I),
+        "link",
+        "Linktree",
+        "https://linktr.ee/{}",
+    ),
+    # ── Generic website catch-all (must be last) ──────────────────────────────
+    # group(1) = full URL (used as href); group(2) = bare domain (used for _SKIP_DOMAINS check)
+    (
+        _re.compile(
+            r"(https?://(?:www\.)?([\w.-]+\.[a-z]{2,})(?:/[^\s]*)?)",
+            _re.I,
+        ),
+        "globe",
+        "Website",
+        "{}",
+    ),
+]
+
+_EMAIL_RE = _re.compile(r"\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
+
+# Domains to skip in the catch-all so social platforms don't appear twice
+_SKIP_DOMAINS = frozenset(
+    {
+        "youtube.com",
+        "youtu.be",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "tiktok.com",
+        "facebook.com",
+        "twitch.tv",
+        "github.com",
+        "patreon.com",
+        "discord.gg",
+        "linkedin.com",
+        "linktr.ee",
+        "t.co",
+        "bit.ly",
+        "google.com",
+        "wikipedia.org",
+        "goo.gl",
+        "amzn.to",
+    }
+)
+
+# Brand-accurate colours keyed by Lucide icon name
+_SOCIAL_COLOURS = {
+    "instagram": "text-pink-500 hover:text-pink-600",
+    "twitter": "text-sky-500 hover:text-sky-600",
+    "facebook": "text-blue-600 hover:text-blue-700",
+    "linkedin": "text-blue-700 hover:text-blue-800",
+    "github": "text-foreground hover:text-primary",
+    "youtube": "text-red-600 hover:text-red-700",
+    "mail": "text-violet-600 hover:text-violet-700",
+    "music": "text-foreground hover:text-primary",  # TikTok
+    "monitor-play": "text-purple-600 hover:text-purple-700",  # Twitch
+    "message-circle": "text-indigo-500 hover:text-indigo-600",  # Discord
+    "heart": "text-rose-500 hover:text-rose-600",  # Patreon
+    "link": "text-emerald-600 hover:text-emerald-700",  # Linktree
+    "globe": "text-emerald-600 hover:text-emerald-700",
+}
+
+
+def _extract_socials(bio: str, keywords: str) -> list[tuple[str, str, str]]:
+    """
+    Parse social links and emails from bio + keywords text.
+
+    Returns a deduplicated list of (lucide_icon, label, href) tuples,
+    capped at 8 entries.
+    """
+    text = f"{bio or ''} {keywords or ''}".strip()
+    if not text:
+        return []
+
+    found: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+
+    # Emails first — highest-value contact signal
+    for email in _EMAIL_RE.findall(text):
+        href = f"mailto:{email}"
+        if href not in seen:
+            found.append(("mail", email, href))
+            seen.add(href)
+
+    # Social patterns in priority order (specific before generic)
+    for pattern, icon, label, url_tpl in _SOCIAL_PATTERNS:
+        for m in pattern.finditer(text):
+            if icon == "globe":
+                # group(1) = full URL, group(2) = bare domain
+                full_url = m.group(1)
+                domain = m.group(2).lower()
+                if any(skip in domain for skip in _SKIP_DOMAINS):
+                    continue
+                href = full_url
+            else:
+                handle = m.group(1).strip("/ .")
+                if not handle or len(handle) < 2:
+                    continue
+                href = url_tpl.format(handle)
+            if href not in seen:
+                found.append((icon, label, href))
+                seen.add(href)
+
+    return found[:8]
+
+
+# Matches youtube.com (with or without www) and the youtu.be short-link domain.
+_YT_URL_RE = _re.compile(r"https?://(?:(?:www\.)?youtube\.com|youtu\.be)/\S+", _re.I)
+
+
+def _parse_featured_channels(raw: str) -> list[str]:
+    """Parse featured_channels_urls (newline/comma/space separated) → YouTube URLs.
+
+    Accepts both ``youtube.com`` and ``youtu.be`` variants.
+    """
+    if not raw:
+        return []
+    seen: set[str] = set()
+    result = []
+    for u in _re.split(r"[\n,\s]+", raw.strip()):
+        u = u.strip()
+        if u and _YT_URL_RE.match(u) and u not in seen:
+            seen.add(u)
+            result.append(u)
+    return result[:6]
 
 
 # Topic Category to Emoji Mapping (for topicCategories from YouTube API)
@@ -1890,19 +2106,30 @@ def _count_by_grade(creators: list[dict]) -> dict:
 # ============================================================================
 
 
-def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> Div:
+def render_creator_profile_page(
+    creator: dict,
+    back_url: str = "/creators",
+    context_ranks: dict | None = None,
+) -> Div:
     """
     Full-page creator profile — award-showcase design.
+
+    Args:
+        creator:       Creator dict from get_creator_stats().
+        back_url:      Href for the ← Back button.
+        context_ranks: Optional {country_rank, language_rank, category_rank}
+                       ints from _get_context_ranks() in routes/creators.py.
 
     Layout:
       1. Cinematic banner + overlapping avatar + identity strip
       2. 4-up stat cards with 30d deltas
       3. Two-column body:
-           Left  — About (bio, channel info, keywords)
-           Right — Performance (hero metrics, secondary table, trend bar)
-      4. Topic categories + category distribution bars
-      5. Sync / freshness footer
+           Left  — About + Channel Info + Social Links + Featured Channels
+           Right — Performance + trend bar + Topics (with rank chips) +
+                   Rankings card + Category breakdown
+      4. Sync / freshness footer
     """
+    context_ranks = context_ranks or {}
     # ── identity ──────────────────────────────────────────────────────────────
     creator_id = safe_get_value(creator, "id", "")
     channel_id = safe_get_value(creator, "channel_id", "")
@@ -1931,6 +2158,7 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0) or 0
     topic_categories_raw = safe_get_value(creator, "topic_categories")
     category_distribution = safe_get_value(creator, "category_distribution")
+    featured_channels_raw = safe_get_value(creator, "featured_channels_urls", "")
     last_updated = safe_get_value(creator, "last_updated_at", "")
     last_synced = safe_get_value(creator, "last_synced_at", "")
     sync_status = safe_get_value(creator, "sync_status", "pending")
@@ -1958,6 +2186,15 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
     country_flag = get_country_flag(country_code) if country_code else ""
     lang_emoji = get_language_emoji(language) if language else ""
     lang_name = get_language_name(language) if language else ""
+
+    # ── parsed extras ─────────────────────────────────────────────────────────
+    social_links = _extract_socials(bio or "", keywords or "")
+    featured_ch_urls = _parse_featured_channels(featured_channels_raw or "")
+
+    # ── context ranks (from route layer) ──────────────────────────────────────
+    country_rank = context_ranks.get("country_rank")
+    language_rank = context_ranks.get("language_rank")
+    category_rank = context_ranks.get("category_rank")
 
     # ── small helpers (private to this call) ─────────────────────────────────
     def _delta_badge(val: int | None) -> Span | None:
@@ -2262,6 +2499,77 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
 
     left_col = Div(about_card, channel_info_card, cls="flex flex-col gap-4")
 
+    # ── Social links card ──────────────────────────────────────────────────────
+    if social_links:
+        social_card = Card(
+            Div(
+                UkIcon("share-2", cls="w-4 h-4 text-muted-foreground mr-2"),
+                H2("Connect", cls="text-base font-bold text-foreground"),
+                cls="flex items-center mb-4",
+            ),
+            Div(
+                *[
+                    A(
+                        UkIcon(icon, cls="w-4 h-4 shrink-0"),
+                        # For email show the address; for social show the label
+                        Span(
+                            label if icon != "mail" else href.replace("mailto:", ""),
+                            cls="text-sm font-medium truncate",
+                        ),
+                        href=href,
+                        target=None if href.startswith("mailto:") else "_blank",
+                        rel=(
+                            None
+                            if href.startswith("mailto:")
+                            else "noopener noreferrer"
+                        ),
+                        cls=f"inline-flex items-center gap-2 no-underline transition-colors {_SOCIAL_COLOURS.get(icon, 'text-foreground hover:text-primary')}",
+                    )
+                    for icon, label, href in social_links
+                ],
+                cls="flex flex-col gap-2.5",
+            ),
+            body_cls="p-5",
+        )
+        left_col = Div(
+            about_card, channel_info_card, social_card, cls="flex flex-col gap-4"
+        )
+
+    # ── Featured channels card ─────────────────────────────────────────────────
+    if featured_ch_urls:
+        featured_card = Card(
+            Div(
+                UkIcon("users", cls="w-4 h-4 text-muted-foreground mr-2"),
+                H2("Featured Channels", cls="text-base font-bold text-foreground"),
+                cls="flex items-center mb-4",
+            ),
+            Div(
+                *[
+                    A(
+                        UkIcon("external-link", cls="w-3.5 h-3.5 shrink-0"),
+                        Span(
+                            urlparse(url).path.lstrip("/@").split("?")[0] or url,
+                            cls="text-sm truncate",
+                        ),
+                        href=url,
+                        target="_blank",
+                        rel="noopener noreferrer",
+                        cls="inline-flex items-center gap-2 text-primary hover:underline no-underline",
+                    )
+                    for url in featured_ch_urls
+                ],
+                cls="flex flex-col gap-2",
+            ),
+            body_cls="p-5",
+        )
+        left_col = Div(
+            about_card,
+            channel_info_card,
+            *(social_links and [social_card] or []),
+            featured_card,
+            cls="flex flex-col gap-4",
+        )
+
     # ── Right column: Performance + Growth trend ───────────────────────────────
     # Hero-level secondary metrics
     secondary_metrics = Div(
@@ -2332,7 +2640,81 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         body_cls="p-5",
     )
 
-    # Topic categories card
+    # ── Rankings card (country / language / category) ─────────────────────────
+    ranking_rows = []
+    if country_rank is not None and country_code:
+        ranking_rows.append(
+            Div(
+                Span(
+                    f"{country_flag} {country_code.upper()}",
+                    cls="text-sm text-muted-foreground",
+                ),
+                Div(
+                    A(
+                        f"#{country_rank}",
+                        href=f"/lists/country/{country_code.upper()}",
+                        cls="text-sm font-bold text-primary hover:underline no-underline",
+                        title=f"Ranked #{country_rank} in {country_code.upper()} by subscribers",
+                    ),
+                    Span("in country", cls="text-xs text-muted-foreground ml-1"),
+                    cls="flex items-center",
+                ),
+                cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+            )
+        )
+    if language_rank is not None and language:
+        ranking_rows.append(
+            Div(
+                Span(f"{lang_emoji} {lang_name}", cls="text-sm text-muted-foreground"),
+                Div(
+                    A(
+                        f"#{language_rank}",
+                        href=f"/lists/language/{language.lower()}",
+                        cls="text-sm font-bold text-primary hover:underline no-underline",
+                        title=f"Ranked #{language_rank} in {lang_name} by subscribers",
+                    ),
+                    Span("in language", cls="text-xs text-muted-foreground ml-1"),
+                    cls="flex items-center",
+                ),
+                cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+            )
+        )
+    if category_rank is not None and primary_category:
+        ranking_rows.append(
+            Div(
+                Span(
+                    f"{get_topic_category_emoji(primary_category)} {primary_category}",
+                    cls="text-sm text-muted-foreground",
+                ),
+                Div(
+                    A(
+                        f"#{category_rank}",
+                        href=f"/lists/category/{slugify(primary_category)}",
+                        cls="text-sm font-bold text-primary hover:underline no-underline",
+                        title=f"Ranked #{category_rank} in {primary_category} by subscribers",
+                    ),
+                    Span("in category", cls="text-xs text-muted-foreground ml-1"),
+                    cls="flex items-center",
+                ),
+                cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+            )
+        )
+
+    rankings_card = (
+        Card(
+            Div(
+                UkIcon("trophy", cls="w-4 h-4 text-amber-500 mr-2"),
+                H2("Rankings", cls="text-base font-bold text-foreground"),
+                cls="flex items-center mb-3",
+            ),
+            Div(*ranking_rows),
+            body_cls="p-5",
+        )
+        if ranking_rows
+        else None
+    )
+
+    # Topic categories card — pills link to list pages; primary cat shows rank chip
     topic_pill_section = None
     if topic_categories_raw:
         parsed_cats = []
@@ -2365,29 +2747,22 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                 "bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300",
                 "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
             ]
+            pills = [
+                A(
+                    f"{get_topic_category_emoji(cat)} {cat}",
+                    href=f"/lists/category/{slugify(cat)}",
+                    cls=f"text-xs font-medium no-underline hover:underline inline-flex items-center px-3 py-1 rounded-full {pill_palette[i % len(pill_palette)]}",
+                )
+                for i, cat in enumerate(parsed_cats)
+            ]
             topic_pill_section = Card(
                 H2("Topics", cls="text-base font-bold text-foreground mb-3"),
-                Div(
-                    *[
-                        Span(
-                            f"{get_topic_category_emoji(cat)} {cat}",
-                            cls=f"text-xs font-medium px-3 py-1 rounded-full {pill_palette[i % len(pill_palette)]}",
-                        )
-                        for i, cat in enumerate(parsed_cats)
-                    ],
-                    cls="flex flex-wrap gap-2",
-                ),
+                Div(*pills, cls="flex flex-wrap gap-2"),
                 body_cls="p-5",
             )
 
-    right_col = Div(performance_card, topic_pill_section, cls="flex flex-col gap-4")
-
-    body_cols = Grid(left_col, right_col, cols_sm=1, cols_lg=2, cls="mb-6")
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SECTION 4 — Category distribution bars (horizontal, coloured by rank)
-    # ═══════════════════════════════════════════════════════════════════════════
-    cat_dist_section = None
+    # Category distribution bars
+    cat_dist_card = None
     if category_distribution:
         try:
             dist = (
@@ -2430,20 +2805,29 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
                         sorted(dist.items(), key=lambda x: -x[1])[:8]
                     )
                 ]
-                cat_dist_section = Card(
+                cat_dist_card = Card(
                     H2(
                         "Content Breakdown",
                         cls="text-base font-bold text-foreground mb-4",
                     ),
                     Div(*bars, cls="space-y-3"),
                     body_cls="p-5",
-                    cls="mb-6",
                 )
         except Exception:
             pass
 
+    right_col = Div(
+        performance_card,
+        rankings_card,
+        topic_pill_section,
+        cat_dist_card,
+        cls="flex flex-col gap-4",
+    )
+
+    body_cols = Grid(left_col, right_col, cols_sm=1, cols_lg=2, cls="mb-6")
+
     # ═══════════════════════════════════════════════════════════════════════════
-    # SECTION 5 — Sync / freshness footer
+    # SECTION 4 — Sync / freshness footer
     # ═══════════════════════════════════════════════════════════════════════════
     sync_colour = {
         "synced": "text-emerald-600",
@@ -2479,7 +2863,6 @@ def render_creator_profile_page(creator: dict, back_url: str = "/creators") -> D
         banner_section,
         stats_row,
         body_cols,
-        cat_dist_section,
         footer_section,
         cls="max-w-5xl mx-auto px-4 pb-16 pt-6",
     )

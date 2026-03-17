@@ -3,6 +3,7 @@ Creators routes - browse and filter discovered YouTube creators.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 
 from fasthtml.common import *
@@ -13,6 +14,7 @@ from db import (
     calculate_creator_stats,
     find_creator_by_handle,
     get_creator_hero_stats,
+    get_creator_rank,
     get_creator_stats,
     get_creators,
 )
@@ -220,6 +222,52 @@ def creators_route(request):
     )
 
 
+def _get_context_ranks(creator: dict) -> dict:
+    """
+    Compute this creator's subscriber rank in their country, language, and
+    primary category — each is a single server-side COUNT (no row transfer).
+    All three queries run in parallel via a thread pool.
+
+    Returns:
+        dict with keys country_rank, language_rank, category_rank.
+        Each value is an int (1-based position) or None when unavailable.
+    """
+    subs = int(creator.get("current_subscribers") or 0)
+    country = creator.get("country_code", "")
+    language = creator.get("default_language", "")
+    category = creator.get("primary_category", "")
+
+    tasks: dict[str, tuple[str, str]] = {}
+    if subs and country:
+        tasks["country_rank"] = ("country_code", country)
+    if subs and language:
+        tasks["language_rank"] = ("default_language", language)
+    if subs and category:
+        tasks["category_rank"] = ("primary_category", category)
+
+    result: dict[str, int | None] = {
+        "country_rank": None,
+        "language_rank": None,
+        "category_rank": None,
+    }
+    if not tasks:
+        return result
+
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        futures = {
+            pool.submit(get_creator_rank, subs, key, val): name
+            for name, (key, val) in tasks.items()
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                result[name] = future.result()
+            except Exception:
+                logger.exception("[CreatorProfile] Rank query failed for %s", name)
+
+    return result
+
+
 def creator_profile_route(request, creator_id: str):
     """
     GET /creator/{creator_id} — Full profile page for a single creator.
@@ -250,7 +298,9 @@ def creator_profile_route(request, creator_id: str):
             cls="max-w-2xl mx-auto px-4 py-24 text-center",
         )
 
-    # Respect ?from= query param for the back-link (e.g. a country/category list)
     back_url = request.query_params.get("from", "/creators")
+    context_ranks = _get_context_ranks(creator)
 
-    return render_creator_profile_page(creator, back_url=back_url)
+    return render_creator_profile_page(
+        creator, back_url=back_url, context_ranks=context_ranks
+    )
