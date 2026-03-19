@@ -15,6 +15,7 @@ from db_lists import (
     get_lists_meta,
     get_most_active_creators,
     get_rising_creators,
+    get_top_categories_with_counts,
     get_top_rated_creators,
     get_veteran_creators,
 )
@@ -23,6 +24,7 @@ from views.lists import (
     render_more_categories,
     render_more_countries,
     render_more_languages,
+    render_categories_explorer_page,
     render_country_detail_page,
     render_country_creators_rows,
     render_category_detail_page,
@@ -503,3 +505,14 @@ def language_detail_more_route(request):
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
     )
+
+
+def categories_explorer_route():
+    """
+    GET /lists/categories — Visual bar-chart explorer of all content categories.
+
+    Fetches every category with creator counts (server-side RPC, zero row
+    transfer) and delegates rendering to render_categories_explorer_page().
+    """
+    categories = get_top_categories_with_counts(limit=500)
+    return render_categories_explorer_page(categories)

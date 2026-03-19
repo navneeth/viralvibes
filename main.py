@@ -87,6 +87,7 @@ from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.creators import creator_profile_route, creators_route
 from routes.lists import (
+    categories_explorer_route,
     category_detail_more_route,
     category_detail_route,
     country_detail_more_route,
@@ -1137,6 +1138,19 @@ def lists_country_more(req, sess, country_code: str):
     # Pass country_code from path parameter to ensure correct data
     req.country_code = country_code.upper()
     return country_detail_more_route(req)
+
+
+@rt("/lists/categories")
+def lists_categories_explorer(req, sess):
+    """Visual bar-chart explorer of all content categories."""
+    page_content = categories_explorer_route()
+    return Titled(
+        "Category Explorer - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
 
 
 @rt("/lists/category/{category_slug}")
