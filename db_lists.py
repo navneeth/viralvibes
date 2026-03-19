@@ -283,72 +283,76 @@ def get_top_creators_by_categories(
     categories: list[str], limit_per_category: int = 5
 ) -> dict[str, list[dict]]:
     """
-    Batch-fetch top creators for a list of normalized category names in one query.
+    Fetch the top creators for each category via per-category ILIKE queries.
 
-    Fetches a large result set ordered by subscribers, then groups client-side
-    by normalized category name.  One query replaces N ILIKE queries.
+    The previous implementation fetched a global top-N by subscribers and
+    matched client-side.  That was broken for categories whose top creators
+    are not globally top-ranked (e.g. "Lifestyle (sociology)" has 4 700
+    creators but none are in the global top 200, so it always returned empty).
+
+    This version issues one ILIKE query per category — efficient because each
+    query is DB-filtered and returns only ``limit_per_category`` rows.
+
+    ILIKE search term construction
+    ───────────────────────────────
+    The RPC normalises Wikipedia URL slugs by replacing underscores with
+    spaces, so category keys look like:
+        "https://en.wikipedia.org/wiki/Lifestyle (sociology)"
+
+    The raw DB value retains underscores:
+        "https://en.wikipedia.org/wiki/Lifestyle_(sociology)"
+
+    We extract the last URL segment ("Lifestyle (sociology)") and then
+    replace its spaces back with ``_``.  In SQL ILIKE the ``_`` character is
+    a single-character wildcard, so the pattern
+        ``%Lifestyle_(sociology)%``
+    matches both the underscore form stored in the DB *and* any space variant.
+
+    For plain category names like "Gaming" no transformation is needed.
 
     Args:
-        categories: Normalized category names (output of normalize_category_name)
-        limit_per_category: Max creators to return per category
+        categories: Category keys from get_top_categories_with_counts().
+        limit_per_category: Max creators to return per category.
 
     Returns:
-        Dict of {category: [creators sorted by subscribers desc]}
+        Dict of {category_key: [creators sorted by subscribers desc]}
     """
     supabase_client = _get_supabase_client()
     if not supabase_client or not categories:
         return {}
 
-    try:
-        fetch_limit = min(len(categories) * limit_per_category * 5, 3000)
+    result: dict[str, list[dict]] = {cat: [] for cat in categories}
 
-        response = (
-            supabase_client.table("creators")
-            .select("*")
-            .not_.is_("channel_name", "null")
-            .not_.is_("topic_categories", "null")
-            .gt("current_subscribers", 0)
-            .order("current_subscribers", desc=True)
-            .limit(fetch_limit)
-            .execute()
-        )
+    for category in categories:
+        # Extract the meaningful segment from a (possibly URL-normalised) key.
+        if "/" in category:
+            segment = category.split("/")[-1].strip()
+        else:
+            segment = category.strip()
 
-        creators = response.data if response.data else []
-        cat_set = set(categories)
-        result: dict[str, list[dict]] = {cat: [] for cat in categories}
+        # Spaces → _ so the ILIKE wildcard matches both storage forms.
+        ilike_term = segment.replace(" ", "_")
+        if not ilike_term:
+            continue
 
-        for creator in creators:
-            raw = creator.get("topic_categories")
-            if not raw:
-                continue
+        try:
+            response = (
+                supabase_client.table("creators")
+                .select("*")
+                .ilike("topic_categories", f"%{ilike_term}%")
+                .not_.is_("channel_name", "null")
+                .gt("current_subscribers", 0)
+                .order("current_subscribers", desc=True)
+                .limit(limit_per_category)
+                .execute()
+            )
+            result[category] = response.data if response.data else []
+        except Exception as e:
+            logger.exception(
+                "Error fetching creators for category %r: %s", category, e
+            )
 
-            # Parse topic_categories — JSON array string, Python list, or CSV
-            if isinstance(raw, list):
-                creator_cats = raw
-            elif isinstance(raw, str):
-                try:
-                    parsed = json.loads(raw)
-                    creator_cats = parsed if isinstance(parsed, list) else []
-                except (json.JSONDecodeError, ValueError):
-                    creator_cats = [c.strip() for c in raw.split(",")]
-            else:
-                continue
-
-            # Match against each requested category
-            for raw_cat in creator_cats:
-                normalized = normalize_category_name(str(raw_cat))
-                if (
-                    normalized in cat_set
-                    and len(result[normalized]) < limit_per_category
-                ):
-                    result[normalized].append(creator)
-                    # Don't break — a creator can belong to multiple categories
-
-        return result
-
-    except Exception as e:
-        logger.exception(f"Error batch-fetching creators for categories: {e}")
-        return {}
+    return result
 
 
 def get_top_creators_by_languages(
