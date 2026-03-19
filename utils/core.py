@@ -3,6 +3,7 @@ Core utility functions for safe data access and basic operations.
 """
 
 import re
+from urllib.parse import urlparse
 
 from fasthtml.common import *
 
@@ -78,22 +79,35 @@ def normalize_category_name(category: str) -> str:
     Normalize a category name to canonical form for storage and filtering.
 
     Normalization steps:
-    1. Strip leading/trailing whitespace
-    2. Replace underscores with spaces
-    3. Collapse multiple spaces to single space
+    1. Strip Wikipedia URL prefix and any query string/fragment
+       (e.g. "https://en.wikipedia.org/wiki/Music?foo=bar#section" → "Music")
+    2. Strip leading/trailing whitespace
+    3. Replace underscores with spaces
+    4. Collapse multiple spaces to single space
+
+    The /wiki/ stripping is intentionally narrow: it only fires when the value
+    looks like a Wikipedia HTTP URL (starts with http and contains wikipedia.org),
+    avoiding false positives on plain category names that happen to contain "/wiki/".
 
     This ensures consistent category names whether they come from:
-    - Wikipedia URLs (e.g., "Video_game_culture")
+    - Full Wikipedia URLs  (e.g., "https://en.wikipedia.org/wiki/Video_game_culture")
+    - Wikipedia slug fragments (e.g., "Video_game_culture")
     - User input filters (e.g., "  video game  ")
     - Database storage
 
     Args:
-        category: Raw category name (may have underscores, extra spaces, etc)
+        category: Raw category name or Wikipedia URL.
 
     Returns:
         Normalized category name (e.g., "Video game culture")
 
     Examples:
+        >>> normalize_category_name("https://en.wikipedia.org/wiki/Music")
+        'Music'
+        >>> normalize_category_name("https://en.wikipedia.org/wiki/Music?foo=bar#section")
+        'Music'
+        >>> normalize_category_name("https://en.wikipedia.org/wiki/Video_game_culture")
+        'Video game culture'
         >>> normalize_category_name("Video_game_culture")
         'Video game culture'
         >>> normalize_category_name("  hip_hop  ")
@@ -103,6 +117,22 @@ def normalize_category_name(category: str) -> str:
     """
     if not category:
         return ""
+
+    # Strip Wikipedia URL prefix — only when the value is a Wikipedia HTTP URL.
+    # Narrow check avoids rewriting plain strings that contain "/wiki/" literally.
+    if category.startswith(("http://", "https://")):
+        parsed = urlparse(category)
+        host = parsed.hostname or ""
+        # Only treat real Wikipedia hosts as Wikipedia URLs. Accept both the
+        # bare domain and any subdomain (e.g. en.wikipedia.org).
+        if (
+            host == "wikipedia.org" or host.endswith(".wikipedia.org")
+        ) and "/wiki/" in parsed.path:
+            # Extract the slug portion after "/wiki/" from the URL path.
+            slug_with_rest = parsed.path.split("/wiki/", 1)[-1]
+            # Strip any query string or fragment from the extracted slug so that
+            # "Music?foo=bar#section" and "Music" both normalise to "Music".
+            category = slug_with_rest.split("?", 1)[0].split("#", 1)[0]
 
     # Strip, replace underscores, collapse whitespace
     normalized = " ".join(category.strip().replace("_", " ").split())
