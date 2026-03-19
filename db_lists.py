@@ -348,9 +348,7 @@ def get_top_creators_by_categories(
             )
             result[category] = response.data if response.data else []
         except Exception as e:
-            logger.exception(
-                "Error fetching creators for category %r: %s", category, e
-            )
+            logger.exception("Error fetching creators for category %r: %s", category, e)
 
     return result
 
