@@ -1757,7 +1757,8 @@ def render_categories_explorer_page(
     """
     )
 
-    style_tag = Style("""
+    style_tag = Style(
+        """
 .sort-btn.is-active {
     background: rgb(252 231 243);
     color: rgb(190 24 93);
@@ -1768,7 +1769,8 @@ def render_categories_explorer_page(
     color: rgb(249 168 212);
     border-color: rgb(249 168 212);
 }
-""")
+"""
+    )
 
     return Div(
         style_tag,
