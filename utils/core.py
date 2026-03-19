@@ -78,22 +78,28 @@ def normalize_category_name(category: str) -> str:
     Normalize a category name to canonical form for storage and filtering.
 
     Normalization steps:
-    1. Strip leading/trailing whitespace
-    2. Replace underscores with spaces
-    3. Collapse multiple spaces to single space
+    1. Strip Wikipedia URL prefix  (e.g. "https://en.wikipedia.org/wiki/Music" → "Music")
+    2. Strip leading/trailing whitespace
+    3. Replace underscores with spaces
+    4. Collapse multiple spaces to single space
 
     This ensures consistent category names whether they come from:
-    - Wikipedia URLs (e.g., "Video_game_culture")
+    - Full Wikipedia URLs  (e.g., "https://en.wikipedia.org/wiki/Video_game_culture")
+    - Wikipedia slug fragments (e.g., "Video_game_culture")
     - User input filters (e.g., "  video game  ")
     - Database storage
 
     Args:
-        category: Raw category name (may have underscores, extra spaces, etc)
+        category: Raw category name or Wikipedia URL.
 
     Returns:
         Normalized category name (e.g., "Video game culture")
 
     Examples:
+        >>> normalize_category_name("https://en.wikipedia.org/wiki/Music")
+        'Music'
+        >>> normalize_category_name("https://en.wikipedia.org/wiki/Video_game_culture")
+        'Video game culture'
         >>> normalize_category_name("Video_game_culture")
         'Video game culture'
         >>> normalize_category_name("  hip_hop  ")
@@ -103,6 +109,11 @@ def normalize_category_name(category: str) -> str:
     """
     if not category:
         return ""
+
+    # Strip Wikipedia URL prefix — keep only the article slug.
+    # Handles both https://en.wikipedia.org/wiki/Foo and any /wiki/ variant.
+    if "/wiki/" in category:
+        category = category.split("/wiki/")[-1]
 
     # Strip, replace underscores, collapse whitespace
     normalized = " ".join(category.strip().replace("_", " ").split())
