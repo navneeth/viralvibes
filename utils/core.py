@@ -78,10 +78,15 @@ def normalize_category_name(category: str) -> str:
     Normalize a category name to canonical form for storage and filtering.
 
     Normalization steps:
-    1. Strip Wikipedia URL prefix  (e.g. "https://en.wikipedia.org/wiki/Music" → "Music")
+    1. Strip Wikipedia URL prefix and any query string/fragment
+       (e.g. "https://en.wikipedia.org/wiki/Music?foo=bar#section" → "Music")
     2. Strip leading/trailing whitespace
     3. Replace underscores with spaces
     4. Collapse multiple spaces to single space
+
+    The /wiki/ stripping is intentionally narrow: it only fires when the value
+    looks like a Wikipedia HTTP URL (starts with http and contains wikipedia.org),
+    avoiding false positives on plain category names that happen to contain "/wiki/".
 
     This ensures consistent category names whether they come from:
     - Full Wikipedia URLs  (e.g., "https://en.wikipedia.org/wiki/Video_game_culture")
@@ -98,6 +103,8 @@ def normalize_category_name(category: str) -> str:
     Examples:
         >>> normalize_category_name("https://en.wikipedia.org/wiki/Music")
         'Music'
+        >>> normalize_category_name("https://en.wikipedia.org/wiki/Music?foo=bar#section")
+        'Music'
         >>> normalize_category_name("https://en.wikipedia.org/wiki/Video_game_culture")
         'Video game culture'
         >>> normalize_category_name("Video_game_culture")
@@ -110,10 +117,17 @@ def normalize_category_name(category: str) -> str:
     if not category:
         return ""
 
-    # Strip Wikipedia URL prefix — keep only the article slug.
-    # Handles both https://en.wikipedia.org/wiki/Foo and any /wiki/ variant.
-    if "/wiki/" in category:
+    # Strip Wikipedia URL prefix — only when the value is a Wikipedia HTTP URL.
+    # Narrow check avoids rewriting plain strings that contain "/wiki/" literally.
+    if (
+        category.startswith(("http://", "https://"))
+        and "wikipedia.org" in category
+        and "/wiki/" in category
+    ):
         category = category.split("/wiki/")[-1]
+        # Strip any query string or fragment from the extracted slug so that
+        # "Music?foo=bar#section" and "Music" both normalise to "Music".
+        category = category.split("?")[0].split("#")[0]
 
     # Strip, replace underscores, collapse whitespace
     normalized = " ".join(category.strip().replace("_", " ").split())

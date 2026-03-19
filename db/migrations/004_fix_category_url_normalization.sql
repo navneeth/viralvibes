@@ -44,7 +44,15 @@ SET topic_categories = (
         ),
         '[]'::jsonb  -- jsonb_agg returns NULL on empty input; keep [] not NULL
     )
-    FROM jsonb_array_elements_text(topic_categories::jsonb) AS elems(value)
+    FROM jsonb_array_elements_text(
+        -- Guard against scalar/object values — mirrors the RPC pattern.
+        -- Non-array shapes are treated as empty so the row is skipped cleanly.
+        CASE
+            WHEN jsonb_typeof(topic_categories::jsonb) = 'array'
+            THEN topic_categories::jsonb
+            ELSE '[]'::jsonb
+        END
+    ) AS elems(value)
     WHERE TRIM(value) <> ''
 )
 WHERE
@@ -59,6 +67,7 @@ RETURNS TABLE (category text, creator_count bigint)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
     WITH unnested AS (
         SELECT
@@ -120,41 +129,47 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
     SELECT
         COUNT(*)                            AS total_creators,
         COUNT(DISTINCT c.country_code)      AS total_countries,
         (
-            SELECT COUNT(DISTINCT
-                TRIM(
-                    REGEXP_REPLACE(
-                        REPLACE(
-                            CASE
-                                WHEN cat_raw.value LIKE '%/wiki/%'
-                                THEN SPLIT_PART(cat_raw.value, '/wiki/', 2)
-                                ELSE cat_raw.value
-                            END,
-                            '_', ' '
-                        ),
-                        '\s+', ' ', 'g'
+            -- Post-normalization filter (cat <> '') matches get_top_categories_with_counts
+            -- so values that normalise to empty (e.g. pure underscores) are excluded here too.
+            SELECT COUNT(DISTINCT cat)
+            FROM (
+                SELECT
+                    TRIM(
+                        REGEXP_REPLACE(
+                            REPLACE(
+                                CASE
+                                    WHEN cat_raw.value LIKE '%/wiki/%'
+                                    THEN SPLIT_PART(cat_raw.value, '/wiki/', 2)
+                                    ELSE cat_raw.value
+                                END,
+                                '_', ' '
+                            ),
+                            '\s+', ' ', 'g'
+                        )
+                    ) AS cat
+                FROM public.creators c2,
+                LATERAL (
+                    SELECT value
+                    FROM jsonb_array_elements_text(
+                        CASE
+                            WHEN jsonb_typeof(c2.topic_categories::jsonb) = 'array'
+                                THEN c2.topic_categories::jsonb
+                            ELSE '[]'::jsonb
+                        END
                     )
-                )
-            )
-            FROM public.creators c2,
-            LATERAL (
-                SELECT value
-                FROM jsonb_array_elements_text(
-                    CASE
-                        WHEN jsonb_typeof(c2.topic_categories::jsonb) = 'array'
-                            THEN c2.topic_categories::jsonb
-                        ELSE '[]'::jsonb
-                    END
-                )
-            ) AS cat_raw
-            WHERE c2.channel_name        IS NOT NULL
-              AND c2.topic_categories    IS NOT NULL
-              AND c2.current_subscribers  > 0
-              AND TRIM(cat_raw.value)    <> ''
+                ) AS cat_raw
+                WHERE c2.channel_name        IS NOT NULL
+                  AND c2.topic_categories    IS NOT NULL
+                  AND c2.current_subscribers  > 0
+                  AND TRIM(cat_raw.value)    <> ''
+            ) AS normalised
+            WHERE cat <> ''
         )                                   AS total_categories
     FROM public.creators c
     WHERE c.channel_name        IS NOT NULL
