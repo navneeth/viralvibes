@@ -639,13 +639,15 @@ def _render_by_category_content(
         DivFullySpaced(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
-                Span(
+                A(
                     (
                         f"{total_categories} categories"
                         if total_categories
                         else f"{shown} categories"
                     ),
-                    cls="text-sm font-medium text-foreground",
+                    href="/lists/categories",
+                    cls="text-sm font-medium text-primary hover:underline no-underline",
+                    title="Explore all categories",
                 ),
                 cls="shrink-0 hidden sm:block",
             ),
@@ -1588,4 +1590,193 @@ def render_language_creators_rows(
             if page < total_pages
             else None
         ),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Category Explorer — /lists/categories
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def render_categories_explorer_page(
+    categories: list[tuple[str, int]],
+) -> Div:
+    """
+    Full-page bar-chart explorer for all categories in the creator database.
+
+    Each row is a clickable horizontal bar proportional to creator count,
+    linking to the existing /lists/category/{slug} detail page.
+    Client-side JS handles search filtering and sort toggling with no
+    extra round-trips.
+
+    Args:
+        categories: List of (category_name, creator_count) tuples,
+                    sorted by count descending (from get_top_categories_with_counts).
+    """
+    if not categories:
+        return Div(
+            P("No categories found.", cls="text-muted-foreground text-center py-16"),
+        )
+
+    max_count = categories[0][1]
+    total_creators = sum(c for _, c in categories)
+
+    # ── Header ───────────────────────────────────────────────────────
+    header = Div(
+        A(
+            UkIcon("arrow-left", cls="w-4 h-4 mr-1.5"),
+            "Back to Lists",
+            href="/lists?tab=by-category",
+            cls="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground no-underline transition-colors",
+        ),
+        Div(
+            Div(
+                UkIcon("grid", cls="w-5 h-5 text-pink-500 mr-2"),
+                H1("Category Explorer", cls="text-2xl font-bold text-foreground"),
+                cls="flex items-center",
+            ),
+            P(
+                f"{len(categories)} content categories · {format_number(total_creators)} creator tags across the database",
+                cls="text-sm text-muted-foreground mt-1",
+            ),
+            cls="mt-4 mb-6",
+        ),
+        cls="mb-2",
+    )
+
+    # ── Search + sort controls ─────────────────────────────────────────
+    controls = Div(
+        Input(
+            type="search",
+            id="cat-search",
+            placeholder="Filter categories…",
+            cls="flex-1 px-4 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-pink-300",
+            oninput="filterCategories()",
+            autocomplete="off",
+        ),
+        Div(
+            Button(
+                UkIcon("arrow-down-wide-narrow", cls="w-4 h-4 mr-1"),
+                "By count",
+                id="sort-count-btn",
+                type="button",
+                onclick="sortCategories('count')",
+                cls="sort-btn is-active inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
+            ),
+            Button(
+                UkIcon("arrow-down-a-z", cls="w-4 h-4 mr-1"),
+                "A → Z",
+                id="sort-alpha-btn",
+                type="button",
+                onclick="sortCategories('alpha')",
+                cls="sort-btn inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
+            ),
+            cls="flex gap-2 shrink-0",
+        ),
+        cls="flex gap-3 items-center mb-6",
+    )
+
+    # ── Bar rows ──────────────────────────────────────────────────────────
+    bar_rows = []
+    for i, (cat_name, count) in enumerate(categories):
+        pct = round(count / max_count * 100)
+        emoji = get_topic_category_emoji(cat_name)
+        slug = slugify(cat_name)
+        # Palette cycles through 5 accent colours
+        bar_colours = [
+            "bg-pink-400 dark:bg-pink-500",
+            "bg-violet-400 dark:bg-violet-500",
+            "bg-blue-400 dark:bg-blue-500",
+            "bg-emerald-400 dark:bg-emerald-500",
+            "bg-amber-400 dark:bg-amber-500",
+        ]
+        bar_cls = bar_colours[i % len(bar_colours)]
+
+        bar_rows.append(
+            A(
+                # Label column
+                Div(
+                    Span(emoji, cls="text-base w-6 shrink-0 text-center"),
+                    Span(
+                        cat_name,
+                        cls="text-sm font-medium text-foreground truncate cat-name",
+                    ),
+                    cls="flex items-center gap-2 w-44 sm:w-56 shrink-0",
+                ),
+                # Bar
+                Div(
+                    Div(
+                        cls=f"h-full {bar_cls} rounded-r-full transition-all duration-300",
+                        style=f"width:{pct}%",
+                    ),
+                    cls="flex-1 h-5 bg-accent rounded-full overflow-hidden",
+                ),
+                # Count
+                Span(
+                    format_number(count),
+                    cls="text-xs font-semibold text-muted-foreground w-14 text-right shrink-0",
+                ),
+                href=f"/lists/category/{slug}",
+                # data-name for JS search, data-count for JS sort
+                data_name=cat_name.lower(),
+                data_count=str(count),
+                cls="cat-row flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent transition-colors no-underline group",
+            )
+        )
+
+    chart = Div(
+        *bar_rows,
+        id="cat-chart",
+        cls="space-y-1",
+    )
+
+    # ── Client-side search + sort (no round-trip) ─────────────────────────
+    js = Script(
+        """
+    let _catSort = 'count';
+    function filterCategories() {
+        const q = document.getElementById('cat-search').value.toLowerCase();
+        document.querySelectorAll('.cat-row').forEach(row => {
+            row.style.display = row.dataset.name.includes(q) ? '' : 'none';
+        });
+    }
+    function sortCategories(mode) {
+        _catSort = mode;
+        const chart = document.getElementById('cat-chart');
+        const rows  = Array.from(chart.querySelectorAll('.cat-row'));
+        rows.sort((a, b) =>
+            mode === 'alpha'
+                ? a.dataset.name.localeCompare(b.dataset.name)
+                : parseInt(b.dataset.count) - parseInt(a.dataset.count)
+        );
+        rows.forEach(r => chart.appendChild(r));
+        document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('is-active'));
+        document.getElementById(mode === 'alpha' ? 'sort-alpha-btn' : 'sort-count-btn')
+                .classList.add('is-active');
+    }
+    """
+    )
+
+    style_tag = Style(
+        """
+.sort-btn.is-active {
+    background: rgb(252 231 243);
+    color: rgb(190 24 93);
+    border-color: rgb(249 168 212);
+}
+.dark .sort-btn.is-active {
+    background: rgba(131, 24, 67, 0.4);
+    color: rgb(249 168 212);
+    border-color: rgb(249 168 212);
+}
+"""
+    )
+
+    return Div(
+        style_tag,
+        header,
+        controls,
+        Card(chart, body_cls="p-4"),
+        js,
+        cls="max-w-3xl mx-auto px-4 py-8",
     )
