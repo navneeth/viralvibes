@@ -511,8 +511,9 @@ def categories_explorer_route():
     """
     GET /lists/categories — Visual bar-chart explorer of all content categories.
 
-    Fetches every category with creator counts (server-side RPC, zero row
-    transfer) and delegates rendering to render_categories_explorer_page().
+    Fetches up to 2 000 categories with creator counts (server-side RPC,
+    zero row transfer) and delegates rendering to
+    render_categories_explorer_page().
     """
-    categories = get_top_categories_with_counts(limit=500)
+    categories = get_top_categories_with_counts(limit=2000)
     return render_categories_explorer_page(categories)

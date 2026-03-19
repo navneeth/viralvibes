@@ -1618,7 +1618,7 @@ def render_categories_explorer_page(
             P("No categories found.", cls="text-muted-foreground text-center py-16"),
         )
 
-    max_count = categories[0][1] if categories else 1
+    max_count = categories[0][1]
     total_creators = sum(c for _, c in categories)
 
     # ── Header ───────────────────────────────────────────────────────
@@ -1661,7 +1661,7 @@ def render_categories_explorer_page(
                 id="sort-count-btn",
                 type="button",
                 onclick="sortCategories('count')",
-                cls="inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 border border-pink-300 transition-colors",
+                cls="sort-btn is-active inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
             ),
             Button(
                 UkIcon("arrow-down-a-z", cls="w-4 h-4 mr-1"),
@@ -1669,7 +1669,7 @@ def render_categories_explorer_page(
                 id="sort-alpha-btn",
                 type="button",
                 onclick="sortCategories('alpha')",
-                cls="inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold bg-background text-muted-foreground border border-border hover:bg-accent transition-colors",
+                cls="sort-btn inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
             ),
             cls="flex gap-2 shrink-0",
         ),
@@ -1742,32 +1742,36 @@ def render_categories_explorer_page(
     }
     function sortCategories(mode) {
         _catSort = mode;
-        const chart  = document.getElementById('cat-chart');
-        const rows   = Array.from(chart.querySelectorAll('.cat-row'));
+        const chart = document.getElementById('cat-chart');
+        const rows  = Array.from(chart.querySelectorAll('.cat-row'));
         rows.sort((a, b) =>
             mode === 'alpha'
                 ? a.dataset.name.localeCompare(b.dataset.name)
                 : parseInt(b.dataset.count) - parseInt(a.dataset.count)
         );
         rows.forEach(r => chart.appendChild(r));
-        // Update button styles
-        document.getElementById('sort-count-btn').className =
-            document.getElementById('sort-count-btn').className
-                .replace('bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 border-pink-300',
-                         'bg-background text-muted-foreground border-border hover:bg-accent');
-        document.getElementById('sort-alpha-btn').className =
-            document.getElementById('sort-alpha-btn').className
-                .replace('bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 border-pink-300',
-                         'bg-background text-muted-foreground border-border hover:bg-accent');
-        const active = document.getElementById(mode === 'alpha' ? 'sort-alpha-btn' : 'sort-count-btn');
-        active.className = active.className
-            .replace('bg-background text-muted-foreground border-border hover:bg-accent',
-                     'bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 border-pink-300');
+        document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('is-active'));
+        document.getElementById(mode === 'alpha' ? 'sort-alpha-btn' : 'sort-count-btn')
+                .classList.add('is-active');
     }
     """
     )
 
+    style_tag = Style("""
+.sort-btn.is-active {
+    background: rgb(252 231 243);
+    color: rgb(190 24 93);
+    border-color: rgb(249 168 212);
+}
+.dark .sort-btn.is-active {
+    background: rgba(131, 24, 67, 0.4);
+    color: rgb(249 168 212);
+    border-color: rgb(249 168 212);
+}
+""")
+
     return Div(
+        style_tag,
         header,
         controls,
         Card(chart, body_cls="p-4"),
