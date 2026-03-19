@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from fasthtml.common import *
 
+
 def safe_get_value(obj, key: str, default=0):
     """
     Safely get value from dict or Supabase object. Returns default if None.
@@ -124,7 +125,9 @@ def normalize_category_name(category: str) -> str:
         host = parsed.hostname or ""
         # Only treat real Wikipedia hosts as Wikipedia URLs. Accept both the
         # bare domain and any subdomain (e.g. en.wikipedia.org).
-        if (host == "wikipedia.org" or host.endswith(".wikipedia.org")) and "/wiki/" in parsed.path:
+        if (
+            host == "wikipedia.org" or host.endswith(".wikipedia.org")
+        ) and "/wiki/" in parsed.path:
             # Extract the slug portion after "/wiki/" from the URL path.
             slug_with_rest = parsed.path.split("/wiki/", 1)[-1]
             # Strip any query string or fragment from the extracted slug so that
