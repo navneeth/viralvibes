@@ -3,9 +3,9 @@ Core utility functions for safe data access and basic operations.
 """
 
 import re
+from urllib.parse import urlparse
 
 from fasthtml.common import *
-
 
 def safe_get_value(obj, key: str, default=0):
     """
@@ -119,15 +119,17 @@ def normalize_category_name(category: str) -> str:
 
     # Strip Wikipedia URL prefix — only when the value is a Wikipedia HTTP URL.
     # Narrow check avoids rewriting plain strings that contain "/wiki/" literally.
-    if (
-        category.startswith(("http://", "https://"))
-        and "wikipedia.org" in category
-        and "/wiki/" in category
-    ):
-        category = category.split("/wiki/")[-1]
-        # Strip any query string or fragment from the extracted slug so that
-        # "Music?foo=bar#section" and "Music" both normalise to "Music".
-        category = category.split("?")[0].split("#")[0]
+    if category.startswith(("http://", "https://")):
+        parsed = urlparse(category)
+        host = parsed.hostname or ""
+        # Only treat real Wikipedia hosts as Wikipedia URLs. Accept both the
+        # bare domain and any subdomain (e.g. en.wikipedia.org).
+        if (host == "wikipedia.org" or host.endswith(".wikipedia.org")) and "/wiki/" in parsed.path:
+            # Extract the slug portion after "/wiki/" from the URL path.
+            slug_with_rest = parsed.path.split("/wiki/", 1)[-1]
+            # Strip any query string or fragment from the extracted slug so that
+            # "Music?foo=bar#section" and "Music" both normalise to "Music".
+            category = slug_with_rest.split("?", 1)[0].split("#", 1)[0]
 
     # Strip, replace underscores, collapse whitespace
     normalized = " ".join(category.strip().replace("_", " ").split())
