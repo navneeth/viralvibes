@@ -290,8 +290,19 @@ def get_top_creators_by_categories(
     are not globally top-ranked (e.g. "Lifestyle (sociology)" has 4 700
     creators but none are in the global top 200, so it always returned empty).
 
-    This version issues one ILIKE query per category — efficient because each
-    query is DB-filtered and returns only ``limit_per_category`` rows.
+    This version issues one ILIKE query per distinct ilike_term — efficient
+    because each query is DB-filtered and returns only ``limit_per_category``
+    rows.
+
+    Why not OR-ILIKE batching?
+    ───────────────────────────
+    A single query with OR-ed ILIKE conditions and client-side grouping
+    reintroduces the subscriber-bias bug: results are globally ordered by
+    subscribers, so long-tail categories (thousands of creators but none in
+    the global top-N) would still return empty unless the fetch limit is
+    impractically large.  Per-category queries guarantee correctness
+    regardless of category size.  Query count is bounded in practice by
+    INITIAL_GROUPS / LOAD_MORE_STEP (both = 8 in routes/lists.py).
 
     ILIKE search term construction
     ───────────────────────────────
@@ -302,9 +313,9 @@ def get_top_creators_by_categories(
     The raw DB value retains underscores:
         "https://en.wikipedia.org/wiki/Lifestyle_(sociology)"
 
-    We extract the last URL segment ("Lifestyle (sociology)") and then
-    replace its spaces back with ``_``.  In SQL ILIKE the ``_`` character is
-    a single-character wildcard, so the pattern
+    We extract the last URL segment, strip any query-string / fragment, and
+    replace spaces with ``_``.  In SQL ILIKE the ``_`` character is a
+    single-character wildcard, so the pattern
         ``%Lifestyle_(sociology)%``
     matches both the underscore form stored in the DB *and* any space variant.
 
@@ -323,18 +334,20 @@ def get_top_creators_by_categories(
 
     result: dict[str, list[dict]] = {cat: [] for cat in categories}
 
+    # Build ilike_term for each category key, then group keys that share the
+    # same term so we fire one query instead of N identical ones.
+    term_to_cats: dict[str, list[str]] = {}
     for category in categories:
         # Extract the meaningful segment from a (possibly URL-normalised) key.
-        if "/" in category:
-            segment = category.split("/")[-1].strip()
-        else:
-            segment = category.strip()
-
+        segment = category.split("/")[-1] if "/" in category else category
+        # Strip any query-string or fragment that may appear in non-canonical URLs.
+        segment = segment.split("?")[0].split("#")[0].strip()
         # Spaces → _ so the ILIKE wildcard matches both storage forms.
         ilike_term = segment.replace(" ", "_")
-        if not ilike_term:
-            continue
+        if ilike_term:
+            term_to_cats.setdefault(ilike_term, []).append(category)
 
+    for ilike_term, matching_cats in term_to_cats.items():
         try:
             response = (
                 supabase_client.table("creators")
@@ -346,9 +359,14 @@ def get_top_creators_by_categories(
                 .limit(limit_per_category)
                 .execute()
             )
-            result[category] = response.data if response.data else []
+            creators = response.data if response.data else []
+            # All keys that share this term get the same creator list.
+            for cat in matching_cats:
+                result[cat] = creators
         except Exception as e:
-            logger.exception("Error fetching creators for category %r: %s", category, e)
+            logger.exception(
+                "Error fetching creators for category %r: %s", ilike_term, e
+            )
 
     return result
 
