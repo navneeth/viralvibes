@@ -118,7 +118,7 @@ def EmailSignInButton(
     full_width: bool = True,
 ):
     """Email/Magic link sign-in button - alternative to Google OAuth.
-    
+
     Provides users who don't want to use Google OAuth with an email-based option.
     """
     return A(
