@@ -7,9 +7,11 @@ Extracts calculation logic from views to keep components clean.
 from typing import Optional, Tuple
 
 
-def calculate_growth_rate(subs_change: int, current_subs: int) -> float:
-    """Calculate 30-day growth rate percentage."""
-    return (subs_change / current_subs * 100) if current_subs > 0 else 0.0
+def calculate_growth_rate(subs_change: int | None, current_subs: int) -> float:
+    """Calculate 30-day growth rate percentage. Returns 0.0 when data is unavailable."""
+    if subs_change is None or current_subs <= 0:
+        return 0.0
+    return subs_change / current_subs * 100
 
 
 def calculate_avg_views_per_video(total_views: int, video_count: int) -> int:
