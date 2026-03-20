@@ -31,6 +31,7 @@ from components import (
     AnalysisFormCard,
     AnalyticsDashboardSection,
     BenefitsCard,
+    CoreValuePropsSection,
     ExploreGridSection,
     FeaturesCard,
     HeaderCard,
@@ -258,6 +259,7 @@ def index(req, sess):
         SectionDivider(),
         engagement_slider_section() or Div(),
         _Section(HeaderCard(), id="home-section"),
+        CoreValuePropsSection(),  # NEW: 4-box value props section
         SectionDivider(),
         _Section(features_section() or Div(), id="features-section"),
         _Section(how_it_works_section() or Div(), id="how-it-works-section"),

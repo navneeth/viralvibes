@@ -1065,6 +1065,70 @@ def MetricCard(
     )
 
 
+def CoreValuePropsSection() -> Section:
+    """4-box value proposition grid inspired by Modash.io design patterns.
+
+    Displays Discover/Analyze/Track/Estimate features in a clean grid layout
+    following the patterns from home-fasthtml stacked_card component.
+    """
+
+    def value_prop_card(prop: dict) -> Div:
+        """Create a single value proposition card."""
+        return Div(
+            # Icon container
+            Div(
+                UkIcon(prop["icon"], cls="w-12 h-12 text-red-600"),
+                cls="mb-6 p-4 bg-red-50 rounded-2xl w-fit",
+            ),
+            # Title
+            H3(
+                prop["title"],
+                cls="text-sm font-semibold text-red-600 uppercase tracking-wider mb-2",
+            ),
+            # Headline
+            H4(
+                prop["headline"],
+                cls="text-2xl font-bold text-gray-900 mb-4",
+            ),
+            # Description
+            P(
+                prop["description"],
+                cls="text-gray-600 leading-relaxed",
+            ),
+            cls=(
+                "bg-white rounded-2xl p-8 shadow-sm border border-gray-200 "
+                "hover:shadow-lg hover:border-red-200 transition-all duration-300 "
+                "flex flex-col"
+            ),
+        )
+
+    return Section(
+        # Section header
+        Div(
+            P(
+                "PLATFORM CAPABILITIES",
+                cls="text-sm font-semibold text-red-600 uppercase tracking-wider text-center mb-4",
+            ),
+            H2(
+                "Everything you need to discover and track creators",
+                cls="text-4xl font-bold text-gray-900 text-center mb-4",
+            ),
+            P(
+                "Four powerful tools to analyze YouTube channels without ownership access",
+                cls="text-xl text-gray-600 text-center max-w-3xl mx-auto mb-16",
+            ),
+            cls="mb-12",
+        ),
+        # 4-box grid
+        Div(
+            *[value_prop_card(prop) for prop in CORE_VALUE_PROPS],
+            cls="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto",
+        ),
+        cls="px-4 lg:px-16 py-24 bg-gray-50",
+        id="core-value-props-section",
+    )
+
+
 def AnalyticsDashboardSection(
     playlist_name,
     channel_name,
