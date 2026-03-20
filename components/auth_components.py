@@ -6,6 +6,7 @@ Designed for minimal friction and maximum trust.
 
 from fasthtml.common import *
 from monsterui.all import *
+from constants import AUTH_SIGNUP_EMAIL, AUTH_LOGIN
 
 
 # =============================================================================
@@ -80,7 +81,7 @@ def TrustBadge(icon=None, text: str = "No credit card required"):
 def PrivacyDisclaimer():
     """Terms & Privacy links."""
     return P(
-        'By clicking "Continue with Google/Email" above, you acknowledge that you have read and understood, and agree to ',
+        "By continuing, you acknowledge that you have read and understood, and agree to ",
         A("Terms & Conditions", href="/terms", target="_blank", cls="auth-link"),
         " and ",
         A("Privacy Policy", href="/privacy", target="_blank", cls="auth-link"),
@@ -113,7 +114,7 @@ def GoogleSignInButton(
 
 
 def EmailSignInButton(
-    href: str = "/sign-up/email",
+    href: str = None,
     text: str = "Continue with Email",
     full_width: bool = True,
 ):
@@ -121,6 +122,9 @@ def EmailSignInButton(
 
     Provides users who don't want to use Google OAuth with an email-based option.
     """
+    if href is None:
+        href = AUTH_SIGNUP_EMAIL
+
     return A(
         # Email icon
         Svg(
@@ -136,11 +140,13 @@ def EmailSignInButton(
             width="20",
             height="20",
             style="flex-shrink: 0;",
+            **{"aria-hidden": "true"},
         ),
         Span(text, cls="auth-btn-text"),
         href=href,
         cls=f"auth-email-btn {'auth-btn-full' if full_width else ''}",
-        **{"data-test": "email-signin-btn"},
+        role="button",
+        **{"data-test": "email-signin-btn", "aria-label": text},
     )
 
 
@@ -278,7 +284,7 @@ def OneTapLoginCard(
         P(
             A(
                 "Already have an account? Log in",
-                href="/login",
+                href=AUTH_LOGIN,
                 cls="auth-login-link",
             ),
             cls="auth-login-prompt",
