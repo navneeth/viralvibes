@@ -1325,10 +1325,17 @@
   text-decoration: none;
   font-size: 0.9375rem;
   font-weight: 500;
+  outline: none;
+  outline-offset: 2px;
 }
 
-.auth-login-link:hover {
+.auth-login-link:hover,
+.auth-login-link:focus-visible {
   text-decoration: underline;
+}
+
+.auth-login-link:focus-visible {
+  outline: 2px solid #1a73e8;
 }
 
 /* ── Inline Login Prompt (Friction Points) ── */
