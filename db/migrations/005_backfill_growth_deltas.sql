@@ -37,7 +37,10 @@ SET
 WHERE
     prev_snapshot_at IS NOT NULL
     AND prev_snapshot_at < NOW() - INTERVAL '7 days'
+    AND prev_snapshot_at >= NOW() - INTERVAL '30 days'
     AND subscribers_change_30d IS NULL
+    AND views_change_30d IS NULL
+    AND videos_change_30d IS NULL
     AND current_subscribers > 0;
 
 
@@ -47,6 +50,7 @@ WHERE
 -- 1. Confirm 5,969 rows were updated:
 --    SELECT COUNT(*) FROM public.creators
 --    WHERE prev_snapshot_at < NOW() - INTERVAL '7 days'
+--      AND prev_snapshot_at >= NOW() - INTERVAL '30 days'
 --      AND subscribers_change_30d IS NOT NULL;
 --    → should be ~5,969
 --
