@@ -1066,65 +1066,183 @@ def MetricCard(
 
 
 def CoreValuePropsSection() -> Section:
-    """4-box value proposition grid inspired by Modash.io design patterns.
-
-    Displays Discover/Analyze/Track/Estimate features in a clean grid layout
-    following the patterns from home-fasthtml stacked_card component.
+    """4-box value proposition with scroll-triggered animations.
+    
+    Features borrowed from home-fasthtml:
+    - Staggered reveal animation on scroll
+    - 3D card hover effects (rotate3d)
+    - Icon background patterns with SVG
+    - Scale/opacity transitions
     """
-
-    def value_prop_card(prop: dict) -> Div:
-        """Create a single value proposition card."""
+    
+    # SVG background pattern for visual interest
+    def icon_bg_pattern(color="red"):
+        """Decorative SVG pattern behind icons"""
+        return Svg(
+            Circle(r="40", cx="50", cy="50", fill="none", 
+                   stroke=f"{color}-200", stroke_width="2", opacity="0.3"),
+            Circle(r="30", cx="50", cy="50", fill="none", 
+                   stroke=f"{color}-300", stroke_width="2", opacity="0.5"),
+            Circle(r="20", cx="50", cy="50", fill=f"{color}-100", opacity="0.4"),
+            viewBox="0 0 100 100",
+            cls="absolute inset-0 w-full h-full -z-10 pointer-events-none"
+        )
+    
+    def value_prop_card(prop: dict, idx: int) -> Div:
+        """Create an animated value proposition card with 3D hover effect."""
+        # Stagger animation delay based on index
+        delay_cls = f"animation-delay-{idx * 150}" if idx > 0 else ""
+        
         return Div(
-            # Icon container
+            # Decorative background pattern
             Div(
-                UkIcon(prop["icon"], cls="w-12 h-12 text-red-600"),
-                cls="mb-6 p-4 bg-red-50 rounded-2xl w-fit",
+                icon_bg_pattern("red"),
+                cls="absolute top-0 left-0 w-20 h-20 opacity-60"
+            ),
+            # Icon container with 3D hover
+            Div(
+                Div(
+                    UkIcon(prop["icon"], cls="w-10 h-10 text-white relative z-10"),
+                    cls=(
+                        "relative p-4 bg-gradient-to-br from-red-500 to-red-600 "
+                        "rounded-xl transition-all duration-300 "
+                        "hover:scale-110 hover:rotate-3 transform-gpu"
+                    )
+                ),
+                cls="mb-6 w-fit transform hover:scale-105 transition-transform duration-300"
+            ),
+            # Number badge
+            Span(
+                f"0{idx + 1}",
+                cls=(
+                    "absolute top-6 right-6 text-5xl font-bold text-gray-100 "
+                    "-z-10 select-none"
+                )
             ),
             # Title
             H3(
                 prop["title"],
-                cls="text-sm font-semibold text-red-600 uppercase tracking-wider mb-2",
+                cls=(
+                    "text-sm font-semibold text-red-600 uppercase "
+                    "tracking-wider mb-2 flex items-center gap-2"
+                ),
             ),
             # Headline
             H4(
                 prop["headline"],
-                cls="text-2xl font-bold text-gray-900 mb-4",
+                cls="text-2xl font-bold text-gray-900 mb-4 leading-tight",
             ),
             # Description
             P(
                 prop["description"],
-                cls="text-gray-600 leading-relaxed",
+                cls="text-gray-600 leading-relaxed text-sm",
+            ),
+            # Hover reveal element
+            Div(
+                UkIcon("arrow-right", cls="w-5 h-5 text-red-600"),
+                cls=(
+                    "mt-6 opacity-0 transform translate-x-0 "
+                    "group-hover:opacity-100 group-hover:translate-x-2 "
+                    "transition-all duration-300"
+                )
             ),
             cls=(
-                "bg-white rounded-2xl p-8 shadow-sm border border-gray-200 "
-                "hover:shadow-lg hover:border-red-200 transition-all duration-300 "
-                "flex flex-col"
+                "group relative bg-white rounded-2xl p-8 shadow-sm "
+                "border border-gray-200 flex flex-col "
+                "hover:shadow-2xl hover:border-red-300 hover:-translate-y-2 "
+                "transition-all duration-500 ease-out "
+                f"opacity-0 translate-y-8 {delay_cls} "
+                "animate-fade-in-up overflow-hidden"
             ),
+            style="animation-fill-mode: forwards;",
+            data_index=str(idx)
         )
-
+    
     return Section(
+        # Decorative background elements
+        Div(
+            # Floating gradient orbs
+            Div(cls=(
+                "absolute top-20 left-10 w-72 h-72 bg-red-200/30 "
+                "rounded-full blur-3xl animate-pulse"
+            )),
+            Div(cls=(
+                "absolute bottom-20 right-10 w-96 h-96 bg-blue-200/20 "
+                "rounded-full blur-3xl animate-pulse"
+            ), style="animation-delay: 1s;"),
+            cls="absolute inset-0 overflow-hidden -z-10 pointer-events-none"
+        ),
+        
         # Section header
         Div(
-            P(
+            Span(
                 "PLATFORM CAPABILITIES",
-                cls="text-sm font-semibold text-red-600 uppercase tracking-wider text-center mb-4",
+                cls=(
+                    "inline-block text-xs font-bold text-red-600 uppercase "
+                    "tracking-widest px-4 py-2 bg-red-50 rounded-full mb-6 "
+                    "border border-red-200"
+                ),
             ),
             H2(
-                "Everything you need to discover and track creators",
-                cls="text-4xl font-bold text-gray-900 text-center mb-4",
+                Span("Everything you need to "),
+                Span("discover and track ", cls="text-red-600 relative inline-block",
+                     style="text-decoration: underline; text-decoration-color: #ef4444; text-decoration-thickness: 3px;"),
+                Span("creators"),
+                cls=(
+                    "text-4xl lg:text-5xl font-extrabold text-gray-900 "
+                    "text-center mb-6 leading-tight"
+                ),
             ),
             P(
-                "Four powerful tools to analyze YouTube channels without ownership access",
-                cls="text-xl text-gray-600 text-center max-w-3xl mx-auto mb-16",
+                "Four powerful tools to analyze YouTube channels ",
+                Span("without ownership access", cls="font-semibold text-red-600"),
+                cls="text-lg text-gray-600 text-center max-w-2xl mx-auto mb-20",
             ),
-            cls="mb-12",
+            cls="flex flex-col items-center"
         ),
-        # 4-box grid
+        
+        # 4-box grid with staggered animations
         Div(
-            *[value_prop_card(prop) for prop in CORE_VALUE_PROPS],
-            cls="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto",
+            *[value_prop_card(prop, idx) for idx, prop in enumerate(CORE_VALUE_PROPS)],
+            cls=(
+                "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 "
+                "max-w-7xl mx-auto relative z-10"
+            ),
         ),
-        cls="px-4 lg:px-16 py-24 bg-gray-50",
+        
+        # Inline animation styles
+        Style("""
+            @keyframes fade-in-up {
+                from {
+                    opacity: 0;
+                    transform: translateY(2rem);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            .animate-fade-in-up {
+                animation: fade-in-up 0.8s ease-out;
+            }
+            .animation-delay-150 {
+                animation-delay: 150ms;
+            }
+            .animation-delay-300 {
+                animation-delay: 300ms;
+            }
+            .animation-delay-450 {
+                animation-delay: 450ms;
+            }
+            /* 3D card effect on hover - inspired by card3d.js */
+            .group:hover {
+                transform: translateY(-0.5rem) scale(1.02);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.12), 
+                            0 0 0 1px rgba(239, 68, 68, 0.1);
+            }
+        """),
+        
+        cls="relative px-4 lg:px-16 py-32 bg-gradient-to-b from-white via-gray-50 to-white overflow-hidden",
         id="core-value-props-section",
     )
 
