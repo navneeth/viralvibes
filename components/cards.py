@@ -324,7 +324,7 @@ def HeaderCard() -> Div:
                         # Creator preview image placeholder
                         Div(
                             Img(
-                                src="/static/creator-preview.png",
+                                src="/static/dashboard-preview.png",
                                 alt="Creator analytics preview",
                                 style="display:block; width:100%; height:auto; border-radius:0.55rem;",
                             ),
