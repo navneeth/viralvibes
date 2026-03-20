@@ -80,8 +80,8 @@ def TrustBadge(icon=None, text: str = "No credit card required"):
 def PrivacyDisclaimer():
     """Terms & Privacy links."""
     return P(
-        "By continuing, you agree to our ",
-        A("Terms of Service", href="/terms", target="_blank", cls="auth-link"),
+        'By clicking "Continue with Google/Email" above, you acknowledge that you have read and understood, and agree to ',
+        A("Terms & Conditions", href="/terms", target="_blank", cls="auth-link"),
         " and ",
         A("Privacy Policy", href="/privacy", target="_blank", cls="auth-link"),
         ".",
@@ -109,6 +109,38 @@ def GoogleSignInButton(
         href=href,
         cls=f"auth-google-btn {'auth-btn-full' if full_width else ''}",
         **{"data-test": "google-signin-btn"},
+    )
+
+
+def EmailSignInButton(
+    href: str = "/sign-up/email",
+    text: str = "Continue with Email",
+    full_width: bool = True,
+):
+    """Email/Magic link sign-in button - alternative to Google OAuth.
+    
+    Provides users who don't want to use Google OAuth with an email-based option.
+    """
+    return A(
+        # Email icon
+        Svg(
+            Path(
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
+                fill="none",
+                stroke="currentColor",
+                stroke_width="2",
+                stroke_linecap="round",
+                stroke_linejoin="round",
+            ),
+            viewBox="0 0 24 24",
+            width="20",
+            height="20",
+            style="flex-shrink: 0;",
+        ),
+        Span(text, cls="auth-btn-text"),
+        href=href,
+        cls=f"auth-email-btn {'auth-btn-full' if full_width else ''}",
+        **{"data-test": "email-signin-btn"},
     )
 
 
@@ -226,6 +258,15 @@ def OneTapLoginCard(
             text="Continue with Google",
             full_width=True,
         ),
+        EmailSignInButton(
+            href="/sign-up/email" + (f"?return_url={return_url}" if return_url else ""),
+            text="Continue with Email",
+            full_width=True,
+        ),
+        P(
+            "You can use a Google account or a magic link to proceed",
+            cls="auth-helper-text",
+        ),
         TrustBadge(text="No credit card required • Free forever"),
         cls="auth-cta-section",
     )
@@ -233,6 +274,15 @@ def OneTapLoginCard(
     # Footer
     card_footer = Div(
         PrivacyDisclaimer(),
+        # "Already have an account?" link
+        P(
+            A(
+                "Already have an account? Log in",
+                href="/login",
+                cls="auth-login-link",
+            ),
+            cls="auth-login-prompt",
+        ),
         cls="auth-footer",
     )
 
