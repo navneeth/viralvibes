@@ -107,7 +107,62 @@ PLAYLIST_STEPS_CONFIG = [
 ]
 
 # =============================================================================
-# FEATURE & BENEFIT CONFIGURATIONS
+# VALUE PROPOSITION (Creator-First Messaging)
+# =============================================================================
+HERO_HEADLINE = "Find & analyze YouTube creators at scale"
+HERO_SUBHEADLINE = (
+    "Access real-time analytics on 10,000+ YouTube channels. "
+    "Track engagement, growth velocity, and revenue potential "
+    "without channel ownership."
+)
+
+# Social proof metrics
+TOTAL_CREATORS = "10,000+"
+TOTAL_CATEGORIES = "25+"
+COUNTRIES_COVERED = "142"
+
+# Trust markers
+TRUST_MARKERS = [
+    "No credit card required",
+    "Public data only",
+    "Updated daily",
+    "Free to explore",
+]
+
+# Core value propositions (4-box framework)
+CORE_VALUE_PROPS = [
+    {
+        "icon": "search",
+        "title": "Discover",
+        "headline": "Find creators in any niche",
+        "description": "Search 10,000+ channels by category, country, language, "
+        "and engagement quality. Filter by growth rate and audience metrics.",
+    },
+    {
+        "icon": "bar-chart-2",
+        "title": "Analyze",
+        "headline": "Deep engagement metrics",
+        "description": "See virality scores, audience quality, and content performance. "
+        "Public data advantage - no channel ownership needed.",
+    },
+    {
+        "icon": "trending-up",
+        "title": "Track",
+        "headline": "30-day growth velocity",
+        "description": "Monitor subscriber trends, view patterns, and engagement shifts. "
+        "Catch rising stars before they explode.",
+    },
+    {
+        "icon": "dollar-sign",
+        "title": "Estimate",
+        "headline": "Revenue potential",
+        "description": "Calculate estimated monthly earnings based on views, niche, "
+        "and country. Compare creator ROI instantly.",
+    },
+]
+
+# =============================================================================
+# FEATURE & BENEFIT CONFIGURATIONS (Legacy - keeping for backwards compatibility)
 # =============================================================================
 FEATURES = [
     (

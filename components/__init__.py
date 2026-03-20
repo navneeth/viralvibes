@@ -34,6 +34,7 @@ from components.cards import (
     # Card components
     AnalysisFormCard,
     BenefitsCard,
+    CoreValuePropsSection,
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
@@ -116,6 +117,7 @@ __all__ = [
     "BenefitsCard",
     "NewsletterCard",
     "SummaryStatsCard",
+    "CoreValuePropsSection",
     # Form Components
     "AnalysisFormCard",
     "paste_button",
