@@ -1718,9 +1718,9 @@ def _render_creator_card(creator: dict) -> Div:
     current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
     # Preserve None for delta fields (growth tracking initializing)
-    subs_change_raw = safe_get_value(creator, "subscribers_change_30d")
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d", None)
     subs_change = int(subs_change_raw) if subs_change_raw is not None else None
-    views_change_raw = safe_get_value(creator, "views_change_30d")
+    views_change_raw = safe_get_value(creator, "views_change_30d", None)
     views_change = int(views_change_raw) if views_change_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
     last_updated = safe_get_value(creator, "last_updated_at", "")
@@ -2180,11 +2180,11 @@ def render_creator_profile_page(
     current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
     current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
-    subs_change_raw = safe_get_value(creator, "subscribers_change_30d")
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d", None)
     subs_change = int(subs_change_raw) if subs_change_raw is not None else None
-    views_change_raw = safe_get_value(creator, "views_change_30d")
+    views_change_raw = safe_get_value(creator, "views_change_30d", None)
     views_change = int(views_change_raw) if views_change_raw is not None else None
-    videos_change_raw = safe_get_value(creator, "videos_change_30d")
+    videos_change_raw = safe_get_value(creator, "videos_change_30d", None)
     videos_change = int(videos_change_raw) if videos_change_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
 
