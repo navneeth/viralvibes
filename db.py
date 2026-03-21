@@ -2553,12 +2553,13 @@ def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
             supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
             .select("stats_json")
             .eq("category", category)
-            .single()
+            .limit(1)
             .execute()
         )
+        # .single() raises PGRST116 on 0 rows; use .limit(1) + list check instead.
         if not resp.data:
             return None
-        return resp.data.get("stats_json")
+        return resp.data[0].get("stats_json")
     except Exception:
         logger.exception("Error reading category_stats_cache for '%s'", category)
         return None

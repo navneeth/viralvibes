@@ -13,6 +13,7 @@ from db import (
     add_creator_by_handle,
     calculate_creator_stats,
     find_creator_by_handle,
+    get_cached_category_box_stats,
     get_creator_hero_stats,
     get_creator_rank,
     get_creator_stats,
@@ -300,7 +301,11 @@ def creator_profile_route(request, creator_id: str):
 
     back_url = request.query_params.get("from", "/creators")
     context_ranks = _get_context_ranks(creator)
+    category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
 
     return render_creator_profile_page(
-        creator, back_url=back_url, context_ranks=context_ranks
+        creator,
+        back_url=back_url,
+        context_ranks=context_ranks,
+        category_stats=category_stats,
     )
