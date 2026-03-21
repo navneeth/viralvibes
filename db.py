@@ -2542,22 +2542,23 @@ def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
     Returns None if the category hasn't been cached yet (worker hasn't run)
     or on any error — callers should degrade gracefully and hide the chart.
 
-    Keys in the returned dict: subscribers, views, engagement, monthly_uploads.
-    Each key maps to {min, p25, median, p75, max, count}.
+    Keys in the returned dict: count (total creators in category),
+    subscribers, views, engagement, monthly_uploads.
+    Each metric maps to {min, p25, median, p75, max}; count is top-level.
     """
     if not supabase_client or not category:
         return None
     try:
         resp = (
             supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
-            .select("stats_json, refreshed_at")
+            .select("stats_json")
             .eq("category", category)
             .single()
             .execute()
         )
         if not resp.data:
             return None
-        return resp.data["stats_json"]
+        return resp.data.get("stats_json")
     except Exception:
         logger.exception("Error reading category_stats_cache for '%s'", category)
         return None
@@ -2584,7 +2585,7 @@ def refresh_category_stats_cache() -> int:
             .select("primary_category")
             .eq("sync_status", "synced")
             .gt("current_subscribers", 0)
-            .not_.is_("primary_category", "null")
+            .not_.is_("primary_category", None)
             .execute()
         )
         categories = list(
@@ -2625,7 +2626,7 @@ def refresh_category_stats_cache() -> int:
                     {
                         "category": category,
                         "stats_json": stats,
-                        "creator_count": (stats.get("subscribers", {}).get("count", 0)),
+                        "creator_count": stats.get("count", 0),
                         "refreshed_at": datetime.now(timezone.utc).isoformat(),
                     }
                 )
