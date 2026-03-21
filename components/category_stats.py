@@ -91,9 +91,8 @@ def render_category_box_plots(
                     stats=category_stats.get(key, {}),
                     creator_value=creator_values.get(key),
                     category=category,
-                    formatter_suffix=suffix,
                 )
-                for key, label, suffix in _METRICS
+                for key, label, _ in _METRICS
                 if category_stats.get(key)
             ],
             cls="grid grid-cols-1 sm:grid-cols-2 gap-4",
@@ -113,7 +112,6 @@ def _box_chart(
     stats: dict,
     creator_value: float | None,
     category: str,
-    formatter_suffix: str = "",
 ) -> Div:
     """
     Single ApexChart box plot with optional scatter overlay for the creator.
@@ -162,14 +160,6 @@ def _box_chart(
             }
         )
 
-    # JS formatter: 1.2M / 60K / 3.5% — avoids long raw numbers on y-axis
-    formatter = (
-        f"function(val){{"
-        f"return val>=1e6?(val/1e6).toFixed(1)+'M{formatter_suffix}'"
-        f":val>=1e3?(val/1e3).toFixed(0)+'K{formatter_suffix}'"
-        f":parseFloat(val).toFixed(1)+'{formatter_suffix}';}}"
-    )
-
     opts = {
         "chart": {
             "type": "boxPlot",
@@ -199,7 +189,7 @@ def _box_chart(
         },
         "tooltip": {"shared": False, "intersect": True},
         "xaxis": {"labels": {"show": False}, "axisTicks": {"show": False}},
-        "yaxis": {"labels": {"formatter": formatter}},
+        "yaxis": {"labels": {"show": True}},
         "legend": {"show": False},
         "grid": {"borderColor": "#f3f4f6", "strokeDashArray": 4},
     }
