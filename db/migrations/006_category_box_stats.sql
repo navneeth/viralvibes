@@ -1,5 +1,5 @@
 -- 1a. Index (CONCURRENTLY = no table lock on production)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_category_synced
+CREATE INDEX IF NOT EXISTS idx_creators_category_synced
 ON creators (primary_category)
 WHERE sync_status = 'synced' AND current_subscribers > 0;
 
