@@ -83,6 +83,13 @@ def setup_logging():
 def init_supabase() -> Optional[Client]:
     """Initialize Supabase client with retry logic and proper error handling.
 
+    Credential resolution order (first non-empty value wins):
+        1. SUPABASE_SERVICE_KEY        — worker / Kaggle context (broader permissions)
+        2. NEXT_PUBLIC_SUPABASE_ANON_KEY — web-app / GitHub Actions fallback
+
+    Both paths normalise into os.environ *before* this function is called.
+    Use ``secrets_loader.load_secrets()`` at your entry-point to ensure that.
+
     Returns:
         Optional[Client]: Supabase client if initialization succeeds, None otherwise
 
@@ -98,10 +105,23 @@ def init_supabase() -> Optional[Client]:
         return supabase_client
 
     url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-    key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+
+    # Prefer the service key (worker / Kaggle); fall back to the anon key
+    # (web app / CI).  Both are loaded into os.environ by secrets_loader.py.
+    key: str = os.environ.get("SUPABASE_SERVICE_KEY", "") or os.environ.get(
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY", ""
+    )
+    key_source = (
+        "SUPABASE_SERVICE_KEY"
+        if os.environ.get("SUPABASE_SERVICE_KEY")
+        else "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+    )
+
     if not url or not key:
         logger.warning(
-            "Missing Supabase environment variables - running without Supabase"
+            "Missing Supabase environment variables "
+            "(NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_KEY or "
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY) - running without Supabase"
         )
         return None
 
@@ -112,7 +132,9 @@ def init_supabase() -> Optional[Client]:
         client.auth.get_session()
 
         supabase_client = client
-        logger.info("Supabase client initialized successfully")
+        logger.info(
+            "Supabase client initialized successfully (key source: %s)", key_source
+        )
         return client
 
     except Exception as e:
@@ -746,23 +768,15 @@ def queue_invalid_creators_for_retry(
             f"{len(never_synced_resp.data or [])} never-synced creators"
         )
 
-        queued_count = 0
-
-        for creator in creators:
-            creator_id = creator["id"]
-            status = creator["sync_status"]
-            error = creator.get("sync_error_message", "Unknown")
-
-            if queue_creator_sync(creator_id, source="auto_retry"):
-                queued_count += 1
-                logger.info(
-                    f"Queued {creator['channel_id']} for retry "
-                    f"(status={status}, error={error})"
-                )
+        creator_ids = [c["id"] for c in creators]
+        queued_count, skipped_count = queue_creator_sync_bulk(
+            creator_ids, source="auto_retry"
+        )
 
         if queued_count > 0:
             logger.info(
-                f"Auto-retry: Queued {queued_count} creators with invalid/failed status"
+                f"Auto-retry: queued {queued_count} creators "
+                f"({skipped_count} already pending)"
             )
 
         return queued_count
@@ -841,6 +855,76 @@ def queue_creator_sync(
     except Exception as e:
         logger.exception(f"Error queuing creator sync: {e}")
         return False
+
+
+def queue_creator_sync_bulk(
+    creator_ids: List[str],
+    source: str = "scheduled",
+) -> tuple[int, int]:
+    """
+    Bulk-queue a list of creators for stats sync.
+
+    Replaces the N+1 pattern of calling queue_creator_sync() in a loop.
+    Uses 2 round-trips regardless of batch size:
+      1. SELECT  — find which creator_ids already have a pending job
+      2. INSERT  — insert all the rest in one call
+
+    Args:
+        creator_ids: List of creator UUIDs to enqueue
+        source:      Job source label (e.g. 'bootstrap_unsynced', 'scheduled_refresh')
+
+    Returns:
+        (queued, skipped) — queued = newly inserted, skipped = already pending
+    """
+    if not supabase_client or not creator_ids:
+        return 0, 0
+
+    try:
+        # 1. One SELECT to find already-pending creator_ids in this batch
+        existing_resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("creator_id")
+            .in_("creator_id", creator_ids)
+            .eq("status", "pending")
+            .execute()
+        )
+        already_pending = {row["creator_id"] for row in (existing_resp.data or [])}
+
+        to_insert = [cid for cid in creator_ids if cid not in already_pending]
+        skipped = len(already_pending)
+
+        if not to_insert:
+            logger.debug(
+                "queue_creator_sync_bulk: all %d creator(s) already pending",
+                skipped,
+            )
+            return 0, skipped
+
+        # 2. One bulk INSERT for the remainder
+        payload = [
+            {
+                "creator_id": cid,
+                "status": "pending",
+                "source": source,
+                "job_type": "sync_stats",
+            }
+            for cid in to_insert
+        ]
+        insert_resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+        )
+        queued = len(insert_resp.data or [])
+        logger.info(
+            "queue_creator_sync_bulk: %d queued, %d skipped (source=%s)",
+            queued,
+            skipped,
+            source,
+        )
+        return queued, skipped
+
+    except Exception as e:
+        logger.exception("Error in queue_creator_sync_bulk: %s", e)
+        return 0, 0
 
 
 def get_pending_creator_syncs(batch_size: int = 1) -> List[Dict[str, Any]]:

@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
-from dotenv import load_dotenv
+from secrets_loader import load_secrets
 
 from constants import (
     CREATOR_SYNC_JOBS_TABLE,
@@ -49,6 +49,7 @@ from db import (
     mark_creator_sync_failed,
     mark_creator_sync_processing,
     queue_creator_sync,
+    queue_creator_sync_bulk,
     queue_invalid_creators_for_retry,
     setup_logging,
     supabase_client,
@@ -59,11 +60,14 @@ from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
 
 # --- Load environment variables early ---
-load_dotenv()
+# Auto-detects runtime: Kaggle → UserSecretsClient, local/CI → dotenv/.env
+_env_source = load_secrets()
+# logger isn't configured yet at this point; setup_logging() runs below.
 
 # --- Logging setup ---
 setup_logging()
 logger = logging.getLogger("vv_creator_worker")
+logger.info("Secrets loaded via: %s", _env_source)
 
 # --- Config with defaults (frugal operation) ---
 POLL_INTERVAL = int(
@@ -390,18 +394,10 @@ def _queue_unsynced_creators(batch_size: int = 100) -> int:
             f"  Found {len(creators)} creators with last_synced_at=NULL — queuing for first sync"
         )
 
-        queued = 0
-        skipped = 0
-        for creator in creators:
-            creator_id = creator["id"]
-            channel_id = creator.get("channel_id", "?")
-            if queue_creator_sync(creator_id, source="bootstrap_unsynced"):
-                queued += 1
-                logger.debug(
-                    f"    Queued {channel_id} (id={creator_id}) for first sync"
-                )
-            else:
-                skipped += 1  # Already pending or error
+        creator_ids = [c["id"] for c in creators]
+        queued, skipped = queue_creator_sync_bulk(
+            creator_ids, source="bootstrap_unsynced"
+        )
 
         logger.info(
             f"  Bootstrap result: {queued} queued, {skipped} skipped (already pending)"
@@ -455,11 +451,11 @@ def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
             f"(not synced in {days_since_last_sync}+ days) — queuing for refresh"
         )
 
-        queued = 0
-        for creator in creators:
-            if queue_creator_sync(creator["id"], source="scheduled_refresh"):
-                queued += 1
-        logger.info(f"  Scheduled refresh: {queued} creators queued")
+        creator_ids = [c["id"] for c in creators]
+        queued, skipped = queue_creator_sync_bulk(
+            creator_ids, source="scheduled_refresh"
+        )
+        logger.info(f"  Scheduled refresh: {queued} queued, {skipped} already pending")
         return queued
 
     except Exception as e:
@@ -1341,7 +1337,7 @@ async def init():
         # Bootstrap unsynced creators on first run
         logger.info("─" * 60)
         logger.info("🔄 STARTUP: Queuing never-synced creators...")
-        unsynced_count = _queue_unsynced_creators(batch_size=100)
+        unsynced_count = _queue_unsynced_creators(batch_size=500)
         if unsynced_count > 0:
             logger.info(
                 f"✅ Queued {unsynced_count} never-synced creators for first sync"
@@ -1401,7 +1397,7 @@ async def process_creator_syncs():
 
             # Bootstrap: creators with last_synced_at IS NULL — never processed.
             # Exclusively handled here; disjoint from the retry query above.
-            unsynced_count = _queue_unsynced_creators(batch_size=100)
+            unsynced_count = _queue_unsynced_creators(batch_size=500)
 
             total_queued = invalid_count + unsynced_count
             logger.info(
