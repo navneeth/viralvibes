@@ -121,10 +121,19 @@ def _load_kaggle_secrets() -> None:
                 loaded.append(key)
             else:
                 skipped.append(f"{key} (empty)")
-        except Exception:
+        except KeyError:
             # get_secret() raises KeyError when the key doesn't exist in the
             # notebook's secret store — treat as optional and move on.
             skipped.append(key)
+        except Exception:
+            # Unexpected client/runtime error — log clearly and abort.
+            # Do NOT silently treat this as a missing key.
+            logger.error(
+                "Unexpected error retrieving Kaggle secret '%s' — "
+                "check UserSecretsClient connectivity",
+                key,
+            )
+            raise
 
     logger.info(
         "Kaggle secrets processed. Total keys: %d, loaded/already set: %d, "
