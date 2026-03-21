@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for db.py: 12.38%</title>
+    <title>Coverage for db.py: 12.02%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_9ff733b0.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>db.py</b>:
-            <span class="pc_cov">12.38%</span>
+            <span class="pc_cov">12.02%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,9 +55,9 @@
             </div>
         </aside>
         <h2>
-            <span class="text">897 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">132<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">765<span class="text"> missing</span></button>
+            <span class="text">942 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">135<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">807<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">12<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-03-21 05:55 +0000
+            created at 2026-03-21 14:40 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -2606,6 +2606,141 @@
     <p class="mis show_mis"><span class="n"><a id="t2522" href="#t2522">2522</a></span><span class="t">    <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t2523" href="#t2523">2523</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span><span class="str">"Failed to fetch creator hero stats"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t2524" href="#t2524">2524</a></span><span class="t">        <span class="key">return</span> <span class="op">{</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2525" href="#t2525">2525</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2526" href="#t2526">2526</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2527" href="#t2527">2527</a></span><span class="t"><span class="com"># ==============================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2528" href="#t2528">2528</a></span><span class="t"><span class="com"># &#128202; Category Box Plot Stats Cache</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2529" href="#t2529">2529</a></span><span class="t"><span class="com"># ==============================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2530" href="#t2530">2530</a></span><span class="t"><span class="com"># Write path: refresh_category_stats_cache() &#8212; called by bootstrap_creators.py</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2531" href="#t2531">2531</a></span><span class="t"><span class="com"># Read path:  get_cached_category_box_stats() &#8212; called on creator profile pages</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2532" href="#t2532">2532</a></span><span class="t"><span class="com"># Table:      category_stats_cache (PK: category)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2533" href="#t2533">2533</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t2534" href="#t2534">2534</a></span><span class="t"><span class="nam">CATEGORY_STATS_CACHE_TABLE</span> <span class="op">=</span> <span class="str">"category_stats_cache"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2535" href="#t2535">2535</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2536" href="#t2536">2536</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t2537" href="#t2537">2537</a></span><span class="t"><span class="key">def</span> <span class="nam">get_cached_category_box_stats</span><span class="op">(</span><span class="nam">category</span><span class="op">:</span> <span class="nam">str</span><span class="op">)</span> <span class="op">-></span> <span class="nam">Optional</span><span class="op">[</span><span class="nam">Dict</span><span class="op">[</span><span class="nam">str</span><span class="op">,</span> <span class="nam">Any</span><span class="op">]</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2538" href="#t2538">2538</a></span><span class="t">    <span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2539" href="#t2539">2539</a></span><span class="t"><span class="str">    Read pre-aggregated box plot stats for a category from the cache table.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2540" href="#t2540">2540</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2541" href="#t2541">2541</a></span><span class="t"><span class="str">    Called on every creator profile page &#8212; designed to be fast (PK lookup, &lt;1ms).</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2542" href="#t2542">2542</a></span><span class="t"><span class="str">    Returns None if the category hasn't been cached yet (worker hasn't run)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2543" href="#t2543">2543</a></span><span class="t"><span class="str">    or on any error &#8212; callers should degrade gracefully and hide the chart.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2544" href="#t2544">2544</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2545" href="#t2545">2545</a></span><span class="t"><span class="str">    Keys in the returned dict: count (total creators in category),</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2546" href="#t2546">2546</a></span><span class="t"><span class="str">    subscribers, views, engagement, monthly_uploads.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2547" href="#t2547">2547</a></span><span class="t"><span class="str">    Each metric maps to {min, p25, median, p75, max}; count is top-level.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2548" href="#t2548">2548</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2549" href="#t2549">2549</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">supabase_client</span> <span class="key">or</span> <span class="key">not</span> <span class="nam">category</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2550" href="#t2550">2550</a></span><span class="t">        <span class="key">return</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2551" href="#t2551">2551</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2552" href="#t2552">2552</a></span><span class="t">        <span class="nam">resp</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2553" href="#t2553">2553</a></span><span class="t">            <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CATEGORY_STATS_CACHE_TABLE</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2554" href="#t2554">2554</a></span><span class="t">            <span class="op">.</span><span class="nam">select</span><span class="op">(</span><span class="str">"stats_json"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2555" href="#t2555">2555</a></span><span class="t">            <span class="op">.</span><span class="nam">eq</span><span class="op">(</span><span class="str">"category"</span><span class="op">,</span> <span class="nam">category</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2556" href="#t2556">2556</a></span><span class="t">            <span class="op">.</span><span class="nam">single</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2557" href="#t2557">2557</a></span><span class="t">            <span class="op">.</span><span class="nam">execute</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2558" href="#t2558">2558</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2559" href="#t2559">2559</a></span><span class="t">        <span class="key">if</span> <span class="key">not</span> <span class="nam">resp</span><span class="op">.</span><span class="nam">data</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2560" href="#t2560">2560</a></span><span class="t">            <span class="key">return</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2561" href="#t2561">2561</a></span><span class="t">        <span class="key">return</span> <span class="nam">resp</span><span class="op">.</span><span class="nam">data</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"stats_json"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2562" href="#t2562">2562</a></span><span class="t">    <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2563" href="#t2563">2563</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span><span class="str">"Error reading category_stats_cache for '%s'"</span><span class="op">,</span> <span class="nam">category</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2564" href="#t2564">2564</a></span><span class="t">        <span class="key">return</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2565" href="#t2565">2565</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2566" href="#t2566">2566</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t2567" href="#t2567">2567</a></span><span class="t"><span class="key">def</span> <span class="nam">refresh_category_stats_cache</span><span class="op">(</span><span class="op">)</span> <span class="op">-></span> <span class="nam">int</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2568" href="#t2568">2568</a></span><span class="t">    <span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2569" href="#t2569">2569</a></span><span class="t"><span class="str">    Recompute box plot percentile stats for every distinct category and upsert</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2570" href="#t2570">2570</a></span><span class="t"><span class="str">    into category_stats_cache. Called by worker/bootstrap_creators.py (Pass 4).</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2571" href="#t2571">2571</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2572" href="#t2572">2572</a></span><span class="t"><span class="str">    Strategy: 1 query to fetch all distinct categories, then 1 RPC call per</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2573" href="#t2573">2573</a></span><span class="t"><span class="str">    category (percentile math stays in Postgres), then 1 bulk upsert at the end.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2574" href="#t2574">2574</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2575" href="#t2575">2575</a></span><span class="t"><span class="str">    Returns:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2576" href="#t2576">2576</a></span><span class="t"><span class="str">        Number of categories successfully refreshed.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2577" href="#t2577">2577</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2578" href="#t2578">2578</a></span><span class="t">    <span class="key">if</span> <span class="key">not</span> <span class="nam">supabase_client</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2579" href="#t2579">2579</a></span><span class="t">        <span class="key">return</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2580" href="#t2580">2580</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2581" href="#t2581">2581</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2582" href="#t2582">2582</a></span><span class="t">        <span class="com"># Fetch all distinct categories that have at least one synced creator</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2583" href="#t2583">2583</a></span><span class="t">        <span class="nam">cats_resp</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2584" href="#t2584">2584</a></span><span class="t">            <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CREATOR_TABLE</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2585" href="#t2585">2585</a></span><span class="t">            <span class="op">.</span><span class="nam">select</span><span class="op">(</span><span class="str">"primary_category"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2586" href="#t2586">2586</a></span><span class="t">            <span class="op">.</span><span class="nam">eq</span><span class="op">(</span><span class="str">"sync_status"</span><span class="op">,</span> <span class="str">"synced"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2587" href="#t2587">2587</a></span><span class="t">            <span class="op">.</span><span class="nam">gt</span><span class="op">(</span><span class="str">"current_subscribers"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2588" href="#t2588">2588</a></span><span class="t">            <span class="op">.</span><span class="nam">not_</span><span class="op">.</span><span class="nam">is_</span><span class="op">(</span><span class="str">"primary_category"</span><span class="op">,</span> <span class="key">None</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2589" href="#t2589">2589</a></span><span class="t">            <span class="op">.</span><span class="nam">execute</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2590" href="#t2590">2590</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2591" href="#t2591">2591</a></span><span class="t">        <span class="nam">categories</span> <span class="op">=</span> <span class="nam">list</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2592" href="#t2592">2592</a></span><span class="t">            <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2593" href="#t2593">2593</a></span><span class="t">                <span class="nam">row</span><span class="op">[</span><span class="str">"primary_category"</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2594" href="#t2594">2594</a></span><span class="t">                <span class="key">for</span> <span class="nam">row</span> <span class="key">in</span> <span class="op">(</span><span class="nam">cats_resp</span><span class="op">.</span><span class="nam">data</span> <span class="key">or</span> <span class="op">[</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2595" href="#t2595">2595</a></span><span class="t">                <span class="key">if</span> <span class="nam">row</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"primary_category"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2596" href="#t2596">2596</a></span><span class="t">            <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2597" href="#t2597">2597</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2598" href="#t2598">2598</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2599" href="#t2599">2599</a></span><span class="t">        <span class="key">if</span> <span class="key">not</span> <span class="nam">categories</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2600" href="#t2600">2600</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">warning</span><span class="op">(</span><span class="str">"refresh_category_stats_cache: no synced categories found"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2601" href="#t2601">2601</a></span><span class="t">            <span class="key">return</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2602" href="#t2602">2602</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2603" href="#t2603">2603</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">info</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2604" href="#t2604">2604</a></span><span class="t">            <span class="str">"refresh_category_stats_cache: refreshing %d categories"</span><span class="op">,</span> <span class="nam">len</span><span class="op">(</span><span class="nam">categories</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2605" href="#t2605">2605</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2606" href="#t2606">2606</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2607" href="#t2607">2607</a></span><span class="t">        <span class="nam">rows_to_upsert</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2608" href="#t2608">2608</a></span><span class="t">        <span class="nam">failed</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2609" href="#t2609">2609</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2610" href="#t2610">2610</a></span><span class="t">        <span class="key">for</span> <span class="nam">category</span> <span class="key">in</span> <span class="nam">categories</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2611" href="#t2611">2611</a></span><span class="t">            <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2612" href="#t2612">2612</a></span><span class="t">                <span class="nam">resp</span> <span class="op">=</span> <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">rpc</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2613" href="#t2613">2613</a></span><span class="t">                    <span class="str">"get_category_box_stats"</span><span class="op">,</span> <span class="op">{</span><span class="str">"p_category"</span><span class="op">:</span> <span class="nam">category</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2614" href="#t2614">2614</a></span><span class="t">                <span class="op">)</span><span class="op">.</span><span class="nam">execute</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2615" href="#t2615">2615</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2616" href="#t2616">2616</a></span><span class="t">                <span class="nam">stats</span> <span class="op">=</span> <span class="nam">resp</span><span class="op">.</span><span class="nam">data</span><span class="op">[</span><span class="num">0</span><span class="op">]</span> <span class="key">if</span> <span class="nam">isinstance</span><span class="op">(</span><span class="nam">resp</span><span class="op">.</span><span class="nam">data</span><span class="op">,</span> <span class="nam">list</span><span class="op">)</span> <span class="key">else</span> <span class="nam">resp</span><span class="op">.</span><span class="nam">data</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2617" href="#t2617">2617</a></span><span class="t">                <span class="key">if</span> <span class="key">not</span> <span class="nam">stats</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2618" href="#t2618">2618</a></span><span class="t">                    <span class="nam">logger</span><span class="op">.</span><span class="nam">warning</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2619" href="#t2619">2619</a></span><span class="t">                        <span class="str">"refresh_category_stats_cache: empty RPC response for '%s'"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2620" href="#t2620">2620</a></span><span class="t">                        <span class="nam">category</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2621" href="#t2621">2621</a></span><span class="t">                    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2622" href="#t2622">2622</a></span><span class="t">                    <span class="nam">failed</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">category</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2623" href="#t2623">2623</a></span><span class="t">                    <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2624" href="#t2624">2624</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2625" href="#t2625">2625</a></span><span class="t">                <span class="nam">rows_to_upsert</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2626" href="#t2626">2626</a></span><span class="t">                    <span class="op">{</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2627" href="#t2627">2627</a></span><span class="t">                        <span class="str">"category"</span><span class="op">:</span> <span class="nam">category</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2628" href="#t2628">2628</a></span><span class="t">                        <span class="str">"stats_json"</span><span class="op">:</span> <span class="nam">stats</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2629" href="#t2629">2629</a></span><span class="t">                        <span class="str">"creator_count"</span><span class="op">:</span> <span class="nam">stats</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"count"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2630" href="#t2630">2630</a></span><span class="t">                        <span class="str">"refreshed_at"</span><span class="op">:</span> <span class="nam">datetime</span><span class="op">.</span><span class="nam">now</span><span class="op">(</span><span class="nam">timezone</span><span class="op">.</span><span class="nam">utc</span><span class="op">)</span><span class="op">.</span><span class="nam">isoformat</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2631" href="#t2631">2631</a></span><span class="t">                    <span class="op">}</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2632" href="#t2632">2632</a></span><span class="t">                <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2633" href="#t2633">2633</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2634" href="#t2634">2634</a></span><span class="t">            <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2635" href="#t2635">2635</a></span><span class="t">                <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2636" href="#t2636">2636</a></span><span class="t">                    <span class="str">"refresh_category_stats_cache: RPC failed for '%s'"</span><span class="op">,</span> <span class="nam">category</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2637" href="#t2637">2637</a></span><span class="t">                <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2638" href="#t2638">2638</a></span><span class="t">                <span class="nam">failed</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">category</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2639" href="#t2639">2639</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2640" href="#t2640">2640</a></span><span class="t">        <span class="key">if</span> <span class="nam">rows_to_upsert</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2641" href="#t2641">2641</a></span><span class="t">            <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CATEGORY_STATS_CACHE_TABLE</span><span class="op">)</span><span class="op">.</span><span class="nam">upsert</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2642" href="#t2642">2642</a></span><span class="t">                <span class="nam">rows_to_upsert</span><span class="op">,</span> <span class="nam">on_conflict</span><span class="op">=</span><span class="str">"category"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2643" href="#t2643">2643</a></span><span class="t">            <span class="op">)</span><span class="op">.</span><span class="nam">execute</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2644" href="#t2644">2644</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">info</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2645" href="#t2645">2645</a></span><span class="t">                <span class="str">"refresh_category_stats_cache: upserted %d rows"</span><span class="op">,</span> <span class="nam">len</span><span class="op">(</span><span class="nam">rows_to_upsert</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2646" href="#t2646">2646</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2647" href="#t2647">2647</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2648" href="#t2648">2648</a></span><span class="t">        <span class="key">if</span> <span class="nam">failed</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2649" href="#t2649">2649</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">warning</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2650" href="#t2650">2650</a></span><span class="t">                <span class="str">"refresh_category_stats_cache: %d categories failed: %s"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2651" href="#t2651">2651</a></span><span class="t">                <span class="nam">len</span><span class="op">(</span><span class="nam">failed</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2652" href="#t2652">2652</a></span><span class="t">                <span class="nam">failed</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t2653" href="#t2653">2653</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2654" href="#t2654">2654</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2655" href="#t2655">2655</a></span><span class="t">        <span class="key">return</span> <span class="nam">len</span><span class="op">(</span><span class="nam">rows_to_upsert</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t2656" href="#t2656">2656</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2657" href="#t2657">2657</a></span><span class="t">    <span class="key">except</span> <span class="nam">Exception</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2658" href="#t2658">2658</a></span><span class="t">        <span class="nam">logger</span><span class="op">.</span><span class="nam">exception</span><span class="op">(</span><span class="str">"refresh_category_stats_cache: unexpected error"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t2659" href="#t2659">2659</a></span><span class="t">        <span class="key">return</span> <span class="num">0</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -2615,7 +2750,7 @@
             <a class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-03-21 05:55 +0000
+            created at 2026-03-21 14:40 +0000
         </p>
     </div>
 </footer>
