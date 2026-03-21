@@ -105,6 +105,8 @@ def render_category_box_plots(
 
 # Chart builder
 
+_REQUIRED_STAT_KEYS = ("min", "p25", "median", "p75", "max")
+
 
 def _box_chart(
     label: str,
@@ -118,7 +120,20 @@ def _box_chart(
 
     ApexCharts boxPlot series expects y as [min, q1, median, q3, max].
     The scatter series overlays the creator's value as a coloured marker.
+
+    Returns an empty Div if the stats dict is missing any required key —
+    guards against partially populated cache rows without scattering .get()
+    calls across the series construction.
     """
+    missing = [k for k in _REQUIRED_STAT_KEYS if k not in stats]
+    if missing:
+        logger.warning(
+            "_box_chart: skipping '%s' — missing keys in cache row: %s",
+            label,
+            missing,
+        )
+        return Div()
+
     box_series = {
         "name": category,
         "type": "boxPlot",
