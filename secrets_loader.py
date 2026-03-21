@@ -128,7 +128,9 @@ def _load_kaggle_secrets() -> None:
 
     logger.info("Kaggle secrets injected into os.environ: %s", loaded)
     if skipped:
-        logger.debug("Kaggle secrets not found / empty (may be optional): %s", skipped)
+        logger.debug(
+            "Kaggle secrets not found / empty (may be optional): %d", len(skipped)
+        )
 
 
 def _load_dotenv_secrets() -> None:
