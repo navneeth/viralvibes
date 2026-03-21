@@ -24,6 +24,7 @@ from secrets_loader import load_secrets
 from db import (
     init_supabase,
     queue_invalid_creators_for_retry,
+    refresh_category_stats_cache,
     setup_logging,
 )
 
@@ -75,6 +76,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip re-queuing previously-synced invalid/failed creators",
     )
+    parser.add_argument(
+        "--no-stats",
+        action="store_true",
+        help="Skip category stats cache refresh (Pass 4)",
+    )
     return parser.parse_args()
 
 
@@ -121,6 +127,14 @@ def main() -> None:
         total_queued += queued
     else:
         logger.info("── Pass 3: invalid/failed skipped (--no-invalid)")
+
+    # ── 4. Refresh category box plot stats cache ─────────────────────────────
+    if not args.no_stats:
+        logger.info("── Pass 4: refreshing category stats cache")
+        refreshed = refresh_category_stats_cache()
+        logger.info(f"   Refreshed: {refreshed} categories")
+    else:
+        logger.info("── Pass 4: category stats skipped (--no-stats)")
 
     logger.info(f"✅ Bootstrap complete — {total_queued} total creators queued")
 
