@@ -126,7 +126,13 @@ def _load_kaggle_secrets() -> None:
             # notebook's secret store — treat as optional and move on.
             skipped.append(key)
 
-    logger.info("Kaggle secrets injected into os.environ: %s", loaded)
+    logger.info(
+        "Kaggle secrets processed. Total keys: %d, loaded/already set: %d, "
+        "not found/empty: %d",
+        len(_KAGGLE_SECRET_KEYS),
+        len(loaded),
+        len(skipped),
+    )
     if skipped:
         logger.debug(
             "Kaggle secrets not found / empty (may be optional): %d", len(skipped)
