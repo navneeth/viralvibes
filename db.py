@@ -83,6 +83,13 @@ def setup_logging():
 def init_supabase() -> Optional[Client]:
     """Initialize Supabase client with retry logic and proper error handling.
 
+    Credential resolution order (first non-empty value wins):
+        1. SUPABASE_SERVICE_KEY        — worker / Kaggle context (broader permissions)
+        2. NEXT_PUBLIC_SUPABASE_ANON_KEY — web-app / GitHub Actions fallback
+
+    Both paths normalise into os.environ *before* this function is called.
+    Use ``secrets_loader.load_secrets()`` at your entry-point to ensure that.
+
     Returns:
         Optional[Client]: Supabase client if initialization succeeds, None otherwise
 
@@ -98,10 +105,23 @@ def init_supabase() -> Optional[Client]:
         return supabase_client
 
     url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-    key: str = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+
+    # Prefer the service key (worker / Kaggle); fall back to the anon key
+    # (web app / CI).  Both are loaded into os.environ by secrets_loader.py.
+    key: str = os.environ.get("SUPABASE_SERVICE_KEY", "") or os.environ.get(
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY", ""
+    )
+    key_source = (
+        "SUPABASE_SERVICE_KEY"
+        if os.environ.get("SUPABASE_SERVICE_KEY")
+        else "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+    )
+
     if not url or not key:
         logger.warning(
-            "Missing Supabase environment variables - running without Supabase"
+            "Missing Supabase environment variables "
+            "(NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_KEY or "
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY) - running without Supabase"
         )
         return None
 
@@ -112,7 +132,9 @@ def init_supabase() -> Optional[Client]:
         client.auth.get_session()
 
         supabase_client = client
-        logger.info("Supabase client initialized successfully")
+        logger.info(
+            "Supabase client initialized successfully (key source: %s)", key_source
+        )
         return client
 
     except Exception as e:

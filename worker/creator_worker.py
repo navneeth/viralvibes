@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
-from dotenv import load_dotenv
+from secrets_loader import load_secrets
 
 from constants import (
     CREATOR_SYNC_JOBS_TABLE,
@@ -59,11 +59,14 @@ from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
 
 # --- Load environment variables early ---
-load_dotenv()
+# Auto-detects runtime: Kaggle → UserSecretsClient, local/CI → dotenv/.env
+_env_source = load_secrets()
+# logger isn't configured yet at this point; setup_logging() runs below.
 
 # --- Logging setup ---
 setup_logging()
 logger = logging.getLogger("vv_creator_worker")
+logger.info("Secrets loaded via: %s", _env_source)
 
 # --- Config with defaults (frugal operation) ---
 POLL_INTERVAL = int(
