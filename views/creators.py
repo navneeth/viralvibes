@@ -49,6 +49,7 @@ from utils.creator_metrics import (
     get_sync_status_badge,
 )
 from db import calculate_creator_stats, get_creator_hero_stats
+from components.category_stats import render_category_box_plots
 
 logger = logging.getLogger(__name__)
 
@@ -2123,15 +2124,19 @@ def render_creator_profile_page(
     creator: dict,
     back_url: str = "/creators",
     context_ranks: dict | None = None,
+    category_stats: dict | None = None,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
 
     Args:
-        creator:       Creator dict from get_creator_stats().
-        back_url:      Href for the ← Back button.
-        context_ranks: Optional {country_rank, language_rank, category_rank}
-                       ints from _get_context_ranks() in routes/creators.py.
+        creator:         Creator dict from get_creator_stats().
+        back_url:        Href for the ← Back button.
+        context_ranks:   Optional {country_rank, language_rank, category_rank}
+                         ints from _get_context_ranks() in routes/creators.py.
+        category_stats:  Optional pre-aggregated box plot stats from
+                         get_cached_category_box_stats() — passed through to
+                         render_category_box_plots(). None = show placeholder.
 
     Layout:
       1. Cinematic banner + overlapping avatar + identity strip
@@ -2925,10 +2930,16 @@ def render_creator_profile_page(
         cls="flex items-center justify-center flex-wrap gap-1 py-4 text-center",
     )
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — Category comparison box plots
+    # ═══════════════════════════════════════════════════════════════════════════
+    box_plot_section = render_category_box_plots(creator, category_stats)
+
     return Div(
         banner_section,
         stats_row,
         body_cols,
+        box_plot_section,
         footer_section,
         cls="max-w-5xl mx-auto px-4 pb-16 pt-6",
     )
