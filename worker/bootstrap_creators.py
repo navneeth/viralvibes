@@ -19,7 +19,7 @@ import argparse
 import logging
 import sys
 
-from dotenv import load_dotenv
+from secrets_loader import load_secrets
 
 from db import (
     init_supabase,
@@ -35,7 +35,7 @@ from worker.creator_worker import (
     _queue_unsynced_creators,
 )
 
-load_dotenv()
+load_secrets()
 setup_logging()
 logger = logging.getLogger("vv_bootstrap")
 

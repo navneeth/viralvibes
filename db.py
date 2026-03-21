@@ -768,23 +768,15 @@ def queue_invalid_creators_for_retry(
             f"{len(never_synced_resp.data or [])} never-synced creators"
         )
 
-        queued_count = 0
-
-        for creator in creators:
-            creator_id = creator["id"]
-            status = creator["sync_status"]
-            error = creator.get("sync_error_message", "Unknown")
-
-            if queue_creator_sync(creator_id, source="auto_retry"):
-                queued_count += 1
-                logger.info(
-                    f"Queued {creator['channel_id']} for retry "
-                    f"(status={status}, error={error})"
-                )
+        creator_ids = [c["id"] for c in creators]
+        queued_count, skipped_count = queue_creator_sync_bulk(
+            creator_ids, source="auto_retry"
+        )
 
         if queued_count > 0:
             logger.info(
-                f"Auto-retry: Queued {queued_count} creators with invalid/failed status"
+                f"Auto-retry: queued {queued_count} creators "
+                f"({skipped_count} already pending)"
             )
 
         return queued_count
@@ -863,6 +855,76 @@ def queue_creator_sync(
     except Exception as e:
         logger.exception(f"Error queuing creator sync: {e}")
         return False
+
+
+def queue_creator_sync_bulk(
+    creator_ids: List[str],
+    source: str = "scheduled",
+) -> tuple[int, int]:
+    """
+    Bulk-queue a list of creators for stats sync.
+
+    Replaces the N+1 pattern of calling queue_creator_sync() in a loop.
+    Uses 2 round-trips regardless of batch size:
+      1. SELECT  — find which creator_ids already have a pending job
+      2. INSERT  — insert all the rest in one call
+
+    Args:
+        creator_ids: List of creator UUIDs to enqueue
+        source:      Job source label (e.g. 'bootstrap_unsynced', 'scheduled_refresh')
+
+    Returns:
+        (queued, skipped) — queued = newly inserted, skipped = already pending
+    """
+    if not supabase_client or not creator_ids:
+        return 0, 0
+
+    try:
+        # 1. One SELECT to find already-pending creator_ids in this batch
+        existing_resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("creator_id")
+            .in_("creator_id", creator_ids)
+            .eq("status", "pending")
+            .execute()
+        )
+        already_pending = {row["creator_id"] for row in (existing_resp.data or [])}
+
+        to_insert = [cid for cid in creator_ids if cid not in already_pending]
+        skipped = len(already_pending)
+
+        if not to_insert:
+            logger.debug(
+                "queue_creator_sync_bulk: all %d creator(s) already pending",
+                skipped,
+            )
+            return 0, skipped
+
+        # 2. One bulk INSERT for the remainder
+        payload = [
+            {
+                "creator_id": cid,
+                "status": "pending",
+                "source": source,
+                "job_type": "sync_stats",
+            }
+            for cid in to_insert
+        ]
+        insert_resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+        )
+        queued = len(insert_resp.data or [])
+        logger.info(
+            "queue_creator_sync_bulk: %d queued, %d skipped (source=%s)",
+            queued,
+            skipped,
+            source,
+        )
+        return queued, skipped
+
+    except Exception as e:
+        logger.exception("Error in queue_creator_sync_bulk: %s", e)
+        return 0, 0
 
 
 def get_pending_creator_syncs(batch_size: int = 1) -> List[Dict[str, Any]]:
