@@ -2522,3 +2522,137 @@ def get_creator_hero_stats() -> dict:
     except Exception:
         logger.exception("Failed to fetch creator hero stats")
         return {}
+
+
+# ==============================================================
+# 📊 Category Box Plot Stats Cache
+# ==============================================================
+# Write path: refresh_category_stats_cache() — called by bootstrap_creators.py
+# Read path:  get_cached_category_box_stats() — called on creator profile pages
+# Table:      category_stats_cache (PK: category)
+
+CATEGORY_STATS_CACHE_TABLE = "category_stats_cache"
+
+
+def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
+    """
+    Read pre-aggregated box plot stats for a category from the cache table.
+
+    Called on every creator profile page — designed to be fast (PK lookup, <1ms).
+    Returns None if the category hasn't been cached yet (worker hasn't run)
+    or on any error — callers should degrade gracefully and hide the chart.
+
+    Keys in the returned dict: subscribers, views, engagement, monthly_uploads.
+    Each key maps to {min, p25, median, p75, max, count}.
+    """
+    if not supabase_client or not category:
+        return None
+    try:
+        resp = (
+            supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
+            .select("stats_json, refreshed_at")
+            .eq("category", category)
+            .single()
+            .execute()
+        )
+        if not resp.data:
+            return None
+        return resp.data["stats_json"]
+    except Exception:
+        logger.exception("Error reading category_stats_cache for '%s'", category)
+        return None
+
+
+def refresh_category_stats_cache() -> int:
+    """
+    Recompute box plot percentile stats for every distinct category and upsert
+    into category_stats_cache. Called by worker/bootstrap_creators.py (Pass 4).
+
+    Strategy: 1 query to fetch all distinct categories, then 1 RPC call per
+    category (percentile math stays in Postgres), then 1 bulk upsert at the end.
+
+    Returns:
+        Number of categories successfully refreshed.
+    """
+    if not supabase_client:
+        return 0
+
+    try:
+        # Fetch all distinct categories that have at least one synced creator
+        cats_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("primary_category")
+            .eq("sync_status", "synced")
+            .gt("current_subscribers", 0)
+            .not_.is_("primary_category", "null")
+            .execute()
+        )
+        categories = list(
+            {
+                row["primary_category"]
+                for row in (cats_resp.data or [])
+                if row.get("primary_category")
+            }
+        )
+
+        if not categories:
+            logger.warning("refresh_category_stats_cache: no synced categories found")
+            return 0
+
+        logger.info(
+            "refresh_category_stats_cache: refreshing %d categories", len(categories)
+        )
+
+        rows_to_upsert = []
+        failed = []
+
+        for category in categories:
+            try:
+                resp = supabase_client.rpc(
+                    "get_category_box_stats", {"p_category": category}
+                ).execute()
+
+                stats = resp.data[0] if isinstance(resp.data, list) else resp.data
+                if not stats:
+                    logger.warning(
+                        "refresh_category_stats_cache: empty RPC response for '%s'",
+                        category,
+                    )
+                    failed.append(category)
+                    continue
+
+                rows_to_upsert.append(
+                    {
+                        "category": category,
+                        "stats_json": stats,
+                        "creator_count": (stats.get("subscribers", {}).get("count", 0)),
+                        "refreshed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+
+            except Exception:
+                logger.exception(
+                    "refresh_category_stats_cache: RPC failed for '%s'", category
+                )
+                failed.append(category)
+
+        if rows_to_upsert:
+            supabase_client.table(CATEGORY_STATS_CACHE_TABLE).upsert(
+                rows_to_upsert, on_conflict="category"
+            ).execute()
+            logger.info(
+                "refresh_category_stats_cache: upserted %d rows", len(rows_to_upsert)
+            )
+
+        if failed:
+            logger.warning(
+                "refresh_category_stats_cache: %d categories failed: %s",
+                len(failed),
+                failed,
+            )
+
+        return len(rows_to_upsert)
+
+    except Exception:
+        logger.exception("refresh_category_stats_cache: unexpected error")
+        return 0
