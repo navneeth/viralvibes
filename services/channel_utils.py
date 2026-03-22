@@ -79,6 +79,32 @@ YOUTUBE_VIDEO_CATEGORIES: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Freebase topic ID → primary_category mapping for search.list discovery.
+# search.list topicId parameter requires Freebase IDs (/m/xxxxx), not names.
+# These IDs are static — YouTube has not changed them since API launch.
+# Keys match the primary_category values stored in the creators table.
+# Source: https://developers.google.com/youtube/v3/docs/search/list#topicId
+# ---------------------------------------------------------------------------
+CATEGORY_TOPIC_IDS: dict[str, str] = {
+    "Music": "/m/04rlf",
+    "Entertainment": "/m/02jjt",
+    "People & Blogs": "/m/098wr",
+    "Gaming": "/m/0bzvm2",
+    "Howto & Style": "/m/019_rr",
+    "Education": "/m/01k8wb",
+    "Science & Technology": "/m/07c1v",
+    "News & Politics": "/m/05qt0",
+    "Sports": "/m/06ntj",
+    "Film & Animation": "/m/02vxn",
+    "Comedy": "/m/09kqc",
+    "Travel & Events": "/m/01k8wb",
+    "Autos & Vehicles": "/m/0k4j",
+    "Pets & Animals": "/m/068hy",
+    "Nonprofits & Activism": "/m/019rl6",
+}
+
+
 def get_video_category_name(category_id: str) -> str:
     """Resolve a YouTube video categoryId to its human-readable name."""
     return YOUTUBE_VIDEO_CATEGORIES.get(str(category_id), f"Unknown ({category_id})")
@@ -459,6 +485,109 @@ class YouTubeResolver:
                 f"for {channel_id}: {e}"
             )
             return empty_result
+
+    def search_channels_by_topic(
+        self,
+        topic_id: str,
+        max_results: int = 50,
+        page_token: str | None = None,
+        order: str = "relevance",
+    ) -> dict:
+        """
+        Search YouTube for channels matching a Freebase topic ID.
+
+        Uses search.list with type=channel and topicId filter. This is the
+        primary mechanism for category-based creator discovery.
+
+        QUOTA COST: 100 units per call (search.list is expensive).
+        Callers should budget carefully — see CATEGORY_TOPIC_IDS for the
+        mapping from primary_category names to Freebase IDs.
+
+        Args:
+            topic_id:    Freebase topic ID, e.g. "/m/04rlf" for Music.
+            max_results: Results per page, 1–50 (API hard limit is 50).
+            page_token:  Pagination token from a previous response for page 2+.
+            order:       "relevance" (default) or "viewCount".
+                         "relevance" surfaces mid-tier channels better for
+                         discovery; "viewCount" biases toward large channels
+                         you likely already have.
+
+        Returns:
+            {
+                "channel_ids":      list[str],   # UC... IDs from this page
+                "next_page_token":  str | None,  # pass to next call for page 2+
+                "total_results":    int,         # YouTube's estimate (unreliable)
+            }
+            Returns empty result dict on any error — callers degrade gracefully.
+        """
+        empty: dict = {
+            "channel_ids": [],
+            "next_page_token": None,
+            "total_results": 0,
+        }
+
+        if not topic_id:
+            return empty
+
+        youtube = self._get_youtube_client()
+        capped = min(max(1, max_results), 50)
+
+        try:
+            kwargs = dict(
+                part="snippet",
+                type="channel",
+                topicId=topic_id,
+                maxResults=capped,
+                order=order,
+                fields=(
+                    "nextPageToken," "pageInfo/totalResults," "items/snippet/channelId"
+                ),
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+
+            request = youtube.search().list(**kwargs)
+            response = request.execute()
+
+            channel_ids = [
+                item["snippet"]["channelId"]
+                for item in response.get("items", [])
+                if item.get("snippet", {}).get("channelId", "").startswith("UC")
+            ]
+
+            logger.info(
+                "[YouTubeResolver] search topicId=%s page=%s → %d channels",
+                topic_id,
+                page_token or "1",
+                len(channel_ids),
+            )
+
+            return {
+                "channel_ids": channel_ids,
+                "next_page_token": response.get("nextPageToken"),
+                "total_results": response.get("pageInfo", {}).get("totalResults", 0),
+            }
+
+        except HttpError as e:
+            if is_quota_exhausted_error(e):
+                logger.error(
+                    "[YouTubeResolver] Quota exceeded during topic search — re-raising"
+                )
+                raise
+            logger.error(
+                "[YouTubeResolver] search_channels_by_topic failed " "(topicId=%s): %s",
+                topic_id,
+                e,
+            )
+            return empty
+        except Exception as e:
+            logger.error(
+                "[YouTubeResolver] Unexpected error in search_channels_by_topic "
+                "(topicId=%s): %s",
+                topic_id,
+                e,
+            )
+            return empty
 
     @staticmethod
     def normalize_channel(item: dict) -> dict:
