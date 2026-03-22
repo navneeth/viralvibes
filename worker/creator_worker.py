@@ -56,6 +56,7 @@ from db import (
 )
 from utils import normalize_category_name
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
+from services.youtube_errors import is_quota_exhausted_error, QuotaExceededException
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
 
@@ -581,6 +582,14 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         metrics.timeout_errors += 1
         raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s for {channel_id}")
     except Exception as e:
+        # Normalize quota errors BEFORE incrementing api_errors or re-raising as-is.
+        # Quota-exhausted errors must become QuotaExceededException so the job handler
+        # skips the purge path and schedules a retry instead.
+        if is_quota_exhausted_error(e):
+            logger.error(
+                f"  YouTube quota exceeded for {channel_id} — scheduling retry, NOT purging"
+            )
+            raise QuotaExceededException(channel_id) from e
         metrics.api_errors += 1
         logger.error(f"  YouTube API error for {channel_id}: {e}")
         raise
@@ -1184,6 +1193,20 @@ async def handle_sync_job(
         logger.exception(f"{job_tag} ❌ Sync FAILED: {e}")
 
         metrics.syncs_failed += 1
+
+        # ── Quota exhausted: transient — stop processing, do NOT purge ─────────
+        # The daily quota resets at midnight Pacific. Mark the job failed so it
+        # re-enters the queue tomorrow; do not touch the creator row.
+        if isinstance(e, QuotaExceededException):
+            logger.error(
+                f"{job_tag} ⏸️  YouTube quota exhausted — job {job_id} marked failed "
+                "for retry. Creator record preserved."
+            )
+            try:
+                mark_creator_sync_failed(job_id, "YouTube quota exceeded — will retry")
+            except Exception as mark_err:
+                logger.warning(f"{job_tag} Could not mark job failed: {mark_err}")
+            return False
 
         # ── Permanent failure: channel does not exist on YouTube ──────────────
         # Do NOT retry — the channel is gone. Hard-delete from creators table
