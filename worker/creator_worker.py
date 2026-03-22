@@ -1050,6 +1050,7 @@ async def handle_sync_job(
             "views_change_30d": views_change_30d,
             "videos_change_30d": videos_change_30d,
             "channel_name": channel_data.get("channel_name"),
+            "channel_url": channel_data.get("channel_url"),
             "channel_description": channel_data.get("channel_description"),
             "custom_url": channel_data.get("custom_url"),
             "custom_url_available": channel_data.get("custom_url_available", False),
