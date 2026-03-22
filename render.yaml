@@ -13,9 +13,11 @@ services:
       echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
       python -m worker.creator_worker
     envVars:
-      - key: SUPABASE_URL
+      - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
-      - key: SUPABASE_KEY
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
       - key: YOUTUBE_COOKIES
         sync: false
