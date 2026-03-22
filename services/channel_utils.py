@@ -34,6 +34,7 @@ from typing import Optional
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from services.youtube_errors import is_quota_exhausted_error
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,7 @@ class YouTubeResolver:
         except HttpError as e:
             # quotaExceeded must be re-raised — returning None here causes the
             # caller to treat the channel as missing and permanently delete it.
-            if e.resp.status == 403 and "quotaExceeded" in str(e.error_details):
+            if is_quota_exhausted_error(e):
                 logger.error(
                     f"[YouTubeResolver] YouTube quota exceeded fetching {channel_id} — re-raising"
                 )

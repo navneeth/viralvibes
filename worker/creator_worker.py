@@ -56,6 +56,7 @@ from db import (
 )
 from utils import normalize_category_name
 from services.channel_utils import ChannelIDValidator, YouTubeResolver
+from services.youtube_errors import is_quota_exhausted_error, QuotaExceededException
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
 
@@ -136,20 +137,6 @@ class ChannelNotFoundException(Exception):
     def __init__(self, channel_id: str):
         self.channel_id = channel_id
         super().__init__(f"Channel not found on YouTube: {channel_id}")
-
-
-class QuotaExceededException(Exception):
-    """
-    Raised when the YouTube API returns a quotaExceeded 403.
-
-    This is a TRANSIENT failure — the quota resets at midnight Pacific.
-    Jobs that raise this must NOT be purged; they should be retried with
-    backoff. The worker loop treats this the same as other retryable errors.
-    """
-
-    def __init__(self, channel_id: str):
-        self.channel_id = channel_id
-        super().__init__(f"YouTube quota exceeded for channel: {channel_id}")
 
 
 @dataclass
@@ -595,16 +582,10 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         metrics.timeout_errors += 1
         raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s for {channel_id}")
     except Exception as e:
-        # Detect quota errors BEFORE incrementing api_errors or re-raising as-is.
-        # HttpError 403 quotaExceeded must become QuotaExceededException so the
-        # job handler skips the purge path and schedules a retry instead.
-        from googleapiclient.errors import HttpError as _HttpError
-
-        if (
-            isinstance(e, _HttpError)
-            and e.resp.status == 403
-            and "quotaExceeded" in str(e.error_details)
-        ):
+        # Normalize quota errors BEFORE incrementing api_errors or re-raising as-is.
+        # Quota-exhausted errors must become QuotaExceededException so the job handler
+        # skips the purge path and schedules a retry instead.
+        if is_quota_exhausted_error(e):
             logger.error(
                 f"  YouTube quota exceeded for {channel_id} — scheduling retry, NOT purging"
             )
