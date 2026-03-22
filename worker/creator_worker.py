@@ -138,6 +138,20 @@ class ChannelNotFoundException(Exception):
         super().__init__(f"Channel not found on YouTube: {channel_id}")
 
 
+class QuotaExceededException(Exception):
+    """
+    Raised when the YouTube API returns a quotaExceeded 403.
+
+    This is a TRANSIENT failure — the quota resets at midnight Pacific.
+    Jobs that raise this must NOT be purged; they should be retried with
+    backoff. The worker loop treats this the same as other retryable errors.
+    """
+
+    def __init__(self, channel_id: str):
+        self.channel_id = channel_id
+        super().__init__(f"YouTube quota exceeded for channel: {channel_id}")
+
+
 @dataclass
 class WorkerMetrics:
     """Metrics tracking for worker health."""
@@ -581,6 +595,20 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         metrics.timeout_errors += 1
         raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s for {channel_id}")
     except Exception as e:
+        # Detect quota errors BEFORE incrementing api_errors or re-raising as-is.
+        # HttpError 403 quotaExceeded must become QuotaExceededException so the
+        # job handler skips the purge path and schedules a retry instead.
+        from googleapiclient.errors import HttpError as _HttpError
+
+        if (
+            isinstance(e, _HttpError)
+            and e.resp.status == 403
+            and "quotaExceeded" in str(e.error_details)
+        ):
+            logger.error(
+                f"  YouTube quota exceeded for {channel_id} — scheduling retry, NOT purging"
+            )
+            raise QuotaExceededException(channel_id) from e
         metrics.api_errors += 1
         logger.error(f"  YouTube API error for {channel_id}: {e}")
         raise
@@ -1184,6 +1212,20 @@ async def handle_sync_job(
         logger.exception(f"{job_tag} ❌ Sync FAILED: {e}")
 
         metrics.syncs_failed += 1
+
+        # ── Quota exhausted: transient — stop processing, do NOT purge ─────────
+        # The daily quota resets at midnight Pacific. Mark the job failed so it
+        # re-enters the queue tomorrow; do not touch the creator row.
+        if isinstance(e, QuotaExceededException):
+            logger.error(
+                f"{job_tag} ⏸️  YouTube quota exhausted — job {job_id} marked failed "
+                "for retry. Creator record preserved."
+            )
+            try:
+                mark_creator_sync_failed(job_id, "YouTube quota exceeded — will retry")
+            except Exception as mark_err:
+                logger.warning(f"{job_tag} Could not mark job failed: {mark_err}")
+            return False
 
         # ── Permanent failure: channel does not exist on YouTube ──────────────
         # Do NOT retry — the channel is gone. Hard-delete from creators table

@@ -314,6 +314,13 @@ class YouTubeResolver:
             return self.normalize_channel(channel_item)
 
         except HttpError as e:
+            # quotaExceeded must be re-raised — returning None here causes the
+            # caller to treat the channel as missing and permanently delete it.
+            if e.resp.status == 403 and "quotaExceeded" in str(e.error_details):
+                logger.error(
+                    f"[YouTubeResolver] YouTube quota exceeded fetching {channel_id} — re-raising"
+                )
+                raise
             logger.error(f"[YouTubeResolver] Failed to fetch {channel_id}: {e}")
             return None
 
