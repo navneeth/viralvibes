@@ -1,3 +1,6 @@
+# Python version: See pyproject.toml (requires-python = ">=3.11")
+# Deployment version: See .python-version (3.11.9) and runtime.txt (python-3.11.9)
+
 # Core components
 python-fasthtml>=0.12.42
 starlette>=0.40.0  # Required for FastHTML 0.12.42+ (fixes Vercel vendoring issue)
