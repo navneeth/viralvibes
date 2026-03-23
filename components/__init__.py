@@ -38,6 +38,7 @@ from components.cards import (
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
+    ListsFeatureShowcase,
     MetricCard,
     NewsletterCard,
     PlaylistPreviewCard,
@@ -118,6 +119,7 @@ __all__ = [
     "NewsletterCard",
     "SummaryStatsCard",
     "CoreValuePropsSection",
+    "ListsFeatureShowcase",
     # Form Components
     "AnalysisFormCard",
     "paste_button",

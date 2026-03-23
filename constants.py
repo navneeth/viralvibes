@@ -201,6 +201,40 @@ BENEFITS = [
 ]
 
 # =============================================================================
+# LISTS FEATURE TABS
+# =============================================================================
+LISTS_FEATURE_TABS = [
+    {
+        "id": "top-rated",
+        "label": "Top Rated",
+        "icon": "star",
+        "description": "Discover creators with the highest quality scores",
+        "highlight": "10,000+ vetted creators",
+    },
+    {
+        "id": "by-country",
+        "label": "By Country",
+        "icon": "globe",
+        "description": "Browse talent by their home country",
+        "highlight": "142 countries",
+    },
+    {
+        "id": "by-category",
+        "label": "By Category",
+        "icon": "grid",
+        "description": "Explore creators grouped by topic/niche",
+        "highlight": "25+ categories",
+    },
+    {
+        "id": "rising-stars",
+        "label": "Rising Stars",
+        "icon": "trending-up",
+        "description": "Channels with the fastest growth",
+        "highlight": "Updated daily",
+    },
+]
+
+# =============================================================================
 # TESTIMONIALS
 # =============================================================================
 TESTIMONIALS = [
