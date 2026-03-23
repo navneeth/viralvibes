@@ -1,6 +1,6 @@
-# Python version: See pyproject.toml (requires-python = ">=3.11")
-# Deployment version: See .python-version (3.11.9) and runtime.txt (python-3.11.9)
-# Note: Using verccel-runtime<0.10 to support Python 3.11, as vercel-runtime 0.10+ requires Python 3.12
+# Python version: See pyproject.toml (requires-python = ">=3.12")
+# Deployment version: See .python-version (3.12.x) and runtime.txt (python-3.12.x)
+# Note: vercel-runtime>=0.10.0 requires Python 3.12+
 
 # Core components
 python-fasthtml>=0.12.42

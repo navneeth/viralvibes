@@ -1,17 +1,17 @@
 # ============================================================================
-# Python Version: 3.11.9 (see .python-version and runtime.txt)
-# Minimum Required: Python >= 3.11
-# Vercel Runtime: vercel-runtime<0.10 (to support Python 3.11, as vercel-runtime 0.10+ requires Python 3.12)
+# Python Version: 3.12 (see .python-version and runtime.txt)
+# Minimum Required: Python >= 3.12
+# Vercel Runtime: vercel-runtime>=0.10.0 requires Python 3.12+
 # ============================================================================
 
 [project]
 name = "viralvibes"
 version = "0.1.0"
 description = "YouTube Trends Analysis - Discover what makes playlists go viral"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "vercel-runtime<0.10.0",  # To support Python 3.11, as vercel-runtime 0.10+ requires Python 3.12
+    "vercel-runtime",
 ]
 
 # Tell setuptools this is an application, not a library - don't auto-discover packages
@@ -20,11 +20,11 @@ py-modules = []  # Empty list = don't try to build/install Python packages
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"  # Python 3.12
 
 [tool.black]
 line-length = 100
-target-version = ["py311"]
+target-version = ["py312"]  # Python 3.12
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
