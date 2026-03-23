@@ -22,6 +22,7 @@ from constants import (
     HERO_SUBHEADLINE,
     ICONS_PATH,
     KNOWN_PLAYLISTS,
+    LISTS_FEATURE_TABS,
     NEWSLETTER_CARD,
     PLAYLIST_STEPS_CONFIG,
     STYLES,
@@ -1175,4 +1176,235 @@ def AnalyticsDashboardSection(
         # ...existing stats grid...
         cls=f"{THEME['section']} my-12 space-y-8",
         id="analytics-dashboard",
+    )
+
+
+# =============================================================================
+# LISTS FEATURE SHOWCASE SECTION
+# =============================================================================
+
+
+def ListsFeatureShowcase():
+    """
+    Award-winning showcase section for the Lists feature.
+
+    Uses MonsterUI TabContainer for tab navigation.
+    Features:
+    - Split-screen layout with image on one side, content on the other
+    - Tab-based feature exploration
+    - Gradient overlays and floating elements
+    - Smooth animations and transitions
+    """
+
+    # Build tab links for MonsterUI TabContainer
+    tab_links = []
+    for i, tab in enumerate(LISTS_FEATURE_TABS):
+        tab_links.append(
+            Li(
+                A(
+                    UkIcon(tab["icon"], cls="size-4"),
+                    Span(tab["label"], cls="font-medium ml-2"),
+                    href="#",
+                    cls="flex items-center gap-2",
+                ),
+                cls="uk-active" if i == 0 else "",
+            )
+        )
+
+    # Build tab content panels
+    tab_panels = []
+    for tab in LISTS_FEATURE_TABS:
+        tab_panels.append(
+            Li(
+                Div(
+                    # Icon badge
+                    Div(
+                        UkIcon(tab["icon"], cls="size-6 text-red-500"),
+                        cls="inline-flex items-center justify-center size-14 rounded-2xl bg-red-100 mb-6",
+                    ),
+                    # Title
+                    H3(
+                        tab["label"],
+                        cls="text-3xl font-bold text-gray-900 mb-4",
+                    ),
+                    # Description
+                    P(
+                        tab["description"],
+                        cls="text-lg text-gray-600 mb-6 leading-relaxed",
+                    ),
+                    # Highlight stat
+                    Div(
+                        Div(
+                            UkIcon("check-circle", cls="size-5 text-green-500"),
+                            Span(tab["highlight"], cls="font-semibold text-gray-900"),
+                            cls="flex items-center gap-2",
+                        ),
+                        cls="inline-flex px-4 py-2 rounded-full bg-green-50 border border-green-200",
+                    ),
+                    # CTA
+                    A(
+                        Span("Explore Lists"),
+                        UkIcon(
+                            "arrow-right",
+                            cls="size-4 transition-transform group-hover:translate-x-1",
+                        ),
+                        href="/lists",
+                        cls="group inline-flex items-center gap-2 mt-8 px-6 py-3 rounded-lg bg-red-500 text-white font-medium hover:bg-red-600 transition-colors",
+                    ),
+                    cls="animate-fade-in-up",
+                )
+            )
+        )
+
+    # Inline CSS for animations
+    section_style = Style(
+        """
+        @keyframes float-gentle {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .animate-fade-in-up {
+            animation: fade-in-up 0.5s ease-out;
+        }
+
+        .feature-image-wrapper {
+            position: relative;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+        }
+
+        .feature-image-wrapper::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .floating-badge {
+            animation: float-gentle 3s ease-in-out infinite;
+        }
+    """
+    )
+
+    # Build the section
+    return Section(
+        section_style,
+        # Section header
+        Div(
+            Div(
+                Span(
+                    "✨ NEW FEATURE",
+                    cls="inline-block px-3 py-1 rounded-full bg-red-100 text-red-600 text-sm font-semibold mb-4",
+                ),
+                H2(
+                    "Discover 10,000+ Creators",
+                    cls="text-4xl lg:text-5xl font-bold text-gray-900 mb-4",
+                ),
+                P(
+                    "Browse curated creator rankings with 7 different lenses — from top-rated channels to rising stars. Filter by country, category, language, and more.",
+                    cls="text-xl text-gray-600 max-w-2xl",
+                ),
+                cls="text-center mx-auto max-w-4xl mb-16",
+            ),
+            cls="container mx-auto px-4 lg:px-8 py-16",
+        ),
+        # Split layout: Image + Tabs
+        Div(
+            # Left side: Screenshot with decorative elements
+            Div(
+                # Floating badges (decorative - stats shown in bottom bar)
+                Div(
+                    Div(
+                        UkIcon("users", cls="size-4 text-white"),
+                        Span("10,000+", cls="font-bold text-white"),
+                        Span("Creators", cls="text-xs text-white/80"),
+                        cls="flex items-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-red-500 to-red-600 shadow-lg floating-badge",
+                        style="position: absolute; top: 10%; left: -5%; z-index: 10;",
+                        **{"aria-hidden": "true"},
+                    ),
+                    Div(
+                        UkIcon("globe", cls="size-4 text-white"),
+                        Span("142", cls="font-bold text-white"),
+                        Span("Countries", cls="text-xs text-white/80"),
+                        cls="flex items-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg floating-badge",
+                        style="position: absolute; bottom: 15%; right: -5%; z-index: 10; animation-delay: 1.5s;",
+                        **{"aria-hidden": "true"},
+                    ),
+                    cls="hidden lg:block",
+                    **{"aria-hidden": "true"},
+                ),
+                # Main screenshot
+                Div(
+                    Img(
+                        src="/static/lists_shots_so.png",
+                        alt="Lists feature screenshot showing creator rankings",
+                        cls="w-full h-auto rounded-2xl",
+                    ),
+                    cls="feature-image-wrapper",
+                ),
+                cls="relative flex-1",
+            ),
+            # Right side: MonsterUI Tab navigation and content
+            Div(
+                # MonsterUI TabContainer
+                TabContainer(
+                    *tab_links,
+                    uk_switcher="connect: #lists-feature-panels; animation: uk-animation-fade",
+                    alt=True,
+                    cls="flex flex-wrap gap-2 mb-8",
+                ),
+                # Tab content panels (UIkit switcher)
+                Ul(
+                    *tab_panels,
+                    id="lists-feature-panels",
+                    cls="uk-switcher",
+                ),
+                cls="flex-1 flex flex-col justify-center",
+            ),
+            cls="container mx-auto px-4 lg:px-8 flex flex-col lg:flex-row gap-12 lg:gap-16 items-center",
+        ),
+        # Bottom stats bar
+        Div(
+            Div(
+                Div(
+                    Span("7", cls="text-4xl font-bold text-gray-900 mb-1"),
+                    Span("Filter Options", cls="text-sm text-gray-600"),
+                    cls="flex flex-col items-center",
+                ),
+                Div(cls="hidden md:block w-px h-16 bg-gray-300"),
+                Div(
+                    Span("25+", cls="text-4xl font-bold text-gray-900 mb-1"),
+                    Span("Categories", cls="text-sm text-gray-600"),
+                    cls="flex flex-col items-center",
+                ),
+                Div(cls="hidden md:block w-px h-16 bg-gray-300"),
+                Div(
+                    Span("Daily", cls="text-4xl font-bold text-gray-900 mb-1"),
+                    Span("Updates", cls="text-sm text-gray-600"),
+                    cls="flex flex-col items-center",
+                ),
+                Div(cls="hidden md:block w-px h-16 bg-gray-300"),
+                Div(
+                    Span("Free", cls="text-4xl font-bold text-gray-900 mb-1"),
+                    Span("To Browse", cls="text-sm text-gray-600"),
+                    cls="flex flex-col items-center",
+                ),
+                cls="flex items-center justify-center gap-8 md:gap-12",
+            ),
+            cls="container mx-auto px-4 lg:px-8 py-12",
+        ),
+        cls="py-20 bg-gradient-to-b from-white via-gray-50 to-white overflow-hidden",
+        id="lists-feature-showcase",
     )

@@ -83,7 +83,8 @@ def setup_logging():
 def init_supabase() -> Optional[Client]:
     """Initialize Supabase client with retry logic and proper error handling.
 
-    Credential resolution order (first non-empty value wins):
+    Returns:
+        Optional[Client]: Supabase     Credential resolution order (first non-empty value wins):
         1. SUPABASE_SERVICE_KEY        — worker / Kaggle context (broader permissions)
         2. NEXT_PUBLIC_SUPABASE_ANON_KEY — web-app / GitHub Actions fallback
 
@@ -691,7 +692,9 @@ def submit_playlist_job(
 
 
 def queue_invalid_creators_for_retry(
-    hours_since_last_sync: int = 24, force_resync_all: bool = False
+    hours_since_last_sync: int = 24,
+    force_resync_all: bool = False,
+    batch_size: int = 50,
 ) -> int:
     """
     Queue creators with invalid/failed/partial sync status for retry.
@@ -704,6 +707,7 @@ def queue_invalid_creators_for_retry(
     Args:
         hours_since_last_sync: Only retry if last sync was N hours ago (default 24)
         force_resync_all: If True, also queue creators with 'synced' status (default False)
+        batch_size: Maximum number of creators to queue per call (default 50)
 
     Returns:
         Number of creators queued for retry
@@ -728,13 +732,14 @@ def queue_invalid_creators_for_retry(
         # Query 1: creators that previously failed and whose last sync is old enough.
         # Note: 'not_found' channels are hard-deleted by the worker, so they won't
         # appear here. The .in_() filter already restricts to specific statuses.
+        # Reduced batch size to avoid statement timeouts on large datasets.
         failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
             .in_("sync_status", ["invalid", "failed", "synced_partial"])
             .not_.is_("last_synced_at", "null")  # ← only rows where value exists
             .lt("last_synced_at", cutoff_iso)
-            .limit(100)
+            .limit(batch_size)
             .execute()
         )
 
@@ -747,7 +752,7 @@ def queue_invalid_creators_for_retry(
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
             .is_("last_synced_at", "null")
-            .limit(100)
+            .limit(batch_size)
             .execute()
         )
 

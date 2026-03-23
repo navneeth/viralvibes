@@ -36,6 +36,7 @@ from components import (
     FeaturesCard,
     HeaderCard,
     HomepageAccordion,
+    ListsFeatureShowcase,
     NavComponent,
     NewsletterCard,
     SectionDivider,
@@ -260,6 +261,7 @@ def index(req, sess):
         engagement_slider_section() or Div(),
         _Section(HeaderCard(), id="home-section"),
         CoreValuePropsSection(),  # NEW: 4-box value props section
+        ListsFeatureShowcase(),  # NEW: Lists feature showcase with screenshot
         SectionDivider(),
         _Section(features_section() or Div(), id="features-section"),
         _Section(how_it_works_section() or Div(), id="how-it-works-section"),

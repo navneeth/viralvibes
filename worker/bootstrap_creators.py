@@ -77,6 +77,13 @@ def _parse_args() -> argparse.Namespace:
         help="Skip re-queuing previously-synced invalid/failed creators",
     )
     parser.add_argument(
+        "--invalid-batch",
+        type=int,
+        default=50,
+        metavar="N",
+        help="Max invalid/failed creators to queue (default: 50, reduced to avoid timeouts)",
+    )
+    parser.add_argument(
         "--no-stats",
         action="store_true",
         help="Skip category stats cache refresh (Pass 4)",
@@ -121,10 +128,18 @@ def main() -> None:
 
     # ── 3. Previously-synced invalid/failed creators ──────────────────────────
     if not args.no_invalid:
-        logger.info("── Pass 3: invalid/failed creators (>24 h since last sync)")
-        queued = queue_invalid_creators_for_retry(hours_since_last_sync=24)
-        logger.info(f"   Queued: {queued}")
-        total_queued += queued
+        logger.info(
+            f"── Pass 3: invalid/failed creators (>24 h since last sync, batch={args.invalid_batch})"
+        )
+        try:
+            queued = queue_invalid_creators_for_retry(
+                hours_since_last_sync=24, batch_size=args.invalid_batch
+            )
+            logger.info(f"   Queued: {queued}")
+            total_queued += queued
+        except Exception as e:
+            logger.warning(f"   ⚠️  Pass 3 failed (non-fatal): {e}")
+            logger.info("   Continuing with remaining passes...")
     else:
         logger.info("── Pass 3: invalid/failed skipped (--no-invalid)")
 
