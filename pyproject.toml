@@ -1,6 +1,7 @@
 # ============================================================================
 # Python Version: 3.11.9 (see .python-version and runtime.txt)
 # Minimum Required: Python >= 3.11
+# Vercel Runtime: vercel-runtime<0.10 (to support Python 3.11, as vercel-runtime 0.10+ requires Python 3.12)
 # ============================================================================
 
 [project]
@@ -9,6 +10,9 @@ version = "0.1.0"
 description = "YouTube Trends Analysis - Discover what makes playlists go viral"
 requires-python = ">=3.11"
 readme = "README.md"
+dependencies = [
+    "vercel-runtime<0.10.0",  # To support Python 3.11, as vercel-runtime 0.10+ requires Python 3.12
+]
 
 # Tell setuptools this is an application, not a library - don't auto-discover packages
 [tool.setuptools]
