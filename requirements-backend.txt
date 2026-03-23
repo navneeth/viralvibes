@@ -1,5 +1,5 @@
 # Core components
-python-fasthtml>=0.12.39
+python-fasthtml>=0.12.40
 MonsterUI>=0.3.0
 
 # Database & storage
