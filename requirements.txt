@@ -22,3 +22,4 @@ pycountry>=24.1.0  # Updated to fix setuptools vulnerabilities (CVE-2024-6345, C
 isodate
 # introducing google-api-python-client causes vercel deployment issues due to size > 250 MB
 #google-api-python-client
+python-dotenv
