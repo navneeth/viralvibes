@@ -692,7 +692,9 @@ def submit_playlist_job(
 
 
 def queue_invalid_creators_for_retry(
-    hours_since_last_sync: int = 24, force_resync_all: bool = False
+    hours_since_last_sync: int = 24,
+    force_resync_all: bool = False,
+    batch_size: int = 50,
 ) -> int:
     """
     Queue creators with invalid/failed/partial sync status for retry.
@@ -705,6 +707,7 @@ def queue_invalid_creators_for_retry(
     Args:
         hours_since_last_sync: Only retry if last sync was N hours ago (default 24)
         force_resync_all: If True, also queue creators with 'synced' status (default False)
+        batch_size: Maximum number of creators to queue per call (default 50)
 
     Returns:
         Number of creators queued for retry
