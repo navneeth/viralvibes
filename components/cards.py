@@ -1324,7 +1324,7 @@ def ListsFeatureShowcase():
         Div(
             # Left side: Screenshot with decorative elements
             Div(
-                # Floating badges
+                # Floating badges (decorative - stats shown in bottom bar)
                 Div(
                     Div(
                         UkIcon("users", cls="size-4 text-white"),
@@ -1332,6 +1332,7 @@ def ListsFeatureShowcase():
                         Span("Creators", cls="text-xs text-white/80"),
                         cls="flex items-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-red-500 to-red-600 shadow-lg floating-badge",
                         style="position: absolute; top: 10%; left: -5%; z-index: 10;",
+                        **{"aria-hidden": "true"},
                     ),
                     Div(
                         UkIcon("globe", cls="size-4 text-white"),
@@ -1339,8 +1340,10 @@ def ListsFeatureShowcase():
                         Span("Countries", cls="text-xs text-white/80"),
                         cls="flex items-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg floating-badge",
                         style="position: absolute; bottom: 15%; right: -5%; z-index: 10; animation-delay: 1.5s;",
+                        **{"aria-hidden": "true"},
                     ),
                     cls="hidden lg:block",
+                    **{"aria-hidden": "true"},
                 ),
                 # Main screenshot
                 Div(
