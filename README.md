@@ -68,6 +68,16 @@ python main.py
 ```
 The development server will start at http://0.0.0.0:5001
 
+## Python Version Management
+
+This project uses **standard OSS practices** for Python version management:
+
+- **`pyproject.toml`** - Single source of truth (`requires-python = ">=3.11"`)
+- **`.python-version`** - Used by pyenv and GitHub Actions
+- **`runtime.txt`** - Vercel deployment only
+
+All GitHub Actions workflows read from `.python-version` using `python-version-file` parameter.
+
 ## CLI Usage
 
 ViralVibes includes a CLI tool for local development and debugging. Here are the main commands:
