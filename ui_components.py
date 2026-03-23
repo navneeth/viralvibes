@@ -168,9 +168,7 @@ def AnalyticsDashboardSection(
         # BLOCK 2: AUDIENCE ENGAGEMENT QUALITY
         # =====================================================================
         Div(
-            H3(
-                "💬 Engagement Quality", cls="text-2xl font-semibold text-gray-800 mb-4"
-            ),
+            H3("💬 Engagement Quality", cls="text-2xl font-semibold text-gray-800 mb-4"),
             P(
                 "Beyond views - how engaged is your audience? Likes per view & comment rates.",
                 cls="text-gray-500 mb-6",
@@ -321,10 +319,7 @@ def AnalyticsDashboardSection(
             )
             if (
                 (df and any("CategoryName" in row for row in df))
-                and len(
-                    set(row.get("CategoryName") for row in df if "CategoryName" in row)
-                )
-                > 1
+                and len(set(row.get("CategoryName") for row in df if "CategoryName" in row)) > 1
             )
             else None  # Skip if <2 categories
         ),
@@ -518,9 +513,7 @@ def AnalyticsHeader(
                                 ),
                                 # Date badge
                                 (
-                                    small_badge(
-                                        f"Analyzed {processed_date}", icon="calendar"
-                                    )
+                                    small_badge(f"Analyzed {processed_date}", icon="calendar")
                                     if processed_date
                                     else None
                                 ),
@@ -758,9 +751,7 @@ def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -
                     )
 
                 category_breakdown = Div(
-                    H3(
-                        "📁 Content Mix", cls="text-sm font-semibold text-gray-700 mb-3"
-                    ),
+                    H3("📁 Content Mix", cls="text-sm font-semibold text-gray-700 mb-3"),
                     Div(*category_items, cls="space-y-2"),
                     cls="mt-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm",
                 )

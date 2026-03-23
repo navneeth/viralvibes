@@ -225,9 +225,7 @@ async def resolve_csv(
 
     for rank, row in enumerate(rows, start=1):
         channel_id: Optional[str] = None
-        channel_name: Optional[str] = (
-            row.get(name_col, "").strip() if name_col else None
-        )
+        channel_name: Optional[str] = row.get(name_col, "").strip() if name_col else None
         channel_url: Optional[str] = row.get(url_col, "").strip() if url_col else None
 
         # ── Step 1: try to get the channel ID directly (zero API cost) ────────
@@ -253,28 +251,20 @@ async def resolve_csv(
 
             if kind == "channel_id":
                 channel_id = validator.extract_from_url(channel_name) or channel_name
-                logger.debug(
-                    f"  [{rank}] {channel_name} → {channel_id} (direct, 0 units)"
-                )
+                logger.debug(f"  [{rank}] {channel_name} → {channel_id} (direct, 0 units)")
 
             elif kind == "handle":
                 if remaining_budget >= _HANDLE_COST:
                     if not dry_run:
-                        channel_id = await resolver.resolve_handle_to_channel_id(
-                            channel_name
-                        )
+                        channel_id = await resolver.resolve_handle_to_channel_id(channel_name)
                     else:
                         channel_id = f"DRY_RUN_{rank}"
                     if channel_id:
                         remaining_budget -= _HANDLE_COST
                         stats.quota_units_used += _HANDLE_COST
-                        logger.debug(
-                            f"  [{rank}] {channel_name} → {channel_id} (handle, 1 unit)"
-                        )
+                        logger.debug(f"  [{rank}] {channel_name} → {channel_id} (handle, 1 unit)")
                     else:
-                        logger.warning(
-                            f"  [{rank}] Could not resolve handle: {channel_name}"
-                        )
+                        logger.warning(f"  [{rank}] Could not resolve handle: {channel_name}")
                         stats.unresolvable += 1
                         continue
                 else:
@@ -288,9 +278,7 @@ async def resolve_csv(
             else:  # plain name — expensive search
                 if remaining_budget >= _SEARCH_COST:
                     if not dry_run:
-                        channel_id = await resolver.resolve_handle_to_channel_id(
-                            channel_name
-                        )
+                        channel_id = await resolver.resolve_handle_to_channel_id(channel_name)
                     else:
                         channel_id = f"DRY_RUN_{rank}"
                     if channel_id:
@@ -301,9 +289,7 @@ async def resolve_csv(
                             f" | budget remaining: {remaining_budget}"
                         )
                     else:
-                        logger.warning(
-                            f"  [{rank}] Could not resolve: {channel_name!r}"
-                        )
+                        logger.warning(f"  [{rank}] Could not resolve: {channel_name!r}")
                         stats.unresolvable += 1
                         continue
                 else:
@@ -474,9 +460,7 @@ async def fetch_wikipedia_most_viewed(
         if rank > 100:
             break
 
-    logger.info(
-        f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction"
-    )
+    logger.info(f"✅ Wikipedia (most-viewed): {len(creators)} creators found via UC ID extraction")
     if len(creators) < 5:
         logger.warning(
             "  Very few channels extracted from Wikipedia most-viewed. "
@@ -551,9 +535,7 @@ async def fetch_wikidata(validator: ChannelIDValidator) -> List[DiscoveredCreato
 
     bindings = data.get("results", {}).get("bindings", [])
     if not bindings:
-        logger.warning(
-            "Wikidata SPARQL returned no results — query or endpoint may have changed."
-        )
+        logger.warning("Wikidata SPARQL returned no results — query or endpoint may have changed.")
         return []
 
     creators: List[DiscoveredCreator] = []
@@ -871,9 +853,7 @@ async def fetch_wikidata_extended(
             resp.raise_for_status()
             data = resp.json()
         except requests.RequestException as e:
-            logger.warning(
-                f"    Wikidata Extended ({entity_label}) request failed: {e}"
-            )
+            logger.warning(f"    Wikidata Extended ({entity_label}) request failed: {e}")
             time.sleep(WIKIDATA_RATE_LIMIT_SLEEP)
             continue
         except ValueError as e:
@@ -889,15 +869,11 @@ async def fetch_wikidata_extended(
             seen=seen,
             start_rank=rank,
         )
-        logger.info(
-            f"    → {len(batch)} new creators " f"({skipped} non-UC entries skipped)"
-        )
+        logger.info(f"    → {len(batch)} new creators " f"({skipped} non-UC entries skipped)")
         all_creators.extend(batch)
         rank += len(batch)
 
-        time.sleep(
-            WIKIDATA_RATE_LIMIT_SLEEP
-        )  # respect Wikidata's rate limit between queries
+        time.sleep(WIKIDATA_RATE_LIMIT_SLEEP)  # respect Wikidata's rate limit between queries
 
     logger.info(f"✅ Wikidata Extended: {len(all_creators)} additional creators found")
     return all_creators
@@ -920,9 +896,7 @@ async def upsert_creator(
       - (None, False) → DB error
     """
     if dry_run:
-        logger.info(
-            f"  [dry-run] Would insert: {creator.channel_id} ({creator.channel_name})"
-        )
+        logger.info(f"  [dry-run] Would insert: {creator.channel_id} ({creator.channel_name})")
         return f"dry-run-{creator.channel_id}", True
 
     if not db.supabase_client:
@@ -1092,9 +1066,7 @@ async def main():
     # ── YouTube resolver ────────────────────────────────────────────────────
     api_key = os.getenv("YOUTUBE_API_KEY_CREATORS") or os.getenv("YOUTUBE_API_KEY")
     if not api_key:
-        logger.error(
-            "❌ No YouTube API key found (YOUTUBE_API_KEY_CREATORS or YOUTUBE_API_KEY)"
-        )
+        logger.error("❌ No YouTube API key found (YOUTUBE_API_KEY_CREATORS or YOUTUBE_API_KEY)")
         sys.exit(1)
 
     resolver = YouTubeResolver(api_key=api_key)
@@ -1155,9 +1127,7 @@ async def main():
         # One SPARQL call per entity type — no YouTube quota spend, ~3–8k channels.
         # Pass already-seen IDs so the extended queries skip duplicates up front.
         already_seen = {c.channel_id for c in all_creators}
-        wikidata_ext_creators = await fetch_wikidata_extended(
-            validator, already_seen=already_seen
-        )
+        wikidata_ext_creators = await fetch_wikidata_extended(validator, already_seen=already_seen)
         all_creators.extend(wikidata_ext_creators)
     else:
         logger.info("Wikidata Extended disabled via --no-wikidata-extended")
@@ -1180,12 +1150,8 @@ async def main():
         sys.exit(1)
 
     # ── Write to DB ─────────────────────────────────────────────────────────
-    logger.info(
-        f"{'[dry-run] ' if args.dry_run else ''}Seeding {len(unique_creators)} creators..."
-    )
-    combined_stats = await seed_creators(
-        unique_creators, combined_stats, dry_run=args.dry_run
-    )
+    logger.info(f"{'[dry-run] ' if args.dry_run else ''}Seeding {len(unique_creators)} creators...")
+    combined_stats = await seed_creators(unique_creators, combined_stats, dry_run=args.dry_run)
 
     # ── Summary ─────────────────────────────────────────────────────────────
     logger.info("\n" + combined_stats.summary())

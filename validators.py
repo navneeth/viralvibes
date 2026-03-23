@@ -62,9 +62,7 @@ class YoutubePlaylistValidator:
 
             # Validate domain
             if parsed_url.netloc not in cls.ALLOWED_DOMAINS:
-                errors.append(
-                    "Invalid YouTube URL: Domain is not a recognized youtube.com domain"
-                )
+                errors.append("Invalid YouTube URL: Domain is not a recognized youtube.com domain")
                 return errors
 
             # Validate path

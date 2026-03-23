@@ -30,17 +30,13 @@ def revoke_google_token(access_token: str) -> bool:
         return False
 
     try:
-        response = requests.post(
-            GOOGLE_REVOKE_URL, params={"token": access_token}, timeout=10
-        )
+        response = requests.post(GOOGLE_REVOKE_URL, params={"token": access_token}, timeout=10)
 
         if response.status_code == 200:
             logger.info("✅ Google access token revoked successfully")
             return True
         else:
-            logger.warning(
-                f"⚠️  Token revocation returned status {response.status_code}"
-            )
+            logger.warning(f"⚠️  Token revocation returned status {response.status_code}")
             return False
 
     except Exception as e:
