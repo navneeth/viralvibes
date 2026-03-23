@@ -1,7 +1,7 @@
 # Core components
 python-fasthtml>=0.12.42
-MonsterUI>=0.3.0
 starlette>=0.40.0  # Required for FastHTML 0.12.42+ (fixes Vercel vendoring issue)
+MonsterUI>=0.3.0
 
 # Database & storage
 #sqlite_minutils==4.0.3
