@@ -48,6 +48,4 @@ def is_quota_exhausted_error(exc: Exception) -> bool:
         return False
     if getattr(exc.resp, "status", None) != 403:
         return False
-    return "quotaExceeded" in str(
-        getattr(exc, "error_details", "")
-    ) or "quotaExceeded" in str(exc)
+    return "quotaExceeded" in str(getattr(exc, "error_details", "")) or "quotaExceeded" in str(exc)

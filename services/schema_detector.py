@@ -50,9 +50,7 @@ class SchemaDetector:
             "last_synced_at",
         }
 
-    def detect_schema_sync(
-        self, supabase_client, table_name: str = "creators"
-    ) -> Set[str]:
+    def detect_schema_sync(self, supabase_client, table_name: str = "creators") -> Set[str]:
         """
         Synchronously detect available columns (workaround for sync environments).
 

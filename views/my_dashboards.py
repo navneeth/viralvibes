@@ -78,11 +78,7 @@ def render_my_dashboards_page(
         # Search & Filter Bar
         render_search_filter_bar(search=search, sort=sort),
         # Dashboard Grid or Empty State
-        (
-            render_dashboard_grid(dashboards)
-            if dashboards
-            else render_empty_state(search)
-        ),
+        (render_dashboard_grid(dashboards) if dashboards else render_empty_state(search)),
         cls=ContainerT.xl,
     )
 
@@ -276,9 +272,7 @@ def render_dashboard_card(dashboard: dict) -> A:
                     Span("•", cls="text-gray-300 text-xs mx-1"),
                     Div(
                         UkIcon("eye", cls="w-3 h-3 mr-0.5"),
-                        Span(
-                            views_formatted, cls="font-semibold text-gray-900 text-xs"
-                        ),
+                        Span(views_formatted, cls="font-semibold text-gray-900 text-xs"),
                         Span(" views", cls="text-gray-500 text-xs"),
                         cls="flex items-center gap-0.5",
                     ),

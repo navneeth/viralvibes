@@ -508,9 +508,7 @@ def update_meter(meter_id: str, value: int = None, max_value: int = None):
 
 
 @rt("/d/{dashboard_id}", methods=["GET"])
-def dashboard_page(
-    dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"
-):
+def dashboard_page(dashboard_id: str, req, sess, sort_by: str = "Views", order: str = "desc"):
     """View saved dashboard - PROTECTED route"""
 
     # Store intended URL before redirecting to login
@@ -543,9 +541,7 @@ def dashboard_page(
 
     # 3. Sorting (identical to validate/full)
     df_columns = get_columns(df)
-    sortable_map = {
-        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns
-    }
+    sortable_map = {h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns}
 
     # Validate sort parameter
     if sort_by not in sortable_map:
@@ -686,9 +682,7 @@ def validate_full(
             # Build sortable_map: header → raw numeric column
             df_columns = get_columns(df)
             sortable_map = {
-                h: get_sort_col(h)
-                for h in DISPLAY_HEADERS
-                if get_sort_col(h) in df_columns
+                h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns
             }
 
             # --- 6) Normalize sort_by ---
@@ -702,9 +696,7 @@ def validate_full(
 
             # --- 8) Build THEAD with working arrows ---
             def next_order(col):
-                return (
-                    "asc" if (col == valid_sort and valid_order == "desc") else "desc"
-                )
+                return "asc" if (col == valid_sort and valid_order == "desc") else "desc"
 
             # --- 9) Final render: steps + header side-by-side, then table, then plots ---
             # --- inside a target container for HTMX swaps ---
@@ -961,9 +953,7 @@ def get_share_modal(dashboard_id: str, req, sess):
 
     # Get playlist name from cache
     cached = get_cached_playlist_stats(playlist_url)
-    playlist_name = (
-        cached.get("title", "YouTube Playlist") if cached else "YouTube Playlist"
-    )
+    playlist_name = cached.get("title", "YouTube Playlist") if cached else "YouTube Playlist"
 
     # Build full URL
     dashboard_url = f"{req.base_url}d/{dashboard_id}"
@@ -987,9 +977,7 @@ def get_export_modal(dashboard_id: str, req, sess):
 
     # Get playlist name from cache
     cached = get_cached_playlist_stats(playlist_url)
-    playlist_name = (
-        cached.get("title", "YouTube Playlist") if cached else "YouTube Playlist"
-    )
+    playlist_name = cached.get("title", "YouTube Playlist") if cached else "YouTube Playlist"
 
     return ExportModal(
         dashboard_id=dashboard_id, playlist_name=playlist_name, modal_id="export-modal"
@@ -1023,9 +1011,7 @@ def export_csv(dashboard_id: str, req, sess):
     return Response(
         content=csv_content,
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.csv"
-        },
+        headers={"Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.csv"},
     )
 
 
@@ -1065,9 +1051,7 @@ def export_json(dashboard_id: str, req, sess):
     return Response(
         content=json_content,
         media_type="application/json",
-        headers={
-            "Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.json"
-        },
+        headers={"Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.json"},
     )
 
 
@@ -1252,9 +1236,7 @@ async def add_creator(req, sess):
         custom_url = form.get("custom_url")
         thumbnail = form.get("thumbnail")
 
-        logger.info(
-            f"[AddCreator] User {user_id} adding creator: {handle} (ID: {channel_id})"
-        )
+        logger.info(f"[AddCreator] User {user_id} adding creator: {handle} (ID: {channel_id})")
 
         # Add to database and queue for sync
         creator_id = add_creator_by_handle(

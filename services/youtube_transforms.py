@@ -80,9 +80,7 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
         # Check if Duration is already numeric (Int64)
         if df["Duration"].dtype in (pl.Int64, pl.Int32, pl.Int16, pl.Int8):
             # Already numeric, just ensure it's Int64
-            df = df.with_columns(
-                duration_col.cast(pl.Int64, strict=False).alias("Duration")
-            )
+            df = df.with_columns(duration_col.cast(pl.Int64, strict=False).alias("Duration"))
         else:
             # Duration is string or other type - convert it
             df = df.with_columns(
@@ -91,9 +89,7 @@ def normalize_columns(df: pl.DataFrame) -> pl.DataFrame:
                 .otherwise(
                     pl.col("Duration").map_elements(
                         lambda d: (
-                            parse_iso_duration(d)
-                            if isinstance(d, str) and "PT" in d
-                            else d
+                            parse_iso_duration(d) if isinstance(d, str) and "PT" in d else d
                         ),
                         return_dtype=pl.Int64,
                     )

@@ -74,11 +74,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                     Div(
                         cls=(
                             "h-2 flex-1 rounded-sm transition-colors duration-300 "
-                            + (
-                                "bg-blue-600"
-                                if i < state.current_batch
-                                else "bg-gray-300"
-                            )
+                            + ("bg-blue-600" if i < state.current_batch else "bg-gray-300")
                         ),
                     )
                     for i in range(state.batch_count)
@@ -100,9 +96,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
             Div(
                 Div(
                     Div(
-                        UkIcon(
-                            "play-circle", width=24, height=24, cls="text-red-600 mb-2"
-                        ),
+                        UkIcon("play-circle", width=24, height=24, cls="text-red-600 mb-2"),
                         Div(
                             Div(
                                 format_number(state.video_count),
@@ -118,9 +112,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                         UkIcon("eye", width=24, height=24, cls="text-blue-600 mb-2"),
                         Div(
                             Div(
-                                format_number(
-                                    state.estimated_stats["estimated_total_views"]
-                                ),
+                                format_number(state.estimated_stats["estimated_total_views"]),
                                 cls="text-lg font-bold text-gray-900",
                             ),
                             Div("Est. Views", cls="text-xs text-gray-500"),
@@ -133,9 +125,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                         UkIcon("heart", width=24, height=24, cls="text-pink-600 mb-2"),
                         Div(
                             Div(
-                                format_number(
-                                    state.estimated_stats["estimated_total_likes"]
-                                ),
+                                format_number(state.estimated_stats["estimated_total_likes"]),
                                 cls="text-lg font-bold text-gray-900",
                             ),
                             Div("Est. Likes", cls="text-xs text-gray-500"),
@@ -153,9 +143,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                         ),
                         Div(
                             Div(
-                                format_number(
-                                    state.estimated_stats["estimated_total_comments"]
-                                ),
+                                format_number(state.estimated_stats["estimated_total_comments"]),
                                 cls="text-lg font-bold text-gray-900",
                             ),
                             Div("Est. Comments", cls="text-xs text-gray-500"),
@@ -177,9 +165,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
         # Tips section
         Div(
             Div(
-                UkIcon(
-                    state.tip["icon"], width=24, height=24, cls="text-blue-600 mb-2"
-                ),
+                UkIcon(state.tip["icon"], width=24, height=24, cls="text-blue-600 mb-2"),
                 H4(state.tip["title"], cls="font-semibold text-gray-900 mb-1"),
                 P(state.tip["content"], cls="text-sm text-gray-600"),
                 cls="",

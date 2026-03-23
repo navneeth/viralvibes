@@ -73,18 +73,12 @@ async def test_progress_updates_tracked_in_database(
     def tracked_update_progress(job_id, processed, total):
         progress_updates.append({"processed": processed, "total": total})
 
-    monkeypatch.setattr(
-        wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data))
     monkeypatch.setattr(wk, "update_progress", tracked_update_progress)
 
     # Get job from mock database
     jobs = mock_supabase_with_jobs.table("playlist_jobs").select("*").limit(1).execute()
-    job = (
-        jobs.data[0]
-        if jobs.data
-        else {"id": 1, "playlist_url": "https://youtube.com/test"}
-    )
+    job = jobs.data[0] if jobs.data else {"id": 1, "playlist_url": "https://youtube.com/test"}
 
     worker = Worker(supabase=mock_supabase_with_jobs)
     result = await worker.process_one(job)
@@ -125,9 +119,7 @@ async def test_progress_callback_handles_multiple_argument_patterns(
             await progress_callback(5, 10, {"video_id": "xyz123"})
 
             # Pattern 3: Dict argument
-            await progress_callback(
-                {"processed": 8, "total": 10, "status": "analyzing"}
-            )
+            await progress_callback({"processed": 8, "total": 10, "status": "analyzing"})
 
         return (
             fake_df,
@@ -140,17 +132,11 @@ async def test_progress_callback_handles_multiple_argument_patterns(
     def tracked_update(job_id, processed, total):
         progress_updates.append((processed, total))
 
-    monkeypatch.setattr(
-        wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data))
     monkeypatch.setattr(wk, "update_progress", tracked_update)
 
     jobs = mock_supabase_with_jobs.table("playlist_jobs").select("*").limit(1).execute()
-    job = (
-        jobs.data[0]
-        if jobs.data
-        else {"id": 1, "playlist_url": "https://youtube.com/test"}
-    )
+    job = jobs.data[0] if jobs.data else {"id": 1, "playlist_url": "https://youtube.com/test"}
 
     worker = Worker(supabase=mock_supabase_with_jobs)
     result = await worker.process_one(job)
@@ -202,17 +188,11 @@ async def test_progress_callback_errors_dont_crash_job(
             raise ValueError(f"Invalid progress values: {processed}, {total}")
         # Valid data - just pass
 
-    monkeypatch.setattr(
-        wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data))
     monkeypatch.setattr(wk, "update_progress", strict_update_progress)
 
     jobs = mock_supabase_with_jobs.table("playlist_jobs").select("*").limit(1).execute()
-    job = (
-        jobs.data[0]
-        if jobs.data
-        else {"id": 1, "playlist_url": "https://youtube.com/test"}
-    )
+    job = jobs.data[0] if jobs.data else {"id": 1, "playlist_url": "https://youtube.com/test"}
 
     worker = Worker(supabase=mock_supabase_with_jobs)
     result = await worker.process_one(job)
@@ -267,17 +247,11 @@ async def test_progress_updates_reflect_actual_video_processing(
             }
         )
 
-    monkeypatch.setattr(
-        wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data))
     monkeypatch.setattr(wk, "update_progress", track_progress)
 
     jobs = mock_supabase_with_jobs.table("playlist_jobs").select("*").limit(1).execute()
-    job = (
-        jobs.data[0]
-        if jobs.data
-        else {"id": 1, "playlist_url": "https://youtube.com/test"}
-    )
+    job = jobs.data[0] if jobs.data else {"id": 1, "playlist_url": "https://youtube.com/test"}
 
     worker = Worker(supabase=mock_supabase_with_jobs)
     result = await worker.process_one(job)
@@ -311,16 +285,10 @@ async def test_no_progress_callback_still_completes_job(
         # Intentionally don't call progress_callback
         return fake_df, "No Progress", "Channel", "thumb.jpg", {"total_views": 1000}
 
-    monkeypatch.setattr(
-        wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", AsyncMock(get_playlist_data=fake_get_playlist_data))
 
     jobs = mock_supabase_with_jobs.table("playlist_jobs").select("*").limit(1).execute()
-    job = (
-        jobs.data[0]
-        if jobs.data
-        else {"id": 1, "playlist_url": "https://youtube.com/test"}
-    )
+    job = jobs.data[0] if jobs.data else {"id": 1, "playlist_url": "https://youtube.com/test"}
 
     worker = Worker(supabase=mock_supabase_with_jobs)
     result = await worker.process_one(job)

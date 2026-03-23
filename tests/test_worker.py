@@ -150,9 +150,7 @@ async def test_worker_processes_pending_job_successfully(
     async def fake_get_playlist_data(url, progress_callback=None):
         return fake_df, "My Playlist", "ChannelX", "/thumb.jpg", {"total_views": 100}
 
-    monkeypatch.setattr(
-        wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data))
 
     worker = Worker(supabase=fake_db)
     result = await worker.process_one(
@@ -170,9 +168,7 @@ async def test_worker_processes_pending_job_successfully(
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Temporarily disabled for debugging")
-async def test_worker_handles_empty_playlist_with_retry(
-    fake_db, patch_upsert, monkeypatch
-):
+async def test_worker_handles_empty_playlist_with_retry(fake_db, patch_upsert, monkeypatch):
     """Handles empty dataframe gracefully and schedules retry."""
 
     class EmptyDF:
@@ -184,9 +180,7 @@ async def test_worker_handles_empty_playlist_with_retry(
     async def fake_get_playlist_data(url, progress_callback=None):
         return EmptyDF(), "Empty", "Chan", "thumb", {}
 
-    monkeypatch.setattr(
-        wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data))
 
     worker = Worker(supabase=fake_db)
     result = await worker.process_one(
@@ -205,9 +199,7 @@ async def test_worker_handles_bot_challenge(fake_db, patch_upsert, monkeypatch):
     async def fake_get_playlist_data(url, progress_callback=None):
         raise YouTubeBotChallengeError("Captcha!")
 
-    monkeypatch.setattr(
-        wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data))
 
     worker = Worker(supabase=fake_db)
     result = await worker.process_one(
@@ -226,9 +218,7 @@ async def test_worker_max_retries_exhausted(fake_db, patch_upsert, monkeypatch):
     async def fake_get_playlist_data(url, progress_callback=None):
         raise RuntimeError("Persistent failure")
 
-    monkeypatch.setattr(
-        wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data))
 
     job = {
         "id": "job_retry",
@@ -243,9 +233,7 @@ async def test_worker_max_retries_exhausted(fake_db, patch_upsert, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Temporarily disabled for debugging")
-async def test_worker_validates_backend_metadata(
-    fake_db, fake_df, patch_upsert, monkeypatch
-):
+async def test_worker_validates_backend_metadata(fake_db, fake_df, patch_upsert, monkeypatch):
     """Ensure metadata fields propagate from yt service."""
 
     async def fake_get_playlist_data(url, progress_callback=None):
@@ -270,9 +258,7 @@ async def test_worker_validates_backend_metadata(
 
 
 @pytest.mark.asyncio
-async def test_process_one_handles_handler_exception_and_returns_failed(
-    fake_db, monkeypatch
-):
+async def test_process_one_handles_handler_exception_and_returns_failed(fake_db, monkeypatch):
     """If handle_job raises, process_one returns failed result."""
 
     async def boom(*a, **k):
@@ -302,9 +288,7 @@ async def test_process_one_retry_flag(fake_db, fake_df, patch_upsert, monkeypatc
             {"total_views": 99},
         )
 
-    monkeypatch.setattr(
-        wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data)
-    )
+    monkeypatch.setattr(wk, "yt_service", SimpleNamespace(get_playlist_data=fake_get_playlist_data))
 
     job = {
         "id": "job_r1",
@@ -402,9 +386,7 @@ class TestProcessPlaylist:
 
         assert isinstance(result["title"], str), "title must be string"
         assert isinstance(result["channel_name"], str), "channel_name must be string"
-        assert isinstance(
-            result["channel_thumbnail"], str
-        ), "channel_thumbnail must be string"
+        assert isinstance(result["channel_thumbnail"], str), "channel_thumbnail must be string"
 
         assert isinstance(
             result["view_count"], int
@@ -443,9 +425,7 @@ class TestProcessPlaylist:
         try:
             parsed_df_json = json.loads(result["df_json"])
         except json.JSONDecodeError as e:
-            pytest.fail(
-                f"df_json is not valid JSON: {e}\nContent: {result['df_json'][:200]}"
-            )
+            pytest.fail(f"df_json is not valid JSON: {e}\nContent: {result['df_json'][:200]}")
 
         # ✅ Polars .write_json() returns array of objects (list of dicts)
         assert isinstance(parsed_df_json, list), (
@@ -513,9 +493,7 @@ class TestProcessPlaylist:
         assert result["dislike_count"] >= 0, "dislike_count must be non-negative"
         assert result["comment_count"] >= 0, "comment_count must be non-negative"
         assert result["video_count"] >= 0, "video_count must be non-negative"
-        assert (
-            result["processed_video_count"] >= 0
-        ), "processed_video_count must be non-negative"
+        assert result["processed_video_count"] >= 0, "processed_video_count must be non-negative"
 
         print(f"✅ All numeric values are non-negative")
 
@@ -546,9 +524,7 @@ class TestProcessPlaylist:
             result = await process_playlist(test_url)
 
             # If it doesn't raise an error, verify zero values
-            assert (
-                result["video_count"] == 0
-            ), "Empty playlist should have video_count=0"
+            assert result["video_count"] == 0, "Empty playlist should have video_count=0"
             assert (
                 result["processed_video_count"] == 0
             ), "Empty playlist should have processed_video_count=0"
@@ -556,9 +532,7 @@ class TestProcessPlaylist:
             assert result["avg_duration"] == timedelta(
                 seconds=0
             ), "Empty playlist should have avg_duration=0"
-            assert (
-                result["df_json"] == "[]"
-            ), "Empty playlist should have empty JSON array"
+            assert result["df_json"] == "[]", "Empty playlist should have empty JSON array"
 
             print(f"✅ Empty playlist handled gracefully with zero values")
 

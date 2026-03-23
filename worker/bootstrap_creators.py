@@ -118,9 +118,7 @@ def main() -> None:
     # ── 2. Stale synced creators ──────────────────────────────────────────────
     if not args.no_stale:
         logger.info(f"── Pass 2: stale refresh (>{args.stale_days} days since sync)")
-        queued = _queue_creators_for_extended_refresh(
-            days_since_last_sync=args.stale_days
-        )
+        queued = _queue_creators_for_extended_refresh(days_since_last_sync=args.stale_days)
         logger.info(f"   Queued: {queued}")
         total_queued += queued
     else:

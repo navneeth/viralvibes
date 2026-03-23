@@ -364,9 +364,7 @@ def get_top_creators_by_categories(
             for cat in matching_cats:
                 result[cat] = creators
         except Exception as e:
-            logger.exception(
-                "Error fetching creators for category %r: %s", ilike_term, e
-            )
+            logger.exception("Error fetching creators for category %r: %s", ilike_term, e)
 
     return result
 
@@ -421,9 +419,7 @@ def get_top_creators_by_languages(
         return {}
 
 
-def get_language_groups(
-    offset: int = 0, limit: int = 8, creators_per_group: int = 5
-) -> list[dict]:
+def get_language_groups(offset: int = 0, limit: int = 8, creators_per_group: int = 5) -> list[dict]:
     """
     Return paginated language groups, each with their top creators.
 
@@ -504,9 +500,7 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
         # Calculate growth rate for each creator and attach it
         for creator in creators:
             subs_change = creator.get("subscribers_change_30d", 0)
-            current_subs = creator.get(
-                "current_subscribers", 1
-            )  # Avoid division by zero
+            current_subs = creator.get("current_subscribers", 1)  # Avoid division by zero
 
             if current_subs > 0:
                 # Growth rate as percentage
@@ -848,9 +842,7 @@ def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
         return []
 
 
-def get_country_groups(
-    offset: int = 0, limit: int = 8, creators_per_group: int = 5
-) -> list[dict]:
+def get_country_groups(offset: int = 0, limit: int = 8, creators_per_group: int = 5) -> list[dict]:
     """
     Return paginated country groups, each with their top creators.
 
@@ -887,9 +879,7 @@ def get_country_groups(
     ]
 
 
-def get_category_groups(
-    offset: int = 0, limit: int = 8, creators_per_group: int = 5
-) -> list[dict]:
+def get_category_groups(offset: int = 0, limit: int = 8, creators_per_group: int = 5) -> list[dict]:
     """
     Return paginated category groups, each with their top creators.
 

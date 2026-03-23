@@ -3,7 +3,7 @@ services:
   - type: worker
     name: viralvibes-worker
     env: python
-    runtime: python-3.10  # Be explicit about runtime version
+    pythonVersion: "3.12.0"  # Matches .python-version (source of truth)
     plan: free
     buildCommand: |
       pip install --upgrade pip

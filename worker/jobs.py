@@ -45,9 +45,7 @@ async def process_playlist(playlist_url: str) -> dict:
     # Compute summary stats
     engagement_rate = summary_stats.get("avg_engagement", 0.0)
     controversy_score = (
-        df["Controversy Raw"].mean()
-        if video_count > 0 and "Controversy Raw" in df.columns
-        else 0.0
+        df["Controversy Raw"].mean() if video_count > 0 and "Controversy Raw" in df.columns else 0.0
     )
 
     # Single UTC timestamp reference for consistency

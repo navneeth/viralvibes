@@ -69,9 +69,7 @@ def build_table_footer(summary_stats, svc_headers):
         elif header == "Title":
             # Add "Total / Avg" label in first numeric column (Title)
             if not label_added:
-                footer_cells.append(
-                    Td("Total / Avg", cls="px-4 py-3 font-bold text-left")
-                )
+                footer_cells.append(Td("Total / Avg", cls="px-4 py-3 font-bold text-left"))
                 label_added = True
 
         elif header == "Thumbnail":
@@ -164,9 +162,7 @@ def render_playlist_table(
 
     # Build sortable_map: header → raw numeric column
     df_columns = get_columns(df)
-    sortable_map = {
-        h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns
-    }
+    sortable_map = {h: get_sort_col(h) for h in DISPLAY_HEADERS if get_sort_col(h) in df_columns}
 
     # --- THEAD ---
     thead = Thead(
@@ -179,11 +175,7 @@ def render_playlist_table(
                             + (
                                 " ▲"
                                 if h == valid_sort and valid_order == "asc"
-                                else (
-                                    " ▼"
-                                    if h == valid_sort and valid_order == "desc"
-                                    else ""
-                                )
+                                else (" ▼" if h == valid_sort and valid_order == "desc" else "")
                             ),
                             href="#",
                             hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order(h)}",

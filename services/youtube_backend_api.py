@@ -116,9 +116,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             # Use forHandle parameter to find channel
             resp = (
                 self.youtube.channels()
-                .list(
-                    part="snippet,statistics", forHandle=normalized_handle, maxResults=1
-                )
+                .list(part="snippet,statistics", forHandle=normalized_handle, maxResults=1)
                 .execute()
             )
 
@@ -134,9 +132,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                 "channel_id": item["id"],
                 "title": snippet.get("title", "Unknown"),
                 "custom_url": snippet.get("customUrl", normalized_handle),
-                "thumbnail": snippet.get("thumbnails", {})
-                .get("high", {})
-                .get("url", ""),
+                "thumbnail": snippet.get("thumbnails", {}).get("high", {}).get("url", ""),
                 "description": snippet.get("description", ""),
                 "subscriber_count": int(stats.get("subscriberCount", 0)),
                 "view_count": int(stats.get("viewCount", 0)),
@@ -166,9 +162,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             # Fetch with status and localized fields
             resp = (
                 self.youtube.playlists()
-                .list(
-                    part="snippet,contentDetails,status", id=playlist_id, maxResults=1
-                )
+                .list(part="snippet,contentDetails,status", id=playlist_id, maxResults=1)
                 .execute()
             )
             if not resp["items"]:
@@ -241,9 +235,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             )
 
             # ==================== Step 3: Fetch Video IDs ====================
-            video_ids = await self._fetch_video_ids(
-                playlist_id, max_expanded, progress_callback
-            )
+            video_ids = await self._fetch_video_ids(playlist_id, max_expanded, progress_callback)
 
             if not video_ids:
                 logger.warning(
@@ -284,18 +276,14 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                     empty_stats,
                 )
 
-            logger.info(
-                f"[YouTubeAPI] Successfully fetched {len(videos)} video details"
-            )
+            logger.info(f"[YouTubeAPI] Successfully fetched {len(videos)} video details")
 
             # ==================== Step 5: Create and Enrich DataFrame ====================
             df = self._create_dataframe_from_videos(videos)
 
             # Validate DataFrame creation
             if df is None or not isinstance(df, pl.DataFrame):
-                logger.error(
-                    f"[YouTubeAPI] DataFrame creation failed for {playlist_id}"
-                )
+                logger.error(f"[YouTubeAPI] DataFrame creation failed for {playlist_id}")
                 df = self._create_empty_dataframe()
 
             # Normalize and enrich
@@ -316,12 +304,8 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
             # Add enhanced metadata if videos were processed
             if len(videos) > 0:
-                stats["videos_with_captions"] = len(
-                    [v for v in videos if v.get("Caption")]
-                )
-                stats["hd_videos_count"] = len(
-                    [v for v in videos if v.get("Definition") == "hd"]
-                )
+                stats["videos_with_captions"] = len([v for v in videos if v.get("Caption")])
+                stats["hd_videos_count"] = len([v for v in videos if v.get("Definition") == "hd"])
                 stats["tags_list"] = extract_all_tags(videos)
                 stats["categories"] = extract_categories(videos)
 
@@ -344,9 +328,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
         except Exception as e:
             # Catch-all for unexpected errors
-            logger.exception(
-                f"[YouTubeAPI] Unexpected error processing {playlist_id}: {e}"
-            )
+            logger.exception(f"[YouTubeAPI] Unexpected error processing {playlist_id}: {e}")
             return (
                 self._create_empty_dataframe(),
                 playlist_name,
@@ -369,9 +351,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                 batch = video_ids[i : i + self.YOUTUBE_API_MAX_RESULTS]
                 batch_num = i // self.YOUTUBE_API_MAX_RESULTS + 1
 
-                logger.debug(
-                    f"[YouTubeAPI] Fetching batch {batch_num} ({len(batch)} videos)"
-                )
+                logger.debug(f"[YouTubeAPI] Fetching batch {batch_num} ({len(batch)} videos)")
 
                 try:
                     resp = (
@@ -396,9 +376,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                     )
                     # continue to next batch instead of failing — allow partial results
                     if progress_callback:
-                        await progress_callback(
-                            len(videos), len(video_ids), {"batch": batch_num}
-                        )
+                        await progress_callback(len(videos), len(video_ids), {"batch": batch_num})
                     continue
 
                 # parse returned items
@@ -409,9 +387,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
 
                 # progress callback
                 if progress_callback:
-                    await progress_callback(
-                        len(videos), len(video_ids), {"batch": batch_num}
-                    )
+                    await progress_callback(len(videos), len(video_ids), {"batch": batch_num})
 
             return videos
 
@@ -419,9 +395,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             logger.exception(f"[YouTubeAPI] Failed to fetch video details: {e}")
             return videos  # return whatever partial results we have
 
-    async def _fetch_playlist_metadata(
-        self, playlist_id: str
-    ) -> Optional[Dict[str, Any]]:
+    async def _fetch_playlist_metadata(self, playlist_id: str) -> Optional[Dict[str, Any]]:
         """Fetch and parse playlist metadata."""
         try:
             resp = (
@@ -447,9 +421,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                 "playlist_name": sn.get("title", "Untitled Playlist"),
                 "channel_name": sn.get("channelTitle", "Unknown Channel"),
                 "channel_id": sn.get("channelId", ""),
-                "channel_thumb": sn.get("thumbnails", {})
-                .get("high", {})
-                .get("url", ""),
+                "channel_thumb": sn.get("thumbnails", {}).get("high", {}).get("url", ""),
                 "total_count": cd.get("itemCount", 0),
                 "extra_metadata": {
                     "description": sn.get("description", ""),
@@ -525,9 +497,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             logger.error(f"Failed to fetch video IDs for {playlist_id}: {e}")
             return video_ids  # Return partial results
 
-    def _parse_video_item(
-        self, item: Dict[str, Any], rank: int
-    ) -> Optional[Dict[str, Any]]:
+    def _parse_video_item(self, item: Dict[str, Any], rank: int) -> Optional[Dict[str, Any]]:
         """Parse a single video item from API response (defensive)."""
         try:
             # id is usually present at top-level for videos.list results
@@ -535,10 +505,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             video_url = f"https://youtu.be/{video_id}"
             thumbs = item.get("snippet", {}).get("thumbnails", {})
             thumbnail = (
-                thumbs.get("high")
-                or thumbs.get("medium")
-                or thumbs.get("default")
-                or {}
+                thumbs.get("high") or thumbs.get("medium") or thumbs.get("default") or {}
             ).get("url", "")
             sn = item.get("snippet", {}) or {}
             stats = item.get("statistics", {}) or {}
@@ -600,9 +567,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             )
             return None
 
-    def _create_dataframe_from_videos(
-        self, videos: List[Dict[str, Any]]
-    ) -> pl.DataFrame:
+    def _create_dataframe_from_videos(self, videos: List[Dict[str, Any]]) -> pl.DataFrame:
         """
         Create DataFrame from video list with validation and consistent columns.
         Always returns a valid DataFrame (possibly empty).
@@ -621,9 +586,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             # Add missing columns with appropriate defaults
             for col_name, col_dtype in expected_cols.items():
                 if col_name not in df.columns:
-                    df = df.with_columns(
-                        pl.Series(col_name, [None] * df.height, dtype=col_dtype)
-                    )
+                    df = df.with_columns(pl.Series(col_name, [None] * df.height, dtype=col_dtype))
 
             # Ensure columns match expected schema and ordering
             df = df.select(list(expected_cols.keys()))
@@ -632,13 +595,9 @@ class YouTubeBackendAPI(YouTubeBackendBase):
             for col_name, col_dtype in expected_cols.items():
                 if col_name in df.columns:
                     if col_dtype in (pl.Int64, pl.Int32):
-                        df = df.with_columns(
-                            pl.col(col_name).fill_null(0).cast(col_dtype)
-                        )
+                        df = df.with_columns(pl.col(col_name).fill_null(0).cast(col_dtype))
                     elif col_dtype == pl.Float64:
-                        df = df.with_columns(
-                            pl.col(col_name).fill_null(0.0).cast(col_dtype)
-                        )
+                        df = df.with_columns(pl.col(col_name).fill_null(0.0).cast(col_dtype))
 
             logger.info(f"[YouTubeAPI] Created DataFrame with {df.height} rows")
             return df
@@ -724,9 +683,7 @@ class YouTubeBackendAPI(YouTubeBackendBase):
                 # Fill missing text cols with "Unknown" or "", numbers with 0
                 if dtype == pl.Utf8:
                     fill_val = "Unknown" if col_name == "Title" else None
-                    missing_cols_exprs.append(
-                        pl.lit(fill_val).cast(dtype).alias(col_name)
-                    )
+                    missing_cols_exprs.append(pl.lit(fill_val).cast(dtype).alias(col_name))
                 else:
                     missing_cols_exprs.append(pl.lit(0).cast(dtype).alias(col_name))
 
@@ -748,11 +705,9 @@ class YouTubeBackendAPI(YouTubeBackendBase):
         if "id" in df.columns:
             # build short youtube url column reliably
             df = df.with_columns(
-                (
-                    pl.concat_str(
-                        [pl.lit("https://youtu.be/"), pl.col("id").cast(pl.Utf8)]
-                    )
-                ).alias("video_url")
+                (pl.concat_str([pl.lit("https://youtu.be/"), pl.col("id").cast(pl.Utf8)])).alias(
+                    "video_url"
+                )
             )
         # normalize thumbnail column name
         thumb_src = find_col(["Thumbnail", "thumbnail", "thumbnailUrl"])

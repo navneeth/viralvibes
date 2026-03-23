@@ -53,9 +53,7 @@ try:
     TEST_PLAYLIST_URL = KNOWN_PLAYLISTS[0]["url"]
 except (ImportError, IndexError, KeyError):
     # Fallback if constants not available
-    TEST_PLAYLIST_URL = (
-        "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
-    )
+    TEST_PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
 
 # ============================================================================
 # Minimal contract mapping
@@ -389,9 +387,7 @@ def create_test_dataframe(num_videos: int = 5) -> pl.DataFrame:
             "Views Formatted": [f"{10000 - (i * 1000):,}" for i in range(num_videos)],
             "Likes Formatted": [f"{300 - (i * 50):,}" for i in range(num_videos)],
             "Comments Formatted": [f"{50 - (i * 5):,}" for i in range(num_videos)],
-            "Engagement Rate Formatted": [
-                f"{6.0 - (i * 0.5):.2f}%" for i in range(num_videos)
-            ],
+            "Engagement Rate Formatted": [f"{6.0 - (i * 0.5):.2f}%" for i in range(num_videos)],
         }
     )
 
@@ -415,12 +411,8 @@ def create_test_playlist_row(
     total_likes = int(df["Likes"].sum())
     total_dislikes = int(df["Dislikes"].sum()) if "Dislikes" in df.columns else 0
     total_comments = int(df["Comments"].sum())
-    avg_engagement = (
-        (total_likes + total_comments) / total_views if total_views > 0 else 0
-    )
-    avg_duration_seconds = (
-        int(df["Duration"].mean()) if "Duration" in df.columns else 270
-    )
+    avg_engagement = (total_likes + total_comments) / total_views if total_views > 0 else 0
+    avg_duration_seconds = int(df["Duration"].mean()) if "Duration" in df.columns else 270
 
     return {
         "id": 1,
@@ -492,9 +484,7 @@ def create_test_job_row(
         "error_trace": None,
         # ✅ Timestamps
         "created_at": "2024-01-01T12:00:00Z",
-        "updated_at": (
-            "2024-01-01T12:05:00Z" if status in ["complete", "failed"] else None
-        ),
+        "updated_at": ("2024-01-01T12:05:00Z" if status in ["complete", "failed"] else None),
         "started_at": "2024-01-01T12:01:00Z" if status != "pending" else None,
         "finished_at": "2024-01-01T12:05:00Z" if status == "complete" else None,
     }
@@ -599,9 +589,7 @@ def mock_youtube_api():
                         "snippet": {
                             "title": "Mock Playlist",
                             "channelTitle": "Mock Channel",
-                            "thumbnails": {
-                                "high": {"url": "https://example.com/mock_thumb.jpg"}
-                            },
+                            "thumbnails": {"high": {"url": "https://example.com/mock_thumb.jpg"}},
                         },
                         "contentDetails": {"itemCount": 3},
                     }
@@ -610,11 +598,7 @@ def mock_youtube_api():
 
         # --- 2️⃣ Playlist items ---
         if "playlistId" in kwargs:
-            return {
-                "items": [
-                    {"contentDetails": {"videoId": f"video_{i}"}} for i in range(3)
-                ]
-            }
+            return {"items": [{"contentDetails": {"videoId": f"video_{i}"}} for i in range(3)]}
 
         # --- 3️⃣ Video details ---
         if (
@@ -631,9 +615,7 @@ def mock_youtube_api():
                         "snippet": {
                             "title": f"Mock Video {i}",
                             "channelTitle": "Mock Channel",
-                            "thumbnails": {
-                                "high": {"url": f"https://example.com/{vid}.jpg"}
-                            },
+                            "thumbnails": {"high": {"url": f"https://example.com/{vid}.jpg"}},
                         },
                         "statistics": {
                             "viewCount": "1000",

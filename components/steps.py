@@ -38,9 +38,7 @@ def StepProgress(
         else:
             step_cls = StepT.neutral
 
-        steps.append(
-            LiStep(title, cls=step_cls, data_content=icon, description=description)
-        )
+        steps.append(LiStep(title, cls=step_cls, data_content=icon, description=description))
 
     return Steps(*steps, cls=steps_cls)
 

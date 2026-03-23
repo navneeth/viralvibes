@@ -554,9 +554,7 @@ def render_creators_page(
     )
 
 
-def _render_hero(
-    stats: dict, filtered_count: int = 0, has_filters: bool = False
-) -> Div:
+def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False) -> Div:
     """
     Hero section with marketing-relevant statistics from database.
 
@@ -828,14 +826,9 @@ def _render_filter_bar(
 
     sort_form = Form(
         Div(
-            Label(
-                "Sort:", cls="text-sm font-semibold text-foreground whitespace-nowrap"
-            ),
+            Label("Sort:", cls="text-sm font-semibold text-foreground whitespace-nowrap"),
             Select(
-                *[
-                    Option(label, value=val, selected=(sort == val))
-                    for val, label in sort_options
-                ],
+                *[Option(label, value=val, selected=(sort == val)) for val, label in sort_options],
                 name="sort",
                 cls="h-10 px-3 rounded-lg border border-border font-medium",
                 onchange="this.form.submit()",
@@ -1058,9 +1051,7 @@ def _render_filter_bar(
             # Filter icon (using emoji for consistency)
             Span("🔍", cls="text-xl md:text-2xl", aria_hidden="true"),
             # Keep label available to screen readers on small screens, visible from sm and up
-            Span(
-                "Filters", cls="text-xs md:text-sm font-semibold sr-only sm:not-sr-only"
-            ),
+            Span("Filters", cls="text-xs md:text-sm font-semibold sr-only sm:not-sr-only"),
             cls="flex items-center gap-2",
         ),
         # Active count badge (only show if filters are active)
@@ -1514,9 +1505,7 @@ def _render_topic_categories(topic_categories: str | None) -> Div | None:
             raw_categories = [str(parsed).strip()]
     except (json.JSONDecodeError, TypeError):
         # Fallback to comma-separated string
-        raw_categories = [
-            cat.strip() for cat in str(topic_categories).split(",") if cat.strip()
-        ]
+        raw_categories = [cat.strip() for cat in str(topic_categories).split(",") if cat.strip()]
 
     if not raw_categories:
         return None
@@ -1702,8 +1691,7 @@ def _render_creator_card(creator: dict) -> Div:
     channel_name = safe_get_value(creator, "channel_name", "Unknown")
     # Preserve existing channel_url if present, otherwise construct from channel_id
     channel_url = (
-        safe_get_value(creator, "channel_url")
-        or f"https://youtube.com/channel/{channel_id}"
+        safe_get_value(creator, "channel_url") or f"https://youtube.com/channel/{channel_id}"
     )
     quality_grade = safe_get_value(creator, "quality_grade", "C")
     rank = safe_get_value(creator, "_rank", "—")
@@ -1743,9 +1731,7 @@ def _render_creator_card(creator: dict) -> Div:
     custom_url = safe_get_value(creator, "custom_url", "")
     language = safe_get_value(creator, "default_language", "")
     country_code = safe_get_value(creator, "country_code", "")
-    primary_category = (
-        safe_get_value(creator, "primary_category", "general") or "general"
-    )
+    primary_category = safe_get_value(creator, "primary_category", "general") or "general"
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 
     # v4 revenue model — uses country + niche for accurate CPM, Shorts split, sponsorships
@@ -1802,8 +1788,7 @@ def _render_creator_card(creator: dict) -> Div:
         # Topic categories rendered as clean emoji pills with Wikipedia links, plus
         _render_topic_categories(safe_get_value(creator, "topic_categories")),
         _render_bio(
-            safe_get_value(creator, "bio")
-            or safe_get_value(creator, "channel_description")
+            safe_get_value(creator, "bio") or safe_get_value(creator, "channel_description")
         ),
         # ── Metrics ───────────────────────────────────────────────────────────
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
@@ -1910,9 +1895,7 @@ def _render_pagination(
 
     if total_pages <= 7:
         # Show all pages if 7 or fewer
-        buttons = [
-            page_link(p, is_current=(p == page)) for p in range(1, total_pages + 1)
-        ]
+        buttons = [page_link(p, is_current=(p == page)) for p in range(1, total_pages + 1)]
     elif page <= 3:
         # Near start: [1] [2] [3] [4] ... [last]
         buttons = [page_link(p, is_current=(p == page)) for p in range(1, 5)]
@@ -1923,18 +1906,13 @@ def _render_pagination(
         buttons.append(page_link(1))
         buttons.append(ellipsis())
         buttons.extend(
-            [
-                page_link(p, is_current=(p == page))
-                for p in range(total_pages - 3, total_pages + 1)
-            ]
+            [page_link(p, is_current=(p == page)) for p in range(total_pages - 3, total_pages + 1)]
         )
     else:
         # Middle: [1] ... [current-1] [current] [current+1] ... [last]
         buttons.append(page_link(1))
         buttons.append(ellipsis())
-        buttons.extend(
-            [page_link(p, is_current=(p == page)) for p in range(page - 1, page + 2)]
-        )
+        buttons.extend([page_link(p, is_current=(p == page)) for p in range(page - 1, page + 2)])
         buttons.append(ellipsis())
         buttons.append(page_link(total_pages))
 
@@ -2011,9 +1989,7 @@ def _render_pagination(
     )
 
 
-def _render_empty_state(
-    search: str, grade_filter: str, has_active_filters: bool
-) -> Div:
+def _render_empty_state(search: str, grade_filter: str, has_active_filters: bool) -> Div:
     """Empty state when no creators found."""
 
     # Special handling for handle searches that weren't found
@@ -2154,16 +2130,11 @@ def render_creator_profile_page(
     channel_name = safe_get_value(creator, "channel_name", "Unknown Creator")
     custom_url = safe_get_value(creator, "custom_url", "")
     channel_url = (
-        safe_get_value(creator, "channel_url")
-        or f"https://www.youtube.com/channel/{channel_id}"
+        safe_get_value(creator, "channel_url") or f"https://www.youtube.com/channel/{channel_id}"
     )
-    thumbnail_url = (
-        safe_get_value(creator, "channel_thumbnail_url") or "/static/favicon.jpeg"
-    )
+    thumbnail_url = safe_get_value(creator, "channel_thumbnail_url") or "/static/favicon.jpeg"
     banner_url = safe_get_value(creator, "banner_image_url", "")
-    bio = safe_get_value(creator, "channel_description") or safe_get_value(
-        creator, "bio", ""
-    )
+    bio = safe_get_value(creator, "channel_description") or safe_get_value(creator, "bio", "")
     keywords = safe_get_value(creator, "keywords", "")
     country_code = safe_get_value(creator, "country_code", "")
     language = safe_get_value(creator, "default_language", "")
@@ -2360,9 +2331,7 @@ def render_creator_profile_page(
                     else None
                 ),
                 (
-                    Span(
-                        f"{lang_emoji} {lang_name}", cls="text-sm text-muted-foreground"
-                    )
+                    Span(f"{lang_emoji} {lang_name}", cls="text-sm text-muted-foreground")
                     if language
                     else None
                 ),
@@ -2454,9 +2423,7 @@ def render_creator_profile_page(
     # ═══════════════════════════════════════════════════════════════════════════
 
     # ── Left column: About + Channel Info ─────────────────────────────────────
-    keyword_list = (
-        [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
-    )
+    keyword_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
     keyword_pills = (
         Div(
             *[
@@ -2480,9 +2447,7 @@ def render_creator_profile_page(
                 cls="text-sm text-muted-foreground leading-relaxed whitespace-pre-line",
             )
             if bio
-            else P(
-                "No description available.", cls="text-sm text-muted-foreground italic"
-            )
+            else P("No description available.", cls="text-sm text-muted-foreground italic")
         ),
         keyword_pills,
         body_cls="p-5",
@@ -2490,9 +2455,7 @@ def render_creator_profile_page(
 
     channel_info_items = [
         _info_row("link", "Handle", handle_display) if handle_display else None,
-        _info_row(
-            "calendar", "Founded", published_at[:10] if published_at else "Unknown"
-        ),
+        _info_row("calendar", "Founded", published_at[:10] if published_at else "Unknown"),
         _info_row(
             "clock",
             "Channel Age",
@@ -2515,11 +2478,7 @@ def render_creator_profile_page(
             "Upload Rate",
             f"{monthly_uploads:.1f} videos/month" if monthly_uploads else "—",
         ),
-        (
-            _info_row("eye-off", "Subscriber Count", "Hidden on YouTube")
-            if hidden_subs
-            else None
-        ),
+        (_info_row("eye-off", "Subscriber Count", "Hidden on YouTube") if hidden_subs else None),
     ]
 
     channel_info_card = Card(
@@ -2549,11 +2508,7 @@ def render_creator_profile_page(
                         ),
                         href=href,
                         target=None if href.startswith("mailto:") else "_blank",
-                        rel=(
-                            None
-                            if href.startswith("mailto:")
-                            else "noopener noreferrer"
-                        ),
+                        rel=(None if href.startswith("mailto:") else "noopener noreferrer"),
                         cls=f"inline-flex items-center gap-2 no-underline transition-colors {_SOCIAL_COLOURS.get(icon, 'text-foreground hover:text-primary')}",
                     )
                     for icon, label, href in social_links
@@ -2562,9 +2517,7 @@ def render_creator_profile_page(
             ),
             body_cls="p-5",
         )
-        left_col = Div(
-            about_card, channel_info_card, social_card, cls="flex flex-col gap-4"
-        )
+        left_col = Div(about_card, channel_info_card, social_card, cls="flex flex-col gap-4")
 
     # ── Featured channels card ─────────────────────────────────────────────────
     if featured_ch_urls:
@@ -2634,9 +2587,7 @@ def render_creator_profile_page(
                     cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
                 ),
                 Div(
-                    Span(
-                        f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"
-                    ),
+                    Span(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"),
                     Span(
                         growth_label,
                         cls=f"text-xs font-semibold px-2 py-0.5 rounded-full border {growth_style} ml-2",
@@ -2793,9 +2744,7 @@ def render_creator_profile_page(
             parsed = json.loads(topic_categories_raw)
             raw_list = parsed if isinstance(parsed, list) else [str(parsed)]
         except (json.JSONDecodeError, TypeError):
-            raw_list = [
-                c.strip() for c in str(topic_categories_raw).split(",") if c.strip()
-            ]
+            raw_list = [c.strip() for c in str(topic_categories_raw).split(",") if c.strip()]
         for item in raw_list:
             if "wikipedia.org/wiki/" in str(item):
                 try:
@@ -2872,9 +2821,7 @@ def render_creator_profile_page(
                         ),
                         cls="flex items-center gap-3",
                     )
-                    for i, (cat, count) in enumerate(
-                        sorted(dist.items(), key=lambda x: -x[1])[:8]
-                    )
+                    for i, (cat, count) in enumerate(sorted(dist.items(), key=lambda x: -x[1])[:8])
                 ]
                 cat_dist_card = Card(
                     H2(
@@ -2950,9 +2897,7 @@ def render_creator_profile_page(
 # ============================================================================
 
 
-def render_creator_preview(
-    handle: str, channel_info: dict, search: str = ""
-) -> Container:
+def render_creator_preview(handle: str, channel_info: dict, search: str = "") -> Container:
     """Render preview card for new creator found via handle search.
 
     Shows basic info from YouTube API with "Add to Database" button.

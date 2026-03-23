@@ -140,9 +140,7 @@ LISTS_TABS = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _creator_row(
-    creator: dict, rank: int, show_growth: bool = False, show_activity: bool = False
-):
+def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activity: bool = False):
     """
     Renders a single creator row for list views.
 
@@ -179,9 +177,7 @@ def _creator_row(
     # Determine what metric to show in stats column
     if show_growth:
         stat_value = (
-            f"+{format_number(subs_change)}"
-            if subs_change > 0
-            else format_number(subs_change)
+            f"+{format_number(subs_change)}" if subs_change > 0 else format_number(subs_change)
         )
         stat_label = "30d growth"
     elif show_activity:
@@ -380,9 +376,7 @@ def _category_group_card(category_data: dict) -> Div:
     # Strip any Wikipedia URL prefix that may slip through
     display_name = category.split("/")[-1].strip() if "/" in category else category
     # Title-case for readability
-    display_name = (
-        display_name.title() if display_name == display_name.lower() else display_name
-    )
+    display_name = display_name.title() if display_name == display_name.lower() else display_name
 
     return Div(
         # Header links to the full ranked list (detail route added in next step)
@@ -428,9 +422,7 @@ def _language_group_card(language_data: dict) -> Div:
                     language_name,
                     cls="text-base font-bold text-foreground leading-tight",
                 ),
-                Span(
-                    language_code.upper(), cls="text-xs text-muted-foreground font-mono"
-                ),
+                Span(language_code.upper(), cls="text-xs text-muted-foreground font-mono"),
                 cls="flex flex-col min-w-0",
             ),
             Span(
@@ -580,11 +572,7 @@ def _render_by_country_content(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
                 Span(
-                    (
-                        f"{total_countries} countries"
-                        if total_countries
-                        else f"{shown} countries"
-                    ),
+                    (f"{total_countries} countries" if total_countries else f"{shown} countries"),
                     cls="text-sm font-medium text-foreground",
                 ),
                 cls="shrink-0 hidden sm:block",
@@ -702,11 +690,7 @@ def _render_by_language_content(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
                 Span(
-                    (
-                        f"{total_languages} languages"
-                        if total_languages
-                        else f"{shown} languages"
-                    ),
+                    (f"{total_languages} languages" if total_languages else f"{shown} languages"),
                     cls="text-sm font-medium text-foreground",
                 ),
                 cls="shrink-0 hidden sm:block",
@@ -831,9 +815,7 @@ def _skeleton_row(index: int):
     """A single animated skeleton placeholder for a creator row."""
     # Stagger opacity slightly so they don't pulse in perfect unison
     opacity = (
-        "opacity-100"
-        if index % 3 == 0
-        else ("opacity-80" if index % 3 == 1 else "opacity-60")
+        "opacity-100" if index % 3 == 0 else ("opacity-80" if index % 3 == 1 else "opacity-60")
     )
     return Div(
         # Rank number
@@ -920,9 +902,7 @@ def render_more_countries(
             total=total,
         )
         if has_more
-        else Div(
-            id="country-groups-grid-load-more", hx_swap_oob="true"
-        )  # clears the button
+        else Div(id="country-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
     return Div(*cards, new_button)
@@ -953,9 +933,7 @@ def render_more_categories(
             total=total,
         )
         if has_more
-        else Div(
-            id="category-groups-grid-load-more", hx_swap_oob="true"
-        )  # clears the button
+        else Div(id="category-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
     return Div(*cards, new_button)
@@ -986,9 +964,7 @@ def render_more_languages(
             total=total,
         )
         if has_more
-        else Div(
-            id="language-groups-grid-load-more", hx_swap_oob="true"
-        )  # clears the button
+        else Div(id="language-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
     return Div(*cards, new_button)
@@ -1025,9 +1001,7 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
 
     # Normalize active_tab to a known tab id; fall back to the first tab if invalid.
     valid_tab_ids = [tab_id for tab_id, *_ in LISTS_TABS]
-    normalized_active_tab = (
-        active_tab if active_tab in valid_tab_ids else valid_tab_ids[0]
-    )
+    normalized_active_tab = active_tab if active_tab in valid_tab_ids else valid_tab_ids[0]
 
     for i, (tab_id, label, icon, description, coming_soon) in enumerate(LISTS_TABS):
         is_active = tab_id == normalized_active_tab
@@ -1265,10 +1239,7 @@ def render_country_creators_rows(
 
     return Div(
         # Creator rows
-        *[
-            _creator_row(creator, rank=start_rank + i)
-            for i, creator in enumerate(creators)
-        ],
+        *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
         # Load-more button (if not last page)
         (
             Div(
@@ -1419,10 +1390,7 @@ def render_category_creators_rows(
 
     return Div(
         # Creator rows
-        *[
-            _creator_row(creator, rank=start_rank + i)
-            for i, creator in enumerate(creators)
-        ],
+        *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
         # Load-more button (if not last page)
         (
             Div(
@@ -1572,10 +1540,7 @@ def render_language_creators_rows(
     start_rank = (page - 1) * page_size + 1
 
     return Div(
-        *[
-            _creator_row(creator, rank=start_rank + i)
-            for i, creator in enumerate(creators)
-        ],
+        *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
         (
             Div(
                 Button(

@@ -7,9 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def calculate_engagement_rate(
-    view_count: float, like_count: float, dislike_count: float
-) -> float:
+def calculate_engagement_rate(view_count: float, like_count: float, dislike_count: float) -> float:
     """
     Calculate engagement rate as a percentage.
 

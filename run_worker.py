@@ -25,9 +25,7 @@ try:
     print("✅ Worker imported successfully")
 except ImportError as e:
     print(f"❌ Import error: {e}")
-    print(
-        "   Make sure all dependencies are installed: pip install -r requirements.txt"
-    )
+    print("   Make sure all dependencies are installed: pip install -r requirements.txt")
     sys.exit(1)
 
 if __name__ == "__main__":

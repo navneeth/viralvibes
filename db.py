@@ -133,9 +133,7 @@ def init_supabase() -> Optional[Client]:
         client.auth.get_session()
 
         supabase_client = client
-        logger.info(
-            "Supabase client initialized successfully (key source: %s)", key_source
-        )
+        logger.info("Supabase client initialized successfully (key source: %s)", key_source)
         return client
 
     except Exception as e:
@@ -181,9 +179,7 @@ def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> 
     try:
         query = supabase_client.table(table)
         if conflict_fields:
-            logger.debug(
-                f"[DB] Upserting to {table} with conflict resolution on {conflict_fields}"
-            )
+            logger.debug(f"[DB] Upserting to {table} with conflict resolution on {conflict_fields}")
             query = query.upsert(payload, on_conflict=",".join(conflict_fields))
         else:
             logger.debug(f"[DB] Inserting to {table} (no conflict resolution)")
@@ -221,9 +217,7 @@ def get_cached_playlist_stats(
 
     try:
         query = (
-            supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("*")
-            .eq("playlist_url", playlist_url)
+            supabase_client.table(PLAYLIST_STATS_TABLE).select("*").eq("playlist_url", playlist_url)
         )
 
         # scope cache by ownership
@@ -234,9 +228,7 @@ def get_cached_playlist_stats(
 
         # Optional same-day cache restriction
         if check_date:
-            query = query.eq(
-                "processed_date", datetime.now(timezone.utc).date().isoformat()
-            )
+            query = query.eq("processed_date", datetime.now(timezone.utc).date().isoformat())
 
         response = query.order("processed_on", desc=True).limit(1).execute()
 
@@ -259,18 +251,14 @@ def get_cached_playlist_stats(
             try:
                 row["df"] = deserialize_dataframe(df_json)
             except Exception as e:
-                logger.error(
-                    f"[Cache] Failed to deserialize DataFrame for {playlist_url}: {e}"
-                )
+                logger.error(f"[Cache] Failed to deserialize DataFrame for {playlist_url}: {e}")
                 return None
 
             if row.get("summary_stats"):
                 try:
                     row["summary_stats"] = json.loads(row["summary_stats"])
                 except json.JSONDecodeError as e:
-                    logger.error(
-                        f"[Cache] Failed to parse summary_stats for {playlist_url}: {e}"
-                    )
+                    logger.error(f"[Cache] Failed to parse summary_stats for {playlist_url}: {e}")
                     row["summary_stats"] = {}
 
             return row
@@ -279,9 +267,7 @@ def get_cached_playlist_stats(
             return None
 
     except Exception as e:
-        logger.exception(
-            f"Error checking cache for playlist {playlist_url} (user={user_id}): {e}"
-        )
+        logger.exception(f"Error checking cache for playlist {playlist_url} (user={user_id}): {e}")
         return None
 
 
@@ -333,18 +319,14 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
     cached = get_cached_playlist_stats(playlist_url, user_id=user_id, check_date=True)
 
     if cached:
-        logger.info(
-            f"[Cache] Returning cached stats for {playlist_url} (user={user_id})"
-        )
+        logger.info(f"[Cache] Returning cached stats for {playlist_url} (user={user_id})")
         # Prefer any stored df_json present in the raw row, otherwise reserialize the in-memory df
         cached_df_json = cached.get("df_json")
         if not cached_df_json and cached.get("df") is not None:
             try:
                 cached_df_json = cached["df"].write_json()
             except Exception as e:
-                logger.exception(
-                    f"[Cache] Failed to re-serialize df for {playlist_url}: {e}"
-                )
+                logger.exception(f"[Cache] Failed to re-serialize df for {playlist_url}: {e}")
                 cached_df_json = None
 
         # Ensure summary_stats is returned as JSON string when possible
@@ -422,9 +404,7 @@ def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
             summary_stats_json=summary_stats_json,
         )
     else:
-        logger.error(
-            f"[DB] Failed to insert fresh stats for {playlist_url} (user={user_id})"
-        )
+        logger.error(f"[DB] Failed to insert fresh stats for {playlist_url} (user={user_id})")
         return UpsertResult(source="error", error="DB insert failed")
 
 
@@ -467,9 +447,7 @@ def fetch_playlists(
             if not url or url in seen:
                 continue
             seen.add(url)
-            playlists.append(
-                {"url": url, "title": row.get("title") or "Untitled Playlist"}
-            )
+            playlists.append({"url": url, "title": row.get("title") or "Untitled Playlist"})
             if not randomize and len(playlists) >= max_items:
                 break
 
@@ -718,9 +696,7 @@ def queue_invalid_creators_for_retry(
 
     try:
 
-        cutoff_time = datetime.now(timezone.utc) - timedelta(
-            hours=hours_since_last_sync
-        )
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_since_last_sync)
 
         # Statuses to retry:
         # - 'invalid': Zero subs/views, likely bad channel_id
@@ -774,14 +750,11 @@ def queue_invalid_creators_for_retry(
         )
 
         creator_ids = [c["id"] for c in creators]
-        queued_count, skipped_count = queue_creator_sync_bulk(
-            creator_ids, source="auto_retry"
-        )
+        queued_count, skipped_count = queue_creator_sync_bulk(creator_ids, source="auto_retry")
 
         if queued_count > 0:
             logger.info(
-                f"Auto-retry: queued {queued_count} creators "
-                f"({skipped_count} already pending)"
+                f"Auto-retry: queued {queued_count} creators " f"({skipped_count} already pending)"
             )
 
         return queued_count
@@ -833,9 +806,7 @@ def queue_creator_sync(
         )
 
         if existing.data:
-            logger.debug(
-                f"Creator {creator_id} already has a pending sync job, skipping"
-            )
+            logger.debug(f"Creator {creator_id} already has a pending sync job, skipping")
             return True  # Already queued, consider this success
 
         payload = {
@@ -846,9 +817,7 @@ def queue_creator_sync(
         }
 
         # Plain insert (no upsert semantics - we checked for duplicates above)
-        response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-        )
+        response = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
 
         if response.data:
             logger.info(f"Queued creator {creator_id} for sync (source={source})")
@@ -915,9 +884,7 @@ def queue_creator_sync_bulk(
             }
             for cid in to_insert
         ]
-        insert_resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-        )
+        insert_resp = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
         queued = len(insert_resp.data or [])
         logger.info(
             "queue_creator_sync_bulk: %d queued, %d skipped (source=%s)",
@@ -1180,10 +1147,7 @@ def update_creator_stats(
             payload["quality_grade"] = stats.get("quality_grade")
 
         response = (
-            supabase_client.table(CREATOR_TABLE)
-            .update(payload)
-            .eq("id", creator_id)
-            .execute()
+            supabase_client.table(CREATOR_TABLE).update(payload).eq("id", creator_id).execute()
         )
 
         if response.data:
@@ -1213,11 +1177,7 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
 
     try:
         response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("*")
-            .eq("id", creator_id)
-            .single()
-            .execute()
+            supabase_client.table(CREATOR_TABLE).select("*").eq("id", creator_id).single().execute()
         )
 
         if response.data:
@@ -1555,9 +1515,7 @@ def get_dashboard_stats_by_id(
 
     try:
         query = (
-            supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("*")
-            .eq("dashboard_id", dashboard_id)
+            supabase_client.table(PLAYLIST_STATS_TABLE).select("*").eq("dashboard_id", dashboard_id)
         )
 
         # Filter by user if provided
@@ -1577,9 +1535,7 @@ def get_dashboard_stats_by_id(
                 )
                 return None
 
-            logger.info(
-                f"[Dashboard] Loaded dashboard: {dashboard_id} (user={user_id})"
-            )
+            logger.info(f"[Dashboard] Loaded dashboard: {dashboard_id} (user={user_id})")
 
             # Deserialize JSON fields
             if row.get("summary_stats"):
@@ -1632,15 +1588,11 @@ def resolve_playlist_url_from_dashboard_id(
         return response.data[0]["playlist_url"] if response.data else None
 
     except Exception as e:
-        logger.exception(
-            f"Failed to resolve dashboard_id={dashboard_id} (user={user_id}): {e}"
-        )
+        logger.exception(f"Failed to resolve dashboard_id={dashboard_id} (user={user_id}): {e}")
         return None
 
 
-def get_user_dashboards(
-    user_id: str, search: str = "", sort: str = "recent"
-) -> list[dict]:
+def get_user_dashboards(user_id: str, search: str = "", sort: str = "recent") -> list[dict]:
     """
     Get all dashboards owned by a user with optional filtering and sorting.
 
@@ -1679,9 +1631,7 @@ def get_user_dashboards(
 
             search_pattern = f"%{escaped_search}%"
 
-            query = query.or_(
-                f"title.ilike.{search_pattern},channel_name.ilike.{search_pattern}"
-            )
+            query = query.or_(f"title.ilike.{search_pattern},channel_name.ilike.{search_pattern}")
 
         # Apply sorting
         if sort == "views":
@@ -1764,9 +1714,7 @@ def get_or_create_creator_from_playlist(
                 supabase_client.table(CREATOR_TABLE).update(update_payload).eq(
                     "id", creator_id
                 ).execute()
-                logger.debug(
-                    f"Refreshed metadata for creator {channel_id} (last_seen updated)"
-                )
+                logger.debug(f"Refreshed metadata for creator {channel_id} (last_seen updated)")
             except Exception as e:
                 logger.debug(f"Metadata refresh failed (non-critical): {e}")
 
@@ -1780,19 +1728,13 @@ def get_or_create_creator_from_playlist(
                     .execute()
                 )
 
-                last_synced = (
-                    creator_resp.data.get("last_synced_at")
-                    if creator_resp.data
-                    else None
-                )
+                last_synced = creator_resp.data.get("last_synced_at") if creator_resp.data else None
                 should_queue = True
                 # Use shorter interval for rediscovered creators vs scheduled syncs
                 sync_threshold = CREATOR_REDISCOVERY_THRESHOLD_DAYS
 
                 if last_synced:
-                    last_synced_dt = datetime.fromisoformat(
-                        last_synced.replace("Z", "+00:00")
-                    )
+                    last_synced_dt = datetime.fromisoformat(last_synced.replace("Z", "+00:00"))
                     days_since_sync = (datetime.now(timezone.utc) - last_synced_dt).days
                     should_queue = days_since_sync >= sync_threshold
 
@@ -1808,14 +1750,10 @@ def get_or_create_creator_from_playlist(
 
                 if should_queue:
                     if not queue_creator_sync(creator_id, source="rediscovered"):
-                        logger.warning(
-                            f"Failed to queue existing creator {creator_id} for sync"
-                        )
+                        logger.warning(f"Failed to queue existing creator {creator_id} for sync")
 
             except Exception as e:
-                logger.debug(
-                    f"Sync queuing check failed (non-critical): {e}", exc_info=True
-                )
+                logger.debug(f"Sync queuing check failed (non-critical): {e}", exc_info=True)
 
             return creator_id
 
@@ -1832,9 +1770,7 @@ def get_or_create_creator_from_playlist(
             # Country code can be null initially (will be filled by sync worker)
         }
 
-        insert_resp = (
-            supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
-        )
+        insert_resp = supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
 
         if not insert_resp.data:
             logger.error(f"Failed to insert creator {channel_id}")
@@ -1898,9 +1834,7 @@ def add_creator_manually(
             "channel_url": channel_url,
         }
 
-        insert_resp = (
-            supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
-        )
+        insert_resp = supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
 
         if not insert_resp.data:
             logger.error(f"Failed to insert creator {channel_id}")
@@ -2029,18 +1963,14 @@ def add_creator_by_handle(
             "current_video_count": 0,
         }
 
-        insert_resp = (
-            supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
-        )
+        insert_resp = supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
 
         if not insert_resp.data:
             logger.error(f"Failed to insert creator with handle {handle}")
             return None
 
         creator_id = insert_resp.data[0]["id"]
-        logger.info(
-            f"Added creator {handle} (channel_id={channel_id}, id={creator_id})"
-        )
+        logger.info(f"Added creator {handle} (channel_id={channel_id}, id={creator_id})")
 
         # Queue for immediate stats sync
         if not queue_creator_sync(creator_id, source="handle_search"):
@@ -2312,9 +2242,7 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
                     .limit(1)
                     .execute()
                 )
-                total_creators = (
-                    count_response.count if hasattr(count_response, "count") else 0
-                )
+                total_creators = count_response.count if hasattr(count_response, "count") else 0
 
                 # Safety valve: If creator count exceeds threshold, fall back to page-level stats
                 # This prevents unbounded query cost as dataset grows beyond 5000 creators
@@ -2353,13 +2281,9 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         # Calculate average engagement (walrus operator := stores value and uses it in condition)
         # This avoids calling safe_get_value twice per creator (once for check, once for list)
         engagement_scores = [
-            score
-            for c in stats_source
-            if (score := safe_get_value(c, "engagement_score", 0)) > 0
+            score for c in stats_source if (score := safe_get_value(c, "engagement_score", 0)) > 0
         ]
-        avg_engagement = (
-            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
-        )
+        avg_engagement = sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
         has_engagement_data = len(engagement_scores) > 0
 
         # Count growing creators (use walrus operator to avoid duplicate calls)
@@ -2378,14 +2302,10 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
 
         # Sum for secondary metrics (use walrus operator)
         total_subscribers = sum(
-            subs
-            for c in stats_source
-            if (subs := safe_get_value(c, "current_subscribers", 0))
+            subs for c in stats_source if (subs := safe_get_value(c, "current_subscribers", 0))
         )
         total_videos = sum(
-            vids
-            for c in stats_source
-            if (vids := safe_get_value(c, "current_video_count", 0))
+            vids for c in stats_source if (vids := safe_get_value(c, "current_video_count", 0))
         )
 
         # ═══════════════════════════════════════════════════════════════
@@ -2438,21 +2358,11 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         total_countries = len(countries)
         total_languages = len(languages)
         total_categories = len(categories)
-        verified_percentage = (
-            (verified_count / len(stats_source)) * 100 if stats_source else 0
-        )
-        active_percentage = (
-            (active_count / len(stats_source)) * 100 if stats_source else 0
-        )
-        top_countries = sorted(
-            country_counts.items(), key=lambda x: x[1], reverse=True
-        )[:8]
-        top_languages = sorted(
-            language_counts.items(), key=lambda x: x[1], reverse=True
-        )[:5]
-        top_categories = sorted(
-            category_counts.items(), key=lambda x: x[1], reverse=True
-        )[:10]
+        verified_percentage = (verified_count / len(stats_source)) * 100 if stats_source else 0
+        active_percentage = (active_count / len(stats_source)) * 100 if stats_source else 0
+        top_countries = sorted(country_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+        top_languages = sorted(language_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_categories = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
 
         return {
             # Original metrics (keep for backward compatibility)
@@ -2606,9 +2516,7 @@ def refresh_category_stats_cache() -> int:
             logger.warning("refresh_category_stats_cache: no synced categories found")
             return 0
 
-        logger.info(
-            "refresh_category_stats_cache: refreshing %d categories", len(categories)
-        )
+        logger.info("refresh_category_stats_cache: refreshing %d categories", len(categories))
 
         rows_to_upsert = []
         failed = []
@@ -2638,18 +2546,14 @@ def refresh_category_stats_cache() -> int:
                 )
 
             except Exception:
-                logger.exception(
-                    "refresh_category_stats_cache: RPC failed for '%s'", category
-                )
+                logger.exception("refresh_category_stats_cache: RPC failed for '%s'", category)
                 failed.append(category)
 
         if rows_to_upsert:
             supabase_client.table(CATEGORY_STATS_CACHE_TABLE).upsert(
                 rows_to_upsert, on_conflict="category"
             ).execute()
-            logger.info(
-                "refresh_category_stats_cache: upserted %d rows", len(rows_to_upsert)
-            )
+            logger.info("refresh_category_stats_cache: upserted %d rows", len(rows_to_upsert))
 
         if failed:
             logger.warning(
