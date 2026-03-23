@@ -19,18 +19,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
-          # ✅ Use requirements.txt for cache key
+          python-version-file: '.python-version'
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
       - name: Verify Python version
         run: |
           python --version
-          if ! python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10, 0) else 1)"; then
+          if ! python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11, 0) else 1)"; then
             echo "❌ Python 3.11+ required"
             exit 1
           fi
