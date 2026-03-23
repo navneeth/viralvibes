@@ -56,15 +56,9 @@ def cli():
 
 
 @cli.command()
-@click.option(
-    "--poll-interval", default=10, show_default=True, help="Polling interval in seconds"
-)
-@click.option(
-    "--batch-size", default=3, show_default=True, help="Max jobs to process per batch"
-)
-@click.option(
-    "--max-runtime", default=300, show_default=True, help="Max runtime in minutes"
-)
+@click.option("--poll-interval", default=10, show_default=True, help="Polling interval in seconds")
+@click.option("--batch-size", default=3, show_default=True, help="Max jobs to process per batch")
+@click.option("--max-runtime", default=300, show_default=True, help="Max runtime in minutes")
 @click.option(
     "--backend",
     type=click.Choice(["yt-dlp", "youtubeapi"]),

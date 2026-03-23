@@ -204,11 +204,7 @@ def VideoComparisonCard(
                     metric_value,
                     cls=f"text-3xl font-bold {accent_cls}" if metric_value else "",
                 ),
-                (
-                    Span(metric_key, cls="text-xs text-gray-500 ml-1")
-                    if metric_key
-                    else None
-                ),
+                (Span(metric_key, cls="text-xs text-gray-500 ml-1") if metric_key else None),
                 cls="flex items-baseline gap-1 mb-2",
             )
             if metric_value
@@ -319,13 +315,9 @@ EXTREME_PAIRS = [
 def ComparisonConnector() -> Div:
     """Visual connector emphasizing contrast."""
     return Div(
-        Div(
-            cls="h-1 flex-1 bg-gradient-to-r from-red-500 via-gray-300 to-blue-500 rounded-full"
-        ),
+        Div(cls="h-1 flex-1 bg-gradient-to-r from-red-500 via-gray-300 to-blue-500 rounded-full"),
         Div("↔️", cls="mx-3 text-xl"),
-        Div(
-            cls="h-1 flex-1 bg-gradient-to-l from-red-500 via-gray-300 to-blue-500 rounded-full"
-        ),
+        Div(cls="h-1 flex-1 bg-gradient-to-l from-red-500 via-gray-300 to-blue-500 rounded-full"),
         cls="flex items-center px-4 flex-shrink-0",
     )
 

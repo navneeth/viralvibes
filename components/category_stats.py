@@ -213,9 +213,7 @@ def _placeholder(category: str) -> Div:
             P(reason, cls="text-xs text-gray-400 mt-1 max-w-xs text-center"),
             cls="flex flex-col items-center justify-center py-10",
         ),
-        cls=(
-            "mt-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-center"
-        ),
+        cls=("mt-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-center"),
         id="category-box-plots",
     )
 

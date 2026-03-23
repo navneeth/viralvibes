@@ -351,9 +351,7 @@ def render_job_progress_ui(
             ),
             Div(
                 # ✅ Use clamped value for display
-                Div(
-                    f"{int(clamped_progress)}%", cls="text-2xl font-bold text-blue-600"
-                ),
+                Div(f"{int(clamped_progress)}%", cls="text-2xl font-bold text-blue-600"),
                 Div("Complete", cls="text-sm text-gray-500"),
                 cls="bg-blue-50 border border-blue-200 p-4 rounded-lg text-center",
             ),

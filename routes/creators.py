@@ -75,9 +75,7 @@ def creators_route(request):
                     )
                 else:
                     # Handle not found on YouTube
-                    logger.warning(
-                        f"[HandleSearch] Handle not found on YouTube: {handle}"
-                    )
+                    logger.warning(f"[HandleSearch] Handle not found on YouTube: {handle}")
                     # Fall through to show empty results with helpful message
 
             except Exception as e:
@@ -94,17 +92,11 @@ def creators_route(request):
     # Language filter
     language_filter = request.query_params.get("language", "all")
     # Activity filter (by upload frequency)
-    activity_filter = request.query_params.get(
-        "activity", "all"
-    )  # all, active, dormant
+    activity_filter = request.query_params.get("activity", "all")  # all, active, dormant
     # Age filter (by channel age)
-    age_filter = request.query_params.get(
-        "age", "all"
-    )  # all, new, established, veteran
+    age_filter = request.query_params.get("age", "all")  # all, new, established, veteran
     # Country filter
-    country_filter = request.query_params.get(
-        "country", "all"
-    )  # all, or specific country code
+    country_filter = request.query_params.get("country", "all")  # all, or specific country code
     # Category filter (topic categories from YouTube)
     category_filter = request.query_params.get(
         "category", "all"
@@ -194,8 +186,7 @@ def creators_route(request):
         "category": "all",
     }
     has_active_filters = bool(search) or any(
-        request.query_params.get(k, default) != default
-        for k, default in _FILTER_DEFAULTS.items()
+        request.query_params.get(k, default) != default for k, default in _FILTER_DEFAULTS.items()
     )
     if not has_active_filters:
         stats["total_creators"] = total_count
