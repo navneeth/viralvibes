@@ -63,9 +63,7 @@ class YouTubeBackendBase(ABC):
         avg_batch_delay = (self.cfg.min_batch_delay + self.cfg.max_batch_delay) / 2
 
         # Calculate batch processing time
-        batch_count = (
-            videos_to_expand + self.cfg.batch_size - 1
-        ) // self.cfg.batch_size
+        batch_count = (videos_to_expand + self.cfg.batch_size - 1) // self.cfg.batch_size
 
         # Time per batch: max(video_fetch, dislike_fetch) since they're concurrent
         time_per_batch = (

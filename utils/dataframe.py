@@ -49,9 +49,7 @@ def get_unique_count(data: list[dict], column: str) -> int:
     return len(set(row.get(column) for row in data if column in row))
 
 
-def find_extreme_indices(
-    data: list[dict], column: str
-) -> tuple[int | None, int | None]:
+def find_extreme_indices(data: list[dict], column: str) -> tuple[int | None, int | None]:
     """
     Find indices of max and min values in a numeric column.
 
@@ -75,9 +73,7 @@ def find_extreme_indices(
         return (None, None)
 
 
-def sort_dataframe(
-    data: list[dict], column: str, descending: bool = False
-) -> list[dict]:
+def sort_dataframe(data: list[dict], column: str, descending: bool = False) -> list[dict]:
     """
     Sort dataset by a column.
 
@@ -93,12 +89,8 @@ def sort_dataframe(
         return data
 
     # Separate None/empty values from real values
-    none_rows = [
-        row for row in data if row.get(column) is None or row.get(column) == ""
-    ]
-    value_rows = [
-        row for row in data if row.get(column) is not None and row.get(column) != ""
-    ]
+    none_rows = [row for row in data if row.get(column) is None or row.get(column) == ""]
+    value_rows = [row for row in data if row.get(column) is not None and row.get(column) != ""]
 
     # Sort only the rows with actual values
     def get_sort_value(row):

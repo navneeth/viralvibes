@@ -43,9 +43,7 @@ def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/
     # Extract user info
     user_id = user.get("user_id", "")
     user_name = user.get("user_name") or user.get("user_given_name") or "User"
-    user_given_name = (
-        user.get("user_given_name") or user_name.split()[0] if user_name else "User"
-    )
+    user_given_name = user.get("user_given_name") or user_name.split()[0] if user_name else "User"
     user_email = user.get("user_email", "")
 
     # Create avatar element
@@ -131,9 +129,7 @@ def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/
                 cls="uk-nav uk-dropdown-nav min-w-[220px]",
             ),
             cls="uk-dropdown",
-            **{
-                "uk-dropdown": "mode: click; pos: bottom-right; offset: 5"
-            },  # Dict unpacking
+            **{"uk-dropdown": "mode: click; pos: bottom-right; offset: 5"},  # Dict unpacking
         ),
         cls="uk-inline",
     )

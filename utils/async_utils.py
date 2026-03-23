@@ -43,9 +43,7 @@ def with_retries(
                 except retry_exceptions as e:
                     last_exc = e
                     if attempt == max_retries - 1:
-                        logger.error(
-                            f"{func.__name__} failed after {max_retries} attempts: {e}"
-                        )
+                        logger.error(f"{func.__name__} failed after {max_retries} attempts: {e}")
                         raise
                     delay = base_delay * (backoff**attempt)
                     if jitter:

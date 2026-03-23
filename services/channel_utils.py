@@ -425,8 +425,7 @@ class YouTubeResolver:
             # ── Step 4: Resolve IDs → human-readable names ───────────────────
             # Build name-keyed distribution for the histogram
             name_distribution: dict[str, int] = {
-                get_video_category_name(cat_id): count
-                for cat_id, count in id_counts.items()
+                get_video_category_name(cat_id): count for cat_id, count in id_counts.items()
             }
 
             # Dominant category = highest video count
@@ -509,21 +508,16 @@ class YouTubeResolver:
             # CUSTOM PRESENCE (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
             "custom_url": snippet.get("customUrl"),  # NEW: @username or custom URL
-            "custom_url_available": snippet.get("customUrl")
-            is not None,  # Has verified custom URL
+            "custom_url_available": snippet.get("customUrl") is not None,  # Has verified custom URL
             # ═══════════════════════════════════════════════════════════
             # TIMESTAMPS (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
-            "published_at": snippet.get(
-                "publishedAt"
-            ),  # NEW: Channel creation date (ISO 8601)
+            "published_at": snippet.get("publishedAt"),  # NEW: Channel creation date (ISO 8601)
             "joined_at": snippet.get("publishedAt"),  # Alias for convenience
             # ═══════════════════════════════════════════════════════════
             # BRANDING / VISUAL (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
-            "channel_thumbnail_url": snippet.get("thumbnails", {})
-            .get("high", {})
-            .get("url"),
+            "channel_thumbnail_url": snippet.get("thumbnails", {}).get("high", {}).get("url"),
             "channel_thumbnail_default": snippet.get("thumbnails", {})
             .get("default", {})
             .get("url"),
@@ -536,31 +530,23 @@ class YouTubeResolver:
             "current_subscribers": int(statistics.get("subscriberCount", 0) or 0),
             "current_view_count": int(statistics.get("viewCount", 0) or 0),
             "current_video_count": int(statistics.get("videoCount", 0) or 0),
-            "hidden_subscriber_count": statistics.get(
-                "hiddenSubscriberCount", False
-            ),  # NEW
+            "hidden_subscriber_count": statistics.get("hiddenSubscriberCount", False),  # NEW
             # ═══════════════════════════════════════════════════════════
             # METADATA (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
-            "country_code": channel_branding.get(
-                "country"
-            ),  # Already existed, enhanced
+            "country_code": channel_branding.get("country"),  # Already existed, enhanced
             "country": channel_branding.get("country"),  # Alias
             "default_language": snippet.get(
                 "defaultLanguage"
             ),  # NEW: Content language (e.g., "en", "ja")
             "keywords": keywords,  # NEW: Creator-defined topics
-            "keywords_raw": channel_branding.get(
-                "keywords", ""
-            ),  # NEW: Raw from branding
+            "keywords_raw": channel_branding.get("keywords", ""),  # NEW: Raw from branding
             # ═══════════════════════════════════════════════════════════
             # RELATIONSHIPS (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
             "featured_channels_count": featured_count,  # NEW: Number of featured channels
             "featured_channels_urls": featured_urls,  # NEW: List of featured channel URLs
-            "topic_categories": topic_details.get(
-                "topicCategories", []
-            ),  # NEW: Topic IDs
+            "topic_categories": topic_details.get("topicCategories", []),  # NEW: Topic IDs
             # ═══════════════════════════════════════════════════════════
             # VERIFICATION (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
@@ -632,9 +618,7 @@ def calculate_channel_age(published_at: Optional[str]) -> Optional[int]:
         return None
 
 
-def estimate_monthly_uploads(
-    video_count: int, published_at: Optional[str]
-) -> Optional[float]:
+def estimate_monthly_uploads(video_count: int, published_at: Optional[str]) -> Optional[float]:
     """
     Estimate monthly video uploads.
 

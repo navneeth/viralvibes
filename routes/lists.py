@@ -97,9 +97,7 @@ def lists_route(request):
     # meta["total_languages"] comes from migration 003.  On older DB schemas
     # that predate the RPC column, fall back to _count_distinct_languages() —
     # a zero-row-transfer COUNT(DISTINCT) query that has no row cap.
-    tab_data["total_languages"] = (
-        meta.get("total_languages") or _count_distinct_languages()
-    )
+    tab_data["total_languages"] = meta.get("total_languages") or _count_distinct_languages()
 
     return render_lists_page(active_tab=active_tab, tab_data=tab_data)
 
@@ -133,9 +131,7 @@ def lists_more_countries_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_countries(
-        groups, next_offset=next_offset, has_more=has_more, total=total
-    )
+    return render_more_countries(groups, next_offset=next_offset, has_more=has_more, total=total)
 
 
 def lists_more_categories_route(request):
@@ -165,9 +161,7 @@ def lists_more_categories_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_categories(
-        groups, next_offset=next_offset, has_more=has_more, total=total
-    )
+    return render_more_categories(groups, next_offset=next_offset, has_more=has_more, total=total)
 
 
 def lists_more_languages_route(request):
@@ -197,9 +191,7 @@ def lists_more_languages_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_languages(
-        groups, next_offset=next_offset, has_more=has_more, total=total
-    )
+    return render_more_languages(groups, next_offset=next_offset, has_more=has_more, total=total)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,9 +233,7 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
     total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
-        if total_count > 0
-        else 1
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
     return creators, total_count, total_pages
 
@@ -344,9 +334,7 @@ def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int]
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
     total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
-        if total_count > 0
-        else 1
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
     return creators, total_count, total_pages
 
@@ -441,9 +429,7 @@ def _fetch_language_page(language_code: str, page: int) -> tuple[list, int, int]
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
     total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT
-        if total_count > 0
-        else 1
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
     return creators, total_count, total_pages
 

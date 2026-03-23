@@ -52,9 +52,7 @@ def load_dashboard_by_id(
 
         df = deserialize_dataframe(df_json)
     except Exception as e:
-        logger.error(
-            f"Failed to deserialize DataFrame for dashboard {dashboard_id}: {e}"
-        )
+        logger.error(f"Failed to deserialize DataFrame for dashboard {dashboard_id}: {e}")
         return None
 
     # 3. Extract metadata with safe defaults
@@ -65,8 +63,7 @@ def load_dashboard_by_id(
     summary_stats = cached_stats.get("summary_stats", {})
 
     logger.info(
-        f"Loaded dashboard {dashboard_id}: '{playlist_name}' "
-        f"({len(df)} videos, user={user_id})"
+        f"Loaded dashboard {dashboard_id}: '{playlist_name}' " f"({len(df)} videos, user={user_id})"
     )
 
     return {

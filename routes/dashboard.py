@@ -96,9 +96,7 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
         4. Load and render dashboard with interest metrics
     """
 
-    user_id = get_user_from_request(
-        request
-    )  # Get user_id if logged in (for personalization)
+    user_id = get_user_from_request(request)  # Get user_id if logged in (for personalization)
     logger.info(f"Loading public dashboard: {dashboard_id} (user={user_id})")
 
     # --- 1️⃣ Initialize Supabase ---
@@ -201,9 +199,7 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
         interest = get_dashboard_event_counts(supabase, dashboard_id)
         logger.debug(f"Event counts: {interest}")
     except Exception as e:
-        logger.warning(
-            f"Failed to get event counts for {dashboard_id} (non-critical): {e}"
-        )
+        logger.warning(f"Failed to get event counts for {dashboard_id} (non-critical): {e}")
         # Fallback to empty dict - dashboard still works without analytics
 
     # --- 7️⃣ Render dashboard ---
@@ -504,9 +500,7 @@ def my_dashboards(req, sess, oauth=None):
             NavComponent(oauth, req, sess),
             Container(
                 Div(
-                    H2(
-                        "No Dashboards Yet", cls="text-2xl font-bold text-gray-900 mb-4"
-                    ),
+                    H2("No Dashboards Yet", cls="text-2xl font-bold text-gray-900 mb-4"),
                     P(
                         "You haven't analyzed any playlists yet.",
                         cls="text-gray-600 mb-6",

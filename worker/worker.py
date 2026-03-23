@@ -51,9 +51,7 @@ logger = logging.getLogger("vv_worker")
 # --- Config with improved defaults ---
 POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "30"))
 BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "3"))  # Increased back to 3
-MAX_RUNTIME = int(
-    os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600")
-)  # 1 hour default (in seconds)
+MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))  # 1 hour default (in seconds)
 MIN_REQUEST_DELAY = float(os.getenv("MIN_REQUEST_DELAY", "1.0"))  # Reduced delay
 MAX_REQUEST_DELAY = float(os.getenv("MAX_REQUEST_DELAY", "3.0"))
 BOT_CHALLENGE_BACKOFF = int(os.getenv("BOT_CHALLENGE_BACKOFF", "180"))  # 3 min
@@ -133,9 +131,7 @@ async def fetch_retryable_failed_jobs():
     """
     try:
         # Calculate cutoff time for retry eligibility
-        cutoff_time = (
-            datetime.utcnow() - timedelta(seconds=FAILED_JOB_RETRY_AGE)
-        ).isoformat()
+        cutoff_time = (datetime.utcnow() - timedelta(seconds=FAILED_JOB_RETRY_AGE)).isoformat()
 
         resp = (
             supabase_client.table(PLAYLIST_JOBS_TABLE)
@@ -156,14 +152,10 @@ async def fetch_retryable_failed_jobs():
         return []
 
 
-async def mark_job_status(
-    job_id: str, status: str, meta: Optional[Dict[str, Any]] = None
-) -> bool:
+async def mark_job_status(job_id: str, status: str, meta: Optional[Dict[str, Any]] = None) -> bool:
     """Update a job's status with optional metadata."""
     if not supabase_client:
-        logger.error(
-            f"Cannot mark job {job_id} as {status}: Supabase client not initialized"
-        )
+        logger.error(f"Cannot mark job {job_id} as {status}: Supabase client not initialized")
         return False
 
     try:
@@ -172,10 +164,7 @@ async def mark_job_status(
             payload.update(meta)
 
         response = (
-            supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .update(payload)
-            .eq("id", job_id)
-            .execute()
+            supabase_client.table(PLAYLIST_JOBS_TABLE).update(payload).eq("id", job_id).execute()
         )
 
         success = bool(response.data)
@@ -203,9 +192,9 @@ async def increment_retry_count(job_id: str, current_count: int = 0):
     """Increment the retry count for a job."""
     try:
         new_count = current_count + 1
-        supabase_client.table(PLAYLIST_JOBS_TABLE).update(
-            {"retry_count": new_count}
-        ).eq("id", job_id).execute()
+        supabase_client.table(PLAYLIST_JOBS_TABLE).update({"retry_count": new_count}).eq(
+            "id", job_id
+        ).execute()
         logger.info(f"[Job {job_id}] Retry count incremented to {new_count}")
     except Exception as e:
         logger.warning(f"Failed to update retry count for {job_id}: {e}")
@@ -436,16 +425,12 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     processed = int(float(processed or 0))
                     total = int(float(total or 0))
                 except (TypeError, ValueError):
-                    logger.warning(
-                        f"Invalid progress values: processed={processed}, total={total}"
-                    )
+                    logger.warning(f"Invalid progress values: processed={processed}, total={total}")
                     processed, total = 0, 0
 
                 # Schedule the sync update_progress in the default executor
                 loop = asyncio.get_running_loop()
-                return loop.run_in_executor(
-                    None, update_progress, job_id, processed, total
-                )
+                return loop.run_in_executor(None, update_progress, job_id, processed, total)
 
             except Exception as e:
                 logger.exception(f"[Job {job_id}] Progress callback failed: {e}")
@@ -507,9 +492,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
         # Empty DataFrame with valid metadata = genuinely empty playlist (permanent)
         if df.is_empty():
-            logger.info(
-                f"[Job {job_id}] Playlist is genuinely empty (0 videos, valid metadata)"
-            )
+            logger.info(f"[Job {job_id}] Playlist is genuinely empty (0 videos, valid metadata)")
             # Mark as done gracefully - not a failure
             await mark_job_status(
                 job_id,
@@ -542,9 +525,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             "like_count": summary_stats.get("total_likes"),
             "dislike_count": summary_stats.get("total_dislikes"),
             "comment_count": summary_stats.get("total_comments"),
-            "video_count": summary_stats.get(
-                "actual_playlist_count", processed_video_count
-            ),
+            "video_count": summary_stats.get("actual_playlist_count", processed_video_count),
             "processed_video_count": processed_video_count,
             "avg_duration": summary_stats.get("avg_duration"),
             "engagement_rate": summary_stats.get("avg_engagement"),
@@ -554,12 +535,8 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             "df": df,
         }
 
-        safe_payload = {
-            k: v for k, v in stats_to_cache.items() if k not in ["df", "summary_stats"]
-        }
-        logger.info(
-            f"[Job {job_id}] Prepared stats for upsert (playlist={playlist_url})"
-        )
+        safe_payload = {k: v for k, v in stats_to_cache.items() if k not in ["df", "summary_stats"]}
+        logger.info(f"[Job {job_id}] Prepared stats for upsert (playlist={playlist_url})")
         logger.debug(f"[Job {job_id}] Upsert payload keys={list(safe_payload.keys())}")
 
         _set_stage("upsert-to-db")
@@ -597,9 +574,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             consecutive_bot_challenges = 0
             last_bot_challenge_time = None
 
-            success_message = (
-                f"Completed successfully (source={result_map.get('source')})"
-            )
+            success_message = f"Completed successfully (source={result_map.get('source')})"
             if is_retry:
                 success_message += f" after {retry_count} retries"
 
@@ -622,16 +597,13 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                     creator_uuid = get_or_create_creator_from_playlist(
                         channel_id=channel_id,
                         channel_name=channel_name,
-                        channel_url=channel_url
-                        or f"https://www.youtube.com/channel/{channel_id}",
+                        channel_url=channel_url or f"https://www.youtube.com/channel/{channel_id}",
                         channel_thumbnail_url=channel_thumbnail,
                         user_id=job.get("user_id"),
                     )
                     if creator_uuid:
                         creators_seeded += 1
-                        logger.info(
-                            f"[Job {job_id}] Playlist owner seeded: {creator_uuid}"
-                        )
+                        logger.info(f"[Job {job_id}] Playlist owner seeded: {creator_uuid}")
                     else:
                         creators_failed += 1
 
@@ -710,15 +682,11 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
         elif source == "error":
             error_msg = result_map.get("error", "Unknown upsert error")
             logger.error(f"[Job {job_id}] Upsert failed: {error_msg}")
-            await handle_job_failure(
-                job_id, retry_count, f"DB upsert error: {error_msg}"
-            )
+            await handle_job_failure(job_id, retry_count, f"DB upsert error: {error_msg}")
 
         else:
             logger.error(f"[Job {job_id}] Unknown upsert source: {source}")
-            await handle_job_failure(
-                job_id, retry_count, f"Unknown upsert result: {source}"
-            )
+            await handle_job_failure(job_id, retry_count, f"Unknown upsert result: {source}")
 
     except YouTubeBotChallengeError as e:
         # Track bot challenges for backoff
@@ -858,9 +826,7 @@ async def worker_loop():
             # Check bot challenge cooldown
             if await check_bot_challenge_cooldown():
                 backoff_multiplier = min(consecutive_bot_challenges, 5)
-                cooldown_sleep = min(
-                    BOT_CHALLENGE_BACKOFF * backoff_multiplier, remaining_time
-                )
+                cooldown_sleep = min(BOT_CHALLENGE_BACKOFF * backoff_multiplier, remaining_time)
                 if cooldown_sleep > 0:
                     await asyncio.sleep(cooldown_sleep)
                 continue
@@ -887,9 +853,7 @@ async def worker_loop():
 
                 # Check bot challenge cooldown before each job
                 if await check_bot_challenge_cooldown():
-                    logger.info(
-                        "Bot challenge cooldown triggered, pausing job processing"
-                    )
+                    logger.info("Bot challenge cooldown triggered, pausing job processing")
                     break
 
                 # Claim job atomically
@@ -903,9 +867,7 @@ async def worker_loop():
                             }
                         )
                         .eq("id", job_id)
-                        .in_(
-                            "status", ["pending", "failed"]
-                        )  # Allow claiming failed jobs
+                        .in_("status", ["pending", "failed"])  # Allow claiming failed jobs
                         .execute()
                     )
 
@@ -976,9 +938,7 @@ class Worker:
         self.yt = yt or globals().get("yt_service")
         logger.info(f"Worker initialized with backend: {backend}")
 
-    async def process_one(
-        self, job: Dict[str, Any], is_retry: bool = False
-    ) -> JobResult:
+    async def process_one(self, job: Dict[str, Any], is_retry: bool = False) -> JobResult:
         """
         Process a single job and return a deterministic JobResult.
 
@@ -1028,9 +988,7 @@ class Worker:
             if not raw_row and playlist_url:
                 raw_row = get_latest_playlist_job(playlist_url)
         except Exception as e:
-            logger.warning(
-                f"[Worker.process_one] Failed to fetch job row for {job_id}: {e}"
-            )
+            logger.warning(f"[Worker.process_one] Failed to fetch job row for {job_id}: {e}")
 
         if raw_row:
             status = raw_row.get("status")
@@ -1068,9 +1026,7 @@ def main():
     try:
         asyncio.run(init())
         jobs_processed = asyncio.run(worker_loop())
-        logger.info(
-            "Worker completed successfully. Total jobs processed: %s", jobs_processed
-        )
+        logger.info("Worker completed successfully. Total jobs processed: %s", jobs_processed)
 
     except KeyboardInterrupt:
         logger.info("Worker interrupted by user, exiting gracefully.")

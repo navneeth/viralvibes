@@ -73,9 +73,7 @@ CHART_PALETTES = {
 }
 
 # Constant
-CHART_WRAPPER_CLS = (
-    "w-full min-h-[420px] rounded-xl bg-white shadow-sm border border-gray-200 p-4"
-)
+CHART_WRAPPER_CLS = "w-full min-h-[420px] rounded-xl bg-white shadow-sm border border-gray-200 p-4"
 
 
 def chart_wrapper_class(chart_type: str) -> str:
@@ -222,9 +220,7 @@ def _apex_opts(chart_type: str, **kwargs) -> dict:
     return opts
 
 
-def apply_tufte_economist(
-    opts: dict, chart_type: str = "line", single_series: bool = True
-) -> dict:
+def apply_tufte_economist(opts: dict, chart_type: str = "line", single_series: bool = True) -> dict:
     """
     Apply Tufte-Economist minimal style to chart options *safely*.
 
@@ -534,9 +530,7 @@ def _safe_bubble_data(df: pl.DataFrame, max_points: int = 150) -> pl.DataFrame:
     if len(df) <= max_points:
         return df
 
-    logger.debug(
-        f"[charts] Sampling {len(df)} rows down to {max_points} for bubble chart"
-    )
+    logger.debug(f"[charts] Sampling {len(df)} rows down to {max_points} for bubble chart")
 
     try:
         # Keep top 10 by views, sample the rest
@@ -544,9 +538,7 @@ def _safe_bubble_data(df: pl.DataFrame, max_points: int = 150) -> pl.DataFrame:
         remaining = df.anti_join(top_views, on="id" if "id" in df.columns else "ID")
 
         sample_size = max_points - len(top_views)
-        sampled_rest = remaining.sample(
-            n=min(sample_size, len(remaining)), seed=42, shuffle=False
-        )
+        sampled_rest = remaining.sample(n=min(sample_size, len(remaining)), seed=42, shuffle=False)
 
         return pl.concat([top_views, sampled_rest])
     except Exception as e:
@@ -882,10 +874,7 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
         return _empty_chart("treemap", chart_id)
 
     # Build raw data
-    raw = [
-        {"x": row["Title"][:50], "y": row["Views"] or 0}
-        for row in df.iter_rows(named=True)
-    ]
+    raw = [{"x": row["Title"][:50], "y": row["Views"] or 0} for row in df.iter_rows(named=True)]
 
     # Generate distinct color per tile
     palette = _distributed_palette(len(raw))
@@ -911,9 +900,7 @@ def chart_treemap_reach(df: pl.DataFrame, chart_id: str = "treemap-reach") -> Ap
     )
 
 
-def chart_engagement_ranking(
-    df: pl.DataFrame, chart_id: str = "engagement-ranking"
-) -> ApexChart:
+def chart_engagement_ranking(df: pl.DataFrame, chart_id: str = "engagement-ranking") -> ApexChart:
     """Horizontal bar: Videos ranked by engagement rate with rich tooltip."""
     if df is None or df.is_empty():
         return _empty_chart("bar", chart_id)
@@ -1018,15 +1005,11 @@ def chart_engagement_breakdown(
     top_videos = _safe_sort(df, "Views", descending=True).head(10)
 
     # Prepare series (scaled for readability)
-    data_likes_k = (
-        (top_videos["Likes"].fill_null(0) / SCALE_THOUSANDS).round(1).to_list()
-    )
+    data_likes_k = (top_videos["Likes"].fill_null(0) / SCALE_THOUSANDS).round(1).to_list()
     data_comments_x100 = (top_videos["Comments"].fill_null(0) / 100).round(1).to_list()
 
     categories = (
-        top_videos["Title"].str.slice(0, 40).to_list()
-        if "Title" in top_videos.columns
-        else []
+        top_videos["Title"].str.slice(0, 40).to_list() if "Title" in top_videos.columns else []
     )
 
     return ApexChart(
@@ -1083,17 +1066,13 @@ def chart_engagement_breakdown(
     )
 
 
-def chart_likes_per_1k_views(
-    df: pl.DataFrame, chart_id: str = "likes-per-1k"
-) -> ApexChart:
+def chart_likes_per_1k_views(df: pl.DataFrame, chart_id: str = "likes-per-1k") -> ApexChart:
     """Scatter: Likes per 1K views (engagement quality metric)."""
     if df is None or df.is_empty():
         return _empty_chart("scatter", chart_id)
 
     # Calculate likes per 1K views
-    df_calc = df.with_columns(
-        (pl.col("Likes") / (pl.col("Views") / 1000)).alias("Likes_per_1K")
-    )
+    df_calc = df.with_columns((pl.col("Likes") / (pl.col("Views") / 1000)).alias("Likes_per_1K"))
 
     # Vectorized data extraction
     try:
@@ -1101,9 +1080,7 @@ def chart_likes_per_1k_views(
         raw = df_calc.select(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             pl.col("Likes_per_1K").round(1).alias("y"),
-            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
-                "title"
-            ),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias("title"),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
             pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
             pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
@@ -1151,9 +1128,7 @@ def chart_stacked_interactions(
     # 1. Calculate total interactions and select top N videos
     # ------------------------------------------------------------------
     df_with_total = df.with_columns(
-        (pl.col("Views") + pl.col("Likes") + pl.col("Comments")).alias(
-            "TotalInteraction"
-        )
+        (pl.col("Views") + pl.col("Likes") + pl.col("Comments")).alias("TotalInteraction")
     )
 
     df_top = (
@@ -1273,9 +1248,7 @@ def chart_stacked_interactions(
     )
 
 
-def chart_performance_heatmap(
-    df: pl.DataFrame, chart_id: str = "performance-heatmap"
-) -> ApexChart:
+def chart_performance_heatmap(df: pl.DataFrame, chart_id: str = "performance-heatmap") -> ApexChart:
     """Heatmap: Views (rows) vs Engagement (cols) - see where videos cluster."""
     if df is None or df.is_empty():
         return _empty_chart("heatmap", chart_id)
@@ -1286,24 +1259,16 @@ def chart_performance_heatmap(
 
     quadrants = {
         "🔥 High Views\nHigh Engage": len(
-            df.filter(
-                (df["Views"] > view_median) & (df["Engagement Rate Raw"] > eng_median)
-            )
+            df.filter((df["Views"] > view_median) & (df["Engagement Rate Raw"] > eng_median))
         ),
         "👀 High Views\nLow Engage": len(
-            df.filter(
-                (df["Views"] > view_median) & (df["Engagement Rate Raw"] <= eng_median)
-            )
+            df.filter((df["Views"] > view_median) & (df["Engagement Rate Raw"] <= eng_median))
         ),
         "💪 Low Views\nHigh Engage": len(
-            df.filter(
-                (df["Views"] <= view_median) & (df["Engagement Rate Raw"] > eng_median)
-            )
+            df.filter((df["Views"] <= view_median) & (df["Engagement Rate Raw"] > eng_median))
         ),
         "📊 Low Views\nLow Engage": len(
-            df.filter(
-                (df["Views"] <= view_median) & (df["Engagement Rate Raw"] <= eng_median)
-            )
+            df.filter((df["Views"] <= view_median) & (df["Engagement Rate Raw"] <= eng_median))
         ),
     }
 
@@ -1329,9 +1294,7 @@ def chart_treemap_views(df: pl.DataFrame, chart_id: str = "treemap-views") -> Ap
         return _empty_chart("treemap", chart_id)
 
     # Build raw data
-    raw = [
-        {"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)
-    ]
+    raw = [{"x": row["Title"], "y": row["Views"] or 0} for row in df.iter_rows(named=True)]
 
     # ✅ NEW: Generate distinct color per tile
     palette = _distributed_palette(len(raw))
@@ -1458,9 +1421,7 @@ def chart_duration_vs_engagement(
     )
 
 
-def chart_video_radar(
-    df: pl.DataFrame, chart_id: str = "video-radar", top_n: int = 5
-) -> ApexChart:
+def chart_video_radar(df: pl.DataFrame, chart_id: str = "video-radar", top_n: int = 5) -> ApexChart:
     if df is None or df.is_empty():
         return _empty_chart("radar", chart_id)
 
@@ -1484,11 +1445,7 @@ def chart_video_radar(
     norm_df = cast_df.with_columns(
         [
             (
-                (
-                    pl.col(c)
-                    / pl.when(pl.col(c).max() > 0).then(pl.col(c).max()).otherwise(1)
-                )
-                * 100
+                (pl.col(c) / pl.when(pl.col(c).max() > 0).then(pl.col(c).max()).otherwise(1)) * 100
             ).alias(f"{c}_norm")
             for c in numeric_cols
         ]
@@ -1558,9 +1515,7 @@ def chart_video_radar(
 #     )
 
 
-def chart_comments_engagement(
-    df: pl.DataFrame, chart_id: str = "comments-engagement"
-) -> ApexChart:
+def chart_comments_engagement(df: pl.DataFrame, chart_id: str = "comments-engagement") -> ApexChart:
     """
     DEPRECATED: Use chart_engagement_correlation(df, "Likes", "Comments", None) instead.
     Scatter: Likes (X) vs Comments (Y).
@@ -1628,19 +1583,13 @@ def chart_engagement_correlation(
 
         # Add fields for CLICKABLE_TOOLTIP
         if "Likes" in df_safe.columns:
-            select_exprs.append(
-                pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0)
-            )
+            select_exprs.append(pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0))
         if "Comments" in df_safe.columns:
-            select_exprs.append(
-                pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0)
-            )
+            select_exprs.append(pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0))
         if "Duration Formatted" in df_safe.columns:
             select_exprs.append(pl.col("Duration Formatted").alias("Duration"))
         if "Engagement Rate Raw" in df_safe.columns:
-            select_exprs.append(
-                pl.col("Engagement Rate Raw").alias("EngagementRateRaw")
-            )
+            select_exprs.append(pl.col("Engagement Rate Raw").alias("EngagementRateRaw"))
 
         raw = df_safe.select(select_exprs).to_dicts()
 
@@ -1684,24 +1633,18 @@ def chart_engagement_correlation(
     return ApexChart(opts=opts_dict, cls=chart_wrapper_class(chart_type))
 
 
-def chart_views_vs_likes(
-    df: pl.DataFrame, chart_id: str = "views-vs-likes"
-) -> ApexChart:
+def chart_views_vs_likes(df: pl.DataFrame, chart_id: str = "views-vs-likes") -> ApexChart:
     """DEPRECATED: Use chart_engagement_correlation(df, "Views", "Likes") instead."""
     return chart_engagement_correlation(df, "Views", "Likes", "Comments", chart_id)
 
 
-def chart_duration_impact(
-    df: pl.DataFrame, chart_id: str = "duration-impact"
-) -> ApexChart:
+def chart_duration_impact(df: pl.DataFrame, chart_id: str = "duration-impact") -> ApexChart:
     """Line: Engagement rate by video duration (sorted)."""
     if df is None or df.is_empty():
         return _empty_chart("line", chart_id)
 
     sorted_df = _safe_sort(df, "Duration", descending=False)
-    durations = (
-        sorted_df["Duration"].cast(pl.Float64) / 60
-    ).to_list()  # Convert to minutes
+    durations = (sorted_df["Duration"].cast(pl.Float64) / 60).to_list()  # Convert to minutes
 
     eng_rates = (sorted_df["Engagement Rate Raw"] * 100).round(2).to_list()
 
@@ -1759,9 +1702,7 @@ def chart_top_performers_radar(
     sorted_df = _safe_sort(df, "Views", descending=True).head(top_n)
     metrics = ["Views", "Likes", "Comments", "Engagement Rate Raw"]
 
-    cast_df = sorted_df.with_columns(
-        [pl.col(c).cast(pl.Float64).fill_null(0) for c in metrics]
-    )
+    cast_df = sorted_df.with_columns([pl.col(c).cast(pl.Float64).fill_null(0) for c in metrics])
 
     norm_df = cast_df.with_columns(
         [(pl.col(c) / pl.col(c).max() * 100).alias(f"{c}_norm") for c in metrics]
@@ -1882,9 +1823,7 @@ def chart_views_vs_likes_enhanced(
             (pl.col("Views") / SCALE_MILLIONS).round(1).alias("x"),
             (pl.col("Likes") / SCALE_THOUSANDS).round(1).alias("y"),
             ((pl.col("Comments") / 100).cast(pl.Int32)).alias("z"),
-            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias(
-                "title"
-            ),
+            (pl.col("Title").cast(pl.Utf8, strict=False).str.slice(0, 55)).alias("title"),
             (pl.col("id").cast(pl.Utf8, strict=False)).alias("id"),
             pl.col("Likes").cast(pl.Int64, strict=False).fill_null(0),
             pl.col("Comments").cast(pl.Int64, strict=False).fill_null(0),
@@ -2025,13 +1964,9 @@ def chart_engagement_decay_minimal(
         # Calculate days since publish
         df_decay = (
             df.with_columns(
-                pl.col("PublishedAt")
-                .str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%SZ")
-                .alias("dt")
+                pl.col("PublishedAt").str.strptime(pl.Datetime, "%Y-%m-%dT%H:%M:%SZ").alias("dt")
             )
-            .with_columns(
-                ((pl.col("dt").max() - pl.col("dt")).dt.total_days()).alias("DaysSince")
-            )
+            .with_columns(((pl.col("dt").max() - pl.col("dt")).dt.total_days()).alias("DaysSince"))
             .sort("DaysSince")
         )
 
@@ -2065,17 +2000,13 @@ def chart_engagement_decay_minimal(
                 "type": "numeric",
                 "title": {"text": "Days Since Publish"},
                 "tickAmount": 6,
-                "labels": {
-                    "formatter": "function(val){ return Math.round(val) + 'd'; }"
-                },
+                "labels": {"formatter": "function(val){ return Math.round(val) + 'd'; }"},
             },
             yaxis={
                 "title": {"text": "Engagement Rate (%)"},
                 "min": 0,
                 "max": max_eng * 1.15,  # 15% headroom for labels
-                "labels": {
-                    "formatter": "function(val){ return val.toFixed(1) + '%'; }"
-                },
+                "labels": {"formatter": "function(val){ return val.toFixed(1) + '%'; }"},
             },
             stroke={"curve": "straight", "width": 1.2},  # Clarity, thin
             markers={"size": 0},  # Pure line (no dots)
@@ -2085,8 +2016,7 @@ def chart_engagement_decay_minimal(
                         "x": p["x"],
                         "y": p["y"],
                         "label": {
-                            "text": p["title"][:18]
-                            + ("..." if len(p["title"]) > 18 else ""),
+                            "text": p["title"][:18] + ("..." if len(p["title"]) > 18 else ""),
                             "style": {
                                 "fontSize": "10px",
                                 "color": COLOR_HIGHLIGHT_RED,
@@ -2124,9 +2054,7 @@ def chart_engagement_decay_minimal(
     return ApexChart(opts=opts, cls=chart_wrapper_class("line"))
 
 
-def chart_duration_impact_tufte(
-    df: pl.DataFrame, chart_id: str = "duration-impact"
-) -> ApexChart:
+def chart_duration_impact_tufte(df: pl.DataFrame, chart_id: str = "duration-impact") -> ApexChart:
     """
     [REPLACEMENT for existing chart_duration_impact]
 
@@ -2143,9 +2071,7 @@ def chart_duration_impact_tufte(
         return _empty_chart("line", chart_id)
 
     sorted_df = _safe_sort(df, "Duration", descending=False)
-    durations = (
-        sorted_df["Duration"].cast(pl.Float64) / 60
-    ).to_list()  # Convert to minutes
+    durations = (sorted_df["Duration"].cast(pl.Float64) / 60).to_list()  # Convert to minutes
 
     eng_rates = (sorted_df["Engagement Rate Raw"] * 100).round(2).to_list()
 
@@ -2307,9 +2233,7 @@ def chart_performance_tiers(
                 }
             )
 
-        series_list = [
-            {"name": tier, "data": points} for tier, points in series.items()
-        ]
+        series_list = [{"name": tier, "data": points} for tier, points in series.items()]
 
         opts = _apex_opts(
             "scatter",

@@ -76,9 +76,7 @@ def compute_batches(progress: float, batch_count: int = 5):
     return current, batch_count
 
 
-def create_redirect_script(
-    url: str, delay_ms: int = 500, message: str = "Redirecting..."
-) -> str:
+def create_redirect_script(url: str, delay_ms: int = 500, message: str = "Redirecting...") -> str:
     """
     Create a safe redirect script with proper escaping.
 

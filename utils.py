@@ -72,9 +72,7 @@ def parse_iso_duration(duration: str) -> str:
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         return (
-            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            if hours
-            else f"{minutes:02d}:{seconds:02d}"
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
         )
     except Exception:
         return duration
@@ -134,9 +132,7 @@ def with_retries(
                 except retry_exceptions as e:
                     last_exc = e
                     if attempt == max_retries - 1:
-                        logger.error(
-                            f"{func.__name__} failed after {max_retries} attempts: {e}"
-                        )
+                        logger.error(f"{func.__name__} failed after {max_retries} attempts: {e}")
                         raise
                     delay = base_delay * (backoff**attempt)
                     if jitter:
@@ -203,9 +199,7 @@ def compute_batches(progress: float, batch_count: int = 5):
     return current, batch_count
 
 
-def create_redirect_script(
-    url: str, delay_ms: int = 500, message: str = "Redirecting..."
-) -> str:
+def create_redirect_script(url: str, delay_ms: int = 500, message: str = "Redirecting...") -> str:
     """
     Create a safe redirect script with proper escaping.
 
@@ -347,9 +341,7 @@ def get_unique_count(data: list[dict], column: str) -> int:
     return len(set(row.get(column) for row in data if column in row))
 
 
-def find_extreme_indices(
-    data: list[dict], column: str
-) -> tuple[int | None, int | None]:
+def find_extreme_indices(data: list[dict], column: str) -> tuple[int | None, int | None]:
     """Find indices of max and min values in a numeric column.
 
     Args:
@@ -377,9 +369,7 @@ def create_empty_dataframe() -> list[dict]:
     return []
 
 
-def sort_dataframe(
-    data: list[dict], column: str, descending: bool = False
-) -> list[dict]:
+def sort_dataframe(data: list[dict], column: str, descending: bool = False) -> list[dict]:
     """Sort dataset by a column.
 
     Args:

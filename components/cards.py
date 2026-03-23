@@ -244,9 +244,7 @@ def HeaderCard() -> Div:
                             Span("View Rankings"),
                             href="/lists",
                             cls="vv-link",
-                            style=(
-                                "display:inline-flex; align-items:center; gap:0.5rem;"
-                            ),
+                            style=("display:inline-flex; align-items:center; gap:0.5rem;"),
                         ),
                         cls="vv-cta-row",
                     ),
@@ -416,9 +414,7 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
             # pending → gray
             step_cls = StepT.neutral
 
-        steps.append(
-            LiStep(title, cls=step_cls, data_content=icon, description=description)
-        )
+        steps.append(LiStep(title, cls=step_cls, data_content=icon, description=description))
 
     return Steps(*steps, cls=STEPS_CLS)
 
@@ -838,9 +834,7 @@ def PlaylistPreviewCard(
     actual_video_count = video_count or playlist_length or 0
 
     # Build channel URL if ID available
-    channel_url = (
-        f"https://www.youtube.com/channel/{channel_id}" if channel_id else None
-    )
+    channel_url = f"https://www.youtube.com/channel/{channel_id}" if channel_id else None
 
     # Format published date
     published_display = None
@@ -864,9 +858,7 @@ def PlaylistPreviewCard(
 
     # Truncate description
     desc_preview = (
-        description[:120] + "..."
-        if description and len(description) > 120
-        else description
+        description[:120] + "..." if description and len(description) > 120 else description
     )
 
     return Card(
@@ -1055,9 +1047,7 @@ def MetricCard(
             P(subtitle, cls="text-sm text-gray-600"),
             cls="flex flex-col items-start space-y-1",
         ),
-        header=H4(
-            title, cls="text-xs font-medium text-gray-500 uppercase tracking-wider"
-        ),
+        header=H4(title, cls="text-xs font-medium text-gray-500 uppercase tracking-wider"),
         cls=(
             "p-5 rounded-xl shadow-sm border border-gray-200 "
             "hover:shadow-lg transition-all duration-200 "

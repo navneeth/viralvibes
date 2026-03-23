@@ -91,9 +91,7 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
         if df is not None:
             try:
                 df_json = df.write_json()
-                print(
-                    f"🔍 ✅ Successfully serialized df to JSON, length: {len(df_json)}"
-                )
+                print(f"🔍 ✅ Successfully serialized df to JSON, length: {len(df_json)}")
             except Exception as e:
                 print(f"🔍 ❌ Error serializing df: {e}")
                 import traceback
@@ -153,9 +151,7 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
             if job_id in mock_supabase_with_jobs.data["playlist_jobs"]:
                 mock_supabase_with_jobs.data["playlist_jobs"][job_id]["status"] = status
                 if updates:
-                    mock_supabase_with_jobs.data["playlist_jobs"][job_id].update(
-                        updates
-                    )
+                    mock_supabase_with_jobs.data["playlist_jobs"][job_id].update(updates)
 
         return True
 
@@ -167,9 +163,7 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
         if "playlist_jobs" in mock_supabase_with_jobs.data:
             if job_id in mock_supabase_with_jobs.data["playlist_jobs"]:
                 progress = processed / total if total > 0 else 0.0
-                mock_supabase_with_jobs.data["playlist_jobs"][job_id][
-                    "progress"
-                ] = progress
+                mock_supabase_with_jobs.data["playlist_jobs"][job_id]["progress"] = progress
         return True
 
     # ✅ Patch update_progress in worker.worker module (where it's defined)
@@ -212,15 +206,11 @@ async def test_worker_process_one_success(monkeypatch, mock_supabase_with_jobs):
     )
 
     final_error = job_status_updates[1].get("updates", {}).get("error")
-    assert (
-        result.error is None and final_error is None
-    ), f"Got error: {result.error or final_error}"
+    assert result.error is None and final_error is None, f"Got error: {result.error or final_error}"
 
 
 @pytest.mark.asyncio
-async def test_worker_process_one_handles_youtube_error(
-    monkeypatch, mock_supabase_with_jobs
-):
+async def test_worker_process_one_handles_youtube_error(monkeypatch, mock_supabase_with_jobs):
     """Test worker handles YouTube API errors gracefully."""
     job = {
         "id": 2,
@@ -229,9 +219,7 @@ async def test_worker_process_one_handles_youtube_error(
         "created_at": "2024-01-01T12:00:00Z",
     }
 
-    async def fake_get_playlist_data_error(
-        url, progress_callback=None, max_expanded=20
-    ):
+    async def fake_get_playlist_data_error(url, progress_callback=None, max_expanded=20):
         raise Exception("YouTube API quota exceeded")
 
     mock_yt_service = SimpleNamespace(get_playlist_data=fake_get_playlist_data_error)
@@ -247,9 +235,7 @@ async def test_worker_process_one_handles_youtube_error(
             if job_id in mock_supabase_with_jobs.data["playlist_jobs"]:
                 mock_supabase_with_jobs.data["playlist_jobs"][job_id]["status"] = status
                 if updates:
-                    mock_supabase_with_jobs.data["playlist_jobs"][job_id].update(
-                        updates
-                    )
+                    mock_supabase_with_jobs.data["playlist_jobs"][job_id].update(updates)
         return True
 
     # ✅ Patch in worker.worker, not db
@@ -280,9 +266,7 @@ async def test_worker_process_one_handles_youtube_error(
 
 
 @pytest.mark.asyncio
-async def test_worker_process_one_handles_database_error(
-    monkeypatch, mock_supabase_with_jobs
-):
+async def test_worker_process_one_handles_database_error(monkeypatch, mock_supabase_with_jobs):
     """Test worker handles database errors during upsert."""
     job = {
         "id": 3,
@@ -320,9 +304,7 @@ async def test_worker_process_one_handles_database_error(
             if job_id in mock_supabase_with_jobs.data["playlist_jobs"]:
                 mock_supabase_with_jobs.data["playlist_jobs"][job_id]["status"] = status
                 if updates:
-                    mock_supabase_with_jobs.data["playlist_jobs"][job_id].update(
-                        updates
-                    )
+                    mock_supabase_with_jobs.data["playlist_jobs"][job_id].update(updates)
         return True
 
     # ✅ Patch in worker.worker (where mark_job_status is defined)

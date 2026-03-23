@@ -76,9 +76,9 @@ def estimate_monthly_revenue_v4(
     niche_mod = _NICHE_MULTIPLIERS.get(niche.lower(), 1.0)
 
     # Ad revenue (AdSense)
-    ad_rev = (views_long / 1_000) * rates["long"] * niche_mod + (
-        views_shorts / 1_000
-    ) * rates["shorts"]
+    ad_rev = (views_long / 1_000) * rates["long"] * niche_mod + (views_shorts / 1_000) * rates[
+        "shorts"
+    ]
 
     # Sponsorships: $25 CPM on long-form views only (brands ignore Shorts)
     sponsorships = (views_long / 1_000) * 25.0 * niche_mod

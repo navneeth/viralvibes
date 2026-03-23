@@ -136,16 +136,13 @@ def _load_kaggle_secrets() -> None:
             raise
 
     logger.info(
-        "Kaggle secrets processed. Total keys: %d, loaded/already set: %d, "
-        "not found/empty: %d",
+        "Kaggle secrets processed. Total keys: %d, loaded/already set: %d, " "not found/empty: %d",
         len(_KAGGLE_SECRET_KEYS),
         len(loaded),
         len(skipped),
     )
     if skipped:
-        logger.debug(
-            "Kaggle secrets not found / empty (may be optional): %d", len(skipped)
-        )
+        logger.debug("Kaggle secrets not found / empty (may be optional): %d", len(skipped))
 
 
 def _load_dotenv_secrets() -> None:
@@ -163,8 +160,7 @@ def _load_dotenv_secrets() -> None:
     except ImportError:
         # dotenv not installed — rely entirely on whatever is already in the env.
         logger.debug(
-            "python-dotenv not installed; "
-            "relying on pre-set environment variables only"
+            "python-dotenv not installed; " "relying on pre-set environment variables only"
         )
 
 

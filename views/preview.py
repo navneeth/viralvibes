@@ -64,9 +64,7 @@ def render_preview_card(
                 hx_post="/submit-job",
                 hx_vals={
                     "playlist_url": playlist_url,
-                    **(
-                        {"user_id": user_id} if user_id else {}
-                    ),  # ✅ Include user_id if present
+                    **({"user_id": user_id} if user_id else {}),  # ✅ Include user_id if present
                 },
                 hx_trigger="load",  # Triggers immediately when page loads
                 hx_target="#preview-box",
@@ -162,11 +160,7 @@ def render_preview_card(
             Div(
                 Loading(cls=(LoadingT.ring, LoadingT.sm, "text-blue-600")),
                 Span(
-                    (
-                        "Starting analysis..."
-                        if auto_submit
-                        else f"Status: {job_status.title()}"
-                    ),
+                    ("Starting analysis..." if auto_submit else f"Status: {job_status.title()}"),
                     cls="text-sm text-gray-700 ml-3",
                 ),
                 cls="flex items-center bg-blue-50 p-3 rounded-lg border mb-4",
@@ -190,9 +184,7 @@ def render_preview_card(
                 hx_post="/submit-job",
                 hx_vals={
                     "playlist_url": playlist_url,
-                    **(
-                        {"user_id": user_id} if user_id else {}
-                    ),  # ✅ Include user_id if present
+                    **({"user_id": user_id} if user_id else {}),  # ✅ Include user_id if present
                 },
                 hx_target="#preview-box",
                 hx_indicator="#loading-bar",

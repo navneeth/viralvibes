@@ -122,8 +122,7 @@ class YoutubePlaylistService:
                 import yt_dlp
             except ImportError:
                 raise ImportError(
-                    "yt-dlp is required for the yt-dlp backend. "
-                    "Install with: pip install yt-dlp"
+                    "yt-dlp is required for the yt-dlp backend. " "Install with: pip install yt-dlp"
                 )
 
             self.handler = YouTubeBackendYTDLP(self.cfg, ydl_opts)
@@ -142,9 +141,7 @@ class YoutubePlaylistService:
             self.youtube = self.handler.youtube  # Backward compatible access
 
         else:
-            raise ValueError(
-                f"backend must be 'yt-dlp' or 'youtubeapi', got '{self.backend}'"
-            )
+            raise ValueError(f"backend must be 'yt-dlp' or 'youtubeapi', got '{self.backend}'")
 
     # --------------------------
     # Public entrypoints
@@ -166,9 +163,7 @@ class YoutubePlaylistService:
         Returns:
             Tuple of (DataFrame, playlist_name, channel_name, channel_thumb, stats)
         """
-        return await self.handler.get_playlist_data(
-            playlist_url, max_expanded, progress_callback
-        )
+        return await self.handler.get_playlist_data(playlist_url, max_expanded, progress_callback)
 
     async def get_playlist_preview(
         self, playlist_url: str

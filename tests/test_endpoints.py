@@ -153,8 +153,7 @@ class TestURLValidationAndPreview:
 
         # ✅ First check: auth should have worked (no login prompt)
         assert "log in" not in r.text.lower(), (
-            "Authentication failed - session not injected properly. "
-            f"Response: {r.text[:500]}"
+            "Authentication failed - session not injected properly. " f"Response: {r.text[:500]}"
         )
 
         # ✅ Second check: response should contain EITHER:
@@ -332,9 +331,7 @@ class TestURLValidationAndPreview:
             "controllers.preview.get_cached_playlist_stats",
             lambda url, check_date=True: None,
         )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_job_status", lambda url: None
-        )
+        monkeypatch.setattr("controllers.preview.get_playlist_job_status", lambda url: None)
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
             lambda url: make_test_preview_data(),
@@ -394,9 +391,7 @@ class TestJobSubmission:
         assert r.status_code == 200, f"Expected 200, got {r.status_code}"
 
         # Verify mock was called
-        assert (
-            called["url"] == TEST_PLAYLIST_URL
-        ), "submit_playlist_job not called with correct URL"
+        assert called["url"] == TEST_PLAYLIST_URL, "submit_playlist_job not called with correct URL"
         assert (
             called["user_id"] == "test-user-id"
         ), "user_id not passed to submit_playlist_job"  # ✅ New assertion
@@ -411,9 +406,7 @@ class TestJobSubmission:
         ), "Response missing polling interval"
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
-    def test_submit_job_handles_duplicate_submission(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_submit_job_handles_duplicate_submission(self, authenticated_client, monkeypatch):
         """
         Test: Duplicate job submissions are handled gracefully.
         Flow:
@@ -422,9 +415,7 @@ class TestJobSubmission:
         3. Still returns polling div (shows existing job progress)
         """
         # ✅ FIX: Lambda with correct signature
-        monkeypatch.setattr(
-            "main.submit_playlist_job", lambda playlist_url, user_id=None: False
-        )
+        monkeypatch.setattr("main.submit_playlist_job", lambda playlist_url, user_id=None: False)
 
         r = authenticated_client.post(
             "/submit-job",
@@ -436,9 +427,7 @@ class TestJobSubmission:
         assert 'hx-get="/job-progress' in r.text
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
-    def test_submit_job_passes_user_id_from_session(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_submit_job_passes_user_id_from_session(self, authenticated_client, monkeypatch):
         """Test that submit_job extracts user_id from session and passes it."""
         called = {}
 
@@ -495,9 +484,7 @@ class TestJobSubmission:
 class TestJobProgress:
     """Tests for /job-progress endpoint and status polling."""
 
-    def test_job_progress_shows_active_job_with_polling(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_job_progress_shows_active_job_with_polling(self, authenticated_client, monkeypatch):
         """
         Test: Active job shows progress UI with continued polling.
 
@@ -529,9 +516,7 @@ class TestJobProgress:
         assert 'hx-get="/job-progress' in r.text
         assert 'hx-trigger="every 2s"' in r.text
 
-    def test_job_progress_redirects_on_completion(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_job_progress_redirects_on_completion(self, authenticated_client, monkeypatch):
         """
         Test: Completed job triggers redirect to dashboard.
 
@@ -561,9 +546,7 @@ class TestJobProgress:
         assert 'hx-trigger="every 2s"' not in r.text
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
-    def test_job_progress_shows_error_on_failure(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_job_progress_shows_error_on_failure(self, authenticated_client, monkeypatch):
         """
         Test: Failed job shows error message without polling.
 
@@ -624,9 +607,7 @@ class TestJobProgress:
         assert r.status_code == 200
         assert "No analysis job found" in r.text or "not found" in r.text.lower()
 
-    def test_job_progress_clamps_invalid_progress(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_job_progress_clamps_invalid_progress(self, authenticated_client, monkeypatch):
         """Test progress values outside [0, 100] are clamped correctly."""
         # Test progress > 100
         monkeypatch.setattr(

@@ -1,0 +1,51 @@
+# ============================================================================
+# Python Version: 3.12 (see .python-version and runtime.txt)
+# Minimum Required: Python >= 3.12
+# Vercel Runtime: vercel-runtime>=0.10.0 requires Python 3.12+
+# ============================================================================
+
+[project]
+name = "viralvibes"
+version = "0.1.0"
+description = "YouTube Trends Analysis - Discover what makes playlists go viral"
+requires-python = ">=3.12"
+readme = "README.md"
+dependencies = [
+    "vercel-runtime",
+    "python-fasthtml>=0.12.42",
+    "starlette>=0.40.0,<1.0.0",
+    "MonsterUI>=0.3.0",
+    "supabase>=2.0.0",
+    "uvicorn>=0.30.1",
+    "tenacity",
+    "requests",
+    "emoji-country-flag",
+    "pycountry>=24.1.0",
+    "isodate",
+    "python-dotenv",
+]
+
+# Tell setuptools this is an application, not a library - don't auto-discover packages
+[tool.setuptools]
+py-modules = []  # Empty list = don't try to build/install Python packages
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"  # Python 3.12
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]  # Python 3.12
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=.",
+    "--cov-report=html",
+    "--cov-report=term-missing:skip-covered",
+]

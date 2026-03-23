@@ -129,9 +129,7 @@ def hero_section() -> Section:
                 # CTA Buttons
                 Div(
                     A(
-                        Span(
-                            "🚀 Start Analyzing", cls="inline-flex items-center gap-2"
-                        ),
+                        Span("🚀 Start Analyzing", cls="inline-flex items-center gap-2"),
                         href="#analysis-form",
                         cls=(
                             "px-8 py-4 md:px-10 md:py-5 "
@@ -276,9 +274,7 @@ def hero_section() -> Section:
                         Div(
                             Div(
                                 Span("💬", cls="mr-2"),
-                                Span(
-                                    "Comments", cls="text-gray-300 text-sm font-medium"
-                                ),
+                                Span("Comments", cls="text-gray-300 text-sm font-medium"),
                                 cls="flex items-center",
                             ),
                             Span("847", cls="text-white font-bold"),
@@ -427,9 +423,7 @@ def features_section():
 
 
 def testimonials_section():
-    testimonial_cards = [
-        testimonial_card(i, *args) for i, args in enumerate(testimonials)
-    ]
+    testimonial_cards = [testimonial_card(i, *args) for i, args in enumerate(testimonials)]
     return section_wrapper(
         Div(
             section_header(
@@ -498,10 +492,7 @@ def faq_section():
                 center=False,
             ),
             Div(
-                *[
-                    faq_item(question, answer, i + 3)
-                    for i, (question, answer) in enumerate(faqs)
-                ],
+                *[faq_item(question, answer, i + 3) for i, (question, answer) in enumerate(faqs)],
                 cls=f"{FLEX_COL} gap-4 {maxrem(32)} transition ease-out delay-[300ms]",
             ),
             cls=f"{SECTION_BASE} w-full mx-auto lg:flex-row items-start max-w-7xl",
@@ -514,10 +505,7 @@ def faq_section():
 def FooterLinkGroup(title, links):
     return DivVStacked(
         H4(title),
-        *[
-            A(text, href=f"#{text.lower().replace(' ', '-')}", cls=TextT.muted)
-            for text in links
-        ],
+        *[A(text, href=f"#{text.lower().replace(' ', '-')}", cls=TextT.muted) for text in links],
     )
 
 

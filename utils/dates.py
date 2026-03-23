@@ -119,9 +119,7 @@ def parse_iso_duration(duration: str) -> str:
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         return (
-            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            if hours
-            else f"{minutes:02d}:{seconds:02d}"
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
         )
     except Exception:
         return duration

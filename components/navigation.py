@@ -70,9 +70,7 @@ def NavComponent(oauth, req=None, sess=None):
         avatar_url = sess.get("avatar_url")
 
         # ✅ Use the dropdown component with OAuth-aware login URL for consistency
-        auth_section = AuthDropdown(
-            user=user_data, avatar_url=avatar_url, login_href=login_href
-        )
+        auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url, login_href=login_href)
 
     else:
         # ❌ LOGGED OUT: Single red CTA — login and try-it are the same action

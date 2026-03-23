@@ -121,9 +121,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
     ) -> Tuple[str, str, str, int, str, str, str]:
         """Get lightweight playlist preview."""
         try:
-            info = await asyncio.to_thread(
-                self.ydl.extract_info, playlist_url, download=False
-            )
+            info = await asyncio.to_thread(self.ydl.extract_info, playlist_url, download=False)
             title = info.get("title", "Untitled Playlist")
             channel = info.get("uploader", "Unknown Channel")
             thumb = self._extract_channel_thumbnail(info)
@@ -205,9 +203,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
 
                 # Merge expanded stats into skeleton (by id)
                 if not expanded_df.is_empty():
-                    merged = skeleton_df.join(
-                        expanded_df, on="id", how="left", suffix="_exp"
-                    )
+                    merged = skeleton_df.join(expanded_df, on="id", how="left", suffix="_exp")
 
                     # Prefer expanded values where available
                     for col in [
@@ -226,9 +222,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
                     df = skeleton_df
 
             except YouTubeBotChallengeError:
-                logger.warning(
-                    "Persistent bot challenge. Returning skeleton data only."
-                )
+                logger.warning("Persistent bot challenge. Returning skeleton data only.")
                 df = skeleton_df
             except Exception as e:
                 logger.error(f"Expansion failed: {e}. Falling back to skeleton only.")
@@ -282,9 +276,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
         videos_to_process = videos if max_expanded is None else videos[:max_expanded]
         video_urls = [v.get("url") for v in videos_to_process]
 
-        logger.info(
-            f"Processing {len(video_urls)} videos in batches of {self.cfg.batch_size}"
-        )
+        logger.info(f"Processing {len(video_urls)} videos in batches of {self.cfg.batch_size}")
 
         # Use persistent client for dislike API
         client = await self._get_dislike_client()
@@ -338,11 +330,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
 
                 # Filter out exceptions and add to results
                 all_video_infos.extend(
-                    [
-                        info
-                        for info in batch_video_infos
-                        if not isinstance(info, Exception) and info
-                    ]
+                    [info for info in batch_video_infos if not isinstance(info, Exception) and info]
                 )
                 all_dislike_results.extend(
                     [
@@ -358,9 +346,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
 
             # Add delay between batches (except for the last one)
             if i + self.cfg.batch_size < len(video_urls):
-                batch_delay = random.uniform(
-                    self.cfg.min_batch_delay, self.cfg.max_batch_delay
-                )
+                batch_delay = random.uniform(self.cfg.min_batch_delay, self.cfg.max_batch_delay)
                 logger.debug(f"Waiting {batch_delay:.2f}s before next batch")
                 await asyncio.sleep(batch_delay)
 
@@ -397,18 +383,14 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
 
         return combined
 
-    async def _fetch_video_info_async(
-        self, video_url: str, retry_count: int = 0
-    ) -> Dict[str, Any]:
+    async def _fetch_video_info_async(self, video_url: str, retry_count: int = 0) -> Dict[str, Any]:
         """Fetch full metadata for a single video asynchronously with retry logic."""
         try:
             # Add random delay between video fetches to appear more human-like
             delay = random.uniform(self.cfg.min_video_delay, self.cfg.max_video_delay)
             await asyncio.sleep(delay)
 
-            return await asyncio.to_thread(
-                self.ydl.extract_info, video_url, download=False
-            )
+            return await asyncio.to_thread(self.ydl.extract_info, video_url, download=False)
         except Exception as e:
             error_str = str(e)
 
@@ -432,9 +414,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
                     await asyncio.sleep(wait_time)
                     # Rotate user agent on retry
                     self.ydl.params["user-agent"] = self._get_random_user_agent()
-                    return await self._fetch_video_info_async(
-                        video_url, retry_count + 1
-                    )
+                    return await self._fetch_video_info_async(video_url, retry_count + 1)
                 else:
                     logger.error(
                         f"Bot challenge persists after {self.cfg.max_retries} retries for {video_url}"
@@ -480,17 +460,13 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
             elif response.status_code == 429:  # Rate limited
                 if retry_count < self.cfg.max_retries:
                     self._processing_stats["rate_limits"] += 1
-                    wait_time = self.cfg.retry_delay * (
-                        2**retry_count
-                    )  # Exponential backoff
+                    wait_time = self.cfg.retry_delay * (2**retry_count)  # Exponential backoff
                     logger.warning(
                         f"Rate limited on dislike API for {video_id}. "
                         f"Retrying in {wait_time}s (attempt {retry_count + 1}/{self.cfg.max_retries})"
                     )
                     await asyncio.sleep(wait_time)
-                    return await self._fetch_dislike_data_async(
-                        client, video_id, retry_count + 1
-                    )
+                    return await self._fetch_dislike_data_async(client, video_id, retry_count + 1)
 
             logger.warning(
                 f"Failed to fetch dislike data for {video_id}: HTTP {response.status_code}"
@@ -503,9 +479,7 @@ class YouTubeBackendYTDLP(YouTubeBackendBase):
                     f"Retrying (attempt {retry_count + 1}/{self.cfg.max_retries})"
                 )
                 await asyncio.sleep(self.cfg.retry_delay)
-                return await self._fetch_dislike_data_async(
-                    client, video_id, retry_count + 1
-                )
+                return await self._fetch_dislike_data_async(client, video_id, retry_count + 1)
             logger.warning(
                 f"Dislike fetch timeout for video {video_id} after {self.cfg.max_retries} retries"
             )

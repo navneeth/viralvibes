@@ -1,7 +1,6 @@
 # Core components
-python-fasthtml>=0.12.39
+python-fasthtml>=0.12.42
 MonsterUI>=0.3.0
-#starlette<0.28  # Pin to version compatible with FastHTML's on_startup/on_shutdown usage
 
 # Database & storage
 sqlite_minutils==4.0.3
@@ -21,3 +20,4 @@ click
 pytest
 pytest-asyncio
 beautifulsoup4
+python-dotenv

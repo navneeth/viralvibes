@@ -11,9 +11,7 @@ from services.youtube_service import YoutubePlaylistService
 load_dotenv()
 
 # Stable, public test playlist (replace with your own if needed)
-TEST_PLAYLIST_URL = (
-    "https://www.youtube.com/playlist?list=PLbRwAHeGGL1xG4gUqvkuo__yHEFSMxRqP"
-)
+TEST_PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLbRwAHeGGL1xG4gUqvkuo__yHEFSMxRqP"
 
 
 @pytest.mark.asyncio

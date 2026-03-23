@@ -1,7 +1,11 @@
+# Python version: See pyproject.toml (requires-python = ">=3.12")
+# Deployment version: See .python-version (3.12.x) and runtime.txt (python-3.12.x)
+# Note: vercel-runtime>=0.10.0 requires Python 3.12+
+
 # Core components
-python-fasthtml>=0.12.40
+python-fasthtml>=0.12.42
+starlette>=0.40.0,<1.0.0  # Required for FastHTML 0.12.42+ (fixes Vercel vendoring issue)
 MonsterUI>=0.3.0
-#starlette<0.28  # Pin to version compatible with FastHTML's on_startup/on_shutdown usage
 
 # Database & storage
 #sqlite_minutils==4.0.3
@@ -18,3 +22,4 @@ pycountry>=24.1.0  # Updated to fix setuptools vulnerabilities (CVE-2024-6345, C
 isodate
 # introducing google-api-python-client causes vercel deployment issues due to size > 250 MB
 #google-api-python-client
+python-dotenv

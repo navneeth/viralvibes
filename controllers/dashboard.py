@@ -90,9 +90,7 @@ def view_dashboard_controller(
 
     except Exception as e:
         logger.exception(f"Database query failed for dashboard {dashboard_id}: {e}")
-        return ErrorAlert(
-            "Database Error", "Failed to load dashboard. Please try again later."
-        )
+        return ErrorAlert("Database Error", "Failed to load dashboard. Please try again later.")
 
     # Validate required fields
     required_fields = ["df_json", "playlist_url"]
@@ -100,9 +98,7 @@ def view_dashboard_controller(
 
     if missing_fields:
         logger.error(f"Missing required fields: {missing_fields}")
-        return ErrorAlert(
-            "Invalid Data", "Playlist data is corrupted. Please analyze again."
-        )
+        return ErrorAlert("Invalid Data", "Playlist data is corrupted. Please analyze again.")
 
     # Record view event
     try:
@@ -121,14 +117,10 @@ def view_dashboard_controller(
         logger.debug(f"Loaded DataFrame: {len(df)} rows")
     except KeyError as e:
         logger.error(f"Missing JSON field in playlist_row: {e}")
-        return ErrorAlert(
-            "Invalid Data", "Playlist data is corrupted. Please contact support."
-        )
+        return ErrorAlert("Invalid Data", "Playlist data is corrupted. Please contact support.")
     except Exception as e:
         logger.exception(f"Failed to deserialize DataFrame for {dashboard_id}: {e}")
-        return ErrorAlert(
-            "Data Error", "Failed to parse playlist data. Please try again later."
-        )
+        return ErrorAlert("Data Error", "Failed to parse playlist data. Please try again later.")
 
     # Fetch interest metrics (analytics)
     interest = {}
@@ -137,9 +129,7 @@ def view_dashboard_controller(
         interest = get_dashboard_event_counts(supabase_client, dashboard_id)
         logger.debug(f"Event counts: {interest}")
     except Exception as e:
-        logger.warning(
-            f"Failed to get event counts for {dashboard_id} (non-critical): {e}"
-        )
+        logger.warning(f"Failed to get event counts for {dashboard_id} (non-critical): {e}")
 
     # Render dashboard
     try:
@@ -169,9 +159,7 @@ def view_dashboard_controller(
 
     except Exception as e:
         logger.exception(f"Failed to render dashboard for {dashboard_id}: {e}")
-        return ErrorAlert(
-            "Render Error", "Failed to display dashboard. Please refresh the page."
-        )
+        return ErrorAlert("Render Error", "Failed to display dashboard. Please refresh the page.")
 
 
 def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Response]:
@@ -206,9 +194,7 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
             "My Dashboards",
             NavComponent(oauth, req, sess),
             Container(
-                Alert(
-                    P("Service unavailable. Please try again later."), cls=AlertT.error
-                ),
+                Alert(P("Service unavailable. Please try again later."), cls=AlertT.error),
                 cls="p-6",
             ),
         )
@@ -248,9 +234,7 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
             NavComponent(oauth, req, sess),
             Container(
                 Div(
-                    H2(
-                        "No Dashboards Yet", cls="text-2xl font-bold text-gray-900 mb-4"
-                    ),
+                    H2("No Dashboards Yet", cls="text-2xl font-bold text-gray-900 mb-4"),
                     P(
                         "You haven't analyzed any playlists yet. Start by analyzing your first playlist!",
                         cls="text-gray-600 mb-6",

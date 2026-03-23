@@ -78,9 +78,7 @@ class ViralVibesAuth(OAuth):
                 logger.info(f"✅ Avatar downloaded successfully from {avatar_url}")
                 return response.content
             else:
-                logger.warning(
-                    f"⚠️  Avatar download failed: HTTP {response.status_code}"
-                )
+                logger.warning(f"⚠️  Avatar download failed: HTTP {response.status_code}")
                 return None
 
         except Exception as e:
@@ -154,9 +152,7 @@ class ViralVibesAuth(OAuth):
                         "email_verified": email_verified,
                         "avatar_url": picture_url,
                     }
-                    user_response = (
-                        self.supabase_client.table("users").insert(user_data).execute()
-                    )
+                    user_response = self.supabase_client.table("users").insert(user_data).execute()
                     if user_response.data:
                         user_id = user_response.data[0]["id"]
                         logger.info(f"✅ Created new user {email} with ID {user_id}")
@@ -165,9 +161,7 @@ class ViralVibesAuth(OAuth):
                 if avatar_data and user_id:
                     try:
                         avatar_path = f"avatars/{user_id}/avatar.jpg"
-                        self.supabase_client.storage.from_("users").upload(
-                            avatar_path, avatar_data
-                        )
+                        self.supabase_client.storage.from_("users").upload(avatar_path, avatar_data)
                         logger.info(f"✅ Uploaded avatar for user {email}")
                         avatar_uploaded = True  # ✅ ONLY set true if upload succeeds
                     except Exception as e:
@@ -224,9 +218,7 @@ class ViralVibesAuth(OAuth):
         # 1. Check if user was trying to analyze a playlist
         intended_playlist_url = session.get("intended_playlist_url")
         if intended_playlist_url:
-            logger.info(
-                f"User logged in to analyze playlist, redirecting to /me/dashboards"
-            )
+            logger.info(f"User logged in to analyze playlist, redirecting to /me/dashboards")
             return RedirectResponse("/me/dashboards", status_code=303)
 
         # 2. Check if there's a stored intended destination
@@ -344,13 +336,7 @@ def get_user_by_email(supabase_client, email: str) -> dict:
         return None
 
     try:
-        response = (
-            supabase_client.table("users")
-            .select("*")
-            .eq("email", email)
-            .single()
-            .execute()
-        )
+        response = supabase_client.table("users").select("*").eq("email", email).single().execute()
         return response.data if response.data else None
     except Exception as e:
         logger.debug(f"Failed to fetch user {email}: {e}")
@@ -410,9 +396,7 @@ def init_google_oauth(app, supabase_client=None):
         google_client = GoogleAppClient(client_id, client_secret)
 
         # Use centralized skip patterns (shared with Beforeware in main.py)
-        oauth = ViralVibesAuth(
-            app, google_client, supabase_client, skip=AUTH_SKIP_ROUTE_PATTERNS
-        )
+        oauth = ViralVibesAuth(app, google_client, supabase_client, skip=AUTH_SKIP_ROUTE_PATTERNS)
 
         logger.info(
             f"✅ Google OAuth initialized successfully with {len(AUTH_SKIP_ROUTE_PATTERNS)} public routes"

@@ -129,9 +129,7 @@ def render_full_dashboard(
                         Button(
                             UkIcon("share-2", cls="mr-2 w-4 h-4"),
                             "Share",
-                            hx_get=(
-                                f"/modal/share/{dashboard_id}" if dashboard_id else "#"
-                            ),
+                            hx_get=(f"/modal/share/{dashboard_id}" if dashboard_id else "#"),
                             hx_target="#modal-container",
                             hx_swap="innerHTML",
                             cls="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center",
@@ -141,9 +139,7 @@ def render_full_dashboard(
                         Button(
                             UkIcon("download", cls="mr-2 w-4 h-4"),
                             "Export",
-                            hx_get=(
-                                f"/modal/export/{dashboard_id}" if dashboard_id else "#"
-                            ),
+                            hx_get=(f"/modal/export/{dashboard_id}" if dashboard_id else "#"),
                             hx_target="#modal-container",
                             hx_swap="innerHTML",
                             cls="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center",
