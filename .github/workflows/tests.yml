@@ -6,7 +6,7 @@ on:
       python-version:
         required: false
         type: string
-        default: '3.12'
+        default: '3.11'
       coverage-threshold:
         required: false
         type: number
@@ -42,11 +42,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
-          cache: 'pip'  # ✅ Re-enable cache
+          python-version-file: '.python-version'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
