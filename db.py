@@ -2402,6 +2402,9 @@ def get_creator_hero_stats() -> dict:
     """
     Fetch global aggregate creator stats from DB via RPC (zero row transfer).
 
+    Uses mv_hero_stats materialized view (migration 007) for sub-millisecond response
+    time regardless of creator count. View is refreshed by bootstrap_creators.py Pass 5.
+
     Returns a *partial* stats dict whose keys take precedence when merged
     with a page-level ``calculate_creator_stats(creators)`` result::
 
@@ -2567,3 +2570,98 @@ def refresh_category_stats_cache() -> int:
     except Exception:
         logger.exception("refresh_category_stats_cache: unexpected error")
         return 0
+
+
+# ==============================================================
+# 📊 Hero Stats Materialized View Refresh (NEW - Migration 007)
+# ==============================================================
+
+
+def refresh_hero_stats_cache() -> dict[str, Any]:
+    """
+    Refresh materialized views for hero stats (migration 007).
+
+    Calls the Postgres RPC function refresh_hero_stats_cache() which:
+    1. Refreshes mv_hero_stats (creators page hero section)
+    2. Refreshes mv_lists_meta (lists page tab badges)
+
+    Both views are refreshed CONCURRENTLY (non-blocking) to prevent table locks.
+
+    Called by worker/bootstrap_creators.py (Pass 5) after creator sync completes.
+
+    Returns:
+        Dict with refresh results:
+        {
+            "success": bool,
+            "materialized_views": [
+                {
+                    "name": "mv_hero_stats",
+                    "rows": 1,
+                    "duration_ms": 123
+                },
+                {
+                    "name": "mv_lists_meta",
+                    "rows": 1,
+                    "duration_ms": 456
+                }
+            ],
+            "error": Optional[str]
+        }
+    """
+    if not supabase_client:
+        return {
+            "success": False,
+            "materialized_views": [],
+            "error": "Supabase client not available",
+        }
+
+    try:
+        logger.info("[Hero Stats Cache] Refreshing materialized views...")
+
+        resp = supabase_client.rpc("refresh_hero_stats_cache").execute()
+
+        if not resp.data:
+            return {
+                "success": False,
+                "materialized_views": [],
+                "error": "RPC returned no data",
+            }
+
+        # RPC returns table of (materialized_view, rows_refreshed, refresh_duration_ms)
+        results = resp.data
+        total_duration = sum(row["refresh_duration_ms"] for row in results)
+
+        logger.info(
+            "[Hero Stats Cache] ✅ Refreshed %d materialized views in %dms",
+            len(results),
+            total_duration,
+        )
+
+        for row in results:
+            logger.info(
+                "  • %s: %d rows, %dms",
+                row["materialized_view"],
+                row["rows_refreshed"],
+                row["refresh_duration_ms"],
+            )
+
+        return {
+            "success": True,
+            "materialized_views": [
+                {
+                    "name": row["materialized_view"],
+                    "rows": row["rows_refreshed"],
+                    "duration_ms": row["refresh_duration_ms"],
+                }
+                for row in results
+            ],
+            "error": None,
+        }
+
+    except Exception as e:
+        logger.exception("[Hero Stats Cache] ❌ Refresh failed: %s", e)
+        return {
+            "success": False,
+            "materialized_views": [],
+            "error": str(e),
+        }
