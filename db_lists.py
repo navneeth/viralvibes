@@ -133,6 +133,7 @@ def get_most_active_creators(limit: int = 20) -> list[dict]:
         response = (
             supabase_client.table("creators")
             .select("*")
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .not_.is_("monthly_uploads", "null")
@@ -487,6 +488,7 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
         response = (
             supabase_client.table("creators")
             .select("*")
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 1000)
             .not_.is_("subscribers_change_30d", "null")
