@@ -25,6 +25,7 @@ from db import (
     init_supabase,
     queue_invalid_creators_for_retry,
     refresh_category_stats_cache,
+    refresh_hero_stats_cache,
     setup_logging,
 )
 
@@ -86,7 +87,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-stats",
         action="store_true",
-        help="Skip category stats cache refresh (Pass 4)",
+        help="Skip category and hero stats refresh (Passes 4–5)",
     )
     return parser.parse_args()
 
@@ -148,6 +149,18 @@ def main() -> None:
         logger.info(f"   Refreshed: {refreshed} categories")
     else:
         logger.info("── Pass 4: category stats skipped (--no-stats)")
+
+    # ── 5. Refresh hero stats materialized views ──────────────────────────────
+    if not args.no_stats:
+        logger.info("── Pass 5: refreshing hero stats materialized views")
+        result = refresh_hero_stats_cache()
+        if result["success"]:
+            for view in result["materialized_views"]:
+                logger.info(f"   • {view['name']}: {view['rows']} rows, {view['duration_ms']}ms")
+        else:
+            logger.error(f"   ❌ Hero stats refresh failed: {result['error']}")
+    else:
+        logger.info("── Pass 5: hero stats skipped (--no-stats)")
 
     logger.info(f"✅ Bootstrap complete — {total_queued} total creators queued")
 
