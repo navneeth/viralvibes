@@ -87,7 +87,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-stats",
         action="store_true",
-        help="Skip category stats and hero stats refresh (Pass 4 & 5)",
+        help="Skip category and hero stats refresh (Passes 4–5)",
     )
     return parser.parse_args()
 

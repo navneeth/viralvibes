@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for migration 007 - Hero Stats Materialized Views
+Test script for migration 009 - Hero Stats Materialized Views
 
 Verifies:
 1. Materialized views exist and are populated
@@ -8,8 +8,8 @@ Verifies:
 3. Refresh function works
 4. Performance is acceptable
 
-Run after applying migration 007:
-    python scripts/test_migration_007.py
+Run after applying migration 009:
+    python scripts/test_migration_009.py
 """
 
 import sys
@@ -143,6 +143,27 @@ def test_data_integrity():
             print(f"❌ FAIL: avg_engagement should be numeric, got {type(stats['avg_engagement'])}")
             return False
 
+        if not isinstance(stats["has_engagement_data"], bool):
+            print(
+                f"❌ FAIL: has_engagement_data should be bool, got {type(stats['has_engagement_data'])}"
+            )
+            return False
+
+        for key in ("growing_creators", "premium_creators"):
+            value = stats[key]
+            if not isinstance(value, int):
+                print(f"❌ FAIL: {key} should be int, got {type(value)}")
+                return False
+            if value < 0:
+                print(f"❌ FAIL: {key} should be non-negative, got {value}")
+                return False
+
+        # Check for unexpected keys (schema drift detection)
+        unexpected_keys = set(stats.keys()) - set(required_keys)
+        if unexpected_keys:
+            print(f"⚠️  WARNING: Unexpected keys in stats: {sorted(unexpected_keys)}")
+            # Don't fail - just warn about schema drift
+
         # Check ranges
         if stats["total_creators"] < 0:
             print(f"❌ FAIL: total_creators is negative: {stats['total_creators']}")
@@ -167,7 +188,7 @@ def test_data_integrity():
 def main():
     """Run all tests."""
     print("=" * 70)
-    print("Testing Migration 007: Hero Stats Materialized Views")
+    print("Testing Migration 009: Hero Stats Materialized Views")
     print("=" * 70)
 
     init_supabase()
@@ -203,7 +224,7 @@ def main():
     print(f"\n{passed}/{total} tests passed")
 
     if passed == total:
-        print("\n🎉 All tests passed! Migration 007 is working correctly.")
+        print("\n🎉 All tests passed! Migration 009 is working correctly.")
         return 0
     else:
         print(f"\n⚠️  {total - passed} test(s) failed. Check logs above.")

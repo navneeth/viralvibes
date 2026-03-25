@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migration 007: Materialized Views for Hero Stats Performance
+-- Migration 009: Materialized Views for Hero Stats Performance
 -- =============================================================================
 -- Problem: With 1M+ creators, aggregate queries timeout on page load
 -- Solution: Pre-compute stats in materialized views, refresh periodically
@@ -11,9 +11,10 @@
 -- Refresh strategy: Called by worker/bootstrap_creators.py (Pass 5)
 -- =============================================================================
 
--- Drop existing RPC if it exists (will be recreated to use materialized view)
-DROP FUNCTION IF EXISTS get_creator_hero_stats();
-DROP FUNCTION IF EXISTS get_lists_meta();
+-- Drop existing RPC functions if they exist (will be recreated to use materialized view)
+-- Include full function signatures for safety (prevents issues with overloaded versions)
+DROP FUNCTION IF EXISTS get_creator_hero_stats() CASCADE;
+DROP FUNCTION IF EXISTS get_lists_meta() CASCADE;
 
 -- =============================================================================
 -- 1. Hero Stats Materialized View (for /creators page hero section)
