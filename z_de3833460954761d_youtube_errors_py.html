@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_de3833460954761d_youtube_service_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-03-22 14:50 +0000
+            created at 2026-03-25 00:42 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -112,7 +112,7 @@
     <p class="pln"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t">    <span class="key">def</span> <span class="nam">__init__</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">channel_id</span><span class="op">:</span> <span class="nam">str</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">channel_id</span> <span class="op">=</span> <span class="nam">channel_id</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">        <span class="nam">super</span><span class="op">(</span><span class="op">)</span><span class="op">.</span><span class="nam">__init__</span><span class="op">(</span><span class="str">f"YouTube quota exceeded for channel: {channel_id}"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t">        <span class="nam">super</span><span class="op">(</span><span class="op">)</span><span class="op">.</span><span class="nam">__init__</span><span class="op">(</span><span class="fst">f"</span><span class="fst">YouTube quota exceeded for channel: </span><span class="op">{</span><span class="nam">channel_id</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t32" href="#t32">32</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t34" href="#t34">34</a></span><span class="t"><span class="key">def</span> <span class="nam">is_quota_exhausted_error</span><span class="op">(</span><span class="nam">exc</span><span class="op">:</span> <span class="nam">Exception</span><span class="op">)</span> <span class="op">-></span> <span class="nam">bool</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -132,9 +132,7 @@
     <p class="mis show_mis"><span class="n"><a id="t48" href="#t48">48</a></span><span class="t">        <span class="key">return</span> <span class="key">False</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t49" href="#t49">49</a></span><span class="t">    <span class="key">if</span> <span class="nam">getattr</span><span class="op">(</span><span class="nam">exc</span><span class="op">.</span><span class="nam">resp</span><span class="op">,</span> <span class="str">"status"</span><span class="op">,</span> <span class="key">None</span><span class="op">)</span> <span class="op">!=</span> <span class="num">403</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t50" href="#t50">50</a></span><span class="t">        <span class="key">return</span> <span class="key">False</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t51" href="#t51">51</a></span><span class="t">    <span class="key">return</span> <span class="str">"quotaExceeded"</span> <span class="key">in</span> <span class="nam">str</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t52" href="#t52">52</a></span><span class="t">        <span class="nam">getattr</span><span class="op">(</span><span class="nam">exc</span><span class="op">,</span> <span class="str">"error_details"</span><span class="op">,</span> <span class="str">""</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t53" href="#t53">53</a></span><span class="t">    <span class="op">)</span> <span class="key">or</span> <span class="str">"quotaExceeded"</span> <span class="key">in</span> <span class="nam">str</span><span class="op">(</span><span class="nam">exc</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t51" href="#t51">51</a></span><span class="t">    <span class="key">return</span> <span class="str">"quotaExceeded"</span> <span class="key">in</span> <span class="nam">str</span><span class="op">(</span><span class="nam">getattr</span><span class="op">(</span><span class="nam">exc</span><span class="op">,</span> <span class="str">"error_details"</span><span class="op">,</span> <span class="str">""</span><span class="op">)</span><span class="op">)</span> <span class="key">or</span> <span class="str">"quotaExceeded"</span> <span class="key">in</span> <span class="nam">str</span><span class="op">(</span><span class="nam">exc</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -144,7 +142,7 @@
             <a class="nav" href="z_de3833460954761d_youtube_service_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-03-22 14:50 +0000
+            created at 2026-03-25 00:42 +0000
         </p>
     </div>
 </footer>
