@@ -658,7 +658,7 @@ def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False
                         format_number(total_languages),
                         cls="text-xl font-bold text-purple-600",
                     ),
-                    href="/creators",
+                    href="/lists?tab=by-language",
                     cls="block no-underline hover:opacity-80 transition-opacity",
                 ),
                 # Top language emojis — each links to that language’s ranked creator list
