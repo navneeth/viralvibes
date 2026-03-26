@@ -618,6 +618,7 @@ def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
         response = (
             supabase_client.table("creators")
             .select(column)
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .not_.is_(column, "null")
             .gt("current_subscribers", 0)
@@ -731,6 +732,7 @@ def _get_lists_meta_fallback() -> dict:
         response = (
             supabase_client.table("creators")
             .select("country_code, default_language, topic_categories", count="exact")
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .limit(_MAX_FALLBACK_FETCH)
@@ -811,6 +813,7 @@ def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
         response = (
             supabase_client.table("creators")
             .select("topic_categories")
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .not_.is_("topic_categories", "null")
             .gt("current_subscribers", 0)
