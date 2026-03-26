@@ -2427,15 +2427,29 @@ def get_creator_hero_stats() -> dict:
             return {}
         data = resp.data[0]
         avg_engagement = float(data.get("avg_engagement") or 0)
+
+        # total_countries and total_languages live in mv_lists_meta, not mv_hero_stats.
+        # Fetch them from get_lists_meta() rather than hoping they appear here.
+        lists_meta: dict = {}
+        try:
+            meta_resp = supabase_client.rpc("get_lists_meta").execute()
+            if meta_resp.data:
+                meta_row = meta_resp.data[0] if isinstance(meta_resp.data, list) else meta_resp.data
+                lists_meta = meta_row or {}
+        except Exception:
+            logger.warning(
+                "get_lists_meta failed inside get_creator_hero_stats — countries/languages will be 0"
+            )
+
         return {
             "total_creators": int(data.get("total_creators") or 0),
             "avg_engagement": round(avg_engagement, 2),
             "has_engagement_data": avg_engagement > 0,
             "growing_creators": int(data.get("growing_creators") or 0),
             "premium_creators": int(data.get("premium_creators") or 0),
-            # Added in migration 003 — same source of truth as /lists page
-            "total_countries": int(data.get("total_countries") or 0),
-            "total_languages": int(data.get("total_languages") or 0),
+            # Sourced from mv_lists_meta via get_lists_meta() RPC
+            "total_countries": int(lists_meta.get("total_countries") or 0),
+            "total_languages": int(lists_meta.get("total_languages") or 0),
         }
     except Exception:
         logger.exception("Failed to fetch creator hero stats")
