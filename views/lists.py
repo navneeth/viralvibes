@@ -20,6 +20,17 @@ from views.creators import get_topic_category_emoji
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Helper wrappers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def get_country_flag_emoji(country_code: str) -> str:
+    """Get flag emoji for country code, fallback to 🌐 if not found."""
+    flag = get_country_flag(country_code)
+    return flag if flag else "🌐"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ISO 3166-1 country code → display name (via pycountry)
 # ─────────────────────────────────────────────────────────────────────────────
 # Override entries where the official ISO name is too verbose or non-standard
@@ -571,9 +582,11 @@ def _render_by_country_content(
         DivFullySpaced(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
-                Span(
+                A(
                     (f"{total_countries} countries" if total_countries else f"{shown} countries"),
-                    cls="text-sm font-medium text-foreground",
+                    href="/lists/countries",
+                    cls="text-sm font-medium text-primary hover:underline no-underline",
+                    title="Explore all countries",
                 ),
                 cls="shrink-0 hidden sm:block",
             ),
@@ -1733,6 +1746,196 @@ def render_categories_explorer_page(
     background: rgba(131, 24, 67, 0.4);
     color: rgb(249 168 212);
     border-color: rgb(249 168 212);
+}
+"""
+    )
+
+    return Div(
+        style_tag,
+        header,
+        controls,
+        Card(chart, body_cls="p-4"),
+        js,
+        cls="max-w-3xl mx-auto px-4 py-8",
+    )
+
+
+def render_countries_explorer_page(
+    countries: list[tuple[str, int]],
+) -> Div:
+    """
+    Full-page bar-chart explorer for all countries in the creator database.
+
+    Each row is a clickable horizontal bar proportional to creator count,
+    with country flag emoji and 2-letter code,
+    linking to the existing /lists/country/{code} detail page.
+    Client-side JS handles search filtering and sort toggling with no
+    extra round-trips.
+
+    Args:
+        countries: List of (country_code, creator_count) tuples,
+                   sorted by count descending (from get_top_countries_with_counts).
+    """
+    if not countries:
+        return Div(
+            P("No countries found.", cls="text-muted-foreground text-center py-16"),
+        )
+
+    max_count = countries[0][1]
+    total_creators = sum(c for _, c in countries)
+
+    # ── Header ───────────────────────────────────────────────────────
+    header = Div(
+        A(
+            UkIcon("arrow-left", cls="w-4 h-4 mr-1.5"),
+            "Back to Lists",
+            href="/lists?tab=by-country",
+            cls="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground no-underline transition-colors",
+        ),
+        Div(
+            Div(
+                UkIcon("globe", cls="w-5 h-5 text-blue-500 mr-2"),
+                H1("Country Explorer", cls="text-2xl font-bold text-foreground"),
+                cls="flex items-center",
+            ),
+            P(
+                f"{len(countries)} countries · {format_number(total_creators)} creators across the world",
+                cls="text-sm text-muted-foreground mt-1",
+            ),
+            cls="mt-4 mb-6",
+        ),
+        cls="mb-2",
+    )
+
+    # ── Search + sort controls ─────────────────────────────────────────
+    controls = Div(
+        Input(
+            type="search",
+            id="country-search",
+            placeholder="Filter countries…",
+            cls="flex-1 px-4 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-blue-300",
+            oninput="filterCountries()",
+            autocomplete="off",
+        ),
+        Div(
+            Button(
+                UkIcon("arrow-down-wide-narrow", cls="w-4 h-4 mr-1"),
+                "By count",
+                id="sort-count-btn",
+                type="button",
+                onclick="sortCountries('count')",
+                cls="sort-btn is-active inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
+            ),
+            Button(
+                UkIcon("arrow-down-a-z", cls="w-4 h-4 mr-1"),
+                "A → Z",
+                id="sort-alpha-btn",
+                type="button",
+                onclick="sortCountries('alpha')",
+                cls="sort-btn inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
+            ),
+            cls="flex gap-2 shrink-0",
+        ),
+        cls="flex gap-3 items-center mb-6",
+    )
+
+    # ── Bar rows ──────────────────────────────────────────────────────────
+    bar_rows = []
+    for i, (country_code, count) in enumerate(countries):
+        pct = round(count / max_count * 100)
+        flag = get_country_flag_emoji(country_code)
+        country_name = get_country_name(country_code)
+
+        # Palette cycles through 5 accent colours
+        bar_colours = [
+            "bg-blue-400 dark:bg-blue-500",
+            "bg-emerald-400 dark:bg-emerald-500",
+            "bg-violet-400 dark:bg-violet-500",
+            "bg-amber-400 dark:bg-amber-500",
+            "bg-pink-400 dark:bg-pink-500",
+        ]
+        bar_cls = bar_colours[i % len(bar_colours)]
+
+        bar_rows.append(
+            A(
+                # Label column
+                Div(
+                    Span(flag, cls="text-base w-6 shrink-0 text-center"),
+                    Span(
+                        country_code.upper(),
+                        cls="text-xs font-mono font-semibold text-muted-foreground w-8 shrink-0",
+                    ),
+                    Span(
+                        country_name,
+                        cls="text-sm font-medium text-foreground truncate country-name",
+                    ),
+                    cls="flex items-center gap-2 w-56 sm:w-64 shrink-0",
+                ),
+                # Bar
+                Div(
+                    Div(
+                        cls=f"h-full {bar_cls} rounded-r-full transition-all duration-300",
+                        style=f"width:{pct}%",
+                    ),
+                    cls="flex-1 h-5 bg-accent rounded-full overflow-hidden",
+                ),
+                # Count
+                Span(
+                    format_number(count),
+                    cls="text-xs font-semibold text-muted-foreground w-14 text-right shrink-0",
+                ),
+                href=f"/lists/country/{country_code.lower()}",
+                # data-name for JS search, data-count for JS sort
+                data_name=f"{country_code.lower()} {country_name.lower()}",
+                data_count=str(count),
+                cls="country-row flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent transition-colors no-underline group",
+            )
+        )
+
+    chart = Div(
+        *bar_rows,
+        id="country-chart",
+        cls="space-y-1",
+    )
+
+    # ── Client-side search + sort (no round-trip) ─────────────────────────
+    js = Script(
+        """
+    let _countrySort = 'count';
+    function filterCountries() {
+        const q = document.getElementById('country-search').value.toLowerCase();
+        document.querySelectorAll('.country-row').forEach(row => {
+            row.style.display = row.dataset.name.includes(q) ? '' : 'none';
+        });
+    }
+    function sortCountries(mode) {
+        _countrySort = mode;
+        const chart = document.getElementById('country-chart');
+        const rows  = Array.from(chart.querySelectorAll('.country-row'));
+        rows.sort((a, b) =>
+            mode === 'alpha'
+                ? a.dataset.name.localeCompare(b.dataset.name)
+                : parseInt(b.dataset.count) - parseInt(a.dataset.count)
+        );
+        rows.forEach(r => chart.appendChild(r));
+        document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('is-active'));
+        document.getElementById(mode === 'alpha' ? 'sort-alpha-btn' : 'sort-count-btn')
+                .classList.add('is-active');
+    }
+    """
+    )
+
+    style_tag = Style(
+        """
+.sort-btn.is-active {
+    background: rgb(219 234 254);
+    color: rgb(29 78 216);
+    border-color: rgb(147 197 253);
+}
+.dark .sort-btn.is-active {
+    background: rgba(30, 58, 138, 0.4);
+    color: rgb(147 197 253);
+    border-color: rgb(147 197 253);
 }
 """
     )
