@@ -1596,7 +1596,8 @@ def render_categories_explorer_page(
             P("No categories found.", cls="text-muted-foreground text-center py-16"),
         )
 
-    max_count = categories[0][1]
+    # Guard against zero max_count to prevent division by zero
+    max_count = max((c for _, c in categories), default=1)
     total_creators = sum(c for _, c in categories)
 
     # ── Header ───────────────────────────────────────────────────────
@@ -1655,19 +1656,20 @@ def render_categories_explorer_page(
     )
 
     # ── Bar rows ──────────────────────────────────────────────────────────
+    # Palette cycles through 5 accent colours
+    bar_colours = [
+        "bg-pink-400 dark:bg-pink-500",
+        "bg-violet-400 dark:bg-violet-500",
+        "bg-blue-400 dark:bg-blue-500",
+        "bg-emerald-400 dark:bg-emerald-500",
+        "bg-amber-400 dark:bg-amber-500",
+    ]
+
     bar_rows = []
     for i, (cat_name, count) in enumerate(categories):
         pct = round(count / max_count * 100)
         emoji = get_topic_category_emoji(cat_name)
         slug = slugify(cat_name)
-        # Palette cycles through 5 accent colours
-        bar_colours = [
-            "bg-pink-400 dark:bg-pink-500",
-            "bg-violet-400 dark:bg-violet-500",
-            "bg-blue-400 dark:bg-blue-500",
-            "bg-emerald-400 dark:bg-emerald-500",
-            "bg-amber-400 dark:bg-amber-500",
-        ]
         bar_cls = bar_colours[i % len(bar_colours)]
 
         bar_rows.append(
@@ -1711,7 +1713,6 @@ def render_categories_explorer_page(
     # ── Client-side search + sort (no round-trip) ─────────────────────────
     js = Script(
         """
-    let _catSort = 'count';
     function filterCategories() {
         const q = document.getElementById('cat-search').value.toLowerCase();
         document.querySelectorAll('.cat-row').forEach(row => {
@@ -1719,7 +1720,6 @@ def render_categories_explorer_page(
         });
     }
     function sortCategories(mode) {
-        _catSort = mode;
         const chart = document.getElementById('cat-chart');
         const rows  = Array.from(chart.querySelectorAll('.cat-row'));
         rows.sort((a, b) =>
@@ -1781,7 +1781,8 @@ def render_countries_explorer_page(
             P("No countries found.", cls="text-muted-foreground text-center py-16"),
         )
 
-    max_count = countries[0][1]
+    # Guard against zero max_count to prevent division by zero
+    max_count = max((c for _, c in countries), default=1)
     total_creators = sum(c for _, c in countries)
 
     # ── Header ───────────────────────────────────────────────────────
@@ -1840,20 +1841,20 @@ def render_countries_explorer_page(
     )
 
     # ── Bar rows ──────────────────────────────────────────────────────────
+    # Palette cycles through 5 accent colours
+    bar_colours = [
+        "bg-blue-400 dark:bg-blue-500",
+        "bg-emerald-400 dark:bg-emerald-500",
+        "bg-violet-400 dark:bg-violet-500",
+        "bg-amber-400 dark:bg-amber-500",
+        "bg-pink-400 dark:bg-pink-500",
+    ]
+
     bar_rows = []
     for i, (country_code, count) in enumerate(countries):
         pct = round(count / max_count * 100)
         flag = get_country_flag_emoji(country_code)
         country_name = get_country_name(country_code)
-
-        # Palette cycles through 5 accent colours
-        bar_colours = [
-            "bg-blue-400 dark:bg-blue-500",
-            "bg-emerald-400 dark:bg-emerald-500",
-            "bg-violet-400 dark:bg-violet-500",
-            "bg-amber-400 dark:bg-amber-500",
-            "bg-pink-400 dark:bg-pink-500",
-        ]
         bar_cls = bar_colours[i % len(bar_colours)]
 
         bar_rows.append(
@@ -1901,7 +1902,6 @@ def render_countries_explorer_page(
     # ── Client-side search + sort (no round-trip) ─────────────────────────
     js = Script(
         """
-    let _countrySort = 'count';
     function filterCountries() {
         const q = document.getElementById('country-search').value.toLowerCase();
         document.querySelectorAll('.country-row').forEach(row => {
@@ -1909,7 +1909,6 @@ def render_countries_explorer_page(
         });
     }
     function sortCountries(mode) {
-        _countrySort = mode;
         const chart = document.getElementById('country-chart');
         const rows  = Array.from(chart.querySelectorAll('.country-row'));
         rows.sort((a, b) =>
