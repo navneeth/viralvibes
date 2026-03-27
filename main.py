@@ -90,6 +90,7 @@ from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.creators import creator_profile_route, creators_route
 from routes.lists import (
     categories_explorer_route,
+    countries_explorer_route,
     category_detail_more_route,
     category_detail_route,
     country_detail_more_route,
@@ -1134,6 +1135,19 @@ def lists_categories_explorer(req, sess):
     page_content = categories_explorer_route()
     return Titled(
         "Category Explorer - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
+@rt("/lists/countries")
+def lists_countries_explorer(req, sess):
+    """Visual bar-chart explorer of all countries with creator statistics."""
+    page_content = countries_explorer_route()
+    return Titled(
+        "Country Explorer - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             page_content,

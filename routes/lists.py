@@ -16,6 +16,7 @@ from db_lists import (
     get_most_active_creators,
     get_rising_creators,
     get_top_categories_with_counts,
+    get_top_countries_with_counts,
     get_top_rated_creators,
     get_veteran_creators,
 )
@@ -25,6 +26,7 @@ from views.lists import (
     render_more_countries,
     render_more_languages,
     render_categories_explorer_page,
+    render_countries_explorer_page,
     render_country_detail_page,
     render_country_creators_rows,
     render_category_detail_page,
@@ -503,3 +505,15 @@ def categories_explorer_route():
     """
     categories = get_top_categories_with_counts(limit=2000)
     return render_categories_explorer_page(categories)
+
+
+def countries_explorer_route():
+    """
+    GET /lists/countries — Visual bar-chart explorer of all countries.
+
+    Fetches all countries with creator counts (server-side RPC,
+    zero row transfer) and delegates rendering to
+    render_countries_explorer_page().
+    """
+    countries = get_top_countries_with_counts(limit=500)  # All countries
+    return render_countries_explorer_page(countries)
