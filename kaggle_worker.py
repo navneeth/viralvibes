@@ -37,6 +37,7 @@ import asyncio
 import logging
 import os
 import time
+import gc
 
 logger = logging.getLogger("kaggle_worker")
 
@@ -163,7 +164,12 @@ async def run(
             )
             import worker.creator_worker as _cw
 
+            _cw.youtube_resolver = None  # Drop reference to allow GC to reclaim memory
+            gc.collect()  # Force garbage collection to free memory immediately
+
+            # Re-instantiate YouTubeResolver with fresh state
             _cw.youtube_resolver = YouTubeResolver(api_key=get_creator_worker_api_key())
+            logger.info("✅ Memory flushed and Resolver re-initialized")
 
         # ── Fetch next job ────────────────────────────────────────────────────
         jobs = _fetch_pending_jobs(batch_size=1)
