@@ -111,10 +111,11 @@ PLAYLIST_STEPS_CONFIG = [
 # =============================================================================
 HERO_HEADLINE = "Find & analyze YouTube creators at scale"
 HERO_SUBHEADLINE = (
-    "Access real-time analytics on 10,000+ YouTube channels. "
+    "Browse ranked creator lists by niche, country, and growth. "
     "Track engagement, growth velocity, and revenue potential "
-    "without channel ownership."
+    "Spot high-engagement channels and rising stars for brand campaigns."
 )
+
 
 # Social proof metrics
 TOTAL_CREATORS = "10,000+"
@@ -128,6 +129,15 @@ TRUST_MARKERS = [
     "Updated daily",
     "Free to explore",
 ]
+
+# =============================================================================
+# SOCIALS (single source of truth — update once)
+# =============================================================================
+SOCIALS = {
+    "x": "https://x.com/viralvibesfyi",
+    "linkedin": "https://linkedin.com/company/viralvibesfyi",  # placeholder — swap when real
+    "github": "https://github.com/viralvibesfyi",  # placeholder
+}
 
 # Core value propositions (4-box framework)
 CORE_VALUE_PROPS = [

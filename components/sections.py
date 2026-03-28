@@ -27,6 +27,7 @@ from constants import (
     THEME,
     faqs,
     testimonials,
+    SOCIALS,
 )
 
 
@@ -520,6 +521,12 @@ def footer():
                 H3("ViralVibes"),
                 DivHStacked(
                     UkIcon("twitter", cls=TextT.lead),
+                    A(
+                        UkIcon("x", cls=TextT.lead),
+                        href=SOCIALS["x"],
+                        target="_blank",
+                        rel="noopener",
+                    ),
                     UkIcon("facebook", cls=TextT.lead),
                     UkIcon("github", cls=TextT.lead),
                     UkIcon("linkedin", cls=TextT.lead),
