@@ -10,8 +10,10 @@ Usage (internal — called by render_worker.py only):
     python -m worker.run_one_job --job-id <id> --creator-id <uuid> --job-number <n>
 
 Exit codes:
-    0  — job completed successfully (or was marked failed/retried in DB)
+    0  — job completed, timed out, or was marked failed/retried in DB
+         (expected outcomes — supervisor logs and moves on)
     1  — unhandled exception before or during job execution
+         (unexpected crash — supervisor logs the subprocess output)
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from secrets_loader import load_secrets
 
 _env_source = load_secrets()
 
-from db import setup_logging, init_supabase
+from db import setup_logging
 
 setup_logging()
 logger = logging.getLogger("run_one_job")
@@ -49,15 +51,26 @@ async def main(job_id: int, creator_id: str, job_number: int) -> None:
     # Initialise Supabase + YouTubeResolver for this process
     await _cw.init()
 
-    result = await asyncio.wait_for(
-        _cw.handle_sync_job(
-            job_id=job_id,
-            creator_id=creator_id,
-            job_number=job_number,
-            retry_count=0,  # retry_count is tracked in DB; supervisor re-fetches on retry
-        ),
-        timeout=_cw.SYNC_TIMEOUT + 30,
-    )
+    try:
+        result = await asyncio.wait_for(
+            _cw.handle_sync_job(
+                job_id=job_id,
+                creator_id=creator_id,
+                job_number=job_number,
+                retry_count=0,  # retry_count is tracked in DB; supervisor re-fetches on retry
+            ),
+            timeout=_cw.SYNC_TIMEOUT + 30,
+        )
+    except asyncio.TimeoutError:
+        # Treat as a soft failure: the DB still records the job state via
+        # handle_sync_job's internal error handling (mark_creator_sync_failed).
+        # Exit 0 so the supervisor sees this as an expected outcome, not a crash.
+        logger.warning(
+            "⏱  run_one_job timed out after %ds | job_id=%s — exiting 0 (soft failure)",
+            _cw.SYNC_TIMEOUT + 30,
+            job_id,
+        )
+        return
 
     icon = "✅" if result else "⚠️"
     logger.info("%s run_one_job finished | job_id=%s result=%s", icon, job_id, result)
