@@ -1,17 +1,21 @@
 services:
-  # ⚙️ Worker service (only backend, no frontend)
+  # ⚙️ Worker service — runs indefinitely on Render (no bash respawn loop needed)
   - type: worker
     name: viralvibes-worker
     env: python
-    pythonVersion: "3.12.0"  # Matches .python-version (source of truth)
+    pythonVersion: "3.12.0"
     plan: free
     buildCommand: |
       pip install --upgrade pip
       pip install --no-cache-dir -r requirements-backend.txt
+    # render_worker.py is a long-running process that never exits on its own.
+    # It replaces the old bash-loop + EXIT_AFTER_JOB pattern with in-process
+    # YouTubeResolver resets for httplib2 memory hygiene.
+    # Must use `python -m worker.render_worker` (not `python worker/render_worker.py`)
+    # so that Python adds the project root to sys.path and relative imports resolve.
     startCommand: |
-      # decode cookies into /tmp
       echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
-      python -m worker.creator_worker
+      python -m worker.render_worker
     envVars:
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
@@ -23,12 +27,26 @@ services:
         sync: false
       - key: YOUTUBE_API_KEY
         sync: false
+
+      # ── render_worker tuning ─────────────────────────────────────────────────
+      # Poll interval when queue is empty (seconds).
+      - key: RENDER_IDLE_POLL_INTERVAL
+        value: "60"
+      # Reset YouTubeResolver every N jobs to flush httplib2 internal state.
+      - key: RENDER_RESOLVER_RESET_INTERVAL
+        value: "50"
+      # Run periodic maintenance (queue unsynced/stale creators) every N seconds.
+      - key: RENDER_PERIODIC_CHECK_INTERVAL
+        value: "300"
+      # Warn in logs after this many consecutive empty polls.
+      - key: RENDER_EMPTY_WARN_THRESHOLD
+        value: "10"
+
+      # ── Retained from original for code paths that still read them ───────────
       - key: WORKER_POLL_INTERVAL
         value: "60"
       - key: WORKER_BATCH_SIZE
         value: "1"
-      - key: WORKER_MAX_RUNTIME
-        value: "300"
       - key: COOKIES_FILE
         value: /tmp/cookies.txt
       - key: MIN_VIDEO_DELAY
@@ -41,3 +59,5 @@ services:
         value: "10.0"
       - key: BOT_CHALLENGE_BACKOFF
         value: "1800"
+      - key: YOUTUBE_DAILY_QUOTA
+        value: "10000"
