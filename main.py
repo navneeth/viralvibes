@@ -206,7 +206,7 @@ _bware = Beforeware(
     skip=AUTH_SKIP_ROUTE_PATTERNS,
 )
 
-app, rt = fast_app(
+_app, rt = fast_app(
     hdrs=hdrs,
     before=_bware,
     title="ViralVibes - YouTube Trends, Decoded",
@@ -229,6 +229,7 @@ app, rt = fast_app(
         )
     ),
 )
+app = _app  # Vercel will now find 'app' as a FastHTML object, not a tuple
 
 
 # Set the favicon
