@@ -1,6 +1,8 @@
 services:
-  # ⚙️ Worker service — runs indefinitely on Render (no bash respawn loop needed)
-  - type: worker
+  # ⚙️ This service was created as a Render *Web Service* and its type cannot
+  # be changed after creation. render_worker.py handles this by running a
+  # minimal health-check HTTP server on $PORT alongside the supervisor loop.
+  - type: web
     name: viralvibes-worker
     env: python
     pythonVersion: "3.12.0"
@@ -8,14 +10,10 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install --no-cache-dir -r requirements-backend.txt
-    # render_worker.py is a long-running process that never exits on its own.
-    # It replaces the old bash-loop + EXIT_AFTER_JOB pattern with in-process
-    # YouTubeResolver resets for httplib2 memory hygiene.
-    # Must use `python -m worker.render_worker` (not `python worker/render_worker.py`)
-    # so that Python adds the project root to sys.path and relative imports resolve.
     startCommand: |
       echo $YOUTUBE_COOKIES | base64 -d > /tmp/cookies.txt
       python -m worker.render_worker
+    healthCheckPath: /
     envVars:
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
@@ -28,21 +26,18 @@ services:
       - key: YOUTUBE_API_KEY
         sync: false
 
-      # ── render_worker tuning ─────────────────────────────────────────────────
+      # ── Supervisor tuning ────────────────────────────────────────────────────
       # Poll interval when queue is empty (seconds).
       - key: RENDER_IDLE_POLL_INTERVAL
         value: "60"
-      # Reset YouTubeResolver every N jobs to flush httplib2 internal state.
-      - key: RENDER_RESOLVER_RESET_INTERVAL
-        value: "50"
-      # Run periodic maintenance (queue unsynced/stale creators) every N seconds.
+        # Run periodic maintenance (queue unsynced/stale creators) every N seconds.
       - key: RENDER_PERIODIC_CHECK_INTERVAL
         value: "300"
-      # Warn in logs after this many consecutive empty polls.
+      # Run periodic maintenance (queue unsynced/stale creators) every N seconds.
       - key: RENDER_EMPTY_WARN_THRESHOLD
         value: "10"
 
-      # ── Retained from original for code paths that still read them ───────────
+      # ── Retained for code paths in creator_worker that still read them ───────
       - key: WORKER_POLL_INTERVAL
         value: "60"
       - key: WORKER_BATCH_SIZE
