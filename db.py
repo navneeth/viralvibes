@@ -2611,7 +2611,12 @@ def refresh_total_categories() -> int:
         return 0
     try:
         resp = supabase_client.rpc("refresh_total_categories").execute()
-        count = int(resp.data or 0)
+        # RPC returns a scalar bigint, but Supabase may wrap it as a list with
+        # one element or a bare value depending on the client version.
+        data = resp.data
+        if isinstance(data, list):
+            data = data[0] if data else 0
+        count = int(data or 0)
         logger.info("refresh_total_categories: %d distinct categories", count)
         return count
     except Exception:
@@ -2664,6 +2669,10 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
     ]:
         try:
             resp = supabase_client.rpc(rpc_name).execute()
+            # Track rows added by *this* RPC only, so the log below always
+            # references the current view — not a previous view's entry via
+            # results[-1] when resp.data is empty.
+            start_len = len(results)
             for row in resp.data or []:
                 results.append(
                     {
@@ -2672,12 +2681,16 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                         "duration_ms": row.get("refresh_duration_ms", 0),
                     }
                 )
-            logger.info(
-                "[Hero Stats Cache] ✅ %s refreshed — %s rows in %sms",
-                view_label,
-                results[-1]["rows"] if results else "?",
-                results[-1]["duration_ms"] if results else "?",
-            )
+            rpc_results = results[start_len:]
+            if rpc_results:
+                logger.info(
+                    "[Hero Stats Cache] ✅ %s refreshed — %d rows in %dms",
+                    view_label,
+                    rpc_results[0]["rows"],
+                    rpc_results[0]["duration_ms"],
+                )
+            else:
+                logger.warning("[Hero Stats Cache] ⚠️ %s RPC returned no rows", view_label)
         except Exception as e:
             logger.error("[Hero Stats Cache] ❌ %s failed: %s", view_label, e)
             errors.append({"view": view_label, "error": str(e)})
@@ -2690,15 +2703,18 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
             total_duration,
         )
 
+    # Surface partial failures even when success=True so callers can inspect them.
+    partial_errors = "; ".join(f"{e['view']}: {e['error']}" for e in errors) or None
+
     if errors and not results:
         return {
             "success": False,
             "materialized_views": [],
-            "error": "; ".join(f"{e['view']}: {e['error']}" for e in errors),
+            "error": partial_errors,
         }
 
     return {
         "success": True,
         "materialized_views": results,
-        "error": None,
+        "error": partial_errors,  # non-null when one view failed but the other succeeded
     }
