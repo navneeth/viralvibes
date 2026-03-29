@@ -1,28 +1,15 @@
-name: Creator Bootstrap
+name: Creator Bootstrap (Weekly Full)
 
-# Prime the creator_sync_jobs queue BEFORE the worker runs.
+# Full bootstrap including Pass 6 (total_categories recount).
+# Runs weekly on Sunday at 03:00 UTC — outside the normal worker cycles.
 #
-# This runs 10 minutes before each worker cycle to ensure jobs are ready.
-# Handles large-scale queuing (500+ creators) that would slow down worker startup.
-#
-# Architecture:
-#   1. Bootstrap (this file):  23:50, 05:50, 11:50, 17:50 UTC
-#   2. Worker runs:            00:00, 06:00, 12:00, 18:00 UTC
-#
-# Bootstrap handles:
-#   - Never-synced creators (last_synced_at IS NULL) - up to 500/run
-#   - Stale synced creators (>7 days old) - up to 100/run
-#   - Previously failed/invalid creators - up to 100/run
-#   - Category stats cache refresh (Pass 4)
-#   - Hero stats materialized views refresh (Pass 5)
-#
-# Pass 6 (total_categories recount) is skipped here — it only needs to run
-# weekly since category data changes slowly. See creator-bootstrap-weekly.yml.
+# Pass 6 computes COUNT(DISTINCT category) via a slow jsonb unnest (~4s).
+# It's separated from the daily bootstrap to avoid wasting CI minutes on a
+# stat that changes at most a few times per week.
 
 on:
   schedule:
-    # 10 minutes before each worker cycle (00:00, 06:00, 12:00, 18:00 UTC)
-    - cron: '50 23,5,11,17 * * *'
+    - cron: '0 3 * * 0'   # Sunday 03:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -33,9 +20,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  bootstrap:
+  bootstrap-full:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -53,19 +40,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-backend.txt
 
-      - name: Queue creators for sync
+      - name: Full bootstrap including total_categories recount
         run: |
           echo "════════════════════════════════════════════════════════════"
-          echo "▶ Bootstrap starting at $(date)"
+          echo "▶ Weekly full bootstrap starting at $(date)"
           echo "════════════════════════════════════════════════════════════"
 
           python -m worker.bootstrap_creators \
             --unsynced-batch 500 \
             --stale-days 7 \
-            --invalid-batch 50 \
-            --no-categories
+            --invalid-batch 50
 
           echo ""
           echo "════════════════════════════════════════════════════════════"
-          echo "✅ Bootstrap finished at $(date)"
+          echo "✅ Weekly full bootstrap finished at $(date)"
           echo "════════════════════════════════════════════════════════════"

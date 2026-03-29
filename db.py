@@ -2587,39 +2587,63 @@ def refresh_category_stats_cache() -> int:
 
 
 # ==============================================================
+# 📊 Total Categories — app_stats cache
+# ==============================================================
+
+
+def refresh_total_categories() -> int:
+    """
+    Recompute COUNT(DISTINCT category) via the slow jsonb unnest and store
+    the result in app_stats(key='total_categories').
+
+    This is intentionally a separate function from refresh_hero_stats_cache()
+    because the jsonb scan over topic_categories takes ~4s and would cause a
+    PostgREST statement timeout if bundled with the fast mv_lists_meta refresh.
+
+    Called by bootstrap_creators.py as a standalone pass (Pass 6) so it can
+    run on a less frequent schedule without blocking any other refresh.
+
+    Returns:
+        The refreshed total_categories count, or 0 on failure.
+    """
+    if not supabase_client:
+        logger.warning("refresh_total_categories: Supabase client not available")
+        return 0
+    try:
+        resp = supabase_client.rpc("refresh_total_categories").execute()
+        count = int(resp.data or 0)
+        logger.info("refresh_total_categories: %d distinct categories", count)
+        return count
+    except Exception:
+        logger.exception("refresh_total_categories: RPC failed")
+        return 0
+
+
+# ==============================================================
 # 📊 Hero Stats Materialized View Refresh (NEW - Migration 007)
 # ==============================================================
 
 
 def refresh_hero_stats_cache() -> dict[str, Any]:
     """
-    Refresh materialized views for hero stats (migration 007).
+    Refresh mv_hero_stats and mv_lists_meta via two separate RPC calls.
 
-    Calls the Postgres RPC function refresh_hero_stats_cache() which:
-    1. Refreshes mv_hero_stats (creators page hero section)
-    2. Refreshes mv_lists_meta (lists page tab badges)
+    Split from a single call because mv_lists_meta previously contained a slow
+    jsonb scan (total_categories) that caused PostgREST statement timeouts.
+    total_categories has been moved to app_stats and is refreshed separately
+    by refresh_total_categories() (bootstrap Pass 6).
 
-    Both views are refreshed CONCURRENTLY (non-blocking) to prevent table locks.
-
-    Called by worker/bootstrap_creators.py (Pass 5) after creator sync completes.
+    Each RPC is called independently — a failure in one does not prevent the
+    other from running.
 
     Returns:
-        Dict with refresh results:
         {
-            "success": bool,
+            "success": bool,          # True if at least one view refreshed
             "materialized_views": [
-                {
-                    "name": "mv_hero_stats",
-                    "rows": 1,
-                    "duration_ms": 123
-                },
-                {
-                    "name": "mv_lists_meta",
-                    "rows": 1,
-                    "duration_ms": 456
-                }
+                {"name": str, "rows": int, "duration_ms": int},
+                ...
             ],
-            "error": Optional[str]
+            "error": Optional[str]    # set only when both views fail
         }
     """
     if not supabase_client:
@@ -2629,53 +2653,52 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
             "error": "Supabase client not available",
         }
 
-    try:
-        logger.info("[Hero Stats Cache] Refreshing materialized views...")
+    logger.info("[Hero Stats Cache] Refreshing materialized views...")
 
-        resp = supabase_client.rpc("refresh_hero_stats_cache").execute()
+    results = []
+    errors = []
 
-        if not resp.data:
-            return {
-                "success": False,
-                "materialized_views": [],
-                "error": "RPC returned no data",
-            }
+    for rpc_name, view_label in [
+        ("refresh_mv_hero_stats", "mv_hero_stats"),
+        ("refresh_mv_lists_meta", "mv_lists_meta"),
+    ]:
+        try:
+            resp = supabase_client.rpc(rpc_name).execute()
+            for row in resp.data or []:
+                results.append(
+                    {
+                        "name": row.get("materialized_view", view_label),
+                        "rows": row.get("rows_refreshed", 0),
+                        "duration_ms": row.get("refresh_duration_ms", 0),
+                    }
+                )
+            logger.info(
+                "[Hero Stats Cache] ✅ %s refreshed — %s rows in %sms",
+                view_label,
+                results[-1]["rows"] if results else "?",
+                results[-1]["duration_ms"] if results else "?",
+            )
+        except Exception as e:
+            logger.error("[Hero Stats Cache] ❌ %s failed: %s", view_label, e)
+            errors.append({"view": view_label, "error": str(e)})
 
-        # RPC returns table of (materialized_view, rows_refreshed, refresh_duration_ms)
-        results = resp.data
-        total_duration = sum(row["refresh_duration_ms"] for row in results)
-
+    total_duration = sum(r["duration_ms"] for r in results)
+    if results:
         logger.info(
-            "[Hero Stats Cache] ✅ Refreshed %d materialized views in %dms",
+            "[Hero Stats Cache] ✅ Refreshed %d materialized view(s) in %dms total",
             len(results),
             total_duration,
         )
 
-        for row in results:
-            logger.info(
-                "  • %s: %d rows, %dms",
-                row["materialized_view"],
-                row["rows_refreshed"],
-                row["refresh_duration_ms"],
-            )
-
-        return {
-            "success": True,
-            "materialized_views": [
-                {
-                    "name": row["materialized_view"],
-                    "rows": row["rows_refreshed"],
-                    "duration_ms": row["refresh_duration_ms"],
-                }
-                for row in results
-            ],
-            "error": None,
-        }
-
-    except Exception as e:
-        logger.exception("[Hero Stats Cache] ❌ Refresh failed: %s", e)
+    if errors and not results:
         return {
             "success": False,
             "materialized_views": [],
-            "error": str(e),
+            "error": "; ".join(f"{e['view']}: {e['error']}" for e in errors),
         }
+
+    return {
+        "success": True,
+        "materialized_views": results,
+        "error": None,
+    }
