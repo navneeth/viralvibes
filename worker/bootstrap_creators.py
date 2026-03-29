@@ -26,6 +26,7 @@ from db import (
     queue_invalid_creators_for_retry,
     refresh_category_stats_cache,
     refresh_hero_stats_cache,
+    refresh_total_categories,
     setup_logging,
 )
 
@@ -88,6 +89,11 @@ def _parse_args() -> argparse.Namespace:
         "--no-stats",
         action="store_true",
         help="Skip category and hero stats refresh (Passes 4–5)",
+    )
+    parser.add_argument(
+        "--no-categories",
+        action="store_true",
+        help="Skip total_categories recount (Pass 6). Slow (~4s); safe to skip on frequent runs.",
     )
     return parser.parse_args()
 
@@ -161,6 +167,18 @@ def main() -> None:
             logger.error(f"   ❌ Hero stats refresh failed: {result['error']}")
     else:
         logger.info("── Pass 5: hero stats skipped (--no-stats)")
+
+    # ── 6. Recount total_categories (slow jsonb scan, run infrequently) ───────
+    # Separated from Pass 5 because the jsonb unnest over topic_categories
+    # takes ~4s and exceeds PostgREST's statement timeout when bundled with
+    # the fast materialized view refreshes. Controlled solely by --no-categories
+    # so that --no-stats (which skips Passes 4–5) does not silently disable it.
+    if not args.no_categories:
+        logger.info("── Pass 6: recounting total_categories")
+        count = refresh_total_categories()
+        logger.info(f"   total_categories: {count}")
+    else:
+        logger.info("── Pass 6: total_categories skipped (--no-categories)")
 
     logger.info(f"✅ Bootstrap complete — {total_queued} total creators queued")
 
