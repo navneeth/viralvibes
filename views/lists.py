@@ -6,6 +6,7 @@ Each tab is a different lens on the creators database.
 import pycountry
 from fasthtml.common import *
 from monsterui.all import *
+from urllib.parse import quote
 
 from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
@@ -401,7 +402,7 @@ def _category_group_card(category_data: dict) -> Div:
                 f"{format_number(count)} creators →",
                 cls="ml-auto shrink-0 text-xs font-medium text-primary",
             ),
-            href=f"/lists/category/{slugify(display_name)}",
+            href=f"/lists/category/{quote(display_name, safe='')}",
             cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
         ),
         (
@@ -1669,7 +1670,7 @@ def render_categories_explorer_page(
     for i, (cat_name, count) in enumerate(categories):
         pct = round(count / max_count * 100)
         emoji = get_topic_category_emoji(cat_name)
-        slug = slugify(cat_name)
+        slug = quote(cat_name, safe="")
         bar_cls = bar_colours[i % len(bar_colours)]
 
         bar_rows.append(
