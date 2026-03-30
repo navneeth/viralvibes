@@ -3,6 +3,7 @@ Lists route — curated creator list pages.
 """
 
 import logging
+from urllib.parse import unquote
 
 from fasthtml.common import Div
 
@@ -319,13 +320,16 @@ def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int]
     ``ilike "%term%"`` against ``topic_categories``.
 
     Args:
-        category_slug: Lowercase hyphen-separated category slug from the URL.
+        category_slug: URL-encoded hyphen/space-separated category slug from the URL.
         page: 1-based page number.
 
     Returns:
         ``(creators, total_count, total_pages)`` tuple.
     """
-    category_filter = _unslugify(category_slug)
+    # Decode URL-encoded characters (e.g. %20 for space, %28 for '(') to ensure
+    # categories with spaces or special characters round-trip correctly.
+    decoded_slug = unquote(category_slug)
+    category_filter = _unslugify(decoded_slug)
     result = get_creators(
         category_filter=category_filter,
         sort="subscribers",

@@ -2151,16 +2151,19 @@ def get_creators(
             # - Replace underscores with spaces
             # - Collapse internal whitespace to single spaces
             normalized_category = normalize_category_name(category_filter)
-            # Build a multi-wildcard ILIKE pattern so word-order is preserved but
-            # separators (underscore, space, parens) don't have to match exactly.
-            # e.g. "lifestyle sociology" → "%lifestyle%sociology%" which matches
-            # the DB value "Lifestyle_(sociology)" even though the slug stripped
-            # the parentheses.  Single-word terms fall through to a plain %term%.
-            words = normalized_category.split()
-            ilike_pattern = (
-                "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
-            )
-            query = query.ilike("topic_categories", ilike_pattern)
+            # Guard against empty/whitespace-only category_filter to avoid ilike_pattern
+            # becoming "%%" and unintentionally matching all categories.
+            if normalized_category:
+                # Build a multi-wildcard ILIKE pattern so word-order is preserved but
+                # separators (underscore, space, parens) don't have to match exactly.
+                # e.g. "lifestyle sociology" → "%lifestyle%sociology%" which matches
+                # the DB value "Lifestyle_(sociology)" even though the slug stripped
+                # the parentheses.  Single-word terms fall through to a plain %term%.
+                words = normalized_category.split()
+                ilike_pattern = (
+                    "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
+                )
+                query = query.ilike("topic_categories", ilike_pattern)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
