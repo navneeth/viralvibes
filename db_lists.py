@@ -73,6 +73,8 @@ def _normalize_language_tag(code: str) -> str:
         _normalize_language_tag("iw")     → "he"   # deprecated → Hebrew
         _normalize_language_tag("fil")    → "fil"  # no ISO 639-1 code; kept as-is
     """
+    if not code:
+        return ""
     code = code.lower().strip()
     base = code.split("-")[0]
     return _DEPRECATED_LANGUAGE_CODES.get(base, base)

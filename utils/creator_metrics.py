@@ -366,7 +366,7 @@ def get_language_name(language_code: str) -> str:
         # Strip verbose ISO parentheticals like " (macrolanguage)" or " (individual language)"
         return lang.name.split(" (")[0]
 
-    return language_code.upper()
+    return code.upper()
 
 
 def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:
