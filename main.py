@@ -91,6 +91,7 @@ from routes.creators import creator_profile_route, creators_route
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
+    languages_explorer_route,
     category_detail_more_route,
     category_detail_route,
     country_detail_more_route,
@@ -1149,6 +1150,19 @@ def lists_countries_explorer(req, sess):
     page_content = countries_explorer_route()
     return Titled(
         "Country Explorer - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
+
+
+@rt("/lists/languages")
+def lists_languages_explorer(req, sess):
+    """Visual bar-chart explorer of all content languages."""
+    page_content = languages_explorer_route()
+    return Titled(
+        "Language Explorer - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             page_content,
