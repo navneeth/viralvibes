@@ -703,9 +703,11 @@ def _render_by_language_content(
         DivFullySpaced(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
-                Span(
+                A(
                     (f"{total_languages} languages" if total_languages else f"{shown} languages"),
-                    cls="text-sm font-medium text-foreground",
+                    href="/lists/languages",
+                    cls="text-sm font-medium text-primary hover:underline no-underline",
+                    title="Explore all languages",
                 ),
                 cls="shrink-0 hidden sm:block",
             ),
@@ -1936,6 +1938,190 @@ def render_countries_explorer_page(
     background: rgba(30, 58, 138, 0.4);
     color: rgb(147 197 253);
     border-color: rgb(147 197 253);
+}
+"""
+    )
+
+    return Div(
+        style_tag,
+        header,
+        controls,
+        Card(chart, body_cls="p-4"),
+        js,
+        cls="max-w-3xl mx-auto px-4 py-8",
+    )
+
+
+def render_languages_explorer_page(
+    languages: list[tuple[str, int]],
+) -> Div:
+    """
+    Full-page bar-chart explorer for all content languages in the creator database.
+
+    Each row is a clickable horizontal bar proportional to creator count,
+    with language emoji and two-letter code,
+    linking to the existing /lists/language/{code} detail page.
+    Client-side JS handles search filtering and sort toggling with no
+    extra round-trips.
+
+    Args:
+        languages: List of (language_code, creator_count) tuples,
+                   sorted by count descending (from get_top_languages_with_counts).
+    """
+    if not languages:
+        return Div(
+            P("No languages found.", cls="text-muted-foreground text-center py-16"),
+        )
+
+    max_count = max((c for _, c in languages), default=1)
+    total_creators = sum(c for _, c in languages)
+
+    # ── Header ───────────────────────────────────────────────────────
+    header = Div(
+        A(
+            UkIcon("arrow-left", cls="w-4 h-4 mr-1.5"),
+            "Back to Lists",
+            href="/lists?tab=by-language",
+            cls="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground no-underline transition-colors",
+        ),
+        Div(
+            Div(
+                UkIcon("languages", cls="w-5 h-5 text-emerald-500 mr-2"),
+                H1("Language Explorer", cls="text-2xl font-bold text-foreground"),
+                cls="flex items-center",
+            ),
+            P(
+                f"{len(languages)} languages · {format_number(total_creators)} creators across the database",
+                cls="text-sm text-muted-foreground mt-1",
+            ),
+            cls="mt-4 mb-6",
+        ),
+        cls="mb-2",
+    )
+
+    # ── Search + sort controls ─────────────────────────────────────────
+    controls = Div(
+        Input(
+            type="search",
+            id="lang-search",
+            placeholder="Filter languages…",
+            cls="flex-1 px-4 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300",
+            oninput="filterLanguages()",
+            autocomplete="off",
+        ),
+        Div(
+            Button(
+                UkIcon("arrow-down-wide-narrow", cls="w-4 h-4 mr-1"),
+                "By count",
+                id="sort-count-btn",
+                type="button",
+                onclick="sortLanguages('count')",
+                cls="sort-btn is-active inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
+            ),
+            Button(
+                UkIcon("arrow-down-a-z", cls="w-4 h-4 mr-1"),
+                "A → Z",
+                id="sort-alpha-btn",
+                type="button",
+                onclick="sortLanguages('alpha')",
+                cls="sort-btn inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold border border-border bg-background text-muted-foreground hover:bg-accent transition-colors",
+            ),
+            cls="flex gap-2 shrink-0",
+        ),
+        cls="flex gap-3 items-center mb-6",
+    )
+
+    bar_colours = [
+        "bg-emerald-400 dark:bg-emerald-500",
+        "bg-teal-400 dark:bg-teal-500",
+        "bg-cyan-400 dark:bg-cyan-500",
+        "bg-green-400 dark:bg-green-500",
+        "bg-lime-400 dark:bg-lime-500",
+    ]
+
+    bar_rows = []
+    for i, (language_code, count) in enumerate(languages):
+        pct = round(count / max_count * 100)
+        emoji = get_language_emoji(language_code) or "🗣️"
+        language_name = get_language_name(language_code)
+        bar_cls = bar_colours[i % len(bar_colours)]
+
+        bar_rows.append(
+            A(
+                # Label column
+                Div(
+                    Span(emoji, cls="text-base w-6 shrink-0 text-center"),
+                    Span(
+                        language_code.upper(),
+                        cls="text-xs font-mono font-semibold text-muted-foreground w-8 shrink-0",
+                    ),
+                    Span(
+                        language_name,
+                        cls="text-sm font-medium text-foreground truncate lang-name",
+                    ),
+                    cls="flex items-center gap-2 w-56 sm:w-64 shrink-0",
+                ),
+                # Bar
+                Div(
+                    Div(
+                        cls=f"h-full {bar_cls} rounded-r-full transition-all duration-300",
+                        style=f"width:{pct}%",
+                    ),
+                    cls="flex-1 h-5 bg-accent rounded-full overflow-hidden",
+                ),
+                # Count
+                Span(
+                    format_number(count),
+                    cls="text-xs font-semibold text-muted-foreground w-14 text-right shrink-0",
+                ),
+                href=f"/lists/language/{language_code.lower()}",
+                data_name=f"{language_code.lower()} {language_name.lower()}",
+                data_count=str(count),
+                cls="lang-row flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent transition-colors no-underline group",
+            )
+        )
+
+    chart = Div(
+        *bar_rows,
+        id="lang-chart",
+        cls="space-y-1",
+    )
+
+    js = Script(
+        """
+    function filterLanguages() {
+        const q = document.getElementById('lang-search').value.toLowerCase();
+        document.querySelectorAll('.lang-row').forEach(row => {
+            row.style.display = row.dataset.name.includes(q) ? '' : 'none';
+        });
+    }
+    function sortLanguages(mode) {
+        const chart = document.getElementById('lang-chart');
+        const rows  = Array.from(chart.querySelectorAll('.lang-row'));
+        rows.sort((a, b) =>
+            mode === 'alpha'
+                ? a.dataset.name.localeCompare(b.dataset.name)
+                : parseInt(b.dataset.count) - parseInt(a.dataset.count)
+        );
+        rows.forEach(r => chart.appendChild(r));
+        document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('is-active'));
+        document.getElementById(mode === 'alpha' ? 'sort-alpha-btn' : 'sort-count-btn')
+                .classList.add('is-active');
+    }
+    """
+    )
+
+    style_tag = Style(
+        """
+.sort-btn.is-active {
+    background: rgb(209 250 229);
+    color: rgb(6 95 70);
+    border-color: rgb(110 231 183);
+}
+.dark .sort-btn.is-active {
+    background: rgba(6, 78, 59, 0.4);
+    color: rgb(110 231 183);
+    border-color: rgb(110 231 183);
 }
 """
     )

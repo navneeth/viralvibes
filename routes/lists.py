@@ -18,6 +18,7 @@ from db_lists import (
     get_rising_creators,
     get_top_categories_with_counts,
     get_top_countries_with_counts,
+    get_top_languages_with_counts,
     get_top_rated_creators,
     get_veteran_creators,
 )
@@ -28,6 +29,7 @@ from views.lists import (
     render_more_languages,
     render_categories_explorer_page,
     render_countries_explorer_page,
+    render_languages_explorer_page,
     render_country_detail_page,
     render_country_creators_rows,
     render_category_detail_page,
@@ -521,3 +523,15 @@ def countries_explorer_route():
     """
     countries = get_top_countries_with_counts(limit=500)  # All countries
     return render_countries_explorer_page(countries)
+
+
+def languages_explorer_route():
+    """
+    GET /lists/languages \u2014 Visual bar-chart explorer of all content languages.
+
+    Fetches all languages with creator counts (server-side RPC,
+    zero row transfer) and delegates rendering to
+    render_languages_explorer_page().
+    """
+    languages = get_top_languages_with_counts(limit=500)
+    return render_languages_explorer_page(languages)
