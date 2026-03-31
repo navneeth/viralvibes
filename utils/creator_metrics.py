@@ -4,6 +4,7 @@ Creator metrics calculation helpers.
 Extracts calculation logic from views to keep components clean.
 """
 
+import pycountry
 from typing import Optional, Tuple
 
 
@@ -171,38 +172,201 @@ def get_sync_status_badge(sync_status: str) -> Optional[Tuple[str, str, str]]:
     return badge_map.get(sync_status, None)
 
 
+# Curated display names for the most common YouTube content languages.
+# Keys are base ISO 639-1 codes (post-normalisation by merge_language_variants).
+# Values show the English name so the UI is readable to all users.
+# pycountry handles the long tail automatically.
+_LANGUAGE_NAMES: dict[str, str] = {
+    "af": "Afrikaans",
+    "am": "Amharic",
+    "ar": "Arabic",
+    "as": "Assamese",
+    "az": "Azerbaijani",
+    "be": "Belarusian",
+    "bg": "Bulgarian",
+    "bn": "Bengali",
+    "bs": "Bosnian",
+    "cs": "Czech",
+    "da": "Danish",
+    "de": "German",
+    "el": "Greek",
+    "en": "English",
+    "es": "Spanish",
+    "et": "Estonian",
+    "eu": "Basque",
+    "fa": "Persian",
+    "fi": "Finnish",
+    "fil": "Filipino",
+    "fr": "French",
+    "gl": "Galician",
+    "gu": "Gujarati",
+    "he": "Hebrew",
+    "hi": "Hindi",
+    "hr": "Croatian",
+    "hu": "Hungarian",
+    "hy": "Armenian",
+    "id": "Indonesian",
+    "is": "Icelandic",
+    "it": "Italian",
+    "ja": "Japanese",
+    "ka": "Georgian",
+    "kk": "Kazakh",
+    "km": "Khmer",
+    "kn": "Kannada",
+    "ko": "Korean",
+    "ky": "Kyrgyz",
+    "lo": "Lao",
+    "lt": "Lithuanian",
+    "lv": "Latvian",
+    "mk": "Macedonian",
+    "ml": "Malayalam",
+    "mn": "Mongolian",
+    "mr": "Marathi",
+    "ms": "Malay",
+    "my": "Burmese",
+    "ne": "Nepali",
+    "nl": "Dutch",
+    "no": "Norwegian",
+    "or": "Odia",
+    "pa": "Punjabi",
+    "pl": "Polish",
+    "pt": "Portuguese",
+    "ro": "Romanian",
+    "ru": "Russian",
+    "si": "Sinhala",
+    "sk": "Slovak",
+    "sl": "Slovenian",
+    "sq": "Albanian",
+    "sr": "Serbian",
+    "sv": "Swedish",
+    "sw": "Swahili",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "th": "Thai",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+    "ur": "Urdu",
+    "uz": "Uzbek",
+    "vi": "Vietnamese",
+    "yi": "Yiddish",
+    "zh": "Chinese",
+    "zu": "Zulu",
+}
+
+# Representative flag emoji per language (base code).
+# Preference: most populous speaker country, or most culturally associated flag.
+_LANGUAGE_EMOJIS: dict[str, str] = {
+    "af": "🇿🇦",
+    "am": "🇪🇹",
+    "ar": "🇸🇦",
+    "as": "🇮🇳",
+    "az": "🇦🇿",
+    "be": "🇧🇾",
+    "bg": "🇧🇬",
+    "bn": "🇧🇩",
+    "bs": "🇧🇦",
+    "cs": "🇨🇿",
+    "da": "🇩🇰",
+    "de": "🇩🇪",
+    "el": "🇬🇷",
+    "en": "🇺🇸",
+    "es": "🇪🇸",
+    "et": "🇪🇪",
+    "eu": "🏴",
+    "fa": "🇮🇷",
+    "fi": "🇫🇮",
+    "fil": "🇵🇭",
+    "fr": "🇫🇷",
+    "gl": "🇪🇸",
+    "gu": "🇮🇳",
+    "he": "🇮🇱",
+    "hi": "🇮🇳",
+    "hr": "🇭🇷",
+    "hu": "🇭🇺",
+    "hy": "🇦🇲",
+    "id": "🇮🇩",
+    "is": "🇮🇸",
+    "it": "🇮🇹",
+    "ja": "🇯🇵",
+    "ka": "🇬🇪",
+    "kk": "🇰🇿",
+    "km": "🇰🇭",
+    "kn": "🇮🇳",
+    "ko": "🇰🇷",
+    "ky": "🇰🇬",
+    "lo": "🇱🇦",
+    "lt": "🇱🇹",
+    "lv": "🇱🇻",
+    "mk": "🇲🇰",
+    "ml": "🇮🇳",
+    "mn": "🇲🇳",
+    "mr": "🇮🇳",
+    "ms": "🇲🇾",
+    "my": "🇲🇲",
+    "ne": "🇳🇵",
+    "nl": "🇳🇱",
+    "no": "🇳🇴",
+    "or": "🇮🇳",
+    "pa": "🇮🇳",
+    "pl": "🇵🇱",
+    "pt": "🇧🇷",
+    "ro": "🇷🇴",
+    "ru": "🇷🇺",
+    "si": "🇱🇰",
+    "sk": "🇸🇰",
+    "sl": "🇸🇮",
+    "sq": "🇦🇱",
+    "sr": "🇷🇸",
+    "sv": "🇸🇪",
+    "sw": "🇰🇪",
+    "ta": "🇱🇰",
+    "te": "🇮🇳",
+    "th": "🇹🇭",
+    "tr": "🇹🇷",
+    "uk": "🇺🇦",
+    "ur": "🇵🇰",
+    "uz": "🇺🇿",
+    "vi": "🇻🇳",
+    "yi": "🌍",
+    "zh": "🇨🇳",
+    "zu": "🇿🇦",
+}
+
+
 def get_language_emoji(language_code: str) -> str:
-    """Get emoji flag for language code."""
-    language_emojis = {
-        "en": "🇺🇸",
-        "ja": "🇯🇵",
-        "es": "🇪🇸",
-        "ko": "🇰🇷",
-        "zh": "🇨🇳",
-        "ru": "🇷🇺",
-        "fr": "🇫🇷",
-        "de": "🇩🇪",
-        "pt": "🇵🇹",
-        "it": "🇮🇹",
-    }
-    return language_emojis.get(language_code, "🌍")
+    """
+    Return a representative flag emoji for a base ISO 639-1 language code.
+
+    Falls back to 🌍 for codes not in the curated table.
+    """
+    return _LANGUAGE_EMOJIS.get(language_code.lower(), "🌍")
 
 
 def get_language_name(language_code: str) -> str:
-    """Get full language name from code."""
-    language_names = {
-        "en": "English",
-        "ja": "日本語",
-        "es": "Español",
-        "ko": "한국어",
-        "zh": "中文",
-        "ru": "Русский",
-        "fr": "Français",
-        "de": "Deutsch",
-        "pt": "Português",
-        "it": "Italiano",
-    }
-    return language_names.get(language_code, language_code)
+    """
+    Return the English display name for a base ISO 639-1 language code.
+
+    Lookup order:
+    1. Curated ``_LANGUAGE_NAMES`` dict (fast, covers all YouTube-common codes).
+    2. ``pycountry.languages`` by alpha_2 (ISO 639-1 two-letter codes).
+    3. ``pycountry.languages`` by alpha_3 (ISO 639-2/3 three-letter codes,
+       e.g. ``fil`` for Filipino).
+    4. Uppercase code as last resort (e.g. ``"XYZ"``).
+
+    The ISO name is cleaned by stripping any parenthetical qualifier
+    (e.g. ``"Malay (individual language)"`` → ``"Malay"`` ).
+    """
+    code = language_code.lower()
+    if code in _LANGUAGE_NAMES:
+        return _LANGUAGE_NAMES[code]
+
+    # pycountry fallback — try alpha_2 first, then alpha_3 for longer codes
+    lang = pycountry.languages.get(alpha_2=code) or pycountry.languages.get(alpha_3=code)
+    if lang:
+        # Strip verbose ISO parentheticals like " (macrolanguage)" or " (individual language)"
+        return lang.name.split(" (")[0]
+
+    return language_code.upper()
 
 
 def get_activity_badge(monthly_uploads: Optional[float]) -> Optional[str]:

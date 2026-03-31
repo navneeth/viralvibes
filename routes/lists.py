@@ -21,6 +21,7 @@ from db_lists import (
     get_top_languages_with_counts,
     get_top_rated_creators,
     get_veteran_creators,
+    merge_language_variants,
 )
 from views.lists import (
     render_lists_page,
@@ -530,8 +531,10 @@ def languages_explorer_route():
     GET /lists/languages \u2014 Visual bar-chart explorer of all content languages.
 
     Fetches all languages with creator counts (server-side RPC,
-    zero row transfer) and delegates rendering to
-    render_languages_explorer_page().
+    zero row transfer), merges BCP-47 region variants into their base
+    ISO 639-1 language code (e.g. en + en-GB + en-IN → en), then
+    delegates rendering to render_languages_explorer_page().
     """
-    languages = get_top_languages_with_counts(limit=500)
+    raw = get_top_languages_with_counts(limit=500)
+    languages = merge_language_variants(raw)
     return render_languages_explorer_page(languages)

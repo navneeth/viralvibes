@@ -424,7 +424,7 @@ def _language_group_card(language_data: dict) -> Div:
     creators = language_data["creators"]
 
     language_name = get_language_name(language_code)
-    emoji = get_language_emoji(language_code) or "🗣️"
+    emoji = get_language_emoji(language_code)
 
     return Div(
         A(
@@ -2042,7 +2042,7 @@ def render_languages_explorer_page(
     bar_rows = []
     for i, (language_code, count) in enumerate(languages):
         pct = round(count / max_count * 100)
-        emoji = get_language_emoji(language_code) or "🗣️"
+        emoji = get_language_emoji(language_code)
         language_name = get_language_name(language_code)
         bar_cls = bar_colours[i % len(bar_colours)]
 

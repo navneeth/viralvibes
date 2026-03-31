@@ -32,6 +32,82 @@ _EMPTY_META: dict[str, int] = {
 }
 
 
+# ─── BCP-47 language-tag normalisation ──────────────────────────────────────
+# YouTube's Data API returns ``defaultLanguage`` as BCP-47 tags, which mix:
+#   • ISO 639-1 base codes         : "en", "es", "zh"
+#   • Region-qualified variants    : "en-GB", "en-IN", "es-419", "zh-CN"
+#   • Deprecated ISO 639-1 codes   : "iw" (Hebrew), "in" (Indonesian), "ji" (Yiddish)
+#
+# We normalise to the base language code for display purposes so that the
+# Language Explorer page shows one "English" bar instead of separate
+# "en", "en-GB", "en-IN" bars.
+#
+# Sources:
+#   BCP-47 RFC 5646 §2.1 — subtag structure
+#   ISO 639-1:2002 — alpha-2 language codes
+#   YouTube I18nLanguage resource (languages.list API)
+
+# YouTube (and some pycountry fallbacks) still emit these deprecated codes.
+_DEPRECATED_LANGUAGE_CODES: dict[str, str] = {
+    "iw": "he",  # Hebrew  — superseded in ISO 639-1:2002
+    "in": "id",  # Indonesian — superseded in ISO 639-1:2002
+    "ji": "yi",  # Yiddish — superseded in ISO 639-1:2002
+    "mo": "ro",  # Moldavian — merged into Romanian (ISO 639-3)
+}
+
+
+def _normalize_language_tag(code: str) -> str:
+    """
+    Reduce a BCP-47 language tag to its base ISO 639-1 language code.
+
+    Algorithm (RFC 5646 §2.1):
+      1. Lowercase and strip whitespace.
+      2. Split on the first ``-`` separator; take the primary subtag.
+      3. Remap any deprecated primary subtag to its modern successor.
+
+    Examples::
+
+        _normalize_language_tag("en-GB")  → "en"
+        _normalize_language_tag("es-419") → "es"
+        _normalize_language_tag("zh-CN")  → "zh"
+        _normalize_language_tag("iw")     → "he"   # deprecated → Hebrew
+        _normalize_language_tag("fil")    → "fil"  # no ISO 639-1 code; kept as-is
+    """
+    code = code.lower().strip()
+    base = code.split("-")[0]
+    return _DEPRECATED_LANGUAGE_CODES.get(base, base)
+
+
+def merge_language_variants(
+    languages: list[tuple[str, int]],
+) -> list[tuple[str, int]]:
+    """
+    Merge BCP-47 region-specific variants into their base language code.
+
+    All region subtags are stripped and counts are summed so the Language
+    Explorer shows one bar per language family rather than one per locale.
+
+    Example (raw DB input → merged output)::
+
+        [("en", 2600), ("en-GB", 313), ("en-IN", 79),
+         ("es", 39),   ("es-419", 40), ("es-US", 9),
+         ("iw", 5)]                      # deprecated Hebrew code
+
+        → [("en", 2992), ("es", 88), ("he", 5), …]
+
+    Args:
+        languages: Raw ``(language_code, count)`` tuples from the DB.
+
+    Returns:
+        Deduplicated list sorted by count descending.
+    """
+    merged: dict[str, int] = {}
+    for code, count in languages:
+        base = _normalize_language_tag(code)
+        merged[base] = merged.get(base, 0) + count
+    return sorted(merged.items(), key=lambda x: x[1], reverse=True)
+
+
 def _count_distinct_languages() -> int:
     """
     Return exact COUNT(DISTINCT default_language) for synced creators.
