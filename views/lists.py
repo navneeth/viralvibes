@@ -1973,7 +1973,7 @@ def render_languages_explorer_page(
             P("No languages found.", cls="text-muted-foreground text-center py-16"),
         )
 
-    max_count = max((c for _, c in languages), default=1)
+    max_count = max(1, max((c for _, c in languages), default=0))
     total_creators = sum(c for _, c in languages)
 
     # ── Header ───────────────────────────────────────────────────────
@@ -2075,7 +2075,7 @@ def render_languages_explorer_page(
                     cls="text-xs font-semibold text-muted-foreground w-14 text-right shrink-0",
                 ),
                 href=f"/lists/language/{language_code.lower()}",
-                data_name=f"{language_code.lower()} {language_name.lower()}",
+                data_name=f"{language_code.lower()} {(language_name or language_code).lower()}",
                 data_count=str(count),
                 cls="lang-row flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent transition-colors no-underline group",
             )
