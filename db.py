@@ -1025,7 +1025,7 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
         }
 
         if next_retry:
-            update_payload["next_retry_at"] = next_retry
+            update_payload["retry_at"] = next_retry
 
         response = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
