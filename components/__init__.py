@@ -11,8 +11,6 @@ from components.auth_components import (
     OAuthLoadingState,
     OneTapLoginCard,
     PrivacyDisclaimer,
-    ShieldCheckIcon,
-    TrustBadge,
 )
 from components.base import (
     # Base structural helpers
