@@ -4,6 +4,8 @@ Authentication UI components — Google-only sign-in.
 Clean, professional SaaS-style login card.
 """
 
+from urllib.parse import urlencode
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -145,7 +147,7 @@ def OneTapLoginCard(
         - Accessibility optimized
     """
 
-    login_href = oauth_login_link + (f"&state={return_url}" if return_url else "")
+    login_href = oauth_login_link + ("&" + urlencode({"state": return_url}) if return_url else "")
 
     card_header = Div(
         # Logo
@@ -233,7 +235,8 @@ def LoginPrompt(
             UkIcon("lock", cls="auth-prompt-icon"),
             P(message, cls="auth-prompt-message"),
             GoogleSignInButton(
-                href=oauth_login_link + (f"&state={return_url}" if return_url else ""),
+                href=oauth_login_link
+                + ("&" + urlencode({"state": return_url}) if return_url else ""),
                 text="Sign in with Google",
                 full_width=not compact,
             ),
