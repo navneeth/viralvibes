@@ -1282,31 +1282,30 @@ def _reset_stuck_processing_jobs() -> None:
             job_id = job["id"]
             creator_id = job["creator_id"]
             try:
-                # Check if a pending job already exists for this creator.
-                existing = (
-                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-                    .select("id")
-                    .eq("creator_id", creator_id)
-                    .eq("status", JobStatus.PENDING.value)
-                    .limit(1)
-                    .execute()
-                )
-                if existing.data:
-                    # A pending job already covers this creator — drop the
-                    # orphaned processing record to avoid a constraint conflict.
-                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE).delete().eq(
-                        "id", job_id
-                    ).execute()
-                    deleted_count += 1
-                    logger.debug(
-                        f"Deleted orphaned processing job {job_id} for creator "
-                        f"{creator_id} (pending job already exists)"
-                    )
-                else:
+                # Try to reset the processing job to pending.
+                # This may fail if another worker created a pending job for this
+                # creator between our existence check and now (rare race condition).
+                # If so, catch the unique constraint error and delete this job instead.
+                try:
                     supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
                         {"status": JobStatus.PENDING.value, "retry_at": None}
                     ).eq("id", job_id).execute()
                     reset_count += 1
+                except Exception as update_e:
+                    # If unique constraint violation, another pending job was created
+                    # between our check and this update. Delete this orphaned job.
+                    if "unique" in str(update_e).lower() or "duplicate" in str(update_e).lower():
+                        supabase_client.table(CREATOR_SYNC_JOBS_TABLE).delete().eq(
+                            "id", job_id
+                        ).execute()
+                        deleted_count += 1
+                        logger.debug(
+                            f"Deleted orphaned processing job {job_id} for creator "
+                            f"{creator_id} (pending job created by another worker)"
+                        )
+                    else:
+                        # Other error — re-raise
+                        raise
             except Exception as e:
                 logger.error(
                     f"  ❌ Could not reset/delete stuck job {job_id} "
