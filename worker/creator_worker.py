@@ -1247,6 +1247,36 @@ async def handle_sync_job(
 # =============================================================================
 
 
+def _reset_stuck_processing_jobs() -> None:
+    """
+    Reset jobs left in 'processing' status by a previously crashed worker.
+
+    A segfault or SIGABRT after mark_creator_sync_processing() but before
+    mark_creator_sync_completed/failed() leaves the job permanently invisible
+    to _fetch_pending_jobs (which only polls status='pending').
+
+    Safe to run on every startup: a fresh process cannot legitimately have
+    a job in 'processing' since EXIT_AFTER_JOB=True means the previous process
+    has already exited before this one starts.
+    """
+    if not supabase_client:
+        return
+    try:
+        resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .update({"status": JobStatus.PENDING.value, "retry_at": None})
+            .eq("status", JobStatus.PROCESSING.value)
+            .execute()
+        )
+        count = len(resp.data) if resp.data else 0
+        if count:
+            logger.warning(
+                f"⚠️  Reset {count} orphaned 'processing' job(s) → 'pending' (prior crash detected)"
+            )
+    except Exception as e:
+        logger.error(f"  ❌ Could not reset stuck processing jobs: {e}")
+
+
 async def init():
     global youtube_resolver, supabase_client
 
@@ -1291,6 +1321,13 @@ async def init():
 
     metrics.start_time = time.time()
     logger.info("✅ Worker initialization complete")
+
+    # Reset orphaned 'processing' jobs left behind by crashed processes.
+    # Each worker process marks a job 'processing' before fetching from YouTube.
+    # A segfault/SIGABRT after that point leaves the job permanently stuck because
+    # _fetch_pending_jobs only polls status='pending'. Reset them on every startup
+    # so they re-enter the queue and are retried by the next iteration.
+    _reset_stuck_processing_jobs()
 
     # Run DB diagnosis on first startup only.
     # When the bash loop restarts the process 500 times, running 4 HTTP
