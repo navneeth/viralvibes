@@ -1,22 +1,24 @@
 """
 One-Tap Login Components
-Material Design 3 inspired authentication UI components.
-Designed for minimal friction and maximum trust.
+Authentication UI components — Google-only sign-in.
+Clean, professional SaaS-style login card.
 """
+
+from urllib.parse import urlencode
 
 from fasthtml.common import *
 from monsterui.all import *
-from constants import AUTH_SIGNUP_EMAIL, AUTH_LOGIN
 
 
 # =============================================================================
 # Google Brand Assets (Official SVG)
 # =============================================================================
-def GoogleGLogo(size: int = 24):
-    """Official Google 'G' logo SVG.
-
+def GoogleGLogo(size: int = 20):
+    """
+    Official Google 'G' logo SVG per brand guidelines.
     Source: Google Brand Resource Center
     https://developers.google.com/identity/branding-guidelines
+
     """
     return Svg(
         Path(
@@ -39,52 +41,25 @@ def GoogleGLogo(size: int = 24):
         width=str(size),
         height=str(size),
         style="flex-shrink: 0;",
-    )
-
-
-def ShieldCheckIcon(size: int = 16):
-    """Trust badge icon - shield with checkmark."""
-    return Svg(
-        Path(
-            d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z",
-            fill="none",
-            stroke="currentColor",
-            stroke_width="2",
-        ),
-        Path(
-            d="M9 12l2 2 4-4",
-            fill="none",
-            stroke="currentColor",
-            stroke_width="2",
-            stroke_linecap="round",
-            stroke_linejoin="round",
-        ),
-        viewBox="0 0 24 24",
-        width=str(size),
-        height=str(size),
         **{"aria-hidden": "true"},
     )
 
 
 # =============================================================================
-# Trust Badges & Micro-copy
+# Legal footer
 # =============================================================================
-def TrustBadge(icon=None, text: str = "No credit card required"):
-    """Display trust signal below CTA button."""
-    return Div(
-        icon or ShieldCheckIcon(16),
-        Span(text, cls="auth-trust-text"),
-        cls="auth-trust-badge",
-    )
-
-
 def PrivacyDisclaimer():
-    """Terms & Privacy links."""
     return P(
-        "By continuing, you acknowledge that you have read and understood, and agree to ",
-        A("Terms & Conditions", href="/terms", target="_blank", cls="auth-link"),
+        "By continuing, you agree to our ",
+        A("Terms", href="/terms", target="_blank", rel="noopener noreferrer", cls="auth-link"),
         " and ",
-        A("Privacy Policy", href="/privacy", target="_blank", cls="auth-link"),
+        A(
+            "Privacy Policy",
+            href="/privacy",
+            target="_blank",
+            rel="noopener noreferrer",
+            cls="auth-link",
+        ),
         ".",
         cls="auth-disclaimer",
     )
@@ -93,65 +68,20 @@ def PrivacyDisclaimer():
 # =============================================================================
 # Google Sign-In Button (Official Design)
 # =============================================================================
-def GoogleSignInButton(
-    href: str,
-    text: str = "Continue with Google",
-    full_width: bool = True,
-):
-    """Official Google Sign-In button following brand guidelines.
-
-    References:
-    - https://developers.google.com/identity/branding-guidelines
-    - Material Design 3 elevated button specs
-    """
+def GoogleSignInButton(href: str, text: str = "Continue with Google", full_width: bool = True):
+    """Google Sign-In button per brand guidelines (white, bordered)."""
+    cls = "auth-google-btn auth-btn-full" if full_width else "auth-google-btn"
     return A(
         GoogleGLogo(20),
         Span(text, cls="auth-btn-text"),
         href=href,
-        cls=f"auth-google-btn {'auth-btn-full' if full_width else ''}",
+        cls=cls,
         **{"data-test": "google-signin-btn"},
     )
 
 
-def EmailSignInButton(
-    href: str = None,
-    text: str = "Continue with Email",
-    full_width: bool = True,
-):
-    """Email/Magic link sign-in button - alternative to Google OAuth.
-
-    Provides users who don't want to use Google OAuth with an email-based option.
-    """
-    if href is None:
-        href = AUTH_SIGNUP_EMAIL
-
-    return A(
-        # Email icon
-        Svg(
-            Path(
-                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
-                fill="none",
-                stroke="currentColor",
-                stroke_width="2",
-                stroke_linecap="round",
-                stroke_linejoin="round",
-            ),
-            viewBox="0 0 24 24",
-            width="20",
-            height="20",
-            style="flex-shrink: 0;",
-            **{"aria-hidden": "true"},
-        ),
-        Span(text, cls="auth-btn-text"),
-        href=href,
-        cls=f"auth-email-btn {'auth-btn-full' if full_width else ''}",
-        role="button",
-        **{"data-test": "email-signin-btn", "aria-label": text},
-    )
-
-
 # =============================================================================
-# Account Chooser (Return User Flow)
+# Account Chooser (returning user)
 # =============================================================================
 def AccountChooser(email: str, oauth_login_link: str, avatar_url: str = None, user_id: str = None):
     """Show existing account chip for returning users.
@@ -165,11 +95,7 @@ def AccountChooser(email: str, oauth_login_link: str, avatar_url: str = None, us
     return A(
         # Avatar
         (
-            Img(
-                src=avatar_url,
-                alt=f"{email} avatar",
-                cls="auth-avatar",
-            )
+            Img(src=avatar_url, alt=f"{email} avatar", cls="auth-avatar")
             if avatar_url
             else Div(
                 Span(email[0].upper(), cls="auth-avatar-initial"),
@@ -189,7 +115,7 @@ def AccountChooser(email: str, oauth_login_link: str, avatar_url: str = None, us
 
 
 # =============================================================================
-# Main One-Tap Login Card
+# Main Login Card
 # =============================================================================
 def OneTapLoginCard(
     oauth_login_link: str,
@@ -200,7 +126,9 @@ def OneTapLoginCard(
     remembered_avatar: str = None,
     remembered_user_id: str = None,
 ):
-    """One-Tap centered login card with Material Design 3 styling.
+    """
+    Professional Google-only sign-in card.
+    One-Tap centered login card with Material Design 3 styling.
 
     Args:
         oauth_login_link: Google OAuth URL (from oauth.login_link(req))
@@ -219,22 +147,22 @@ def OneTapLoginCard(
         - Accessibility optimized
     """
 
-    # Build the card header
+    login_href = oauth_login_link + ("&" + urlencode({"state": return_url}) if return_url else "")
+
     card_header = Div(
         # Logo
         (
             Img(src=logo_src, alt=f"{site_name} logo", cls="auth-logo")
             if logo_src
-            else H1(site_name, cls="auth-brand")
+            else Span(site_name, cls="auth-brand")
         ),
-        # Headline
-        H2(
-            f"Sign in to {site_name}" if not remembered_email else "Welcome back",
+        H1(
+            "Welcome back" if remembered_email else "Sign in",
             cls="auth-headline",
         ),
         # Subheadline
         P(
-            "Analyze YouTube playlists instantly",
+            "Analyze and discover top YouTube creators.",
             cls="auth-subheadline",
         ),
         cls="auth-header",
@@ -246,46 +174,28 @@ def OneTapLoginCard(
         account_section = Div(
             AccountChooser(
                 email=remembered_email,
-                oauth_login_link=oauth_login_link + (f"&state={return_url}" if return_url else ""),
+                oauth_login_link=login_href,
                 avatar_url=remembered_avatar,
                 user_id=remembered_user_id,
             ),
-            P("or", cls="auth-divider-text"),
+            Div(
+                Div(cls="auth-divider-line"),
+                Span("or continue with", cls="auth-divider-label"),
+                Div(cls="auth-divider-line"),
+                cls="auth-divider",
+            ),
             cls="auth-account-section",
         )
 
     # Primary CTA
     cta_section = Div(
-        GoogleSignInButton(
-            href=oauth_login_link + (f"&state={return_url}" if return_url else ""),
-            text="Continue with Google",
-            full_width=True,
-        ),
-        EmailSignInButton(
-            href="/sign-up/email" + (f"?return_url={return_url}" if return_url else ""),
-            text="Continue with Email",
-            full_width=True,
-        ),
-        P(
-            "You can use a Google account or a magic link to proceed",
-            cls="auth-helper-text",
-        ),
-        TrustBadge(text="No credit card required • Free forever"),
+        GoogleSignInButton(href=login_href, text="Continue with Google", full_width=True),
         cls="auth-cta-section",
     )
 
     # Footer
     card_footer = Div(
         PrivacyDisclaimer(),
-        # "Already have an account?" link
-        P(
-            A(
-                "Already have an account? Log in",
-                href=AUTH_LOGIN,
-                cls="auth-login-link",
-            ),
-            cls="auth-login-prompt",
-        ),
         cls="auth-footer",
     )
 
@@ -304,7 +214,7 @@ def OneTapLoginCard(
 
 
 # =============================================================================
-# Friction Point Login Prompt (Inline)
+# Inline Login Prompt (friction points)
 # =============================================================================
 def LoginPrompt(
     oauth_login_link: str,
@@ -325,7 +235,8 @@ def LoginPrompt(
             UkIcon("lock", cls="auth-prompt-icon"),
             P(message, cls="auth-prompt-message"),
             GoogleSignInButton(
-                href=oauth_login_link + (f"&state={return_url}" if return_url else ""),
+                href=oauth_login_link
+                + ("&" + urlencode({"state": return_url}) if return_url else ""),
                 text="Sign in with Google",
                 full_width=not compact,
             ),
@@ -336,7 +247,7 @@ def LoginPrompt(
 
 
 # =============================================================================
-# Loading State (OAuth Redirect)
+# Loading State (OAuth redirect)
 # =============================================================================
 def OAuthLoadingState(message: str = "Signing you in..."):
     """Show spinner during OAuth redirect."""
