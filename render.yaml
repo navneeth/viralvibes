@@ -44,6 +44,10 @@ services:
         value: "1"
       - key: COOKIES_FILE
         value: /tmp/cookies.txt
+      # Skip the expensive DB diagnosis block in each subprocess (it runs in the
+      # supervisor on startup; re-running it per-job wastes ~9s on timeout queries).
+      - key: CREATOR_WORKER_SKIP_DIAGNOSIS
+        value: "true"
       - key: MIN_VIDEO_DELAY
         value: "3.0"
       - key: MAX_VIDEO_DELAY
