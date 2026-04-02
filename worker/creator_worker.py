@@ -1258,20 +1258,65 @@ def _reset_stuck_processing_jobs() -> None:
     Safe to run on every startup: a fresh process cannot legitimately have
     a job in 'processing' since EXIT_AFTER_JOB=True means the previous process
     has already exited before this one starts.
+
+    Handles the unique constraint idx_creator_sync_jobs_pending_unique:
+    When a pending job already exists for the same creator, deletes the
+    orphaned processing job rather than trying to reset it (which would
+    violate the constraint). The existing pending job will handle retrying.
     """
     if not supabase_client:
         return
     try:
-        resp = (
+        stuck = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .update({"status": JobStatus.PENDING.value, "retry_at": None})
+            .select("id, creator_id")
             .eq("status", JobStatus.PROCESSING.value)
             .execute()
         )
-        count = len(resp.data) if resp.data else 0
-        if count:
+        if not stuck.data:
+            return
+
+        reset_count = 0
+        deleted_count = 0
+        for job in stuck.data:
+            job_id = job["id"]
+            creator_id = job["creator_id"]
+            try:
+                # Check if a pending job already exists for this creator.
+                existing = (
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                    .select("id")
+                    .eq("creator_id", creator_id)
+                    .eq("status", JobStatus.PENDING.value)
+                    .limit(1)
+                    .execute()
+                )
+                if existing.data:
+                    # A pending job already covers this creator — drop the
+                    # orphaned processing record to avoid a constraint conflict.
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE).delete().eq(
+                        "id", job_id
+                    ).execute()
+                    deleted_count += 1
+                    logger.debug(
+                        f"Deleted orphaned processing job {job_id} for creator "
+                        f"{creator_id} (pending job already exists)"
+                    )
+                else:
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
+                        {"status": JobStatus.PENDING.value, "retry_at": None}
+                    ).eq("id", job_id).execute()
+                    reset_count += 1
+            except Exception as e:
+                logger.error(
+                    f"  ❌ Could not reset/delete stuck job {job_id} "
+                    f"(creator={creator_id}): {e}"
+                )
+
+        if reset_count or deleted_count:
             logger.warning(
-                f"⚠️  Reset {count} orphaned 'processing' job(s) → 'pending' (prior crash detected)"
+                f"⚠️  Orphaned 'processing' jobs recovered (prior crash detected): "
+                f"{reset_count} reset → pending, {deleted_count} deleted (had pending duplicate)"
             )
     except Exception as e:
         logger.error(f"  ❌ Could not reset stuck processing jobs: {e}")
