@@ -1140,6 +1140,8 @@ async def handle_sync_job(
                     "job will stay in 'processing' and be re-queued on next startup. "
                     "Check SUPABASE_SERVICE_KEY is set and RLS allows UPDATE on creator_sync_jobs."
                 )
+                metrics.syncs_failed += 1
+                return False
             logger.info(f"{job_tag} ✅ Sync COMPLETED successfully for {channel_id}")
             metrics.syncs_processed += 1
             return True
