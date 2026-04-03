@@ -191,6 +191,19 @@ class YouTubeResolver:
             )
         return self._youtube_client
 
+    def _reset_client(self) -> None:
+        """
+        Discard the cached httplib2 client so the next call to _get_youtube_client()
+        builds a fresh one with a clean SSL connection.
+
+        httplib2 reuses its underlying HTTP connection across API calls.  After a
+        channels.list call the SSL session can be left in a corrupted state, causing
+        subsequent playlistItems.list / videos.list requests to fail with
+        CIPHER_OPERATION_FAILED or DECRYPTION_FAILED_OR_BAD_RECORD_MAC.  Rebuild
+        the client between calls to force a fresh TCP + SSL handshake.
+        """
+        self._youtube_client = None
+
     async def _execute_async(self, request):
         """
         Execute YouTube API request asynchronously with internal locking.
@@ -371,6 +384,10 @@ class YouTubeResolver:
         if not self._validator.is_valid(channel_id):
             return empty_result
 
+        # Force a fresh httplib2 connection.  The previous channels.list call may
+        # have left the SSL session in a corrupted state, causing
+        # CIPHER_OPERATION_FAILED / DECRYPTION_FAILED_OR_BAD_RECORD_MAC on reuse.
+        self._reset_client()
         youtube = self._get_youtube_client()
         # Channels' uploads playlist: replace leading "UC" with "UU"
         uploads_playlist_id = "UU" + channel_id[2:]
