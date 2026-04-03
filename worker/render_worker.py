@@ -249,7 +249,7 @@ async def _supervisor_loop() -> None:
             job_id=job["id"],
             creator_id=job["creator_id"],
             job_number=jobs_processed,
-            retry_count=job.get("retry_count", 0),
+            retry_count=int(job.get("retry_count") or 0),
         )
 
     # ── Shutdown summary ──────────────────────────────────────────────────────
