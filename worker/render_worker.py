@@ -119,7 +119,9 @@ def _start_health_server(port: int) -> None:
 # ── Job subprocess runner ─────────────────────────────────────────────────────
 
 
-async def _run_job_subprocess(job_id: int, creator_id: str, job_number: int) -> bool:
+async def _run_job_subprocess(
+    job_id: int, creator_id: str, job_number: int, retry_count: int = 0
+) -> bool:
     """
     Spawn worker/run_one_job.py in a fresh subprocess for full httplib2 isolation.
 
@@ -135,6 +137,8 @@ async def _run_job_subprocess(job_id: int, creator_id: str, job_number: int) -> 
         str(creator_id),
         "--job-number",
         str(job_number),
+        "--retry-count",
+        str(retry_count),
     ]
 
     try:
@@ -245,6 +249,7 @@ async def _supervisor_loop() -> None:
             job_id=job["id"],
             creator_id=job["creator_id"],
             job_number=jobs_processed,
+            retry_count=job.get("retry_count", 0),
         )
 
     # ── Shutdown summary ──────────────────────────────────────────────────────

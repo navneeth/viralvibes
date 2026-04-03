@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -16,7 +16,7 @@ for playlist in KNOWN_PLAYLISTS:
     job = {
         "playlist_url": url,
         "status": "pending",
-        "created_at": datetime.utcnow().isoformat(),  # <-- Set current UTC time
+        "created_at": datetime.now(timezone.utc).isoformat(),  # <-- Set current UTC time
     }
     resp = supabase.table("playlist_jobs").insert(job).execute()
     print(f"Inserted job for playlist: {url} -> {resp.data}")
