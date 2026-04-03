@@ -7,7 +7,7 @@ memory isolation guarantee as the original bash respawn loop, implemented in
 Python so that render_worker.py (the supervisor) never has to exit.
 
 Usage (internal — called by render_worker.py only):
-    python -m worker.run_one_job --job-id <id> --creator-id <uuid> --job-number <n>
+    python -m worker.run_one_job --job-id <id> --creator-id <uuid> --job-number <n> [--retry-count <n>]
 
 Exit codes:
     0  — job completed, timed out, or was marked failed/retried in DB
@@ -40,12 +40,13 @@ import worker.creator_worker as _cw
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 
-async def main(job_id: int, creator_id: str, job_number: int) -> None:
+async def main(job_id: int, creator_id: str, job_number: int, retry_count: int = 0) -> None:
     logger.info(
-        "run_one_job starting | job_id=%s creator_id=%s job_number=%d",
+        "run_one_job starting | job_id=%s creator_id=%s job_number=%d retry_count=%d",
         job_id,
         creator_id,
         job_number,
+        retry_count,
     )
 
     # Initialise Supabase + YouTubeResolver for this process
@@ -53,11 +54,12 @@ async def main(job_id: int, creator_id: str, job_number: int) -> None:
 
     try:
         result = await asyncio.wait_for(
+            # retry_count is tracked in DB; supervisor re-fetches on retry
             _cw.handle_sync_job(
                 job_id=job_id,
                 creator_id=creator_id,
                 job_number=job_number,
-                retry_count=0,  # retry_count is tracked in DB; supervisor re-fetches on retry
+                retry_count=retry_count,
             ),
             timeout=_cw.SYNC_TIMEOUT + 30,
         )
@@ -90,6 +92,7 @@ if __name__ == "__main__":
     parser.add_argument("--job-id", required=True, type=int)
     parser.add_argument("--creator-id", required=True)
     parser.add_argument("--job-number", required=True, type=int)
+    parser.add_argument("--retry-count", type=int, default=0)
     args = parser.parse_args()
 
     try:
@@ -98,6 +101,7 @@ if __name__ == "__main__":
                 job_id=args.job_id,
                 creator_id=args.creator_id,
                 job_number=args.job_number,
+                retry_count=args.retry_count,
             )
         )
         sys.exit(0)

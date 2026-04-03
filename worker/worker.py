@@ -12,7 +12,14 @@ import signal
 import time
 import traceback
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def utc_now_iso() -> str:
+    """Return the current UTC time as a timezone-aware ISO 8601 string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
 from socket import timeout as SocketTimeout
 from ssl import SSLEOFError
 from typing import Any, Dict, Optional
@@ -131,7 +138,9 @@ async def fetch_retryable_failed_jobs():
     """
     try:
         # Calculate cutoff time for retry eligibility
-        cutoff_time = (datetime.utcnow() - timedelta(seconds=FAILED_JOB_RETRY_AGE)).isoformat()
+        cutoff_time = (
+            datetime.now(timezone.utc) - timedelta(seconds=FAILED_JOB_RETRY_AGE)
+        ).isoformat()
 
         resp = (
             supabase_client.table(PLAYLIST_JOBS_TABLE)
@@ -259,7 +268,7 @@ async def handle_job_failure(
 
         meta = {
             "error": error_message,
-            "finished_at": datetime.utcnow().isoformat(),
+            "finished_at": utc_now_iso(),
             "retry_scheduled": True,
         }
         if error_trace:
@@ -272,7 +281,7 @@ async def handle_job_failure(
 
         meta = {
             "error": f"{error_message} (max retries exhausted)",
-            "finished_at": datetime.utcnow().isoformat(),
+            "finished_at": utc_now_iso(),
             "retry_scheduled": False,
         }
         if error_trace:
@@ -375,9 +384,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
 
     start_time = time.time()
     _set_stage("mark-processing")
-    started_ok = await mark_job_status(
-        job_id, "processing", {"started_at": datetime.utcnow().isoformat()}
-    )
+    started_ok = await mark_job_status(job_id, "processing", {"started_at": utc_now_iso()})
     logger.info(f"[Job {job_id}] mark_job_status(processing) returned: {started_ok}")
 
     try:
@@ -499,7 +506,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                 "done",
                 {
                     "status_message": "Completed (empty playlist)",
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": utc_now_iso(),
                     "result_source": "empty",
                     "progress": 1.0,
                 },
@@ -670,7 +677,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                 "done",
                 {
                     "status_message": success_message,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": utc_now_iso(),
                     "result_source": result_map.get("source"),
                     "progress": 1.0,
                     # ❌ REMOVED: Don't store dashboard_id in jobs
@@ -709,9 +716,10 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
             {
                 "error": str(e),
                 "error_trace": tb,
-                "finished_at": datetime.utcnow().isoformat(),
+                "finished_at": utc_now_iso(),
                 "retry_after": datetime.fromtimestamp(
-                    time.time() + BOT_CHALLENGE_BACKOFF * consecutive_bot_challenges
+                    time.time() + BOT_CHALLENGE_BACKOFF * consecutive_bot_challenges,
+                    tz=timezone.utc,
                 ).isoformat(),
             },
         )
@@ -730,7 +738,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                 {
                     "error": f"Network error: {str(e)}",
                     "error_type": type(e).__name__,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": utc_now_iso(),
                 },
             )
         else:
@@ -741,7 +749,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                 {
                     "error": f"Network error after {MAX_RETRY_ATTEMPTS} attempts: {str(e)}",
                     "error_type": type(e).__name__,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": utc_now_iso(),
                 },
             )
 
@@ -762,7 +770,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                 {
                     "error": str(e)[:1000],
                     "error_trace": tb,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": utc_now_iso(),
                 },
             )
         else:
@@ -773,7 +781,7 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
                 {
                     "error": f"{str(e)[:1000]} (max retries exhausted)",
                     "error_trace": tb,
-                    "finished_at": datetime.utcnow().isoformat(),
+                    "finished_at": utc_now_iso(),
                 },
             )
 
@@ -863,7 +871,7 @@ async def worker_loop():
                         .update(
                             {
                                 "status": "processing",
-                                "started_at": datetime.utcnow().isoformat(),
+                                "started_at": utc_now_iso(),
                             }
                         )
                         .eq("id", job_id)
