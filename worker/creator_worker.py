@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
+import json as _json
 
 from secrets_loader import load_secrets
 
@@ -221,23 +222,32 @@ def _diagnose_creator_db_state() -> None:
     logger.info("=" * 60)
 
     try:
-        # Call RPC for exact diagnostics with 10s timeout
-        # If indexes are missing or table is very large, this may timeout
-        # In that case, worker continues normally (diagnostics are best-effort)
+        # Best-effort RPC call — no explicit timeout set on the client; the
+        # database-side statement_timeout (configured per role in Supabase) applies.
+        # Worker continues normally if this fails for any reason.
         try:
             resp = supabase_client.rpc("get_creator_diagnostic_stats").execute()
         except Exception as rpc_err:
-            error_msg = str(rpc_err).lower()
-            if "timeout" in error_msg or "statement timeout" in error_msg:
+            # Prefer structured error fields (PostgREST APIError exposes .code
+            # as the PostgreSQL error code) over fragile substring matching.
+            # PostgreSQL error code 57014 = query_canceled (statement timeout).
+            pg_code = getattr(rpc_err, "code", None)
+            is_timeout = pg_code == "57014" or (
+                "57014" in str(rpc_err) or "statement timeout" in str(rpc_err).lower()
+            )
+            logger.warning(
+                "  ⚠️  RPC %s: %s — %s",
+                "timed out" if is_timeout else "failed",
+                type(rpc_err).__name__,
+                rpc_err,
+            )
+            if is_timeout:
                 logger.warning(
-                    "  ⚠️  RPC timed out (statement timeout). This is expected if:\n"
-                    "    - Index idx_creators_sync_status hasn't been created yet\n"
-                    "    - Database is under heavy load\n"
-                    "  Migration 016_creator_diagnostic_stats_rpc.sql adds required indexes.\n"
+                    "  Statement timeout is expected when indexes are missing.\n"
+                    "  Run migration 016_creator_diagnostic_stats_rpc.sql to add them.\n"
                     "  Continuing without diagnostics..."
                 )
-                return
-            raise
+            return
 
         if not resp.data:
             logger.warning("  ⚠️  RPC returned no data")
@@ -246,10 +256,21 @@ def _diagnose_creator_db_state() -> None:
         diag = resp.data[0] if isinstance(resp.data, list) else resp.data
         pending_jobs = diag.get("total_pending_jobs", 0) or 0
         never_synced_count = diag.get("never_synced_count", 0) or 0
-        status_breakdown = diag.get("status_breakdown") or {}
+        raw_breakdown = diag.get("status_breakdown") or {}
+
+        # Supabase may return JSONB fields as a dict or as a JSON string
+        # depending on client version — normalise to dict before use.
+        if isinstance(raw_breakdown, str):
+
+            try:
+                raw_breakdown = _json.loads(raw_breakdown)
+            except ValueError:
+                logger.warning("  ⚠️  Could not parse status_breakdown JSON: %r", raw_breakdown)
+                raw_breakdown = {}
+        status_breakdown: dict = raw_breakdown if isinstance(raw_breakdown, dict) else {}
 
         # Calculate total creators from status breakdown
-        total_creators = sum(status_breakdown.values()) if isinstance(status_breakdown, dict) else 0
+        total_creators = sum(status_breakdown.values()) if status_breakdown else 0
 
         logger.info(f"  Total creators in DB: {total_creators:,}")
 
@@ -260,17 +281,16 @@ def _diagnose_creator_db_state() -> None:
             )
 
         logger.info("  sync_status breakdown:")
-        if isinstance(status_breakdown, dict):
-            for status, count in sorted(status_breakdown.items()):
-                pct = (count / total_creators * 100) if total_creators > 0 else 0
-                flag = ""
-                if status == "NULL":
-                    flag = " ⚠️  NULL status"
-                elif status in ("invalid", "failed"):
-                    flag = " → eligible for retry"
-                elif status == "synced":
-                    flag = " → healthy"
-                logger.info(f"    {status}: {count:,} ({pct:.1f}%){flag}")
+        for status, count in sorted(status_breakdown.items()):
+            pct = (count / total_creators * 100) if total_creators > 0 else 0
+            flag = ""
+            if status == "NULL":
+                flag = " ⚠️  NULL status"
+            elif status in ("invalid", "failed"):
+                flag = " → eligible for retry"
+            elif status == "synced":
+                flag = " → healthy"
+            logger.info(f"    {status}: {count:,} ({pct:.1f}%){flag}")
 
         logger.info(
             f"  Pending jobs in creator_sync_jobs: {pending_jobs:,}"

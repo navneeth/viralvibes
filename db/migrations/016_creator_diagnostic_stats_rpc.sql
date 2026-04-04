@@ -12,9 +12,12 @@ CREATE INDEX IF NOT EXISTS idx_creators_sync_status
     ON public.creators(sync_status)
     WHERE sync_status IS NOT NULL;
 
--- Index for last_synced_at IS NULL queries
+-- Index for last_synced_at IS NULL queries.
+-- Partial index: only indexes NULL rows, which is the exact predicate used.
+-- Smaller and more targeted than a full btree as the table grows.
 CREATE INDEX IF NOT EXISTS idx_creators_last_synced_at_null
-    ON public.creators(last_synced_at DESC NULLS FIRST);
+    ON public.creators(last_synced_at)
+    WHERE last_synced_at IS NULL;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- get_creator_diagnostic_stats()
@@ -36,6 +39,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+SET search_path = public, pg_catalog
 AS $$
     SELECT
         -- Count pending jobs (indexed on status)
