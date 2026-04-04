@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
+import json as _json
 
 from secrets_loader import load_secrets
 
@@ -200,15 +201,17 @@ signal.signal(signal.SIGTERM, handle_shutdown_signal)
 
 def _diagnose_creator_db_state() -> None:
     """
-    Log a breakdown of the creators table sync state at startup.
+    Log exact breakdown of the creators table sync state at startup.
 
-    This is the first thing that should run to understand why the worker
-    may be doing nothing. It answers:
-      - How many creators exist total?
-      - How many have never been synced (last_synced_at IS NULL)?
-      - How many have zero subscribers (unpopulated)?
-      - What sync_status values are present, and how many each?
-      - How many pending jobs are in creator_sync_jobs right now?
+    Uses database RPC function get_creator_diagnostic_stats() for single,
+    efficient DB-side aggregation with proper indexing. No row transfer.
+
+    Answers (exact):
+      - How many creators exist across sync statuses
+      - How many have never been synced (last_synced_at IS NULL)
+      - How many jobs are pending
+
+    Best-effort diagnostic — worker continues even if this fails or times out.
     """
     if not supabase_client:
         logger.warning("⚠️  Cannot diagnose DB state: Supabase client not available")
@@ -219,115 +222,95 @@ def _diagnose_creator_db_state() -> None:
     logger.info("=" * 60)
 
     try:
-        # Total creator count
-        total_resp = supabase_client.table(CREATOR_TABLE).select("id", count="exact").execute()
-        total = total_resp.count if total_resp.count is not None else len(total_resp.data or [])
-        logger.info(f"  Total creators in DB: {total:,}")
-
-    except Exception as e:
-        logger.error(f"  ❌ Could not count creators: {e}")
-        total = 0
-
-    try:
-        # Never synced (last_synced_at IS NULL)
-        # BUG NOTE: PostgREST .lt() silently excludes NULL rows — this is the
-        # primary reason queue_invalid_creators_for_retry queues 0 creators.
-        never_synced_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id", count="exact")
-            .is_("last_synced_at", "null")
-            .execute()
-        )
-        never_synced = (
-            never_synced_resp.count
-            if never_synced_resp.count is not None
-            else len(never_synced_resp.data or [])
-        )
-        logger.info(
-            f"  Never synced (last_synced_at IS NULL): {never_synced:,}"
-            + (
-                " ⚠️  These are INVISIBLE to queue_invalid_creators_for_retry!"
-                if never_synced > 0
-                else ""
+        # Best-effort RPC call — no explicit timeout set on the client; the
+        # database-side statement_timeout (configured per role in Supabase) applies.
+        # Worker continues normally if this fails for any reason.
+        try:
+            resp = supabase_client.rpc("get_creator_diagnostic_stats").execute()
+        except Exception as rpc_err:
+            # Prefer structured error fields (PostgREST APIError exposes .code
+            # as the PostgreSQL error code) over fragile substring matching.
+            # PostgreSQL error code 57014 = query_canceled (statement timeout).
+            pg_code = getattr(rpc_err, "code", None)
+            is_timeout = pg_code == "57014" or (
+                "57014" in str(rpc_err) or "statement timeout" in str(rpc_err).lower()
             )
-        )
-    except Exception as e:
-        logger.error(f"  ❌ Could not count never-synced creators: {e}")
-        never_synced = 0
+            logger.warning(
+                "  ⚠️  RPC %s: %s — %s",
+                "timed out" if is_timeout else "failed",
+                type(rpc_err).__name__,
+                rpc_err,
+            )
+            if is_timeout:
+                logger.warning(
+                    "  Statement timeout is expected when indexes are missing.\n"
+                    "  Run migration 016_creator_diagnostic_stats_rpc.sql to add them.\n"
+                    "  Continuing without diagnostics..."
+                )
+            return
 
-    try:
-        # Zero stats (likely never populated)
-        zero_stats_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id", count="exact")
-            .eq("current_subscribers", 0)
-            .eq("current_view_count", 0)
-            .execute()
-        )
-        zero_stats = (
-            zero_stats_resp.count
-            if zero_stats_resp.count is not None
-            else len(zero_stats_resp.data or [])
-        )
-        logger.info(f"  Zero subscribers + zero views (unpopulated): {zero_stats:,}")
-    except Exception as e:
-        logger.error(f"  ❌ Could not count zero-stat creators: {e}")
-        zero_stats = 0
+        if not resp.data:
+            logger.warning("  ⚠️  RPC returned no data")
+            return
 
-    try:
-        # Breakdown by sync_status (including NULL)
-        # Fetch a small sample to infer statuses — Supabase doesn't expose GROUP BY
-        sample_resp = (
-            supabase_client.table(CREATOR_TABLE).select("sync_status").limit(1000).execute()
-        )
-        status_counts: Dict[str, int] = {}
-        for row in sample_resp.data or []:
-            s = row.get("sync_status") or "NULL"
-            status_counts[s] = status_counts.get(s, 0) + 1
+        diag = resp.data[0] if isinstance(resp.data, list) else resp.data
+        pending_jobs = diag.get("total_pending_jobs", 0) or 0
+        never_synced_count = diag.get("never_synced_count", 0) or 0
+        raw_breakdown = diag.get("status_breakdown") or {}
 
-        logger.info("  sync_status breakdown (sample of up to 1000 rows):")
-        for status, count in sorted(status_counts.items()):
+        # Supabase may return JSONB fields as a dict or as a JSON string
+        # depending on client version — normalise to dict before use.
+        if isinstance(raw_breakdown, str):
+
+            try:
+                raw_breakdown = _json.loads(raw_breakdown)
+            except ValueError:
+                logger.warning("  ⚠️  Could not parse status_breakdown JSON: %r", raw_breakdown)
+                raw_breakdown = {}
+        status_breakdown: dict = raw_breakdown if isinstance(raw_breakdown, dict) else {}
+
+        # Calculate total creators from status breakdown
+        total_creators = sum(status_breakdown.values()) if status_breakdown else 0
+
+        logger.info(f"  Total creators in DB: {total_creators:,}")
+
+        if never_synced_count > 0:
+            logger.warning(
+                f"  ⚠️  {never_synced_count:,} creators with last_synced_at=NULL "
+                "— these need bootstrap"
+            )
+
+        logger.info("  sync_status breakdown:")
+        for status, count in sorted(status_breakdown.items()):
+            pct = (count / total_creators * 100) if total_creators > 0 else 0
             flag = ""
             if status == "NULL":
-                flag = " ⚠️  NULL status — NOT caught by queue_invalid_creators_for_retry"
+                flag = " ⚠️  NULL status"
             elif status in ("invalid", "failed"):
-                flag = " → eligible for retry (if last_synced_at is not NULL)"
+                flag = " → eligible for retry"
             elif status == "synced":
                 flag = " → healthy"
-            logger.info(f"    {status}: {count:,}{flag}")
+            logger.info(f"    {status}: {count:,} ({pct:.1f}%){flag}")
 
-    except Exception as e:
-        logger.error(f"  ❌ Could not get sync_status breakdown: {e}")
-
-    try:
-        # Pending jobs count
-        jobs_resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id,status", count="exact")
-            .eq("status", "pending")
-            .execute()
-        )
-        pending_jobs = jobs_resp.count if jobs_resp.count is not None else len(jobs_resp.data or [])
         logger.info(
             f"  Pending jobs in creator_sync_jobs: {pending_jobs:,}"
             + (
                 "\n  ✅ Jobs exist — worker should process them on next poll"
                 if pending_jobs > 0
-                else "\n  ⚠️  No pending jobs — worker will idle until jobs are created"
+                else "\n  ℹ️  No pending jobs — worker will idle until jobs are created"
             )
         )
+
     except Exception as e:
-        logger.error(f"  ❌ Could not count pending jobs: {e}")
+        logger.warning(f"  ⚠️  RPC query failed: {e} — skipping diagnostics")
+        logger.info(
+            "  💡 If this is a statement timeout, run migration 016 to add indexes:\n"
+            "     - idx_creators_sync_status\n"
+            "     - idx_creators_last_synced_at_null\n"
+            "     These indexes are required for efficient diagnostics at 1M+ scale."
+        )
 
     logger.info("=" * 60)
-
-    # Actionable summary
-    if never_synced > 0 or zero_stats > 0:
-        logger.warning(
-            f"⚠️  ACTION NEEDED: {never_synced:,} creators have never been synced. "
-            f"Use _queue_unsynced_creators() to bootstrap them. "
-            f"See bug note in queue_invalid_creators_for_retry."
-        )
 
 
 # =============================================================================
