@@ -196,7 +196,12 @@ async def _supervisor_loop() -> None:
     jobs_processed: int = 0
     empty_polls: int = 0
     start_time: float = time.time()
-    last_periodic_check: float = 0.0  # force check on first iteration
+    # Initialise to now so the first loop iteration goes straight to job
+    # fetching. Maintenance will run after PERIODIC_CHECK_INTERVAL seconds.
+    # (init() already ran _diagnose_creator_db_state at startup; running
+    # queue_invalid_creators_for_retry immediately after is redundant and
+    # delays the first job by however long those synchronous calls take.)
+    last_periodic_check: float = time.time()
 
     while not _shutdown.is_set():
 
