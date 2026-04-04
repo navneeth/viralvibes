@@ -23,29 +23,36 @@ services:
         sync: false
       - key: YOUTUBE_COOKIES
         sync: false
+
+      # YouTube API keys — both are required.
+      # YOUTUBE_API_KEY_CREATORS is used specifically by the creator worker
+      # (see services/youtube_config.py). Set it even if the value is the same
+      # as YOUTUBE_API_KEY — there is no automatic fallback between them.
       - key: YOUTUBE_API_KEY
         sync: false
+      - key: YOUTUBE_API_KEY_CREATORS
+        sync: false
 
-      # ── Supervisor tuning ────────────────────────────────────────────────────
-      # Poll interval when queue is empty (seconds).
+      # ── Supervisor tuning ─────────────────────────────────────────────────────
+      # How long to sleep between polls when the queue is empty.
       - key: RENDER_IDLE_POLL_INTERVAL
         value: "60"
-        # Run periodic maintenance (queue unsynced/stale creators) every N seconds.
+      # How often to run periodic maintenance (queue unsynced/stale creators).
       - key: RENDER_PERIODIC_CHECK_INTERVAL
         value: "300"
-      # Run periodic maintenance (queue unsynced/stale creators) every N seconds.
+      # Log a warning after this many consecutive empty polls (not an exit).
       - key: RENDER_EMPTY_WARN_THRESHOLD
         value: "10"
 
-      # ── Retained for code paths in creator_worker that still read them ───────
+      # ── Retained for code paths in creator_worker that still read them ────────
       - key: WORKER_POLL_INTERVAL
         value: "60"
       - key: WORKER_BATCH_SIZE
         value: "1"
       - key: COOKIES_FILE
         value: /tmp/cookies.txt
-      # Skip the expensive DB diagnosis block in each subprocess (it runs in the
-      # supervisor on startup; re-running it per-job wastes ~9s on timeout queries).
+      # Skip the expensive DB diagnosis block in each subprocess — it runs once
+      # in the supervisor at startup; re-running it per-job wastes ~9s on timeout.
       - key: CREATOR_WORKER_SKIP_DIAGNOSIS
         value: "true"
       - key: MIN_VIDEO_DELAY
