@@ -145,10 +145,12 @@ def _sample_row(playlist: dict) -> Div:
     icon = _playlist_icon(title)
 
     # JS: fill the input and scroll the form into view.
+    # Defensive: null-check elements before accessing to avoid errors if template changes.
     _js = (
-        f"document.getElementById('playlist_url').value={url!r};"
-        "document.getElementById('analysis-form')"
-        ".scrollIntoView({behavior:'smooth',block:'start'});"
+        "const urlInput = document.getElementById('playlist_url'); "
+        f"if (urlInput) urlInput.value = {url!r}; "
+        "const form = document.getElementById('analysis-form'); "
+        "if (form) form.scrollIntoView({behavior:'smooth',block:'start'});"
     )
 
     return Div(
@@ -165,14 +167,16 @@ def _sample_row(playlist: dict) -> Div:
         Button(
             "Analyze →",
             type="button",
-            onclick=_js,
             cls="text-xs font-medium text-primary hover:underline bg-transparent border-0 cursor-pointer p-0 whitespace-nowrap",
         ),
         cls=(
             "flex items-center gap-3 px-3 py-2.5 -mx-3 rounded-lg "
             "hover:bg-muted/50 transition-colors "
-            "border-b border-border last:border-b-0"
+            "border-b border-border last:border-b-0 cursor-pointer"
         ),
+        onclick=_js,
+        role="button",
+        tabindex="0",
     )
 
 
