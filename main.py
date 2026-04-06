@@ -28,7 +28,6 @@ from auth.auth_service import (
 )
 from auth.token_revocation import clear_auth_session, revoke_google_token
 from components import (
-    AnalysisFormCard,
     AnalyticsDashboardSection,
     BenefitsCard,
     CoreValuePropsSection,
@@ -87,6 +86,7 @@ from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
+from routes.analysis import analysis_page_content
 from routes.creators import creator_profile_route, creators_route
 from routes.lists import (
     categories_explorer_route,
@@ -268,8 +268,6 @@ def index(req, sess):
         SectionDivider(),
         _Section(features_section() or Div(), id="features-section"),
         _Section(how_it_works_section() or Div(), id="how-it-works-section"),
-        SectionDivider(),
-        _Section(AnalysisFormCard(), id="analyze-section"),
         SectionDivider(),
         _Section(HomepageAccordion(), id="explore-section"),
         SectionDivider(),
@@ -1055,6 +1053,19 @@ def export_json(dashboard_id: str, req, sess):
         content=json_content,
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename=viralvibes-{dashboard_id}.json"},
+    )
+
+
+@rt("/analysis")
+def analysis(req, sess):
+    """Playlist analysis page — PUBLIC route"""
+    return Titled(
+        "Analyze a Playlist - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            analysis_page_content(),
+            cls=ContainerT.xl,
+        ),
     )
 
 
