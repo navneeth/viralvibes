@@ -12,11 +12,15 @@ Design follows the /lists and /creators conventions:
   - No hardcoded gray colours — all resolved via MonsterUI CSS vars
 """
 
+from __future__ import annotations
+
 from fasthtml.common import *
 from monsterui.all import *
 
 from components.buttons import FeaturePill
 from components.cards import AnalysisFormCard
+from db import get_user_dashboards
+from utils import format_date_relative, format_number
 
 
 # ---------------------------------------------------------------------------
@@ -107,18 +111,127 @@ def _insight_cards() -> Div:
 
 
 # ---------------------------------------------------------------------------
+# Recent analyses — compact list rows, logged-in users only
+# ---------------------------------------------------------------------------
+
+_MAX_RECENT = 5
+
+
+def _recent_row(dashboard: dict) -> A:
+    """Single compact row linking to a saved dashboard."""
+    dashboard_id = dashboard.get("dashboard_id", "")
+    title = dashboard.get("title") or "Untitled Playlist"
+    channel_name = dashboard.get("channel_name") or "Unknown Channel"
+    thumbnail = dashboard.get("channel_thumbnail") or "/static/favicon.jpeg"
+    view_count = dashboard.get("view_count") or 0
+    video_count = dashboard.get("video_count") or 0
+    processed_on = dashboard.get("processed_on")
+
+    return A(
+        # Thumbnail chip
+        Img(
+            src=thumbnail,
+            alt=title,
+            cls="w-10 h-10 rounded-md object-cover flex-none bg-muted",
+            onerror="this.src='/static/favicon.jpeg'",
+        ),
+        # Title + channel
+        Div(
+            P(title, cls="text-sm font-medium text-foreground truncate leading-tight"),
+            P(channel_name, cls="text-xs text-muted-foreground truncate"),
+            cls="flex-1 min-w-0",
+        ),
+        # Stats (hidden on xs, visible sm+)
+        Div(
+            Span(format_number(view_count), cls="font-medium text-foreground text-xs"),
+            Span(" views", cls="text-muted-foreground text-xs"),
+            cls="hidden sm:flex items-baseline gap-0.5 whitespace-nowrap",
+        ),
+        Div(
+            Span(str(video_count), cls="font-medium text-foreground text-xs"),
+            Span(" videos", cls="text-muted-foreground text-xs"),
+            cls="hidden md:flex items-baseline gap-0.5 whitespace-nowrap",
+        ),
+        # Date
+        Span(
+            format_date_relative(processed_on),
+            cls="text-xs text-muted-foreground whitespace-nowrap",
+        ),
+        # Chevron
+        UkIcon(
+            "chevron-right",
+            cls="w-4 h-4 text-muted-foreground flex-none group-hover:text-foreground transition-colors",
+        ),
+        href=f"/d/{dashboard_id}",
+        cls=(
+            "flex items-center gap-3 px-3 py-3 -mx-3 rounded-lg "
+            "hover:bg-muted/50 transition-colors group no-underline "
+            "border-b border-border last:border-b-0"
+        ),
+    )
+
+
+def _recent_analyses(user_id: str) -> Div | None:
+    """Compact recent-analyses list for the logged-in user.
+
+    Returns None when the user has no dashboards yet so the caller
+    can omit the section entirely.
+    """
+    dashboards = [
+        d
+        for d in get_user_dashboards(user_id, sort="recent")[:_MAX_RECENT]
+        if d.get("dashboard_id")
+    ]
+    if not dashboards:
+        return None
+
+    return Div(
+        # Section header
+        Div(
+            Div(
+                UkIcon("history", cls="w-4 h-4 text-muted-foreground"),
+                H2(
+                    "Your recent analyses",
+                    cls="text-base font-semibold text-foreground",
+                ),
+                cls="flex items-center gap-2",
+            ),
+            A(
+                "View all",
+                UkIcon("arrow-right", cls="w-3 h-3"),
+                href="/me/dashboards",
+                cls="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors no-underline",
+            ),
+            cls="flex items-center justify-between mb-2",
+        ),
+        # Rows
+        Div(
+            *[_recent_row(d) for d in dashboards],
+            cls="px-3",
+        ),
+        cls="border border-border rounded-2xl p-4 mb-12",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public page builder
 # ---------------------------------------------------------------------------
 
 
-def analysis_page_content() -> Div:
+def analysis_page_content(user_id: str | None = None) -> Div:
     """
     Full body content for the /analysis route (without nav/title wrapper).
-    Composed of: page header → analysis form (compact) → insight cards.
+    Composed of: page header → analysis form (compact) → insight cards
+                 → recent analyses (logged-in users only).
     Returns a bare Div — the caller (route handler) provides the Container.
+
+    Args:
+        user_id: Session user_id, or None for anonymous visitors.
     """
+    recent = _recent_analyses(user_id) if user_id else None
     return Div(
         _page_header(),
         AnalysisFormCard(compact=True),
         _insight_cards(),
+        *([] if recent is None else [recent]),
     )

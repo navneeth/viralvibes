@@ -1059,11 +1059,12 @@ def export_json(dashboard_id: str, req, sess):
 @rt("/analysis")
 def analysis(req, sess):
     """Playlist analysis page — PUBLIC route"""
+    user_id = sess.get("user_id") if sess else None
     return Titled(
         "Analyze a Playlist - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
-            analysis_page_content(),
+            analysis_page_content(user_id=user_id),
             cls=ContainerT.xl,
         ),
     )
