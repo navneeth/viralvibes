@@ -19,6 +19,7 @@ from monsterui.all import *
 
 from components.buttons import FeaturePill
 from components.cards import AnalysisFormCard
+from constants import KNOWN_PLAYLISTS
 from db import get_user_dashboards
 from utils import format_date_relative, format_number
 
@@ -107,6 +108,102 @@ def _insight_cards() -> Div:
             cls="grid grid-cols-1 md:grid-cols-3 gap-6",
         ),
         cls="pt-8 pb-16",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sample playlists showcase — static, zero DB cost, shown to all visitors
+# ---------------------------------------------------------------------------
+
+# Icon to show alongside each playlist; derived from keywords in the title.
+_PLAYLIST_ICONS: list[tuple[str, str]] = [
+    ("music", "music"),
+    ("film", "movie"),
+    ("trending-up", "viral"),
+    ("gamepad-2", "game"),  # may fall back to default
+    ("trophy", "nfl"),
+    ("trophy", "sport"),
+    ("mic-2", "remix"),
+    ("mic-2", "song"),
+]
+_DEFAULT_ICON = "play-square"
+
+
+def _playlist_icon(title: str) -> str:
+    title_lower = title.lower()
+    for icon, keyword in _PLAYLIST_ICONS:
+        if keyword in title_lower:
+            return icon
+    return _DEFAULT_ICON
+
+
+def _sample_row(playlist: dict) -> Div:
+    """Single action row for one sample playlist."""
+    title = playlist.get("title", "Untitled Playlist")
+    url = playlist.get("url", "")
+    video_count = playlist.get("video_count", 0)
+    icon = _playlist_icon(title)
+
+    # JS: fill the input and scroll the form into view.
+    _js = (
+        f"document.getElementById('playlist_url').value={url!r};"
+        "document.getElementById('analysis-form')"
+        ".scrollIntoView({behavior:'smooth',block:'start'});"
+    )
+
+    return Div(
+        # Icon
+        UkIcon(icon, cls="w-5 h-5 text-muted-foreground flex-none"),
+        # Title
+        Span(title, cls="flex-1 text-sm font-medium text-foreground truncate"),
+        # Video count badge
+        Span(
+            f"{video_count:,} videos",
+            cls="hidden sm:inline-flex text-xs text-muted-foreground whitespace-nowrap",
+        ),
+        # Analyze button
+        Button(
+            "Analyze →",
+            type="button",
+            onclick=_js,
+            cls="text-xs font-medium text-primary hover:underline bg-transparent border-0 cursor-pointer p-0 whitespace-nowrap",
+        ),
+        cls=(
+            "flex items-center gap-3 px-3 py-2.5 -mx-3 rounded-lg "
+            "hover:bg-muted/50 transition-colors "
+            "border-b border-border last:border-b-0"
+        ),
+    )
+
+
+def _sample_playlists() -> Div | None:
+    """Sample playlist rows for all visitors. Returns None if list is empty."""
+    if not KNOWN_PLAYLISTS:
+        return None
+
+    return Div(
+        # Section header
+        Div(
+            Div(
+                UkIcon("sparkles", cls="w-4 h-4 text-muted-foreground"),
+                H2(
+                    "Popular playlists to try",
+                    cls="text-base font-semibold text-foreground",
+                ),
+                cls="flex items-center gap-2",
+            ),
+            P(
+                "Click any row to prefill the form above.",
+                cls="text-xs text-muted-foreground",
+            ),
+            cls="flex items-center justify-between mb-2",
+        ),
+        # Rows
+        Div(
+            *[_sample_row(p) for p in KNOWN_PLAYLISTS],
+            cls="px-3",
+        ),
+        cls="border border-border rounded-2xl p-4 mb-8",
     )
 
 
@@ -229,9 +326,11 @@ def analysis_page_content(user_id: str | None = None) -> Div:
         user_id: Session user_id, or None for anonymous visitors.
     """
     recent = _recent_analyses(user_id) if user_id else None
+    samples = _sample_playlists()
     return Div(
         _page_header(),
         AnalysisFormCard(compact=True),
         _insight_cards(),
+        *([] if samples is None else [samples]),
         *([] if recent is None else [recent]),
     )
