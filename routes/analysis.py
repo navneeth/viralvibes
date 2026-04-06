@@ -12,6 +12,8 @@ Design follows the /lists and /creators conventions:
   - No hardcoded gray colours — all resolved via MonsterUI CSS vars
 """
 
+from __future__ import annotations
+
 from fasthtml.common import *
 from monsterui.all import *
 
