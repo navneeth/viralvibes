@@ -419,47 +419,59 @@ def PlaylistSteps(completed_steps: int = 0) -> Steps:
     return Steps(*steps, cls=STEPS_CLS)
 
 
-def AnalysisFormCard() -> Div:
-    """Single-layer Analysis Form card with integrated paste button."""
+def AnalysisFormCard(compact: bool = False) -> Div:
+    """Single-layer Analysis Form card with integrated paste button.
+
+    Args:
+        compact: When True, omits the hero image / headline section (use on
+                 the dedicated /analysis page which supplies its own header).
+    """
     # Get a random prefill URL from the known playlists
     prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
 
-    return styled_div(
-        # --- Hero image section with gradient background ---
-        styled_div(
-            # Background gradient
-            Div(
-                cls="absolute inset-0 bg-gradient-to-br from-red-50 via-white to-orange-50 rounded-t-2xl",
-            ),
-            # Content overlay
+    _hero = (
+        []
+        if compact
+        else [
             styled_div(
-                # Hero image - premium look
-                Img(
-                    src="https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=400&h300&q=80",
-                    alt="YouTube Analytics Dashboard",
-                    cls="w-full h-48 object-cover rounded-lg shadow-lg mb-6",
-                    loading="lazy",
+                # Background gradient
+                Div(
+                    cls="absolute inset-0 bg-gradient-to-br from-red-50 via-white to-orange-50 rounded-t-2xl",
                 ),
-                # Heading with better hierarchy
-                H2(
-                    "Analyze Your YouTube Playlist",
-                    cls="text-4xl font-bold text-gray-900 text-center mb-2",
-                ),
-                P(
-                    "Get deep insights into views, engagement, and virality patterns",
-                    cls="text-gray-600 text-center text-lg mb-6 max-w-2xl mx-auto",
-                ),
-                # Trust indicators
+                # Content overlay
                 styled_div(
-                    FeaturePill("bolt", "Real-time Analytics"),
-                    FeaturePill("users", "Creator Insights"),
-                    FeaturePill("trending-up", "Viral Patterns"),
-                    cls="flex flex-wrap gap-4 justify-center mb-8",
+                    # Hero image - premium look
+                    Img(
+                        src="https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=400&h300&q=80",
+                        alt="YouTube Analytics Dashboard",
+                        cls="w-full h-48 object-cover rounded-lg shadow-lg mb-6",
+                        loading="lazy",
+                    ),
+                    # Heading with better hierarchy
+                    H2(
+                        "Analyze Your YouTube Playlist",
+                        cls="text-4xl font-bold text-gray-900 text-center mb-2",
+                    ),
+                    P(
+                        "Get deep insights into views, engagement, and virality patterns",
+                        cls="text-gray-600 text-center text-lg mb-6 max-w-2xl mx-auto",
+                    ),
+                    # Trust indicators
+                    styled_div(
+                        FeaturePill("bolt", "Real-time Analytics"),
+                        FeaturePill("users", "Creator Insights"),
+                        FeaturePill("trending-up", "Viral Patterns"),
+                        cls="flex flex-wrap gap-4 justify-center mb-8",
+                    ),
+                    cls="relative z-10 text-center py-12 px-6",
                 ),
-                cls="relative z-10 text-center py-12 px-6",
+                cls="relative overflow-hidden rounded-t-2xl",
             ),
-            cls="relative overflow-hidden rounded-t-2xl",
-        ),
+        ]
+    )
+
+    return styled_div(
+        *_hero,
         # --- Steps with better styling ---
         styled_div(
             id="steps-container",

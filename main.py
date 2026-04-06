@@ -28,7 +28,6 @@ from auth.auth_service import (
 )
 from auth.token_revocation import clear_auth_session, revoke_google_token
 from components import (
-    AnalysisFormCard,
     AnalyticsDashboardSection,
     BenefitsCard,
     CoreValuePropsSection,
@@ -269,8 +268,6 @@ def index(req, sess):
         SectionDivider(),
         _Section(features_section() or Div(), id="features-section"),
         _Section(how_it_works_section() or Div(), id="how-it-works-section"),
-        SectionDivider(),
-        _Section(AnalysisFormCard(), id="analyze-section"),
         SectionDivider(),
         _Section(HomepageAccordion(), id="explore-section"),
         SectionDivider(),

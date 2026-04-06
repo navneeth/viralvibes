@@ -2,61 +2,55 @@
 routes/analysis.py — Analysis page content.
 
 The Analysis page is the primary entry point for playlist analysis.
-It hosts the AnalysisFormCard and communicates the value of the tool
-before and after a user submits a playlist.
+It hosts the AnalysisFormCard (compact mode) and communicates the value of
+the tool before and after a user submits a playlist.
+
+Design follows the /lists and /creators conventions:
+  - Compact page header with theme tokens (text-foreground / text-muted-foreground)
+  - Container(cls=ContainerT.xl) wrapper — consistent with the creators page
+  - FeaturePill reused from components.buttons (no bespoke pill HTML)
+  - No hardcoded gray colours — all resolved via MonsterUI CSS vars
 """
 
 from fasthtml.common import *
 from monsterui.all import *
 
+from components.buttons import FeaturePill
 from components.cards import AnalysisFormCard
 
 
 # ---------------------------------------------------------------------------
-# Hero
+# Page header — compact, aligned with /lists and /creators patterns
 # ---------------------------------------------------------------------------
 
 
-def _hero() -> Section:
-    """Full-width hero at the top of the analysis page."""
+def _page_header() -> Div:
+    """Compact page header: eyebrow label → H1 → subtitle → feature pills."""
     pills = [
         ("chart-bar", "Engagement Metrics"),
         ("trending-up", "Viral Patterns"),
         ("users", "Audience Insights"),
         ("zap", "Instant Results"),
     ]
-    return Section(
-        Div(
-            # Eye-brow label
-            Div(
-                UkIcon("youtube", cls="w-4 h-4 text-red-500 mr-2"),
-                Span("YouTube Playlist Intelligence", cls="text-sm font-medium text-red-600"),
-                cls="inline-flex items-center bg-red-50 border border-red-100 rounded-full px-4 py-1 mb-6",
-            ),
-            H1(
-                "Analyze Any YouTube Playlist",
-                cls="text-5xl font-bold text-gray-900 leading-tight mb-4",
-            ),
-            P(
-                "Paste a playlist URL and get deep insights into views, engagement, "
-                "controversy scores, and viral patterns — in seconds.",
-                cls="text-xl text-gray-500 max-w-2xl mx-auto mb-8",
-            ),
-            # Feature pills
-            Div(
-                *[
-                    Div(
-                        UkIcon(icon, cls="w-4 h-4 mr-2 text-red-500"),
-                        Span(label, cls="text-sm font-medium text-gray-700"),
-                        cls="inline-flex items-center bg-white border border-gray-200 rounded-full px-4 py-2 shadow-sm",
-                    )
-                    for icon, label in pills
-                ],
-                cls="flex flex-wrap justify-center gap-3",
-            ),
-            cls="text-center py-16 px-4 max-w-3xl mx-auto",
+    return Div(
+        P(
+            "YouTube Playlist Intelligence",
+            cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
         ),
-        cls="bg-gradient-to-b from-gray-50 to-white border-b border-gray-100",
+        H1(
+            "Analyze Any YouTube Playlist",
+            cls="text-2xl sm:text-3xl font-bold text-foreground mt-1",
+        ),
+        P(
+            "Paste a playlist URL and get deep insights into views, engagement, "
+            "controversy scores, and viral patterns — in seconds.",
+            cls="text-muted-foreground mt-2 text-sm sm:text-base max-w-2xl",
+        ),
+        Div(
+            *[FeaturePill(icon, label) for icon, label in pills],
+            cls="flex flex-wrap gap-2 mt-4",
+        ),
+        cls="mb-6 pt-6",
     )
 
 
@@ -65,7 +59,8 @@ def _hero() -> Section:
 # ---------------------------------------------------------------------------
 
 
-def _insight_cards() -> Section:
+def _insight_cards() -> Div:
+    """Three-column card grid explaining what the analysis surfaces."""
     cards = [
         (
             "bar-chart-2",
@@ -83,34 +78,31 @@ def _insight_cards() -> Section:
             "Average video length and watch-time patterns help you find the optimal content format.",
         ),
     ]
-
-    return Section(
-        Div(
-            H2(
-                "What you'll discover",
-                cls="text-2xl font-bold text-gray-900 text-center mb-2",
-            ),
-            P(
-                "Every analysis produces a full interactive dashboard with these insights.",
-                cls="text-gray-500 text-center mb-10",
-            ),
-            Div(
-                *[
-                    Card(
-                        Div(
-                            UkIcon(icon, cls="w-8 h-8 text-red-500 mb-4"),
-                            H3(title, cls="text-lg font-semibold text-gray-900 mb-2"),
-                            P(description, cls="text-gray-500 text-sm leading-relaxed"),
-                            cls="p-6",
-                        ),
-                        cls="border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow",
-                    )
-                    for icon, title, description in cards
-                ],
-                cls="grid grid-cols-1 md:grid-cols-3 gap-6",
-            ),
-            cls="max-w-5xl mx-auto px-4 py-16",
+    return Div(
+        H2(
+            "What you'll discover",
+            cls="text-xl sm:text-2xl font-bold text-foreground mb-2",
         ),
+        P(
+            "Every analysis produces a full interactive dashboard with these insights.",
+            cls="text-muted-foreground mb-8 text-sm sm:text-base",
+        ),
+        Div(
+            *[
+                Card(
+                    Div(
+                        UkIcon(icon, cls="w-8 h-8 text-red-500 mb-4"),
+                        H3(title, cls="text-lg font-semibold text-foreground mb-2"),
+                        P(description, cls="text-muted-foreground text-sm leading-relaxed"),
+                        cls="p-6",
+                    ),
+                    cls="border rounded-2xl shadow-sm hover:shadow-md transition-shadow",
+                )
+                for icon, title, description in cards
+            ],
+            cls="grid grid-cols-1 md:grid-cols-3 gap-6",
+        ),
+        cls="pt-8 pb-16",
     )
 
 
@@ -119,16 +111,15 @@ def _insight_cards() -> Section:
 # ---------------------------------------------------------------------------
 
 
-def analysis_page_content() -> Div:
+def analysis_page_content() -> FT:
     """
     Full body content for the /analysis route (without nav/title wrapper).
-    Composed of: hero → analysis form → insight cards.
+    Composed of: page header → analysis form (compact) → insight cards.
+    Uses Container(cls=ContainerT.xl) to match /creators and /lists layout.
     """
-    return Div(
-        _hero(),
-        Div(
-            AnalysisFormCard(),
-            cls="max-w-3xl mx-auto px-4 -mt-6",
-        ),
+    return Container(
+        _page_header(),
+        AnalysisFormCard(compact=True),
         _insight_cards(),
+        cls=ContainerT.xl,
     )
