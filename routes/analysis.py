@@ -16,6 +16,7 @@ from components.cards import AnalysisFormCard
 # Hero
 # ---------------------------------------------------------------------------
 
+
 def _hero() -> Section:
     """Full-width hero at the top of the analysis page."""
     pills = [
@@ -62,6 +63,7 @@ def _hero() -> Section:
 # ---------------------------------------------------------------------------
 # "What you'll discover" cards (below the form)
 # ---------------------------------------------------------------------------
+
 
 def _insight_cards() -> Section:
     cards = [
@@ -115,6 +117,7 @@ def _insight_cards() -> Section:
 # ---------------------------------------------------------------------------
 # Public page builder
 # ---------------------------------------------------------------------------
+
 
 def analysis_page_content() -> Div:
     """
