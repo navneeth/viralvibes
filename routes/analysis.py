@@ -177,7 +177,11 @@ def _recent_analyses(user_id: str) -> Div | None:
     Returns None when the user has no dashboards yet so the caller
     can omit the section entirely.
     """
-    dashboards = get_user_dashboards(user_id, sort="recent")[:_MAX_RECENT]
+    dashboards = [
+        d
+        for d in get_user_dashboards(user_id, sort="recent")[:_MAX_RECENT]
+        if d.get("dashboard_id")
+    ]
     if not dashboards:
         return None
 
