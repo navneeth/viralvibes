@@ -1064,6 +1064,7 @@ def analysis(req, sess):
         Container(
             NavComponent(oauth, req, sess),
             analysis_page_content(),
+            cls=ContainerT.xl,
         ),
     )
 

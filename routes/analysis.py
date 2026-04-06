@@ -91,7 +91,7 @@ def _insight_cards() -> Div:
             *[
                 Card(
                     Div(
-                        UkIcon(icon, cls="w-8 h-8 text-red-500 mb-4"),
+                        UkIcon(icon, cls="w-8 h-8 text-primary mb-4"),
                         H3(title, cls="text-lg font-semibold text-foreground mb-2"),
                         P(description, cls="text-muted-foreground text-sm leading-relaxed"),
                         cls="p-6",
@@ -111,15 +111,14 @@ def _insight_cards() -> Div:
 # ---------------------------------------------------------------------------
 
 
-def analysis_page_content() -> FT:
+def analysis_page_content() -> Div:
     """
     Full body content for the /analysis route (without nav/title wrapper).
     Composed of: page header → analysis form (compact) → insight cards.
-    Uses Container(cls=ContainerT.xl) to match /creators and /lists layout.
+    Returns a bare Div — the caller (route handler) provides the Container.
     """
-    return Container(
+    return Div(
         _page_header(),
         AnalysisFormCard(compact=True),
         _insight_cards(),
-        cls=ContainerT.xl,
     )
