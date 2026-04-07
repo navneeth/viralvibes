@@ -81,16 +81,23 @@ def section_header(mono_text, heading, subheading, max_width=32, center=True) ->
 
 def hero_section() -> Section:
     """
-    Analytics Dashboard Hero - Two Column Layout
-    Left: Text + CTA
-    Right: Live analytics dashboard mockup with metrics
+    Full-screen hero wrapping the vv-header-card design system.
 
-    Uses: Tailwind animations, custom dashboard cards, no external images needed
-
-    - Gradient overlay for text readability
-    - Better typography hierarchy
-    - Glassmorphism effect for CTA
+    Uses existing vv-* CSS classes and HeaderCard() sub-components so
+    there is zero duplication between this section and the card library.
+    The right column is a 3-tab product switcher (Lists / Creator / Analyze)
+    powered by UIkit's switcher and a small auto-advance script.
     """
+    from components.cards import HeaderCard  # local import avoids circular dep
+
+    return Section(
+        HeaderCard(),
+        cls="relative w-full",
+        id="hero-section",
+    )
+
+
+def _hero_section_unused_placeholder() -> None:  # kept for diff readability
     # Chart bar heights (0-100 representing engagement)
     ENGAGEMENT_HEIGHTS = [35, 50, 42, 65, 78, 72, 88, 95]
 
@@ -332,7 +339,7 @@ def hero_section() -> Section:
             "bg-gradient-to-br from-gray-900 via-black to-gray-900 "
             "overflow-hidden py-20"
         ),
-        id="hero-section",
+        id="_hero_section_old",  # orphaned — no longer rendered
     )
 
 

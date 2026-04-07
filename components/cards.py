@@ -187,6 +187,208 @@ def _headline():
 
 
 # ---------------------------------------------------------------------------
+# Product switcher — 3 tabs cycling through the 3 product pillars
+# ---------------------------------------------------------------------------
+def _creator_row(rank: int, name: str, category: str, engagement: float) -> Div:
+    """Single row in the Lists tab — rank, name, engagement bar."""
+    bar_w = f"{int(engagement * 10)}%"
+    return Div(
+        Span(
+            str(rank),
+            style="font-family:'Geist Mono',monospace;font-size:0.65rem;color:rgba(255,255,255,0.3);width:1rem;flex-shrink:0;",
+        ),
+        Div(
+            Div(name, style="font-size:0.78rem;font-weight:600;color:#fff;"),
+            Div(category, style="font-size:0.6rem;color:rgba(255,255,255,0.35);"),
+            style="flex:1;min-width:0;",
+        ),
+        Div(
+            Div(
+                style=f"width:{bar_w};height:100%;background:linear-gradient(to right,#ef4444,#f87171);border-radius:9999px;"
+            ),
+            Span(
+                f"{engagement:.1f}%",
+                style="font-family:'Geist Mono',monospace;font-size:0.6rem;color:#f87171;font-weight:700;margin-left:0.4rem;flex-shrink:0;",
+            ),
+            style="display:flex;align-items:center;gap:0.25rem;width:6rem;",
+        ),
+        cls="vv-creator-row",
+    )
+
+
+def _product_switcher() -> Div:
+    """
+    3-tab UIkit switcher — Lists / Creator Profile / Playlist Analysis.
+    Auto-advances every 4 s via an inline script using UIkit's JS API.
+    Uses only existing vv-* CSS classes + plain Tailwind utilities.
+    """
+    switcher_id = "vv-product-switcher"
+
+    # ── Panel 1: Creator Lists ──────────────────────────────────────────
+    lists_panel = Div(
+        Div(
+            Span(
+                "🏆 Top Gaming Creators",
+                style="font-size:0.7rem;font-weight:700;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:0.07em;",
+            ),
+            Span("🇺🇸 United States", style="font-size:0.65rem;color:rgba(255,255,255,0.3);"),
+            style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;",
+        ),
+        _creator_row(1, "MrBeast", "Entertainment", 9.4),
+        _creator_row(2, "Mark Rober", "Science", 8.1),
+        _creator_row(3, "MKBHD", "Tech", 7.6),
+        Div(
+            UkIcon("trending-up", cls="w-3 h-3"),
+            Span("Updated 2h ago"),
+            style="display:flex;align-items:center;gap:0.3rem;font-size:0.6rem;color:rgba(255,255,255,0.2);margin-top:0.75rem;",
+        ),
+        cls="vv-product-tab-panel",
+    )
+
+    # ── Panel 2: Creator Profile ────────────────────────────────────────
+    def _chip(label: str, value: str) -> Div:
+        return Div(
+            Div(
+                label,
+                style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.08em;color:rgba(255,255,255,0.3);",
+            ),
+            Div(
+                value,
+                style="font-family:'Geist Mono',monospace;font-size:0.88rem;font-weight:700;color:#fff;margin-top:2px;",
+            ),
+            style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:0.5rem;padding:0.5rem 0.65rem;flex:1;",
+        )
+
+    creator_panel = Div(
+        Div(
+            Div("Mark Rober", style="font-size:0.85rem;font-weight:700;color:#fff;"),
+            Span(
+                "Science & Education",
+                style="font-size:0.6rem;background:rgba(239,68,68,0.15);color:#f87171;border-radius:9999px;padding:0.15rem 0.5rem;",
+            ),
+            style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;",
+        ),
+        Div(
+            _chip("Subscribers", "47.2M"),
+            _chip("Eng. Rate", "8.1%"),
+            style="display:flex;gap:0.5rem;margin-bottom:0.5rem;",
+        ),
+        Div(
+            _chip("30d Growth", "+2.3%"),
+            _chip("ROAS Signal", "High ↑"),
+            style="display:flex;gap:0.5rem;margin-bottom:0.75rem;",
+        ),
+        Div(
+            Span("Engagement consistency", style="font-size:0.6rem;color:rgba(255,255,255,0.35);"),
+            Progress(
+                value=81,
+                max=100,
+                style="width:100%;height:4px;border-radius:9999px;margin-top:4px;accent-color:#ef4444;",
+            ),
+            style="margin-top:0.25rem;",
+        ),
+        cls="vv-product-tab-panel",
+    )
+
+    # ── Panel 3: Playlist Analysis ──────────────────────────────────────
+    analyze_panel = Div(
+        Div(
+            UkIcon("youtube", cls="w-3 h-3", style="color:#f87171;flex-shrink:0;"),
+            Span(
+                "youtube.com/playlist?list=PLrAXt…",
+                style="font-size:0.65rem;color:rgba(255,255,255,0.3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+            ),
+            style="display:flex;align-items:center;gap:0.4rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:0.45rem;padding:0.45rem 0.6rem;margin-bottom:0.75rem;",
+        ),
+        Div(
+            *[
+                Div(
+                    Div(
+                        v,
+                        style="font-family:'Geist Mono',monospace;font-size:0.85rem;font-weight:700;color:#fff;",
+                    ),
+                    Div(
+                        l,
+                        style="font-size:0.55rem;text-transform:uppercase;letter-spacing:0.07em;color:rgba(255,255,255,0.3);margin-top:2px;",
+                    ),
+                    style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:0.5rem;padding:0.5rem 0.6rem;flex:1;text-align:center;",
+                )
+                for v, l in [("47", "Videos"), ("2.4M", "Avg Views"), ("12.3%", "Engagement")]
+            ],
+            style="display:flex;gap:0.5rem;margin-bottom:0.75rem;",
+        ),
+        Div(
+            *[
+                Div(
+                    style=(
+                        f"flex:1;border-radius:0.2rem 0.2rem 0 0;"
+                        f"background:linear-gradient(to top,#ef4444,#f87171);"
+                        f"height:{h}%;"
+                    ),
+                )
+                for h in [35, 60, 45, 80, 70, 90, 65, 75]
+            ],
+            style="display:flex;align-items:flex-end;gap:3px;height:3rem;margin-top:0.25rem;",
+        ),
+        cls="vv-product-tab-panel",
+    )
+
+    # ── Tab labels ──────────────────────────────────────────────────────
+    tab_labels = [
+        ("list", "Lists"),
+        ("user-check", "Creator"),
+        ("play-circle", "Analyze"),
+    ]
+    tabs = TabContainer(
+        *[
+            Li(
+                A(
+                    Div(
+                        UkIcon(icon, cls="w-3 h-3"),
+                        Span(label, style="font-size:0.65rem;font-weight:600;"),
+                        style="display:flex;align-items:center;gap:0.3rem;",
+                    ),
+                    href="#",
+                ),
+                cls="uk-active" if i == 0 else "",
+            )
+            for i, (icon, label) in enumerate(tab_labels)
+        ],
+        uk_switcher=f"connect: #{switcher_id}; animation: uk-animation-fade",
+        alt=True,
+        cls="mb-2",
+        style="--uk-tab-font-size:0.65rem;",
+    )
+
+    panels = Ul(
+        Li(lists_panel, cls="uk-active"),
+        Li(creator_panel),
+        Li(analyze_panel),
+        id=switcher_id,
+        cls="uk-switcher",
+    )
+
+    # Auto-advance every 4 s using UIkit's switcher API
+    auto_script = Script(
+        f"""
+(function() {{
+  var idx = 0;
+  var total = 3;
+  setInterval(function() {{
+    idx = (idx + 1) % total;
+    var el = document.querySelector('#{switcher_id}');
+    if (el && window.UIkit) {{
+      UIkit.switcher(el.previousElementSibling).show(idx);
+    }}
+  }}, 4000);
+}})();
+"""
+    )
+
+    return Div(tabs, panels, auto_script, style="margin-top:0.5rem;")
+
+
+# ---------------------------------------------------------------------------
 # Public component
 # ---------------------------------------------------------------------------
 def HeaderCard() -> Div:
@@ -320,62 +522,8 @@ def HeaderCard() -> Div:
                             ],
                             style="display:flex;gap:0.5rem;",
                         ),
-                        # Creator preview image placeholder
-                        Div(
-                            Img(
-                                src="/static/dashboard-preview.png",
-                                alt="Creator analytics preview",
-                                style="display:block; width:100%; height:auto; border-radius:0.55rem;",
-                            ),
-                            # Fallback shown if image is missing
-                            Div(
-                                UkIcon(
-                                    "users",
-                                    cls="w-6 h-6",
-                                    style="color:rgba(239,68,68,0.6)",
-                                ),
-                                Span(
-                                    "Creator Discovery",
-                                    style="font-family:'Geist Mono',monospace; font-size:0.62rem; letter-spacing:0.06em; color:rgba(239,68,68,0.5); text-transform:uppercase;",
-                                ),
-                                style=(
-                                    "position:absolute; inset:0;"
-                                    "display:flex; flex-direction:column;"
-                                    "align-items:center; justify-content:center; gap:0.4rem;"
-                                ),
-                                cls="vv-gif-fallback",
-                            ),
-                            style=(
-                                "position:relative;"
-                                "border:1px dashed rgba(239,68,68,0.35);"
-                                "border-radius:0.55rem;"
-                                "overflow:hidden;"
-                                "background:rgba(239,68,68,0.04);"
-                                "min-height:88px;"
-                                "margin-top:0.75rem;"
-                            ),
-                        ),
-                        # Viral score row
-                        Div(
-                            Div(
-                                Span(
-                                    "Viral Score",
-                                    style="font-size:0.7rem;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.07em;",
-                                ),
-                                Span(
-                                    "92.4 / 100",
-                                    style="font-family:'Geist Mono',monospace;font-size:0.85rem;color:#f87171;font-weight:700;",
-                                ),
-                                style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;",
-                            ),
-                            Div(
-                                Div(
-                                    style="width:92.4%;height:100%;background:linear-gradient(to right,#ef4444,#f87171);border-radius:9999px;"
-                                ),
-                                style="width:100%;height:5px;background:rgba(255,255,255,0.08);border-radius:9999px;overflow:hidden;",
-                            ),
-                            style="margin-top:0.75rem;",
-                        ),
+                        # ── 3-tab product switcher ───────────────────
+                        _product_switcher(),
                         style="padding:0.85rem;",
                     ),
                     style=(
