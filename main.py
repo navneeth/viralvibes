@@ -195,6 +195,13 @@ hdrs += (
     Script(src="/js/reveal.js"),
 )
 
+# Add Vercel Web Analytics
+# Script initializes the analytics queue before the main script loads
+hdrs += (
+    Script("window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"),
+    Script(src="https://cdn.vercel-insights.com/v1/script.js", defer=True),
+)
+
 # Auth beforeware — canonical FastHTML pattern (adv_app.py, quickstart docs).
 # skip uses re.search(), so regex patterns like r'/static/.*' cover all children.
 _login_redir = RedirectResponse("/login", status_code=303)
