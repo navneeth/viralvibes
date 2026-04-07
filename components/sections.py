@@ -598,13 +598,15 @@ def footer():
 def BottomCTASection() -> Section:
     """
     Dark full-bleed closing CTA — Clay.com inspired.
-    Left: headline + dual CTAs + trust line.
-    Right: app window placeholder (replace with a 680×440 screenshot of
-           the /creators ranked list page — dark-themed, showing creator
-           rows with engagement bars; ideally a browser-framed PNG/WebP).
+
+    Layout:
+      - Left: headline + dual CTAs + trust line.
+      - Right: app window placeholder (replace with a 680×440 screenshot of
+        the /creators ranked list page — dark-themed, showing creator
+        rows with engagement bars; ideally a browser-framed PNG/WebP).
 
     Best image: A cropped screenshot of the ViralVibes /creators or /lists
-    page showing 5-6 creator rows with rank numbers, engagement bars, and
+    page showing 5–6 creator rows with rank numbers, engagement bars, and
     category badges. Crop to ~680×440px, save as
     /static/cta-preview.webp. The dark panel will frame it automatically.
     """
@@ -632,51 +634,34 @@ def BottomCTASection() -> Section:
         # Traffic lights + URL bar
         Div(
             Div(
-                Span(style="width:10px;height:10px;border-radius:50%;background:#ff5f57;"),
-                Span(style="width:10px;height:10px;border-radius:50%;background:#febc2e;"),
-                Span(style="width:10px;height:10px;border-radius:50%;background:#28c840;"),
-                style="display:flex;gap:6px;align-items:center;",
+                Span(cls="size-2.5 rounded-full bg-[#ff5f57]"),
+                Span(cls="size-2.5 rounded-full bg-[#febc2e]"),
+                Span(cls="size-2.5 rounded-full bg-[#28c840]"),
+                cls="flex items-center gap-1.5",
             ),
             Div(
                 "viralvibes.app/creators",
-                style=(
-                    "flex:1;text-align:center;"
-                    "font-family:'Geist Mono',monospace;"
-                    "font-size:0.65rem;color:rgba(255,255,255,0.25);"
-                ),
+                cls="flex-1 text-center font-mono text-[0.65rem] text-white/25",
             ),
-            style=(
-                "display:flex;align-items:center;gap:0.5rem;"
-                "padding:0.6rem 1rem;"
-                "background:rgba(255,255,255,0.04);"
-                "border-bottom:1px solid rgba(255,255,255,0.07);"
-                "border-radius:0.9rem 0.9rem 0 0;"
+            cls=(
+                "flex items-center gap-2 py-[0.6rem] px-4 "
+                "bg-white/5 border-b border-white/10 rounded-t-[0.9rem]"
             ),
         ),
         # Image / placeholder
-        Div(
-            placeholder,
-            style="padding:1rem;",
-        ),
-        style=(
-            "background:rgba(255,255,255,0.03);"
-            "border:1px solid rgba(255,255,255,0.08);"
-            "border-radius:0.9rem;"
-            "overflow:hidden;"
-            "flex:1;"
-            "min-width:280px;"
+        Div(placeholder, cls="p-4"),
+        cls=(
+            "flex-1 min-w-[280px] overflow-hidden "
+            "bg-white/[3%] border border-white/10 rounded-[0.9rem]"
         ),
     )
 
     return Section(
-        # Decorative gradient blob
+        # Decorative gradient blob — only the radial-gradient value needs inline style;
+        # all positioning and shape expressed via cls.
         Div(
-            style=(
-                "position:absolute;top:-80px;right:-80px;"
-                "width:480px;height:480px;"
-                "background:radial-gradient(circle,rgba(239,68,68,0.12) 0%,transparent 70%);"
-                "border-radius:50%;pointer-events:none;"
-            )
+            cls="absolute -top-20 -right-20 w-[480px] h-[480px] rounded-full pointer-events-none",
+            style="background:radial-gradient(circle,rgba(239,68,68,0.12) 0%,transparent 70%);",
         ),
         Div(
             # ── Left: copy + CTAs ──────────────────────────────────────
@@ -692,7 +677,7 @@ def BottomCTASection() -> Section:
                 P(
                     "Every day you spend on manual research is a day a better-fit creator "
                     "signs with someone else. ViralVibes gives you the shortlist in minutes.",
-                    cls="text-gray-400 text-lg leading-relaxed mb-10 max-w-lg",
+                    cls="text-white/60 text-lg leading-relaxed mb-10 max-w-lg",
                 ),
                 # Dual CTA
                 Div(
@@ -715,7 +700,7 @@ def BottomCTASection() -> Section:
                     UkIcon("check", cls="w-4 h-4 text-red-500"),
                     Span(
                         " No credit card required  ·  Free to start  ·  Updated daily",
-                        cls="text-gray-500 text-sm",
+                        cls="text-white/40 text-sm",
                     ),
                     cls="flex items-center gap-1 mt-6",
                 ),
@@ -725,7 +710,7 @@ def BottomCTASection() -> Section:
             app_window,
             cls="flex flex-col lg:flex-row gap-12 lg:gap-16 items-center max-w-7xl mx-auto px-6 lg:px-16 py-24",
         ),
-        style="background:#0d0d0d;position:relative;overflow:hidden;",
+        cls="relative overflow-hidden bg-neutral-950",
         id="cta-section",
     )
 
