@@ -198,7 +198,9 @@ hdrs += (
 # Add Vercel Web Analytics
 # Script initializes the analytics queue before the main script loads
 hdrs += (
-    Script("window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"),
+    Script(
+        "window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"
+    ),
     Script(src="https://cdn.vercel-insights.com/v1/script.js", defer=True),
 )
 
