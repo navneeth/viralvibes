@@ -344,23 +344,27 @@ def _hero_section_unused_placeholder() -> None:  # kept for diff readability
 
 
 def how_it_works_section() -> Section:
-    """Step-by-step workflow section"""
+    """Brand discovery workflow — 4 steps from research to campaign launch."""
     steps_msg = [
         (
-            "1️⃣ Submit Playlist URL",
-            "Paste your YouTube playlist link into the analysis form.",
+            "1. Browse creator lists",
+            "Filter 1M+ ranked creators by niche, country, and engagement rate. "
+            "What used to take a researcher a week takes minutes.",
         ),
         (
-            "2️⃣ Preview",
-            "See the playlist title, channel name, and thumbnail instantly.",
+            "2. Review creator profiles",
+            "See growth velocity, engagement history, and ROAS indicators for any creator "
+            "— without needing channel access or their permission.",
         ),
         (
-            "3️⃣ Deep Analysis",
-            "We crunch video stats—views, likes, dislikes, comments, engagement, and controversy.",
+            "3. Analyze their content",
+            "Paste any public playlist URL for instant analysis — views, engagement patterns, "
+            "controversy signals, and viral scoring in under 2 seconds.",
         ),
         (
-            "4️⃣  Results Dashboard",
-            "Get a detailed table and dashboard with trends and viral signals.",
+            "4. Build your shortlist",
+            "Export ranked creator data as CSV for campaign planning. "
+            "Share with clients. Skip the spreadsheet hell.",
         ),
     ]
     return section_wrapper(
@@ -368,8 +372,9 @@ def how_it_works_section() -> Section:
             Div(
                 section_header(
                     "HOW IT WORKS",
-                    "Analyze any YouTube playlist in seconds.",
-                    "ViralVibes guides you through a simple, step-by-step workflow to decode YouTube trends and performance.",
+                    "From research to shortlist in minutes.",
+                    "Stop spending hours on manual creator research. ViralVibes gives you "
+                    "the data to find, evaluate, and shortlist creators fast.",
                 ),
                 cls="max-w-3xl w-full mx-auto flex-col items-center text-center gap-6 mb-8 lg:mb-8",
             ),
@@ -384,18 +389,38 @@ def how_it_works_section() -> Section:
 
 
 def features_section():
-    """Modern features grid using MonsterUI Card patterns."""
+    """Six-card reasons grid — brand/ROAS focused."""
     feature_items = [
-        ("bolt", "Real-Time Analytics", "Live data processing—no waiting for reports."),
         (
-            "chart-bar",
-            "Viral Pattern Detection",
-            "Spot engagement spikes and controversy signals.",
+            "list",
+            "Curated creator lists",
+            "Pre-ranked creators by niche and country, filtered by engagement quality — not subscriber count.",
         ),
-        ("users", "Creator Insights", "Understand audience behavior beyond raw views."),
-        ("zap", "Instant Results", "Cached analysis for lightning-fast reloads."),
-        ("lock", "Privacy First", "No data stored—your playlists stay private."),
-        ("download", "CSV/JSON Exports", "Download full data for offline analysis."),
+        (
+            "bar-chart-2",
+            "Real engagement signals",
+            "View-to-like ratios, comment density, and consistency across recent uploads. Spot the real audience.",
+        ),
+        (
+            "trending-up",
+            "Growth velocity",
+            "Who is rising now vs. plateauing. Reach out before their rates double — or before they disappear.",
+        ),
+        (
+            "dollar-sign",
+            "ROAS-correlated metrics",
+            "Engagement patterns that correlate with purchase intent, not just impressions. Filter out the noise.",
+        ),
+        (
+            "globe",
+            "Any public channel",
+            "No channel ownership required. Analyze any creator's public data across 150+ countries without their permission.",
+        ),
+        (
+            "download",
+            "Export for your workflow",
+            "CSV and JSON exports for agency reporting, CRM imports, and campaign planning. No spreadsheet hell.",
+        ),
     ]
 
     cards = [
@@ -403,7 +428,7 @@ def features_section():
             Div(
                 UkIcon(icon, cls="w-10 h-10 text-red-600 mb-4"),
                 H4(title, cls="text-lg font-semibold text-gray-900 mb-2"),
-                P(desc, cls="text-sm text-gray-600"),
+                P(desc, cls="text-sm text-gray-600 leading-relaxed"),
                 cls="flex flex-col items-center text-center h-full",
             ),
             cls=(CardT.hover, "p-6 transition-all duration-300"),
@@ -413,15 +438,23 @@ def features_section():
 
     return Section(
         Container(
-            H2("Key Features", cls="text-3xl font-bold text-center mb-4"),
             P(
-                "Everything you need to decode YouTube virality",
-                cls="text-center text-gray-600 mb-12",
+                "WHY BRANDS CHOOSE VIRALVIBES",
+                cls="text-sm font-semibold text-red-600 uppercase tracking-wider text-center mb-4",
+            ),
+            H2(
+                "Built for campaigns that have to perform",
+                cls="text-4xl font-bold text-center text-gray-900 mb-4",
+            ),
+            P(
+                "Not another dashboard full of vanity metrics. Six tools that move the needle on ROAS.",
+                cls="text-center text-gray-600 mb-12 max-w-2xl mx-auto",
             ),
             Grid(
                 *cards,
-                cols="1 md:2 lg:3",
-                gap=8,
+                cols_sm=2,
+                cols_lg=3,
+                gap=6,
                 cls="max-w-7xl mx-auto",
             ),
         ),
@@ -518,35 +551,45 @@ def FooterLinkGroup(title, links):
 
 
 def footer():
-    company = ["About", "Blog", "Careers", "Press Kit"]
-    resources = ["Documentation", "Help Center", "Status", "Contact Sales"]
-    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings", "Accessibility"]
+    product = ["Creators", "Lists", "Analyze", "Pricing"]
+    company = ["About", "Blog", "Contact", "Press Kit"]
+    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings"]
 
     return Container(cls="uk-background-muted py-12")(
         styled_div(
             DivFullySpaced(
-                H3("ViralVibes"),
+                Div(
+                    H3("ViralVibes", cls="mb-1"),
+                    P(
+                        "Find YouTube creators who actually drive results.",
+                        cls=TextT.muted + " text-sm max-w-xs",
+                    ),
+                ),
                 DivHStacked(
-                    UkIcon("twitter", cls=TextT.lead),
                     A(
                         UkIcon("x", cls=TextT.lead),
                         href=SOCIALS["x"],
                         target="_blank",
-                        rel="noopener",
+                        rel="noopener noreferrer",
+                        aria_label="ViralVibes on X (Twitter)",
                     ),
-                    UkIcon("facebook", cls=TextT.lead),
-                    UkIcon("github", cls=TextT.lead),
-                    UkIcon("linkedin", cls=TextT.lead),
+                    A(
+                        UkIcon("linkedin", cls=TextT.lead),
+                        href=SOCIALS["linkedin"],
+                        target="_blank",
+                        rel="noopener noreferrer",
+                        aria_label="ViralVibes on LinkedIn",
+                    ),
                 ),
             ),
             DividerLine(),
             DivFullySpaced(
+                FooterLinkGroup("Product", product),
                 FooterLinkGroup("Company", company),
-                FooterLinkGroup("Resources", resources),
                 FooterLinkGroup("Legal", legal),
             ),
             DividerLine(),
-            P("© 2025 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
+            P("© 2026 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
             cls="space-y-8 p-8",
         )
     )
@@ -606,63 +649,60 @@ def SectionDivider() -> Div:
 
 def engagement_slider_section() -> Section:
     """
-    Premium engagement slider built with MonsterUI Slider components
-    - Beautiful card layout with images
-    - Swipeable on mobile
-    - Navigation arrows with custom styling
-    - High conversion potential
+    Five-card capability slider — brand/ROAS focused.
+    Swipeable on mobile, nav on desktop.
     """
 
     slide_data = [
         {
-            "icon": "📈",
-            "title": "Spot Virality Early",
-            "desc": "Identify breakout playlists before views explode and competition catches up.",
-            "accent": "from-red-500 to-pink-500",
-            "accent_light": "from-red-500/30 to-pink-500/30",
+            "icon": "📋",
+            "title": "Pre-ranked creator lists",
+            "desc": "Browse 1M+ creators organized by niche and country. No cold research from scratch.",
+            "accent": "from-red-500 to-rose-600",
+            "accent_light": "from-red-500/30 to-rose-600/30",
             "image": "https://images.unsplash.com/photo-1552664730-d307ca884978?w=400&q=80",
-            "alt": "Analytics dashboard showing rising metrics",
-            "link_color": "text-red-500",
+            "alt": "Creator ranked lists",
+            "link_color": "text-red-400",
         },
         {
-            "icon": "🧠",
-            "title": "Pattern-Level Insights",
-            "desc": "We analyze trends across playlists—not just single videos. See the bigger picture.",
-            "accent": "from-blue-500 to-cyan-500",
-            "accent_light": "from-blue-500/30 to-cyan-500/30",
+            "icon": "📊",
+            "title": "Engagement quality over follower count",
+            "desc": "500K subscribers at 8% engagement beats 5M at 0.3%. We surface the difference.",
+            "accent": "from-blue-500 to-indigo-600",
+            "accent_light": "from-blue-500/30 to-indigo-600/30",
             "image": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&q=80",
-            "alt": "Data visualization and analytics",
-            "link_color": "text-blue-500",
+            "alt": "Engagement analytics data",
+            "link_color": "text-blue-400",
         },
         {
             "icon": "⚡",
-            "title": "Instant Analysis",
-            "desc": "Paste a playlist. Get engagement, velocity, and signals in seconds. No waiting.",
+            "title": "Catch rising stars early",
+            "desc": "30-day momentum signals show who's growing fast. Reach out before their rates double.",
             "accent": "from-yellow-400 to-orange-500",
             "accent_light": "from-yellow-400/30 to-orange-500/30",
             "image": "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=400&q=80",
-            "alt": "Fast processing and real-time data",
-            "link_color": "text-yellow-500",
+            "alt": "Rising creator growth signal",
+            "link_color": "text-yellow-400",
         },
         {
             "icon": "🎯",
-            "title": "Actionable Metrics",
-            "desc": "Know what to replicate, what to ignore, and what to double down on.",
-            "accent": "from-green-500 to-emerald-500",
-            "accent_light": "from-green-500/30 to-emerald-500/30",
+            "title": "ROAS-correlated signals",
+            "desc": "We surface the engagement patterns that correlate with conversion — not just impressions.",
+            "accent": "from-green-500 to-emerald-600",
+            "accent_light": "from-green-500/30 to-emerald-600/30",
             "image": "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=400&q=80",
-            "alt": "YouTube analytics and creator metrics",
-            "link_color": "text-green-500",
+            "alt": "ROAS and conversion signals",
+            "link_color": "text-green-400",
         },
         {
-            "icon": "🔥",
-            "title": "Built for Creators",
-            "desc": "No dashboard bloat. Just insights that move views and grow channels.",
-            "accent": "from-purple-500 to-fuchsia-500",
-            "accent_light": "from-purple-500/30 to-fuchsia-500/30",
+            "icon": "🔍",
+            "title": "Analyze any playlist instantly",
+            "desc": "Paste a public YouTube URL. Get engagement, viral scores, and content patterns in under 2 seconds.",
+            "accent": "from-purple-500 to-fuchsia-600",
+            "accent_light": "from-purple-500/30 to-fuchsia-600/30",
             "image": "https://images.unsplash.com/photo-1611532736579-6b16e2b50449?w=400&q=80",
-            "alt": "Creative content creation",
-            "link_color": "text-purple-500",
+            "alt": "Playlist analysis",
+            "link_color": "text-purple-400",
         },
     ]
 
@@ -670,12 +710,11 @@ def engagement_slider_section() -> Section:
         # Header
         Div(
             H2(
-                "Why creators keep scrolling ",
-                Span("👇", cls="inline-block animate-bounce"),
+                "Built for campaigns that have to perform",
                 cls="text-3xl md:text-4xl font-bold text-white mb-3",
             ),
             P(
-                "See what sets ViralVibes apart from the crowd",
+                "Five reasons teams use ViralVibes instead of guessing",
                 cls="text-gray-400 text-lg",
             ),
             cls="text-center mb-12 px-4",
@@ -713,18 +752,18 @@ def engagement_slider_section() -> Section:
         # Stats Row (Social Proof)
         Div(
             Div(
-                P("500+", cls="text-2xl font-bold text-white"),
-                P("Creators Analyzing", cls="text-gray-400 text-sm"),
+                P("1M+", cls="text-2xl font-bold text-white"),
+                P("Creators Tracked", cls="text-gray-400 text-sm"),
                 cls="text-center",
             ),
             Div(
-                P("50K+", cls="text-2xl font-bold text-white"),
-                P("Playlists Decoded", cls="text-gray-400 text-sm"),
+                P("150+", cls="text-2xl font-bold text-white"),
+                P("Countries", cls="text-gray-400 text-sm"),
                 cls="text-center",
             ),
             Div(
-                P("2.5B+", cls="text-2xl font-bold text-white"),
-                P("Videos Analyzed", cls="text-gray-400 text-sm"),
+                P("25+", cls="text-2xl font-bold text-white"),
+                P("Niches Ranked", cls="text-gray-400 text-sm"),
                 cls="text-center",
             ),
             cls="grid grid-cols-3 gap-8 mt-16 px-4 max-w-2xl mx-auto",

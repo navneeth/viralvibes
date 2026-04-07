@@ -1257,15 +1257,16 @@ def CoreValuePropsSection() -> Section:
         # Section header
         Div(
             P(
-                "PLATFORM CAPABILITIES",
+                "THREE TOOLS, ONE PLATFORM",
                 cls="text-sm font-semibold text-red-600 uppercase tracking-wider text-center mb-4",
             ),
             H2(
-                "Everything you need to discover and track creators",
+                "Three tools. One outcome: campaigns that pay off.",
                 cls="text-4xl font-bold text-gray-900 text-center mb-4",
             ),
             P(
-                "Four powerful tools to analyze YouTube channels without ownership access",
+                "Creator discovery, deep profile analysis, and content auditing — "
+                "on any public channel, without needing their login.",
                 cls="text-xl text-gray-600 text-center max-w-3xl mx-auto mb-16",
             ),
             cls="mb-12",

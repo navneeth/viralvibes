@@ -140,28 +140,28 @@ SOCIALS = {
     "github": "https://github.com/viralvibesfyi",  # placeholder
 }
 
-# Core value propositions (4-box framework)
+# Core value propositions — 3-pillar product + ROAS framing
 CORE_VALUE_PROPS = [
     {
-        "icon": "search",
-        "title": "Discover",
-        "headline": "Find creators in any niche",
-        "description": "Search 10,000+ channels by category, country, language, "
-        "and engagement quality. Filter by growth rate and audience metrics.",
+        "icon": "list",
+        "title": "Creator Lists",
+        "headline": "Pre-ranked by niche & country",
+        "description": "Browse 1M+ creators organized by category, geography, and "
+        "engagement quality — not subscriber count. Filter to a shortlist in minutes.",
     },
     {
-        "icon": "bar-chart-2",
-        "title": "Analyze",
-        "headline": "Deep engagement metrics",
-        "description": "See virality scores, audience quality, and content performance. "
-        "Public data advantage - no channel ownership needed.",
+        "icon": "user-check",
+        "title": "Creator Profiles",
+        "headline": "Every metric that predicts ROAS",
+        "description": "Engagement rate, 30-day growth velocity, content consistency, "
+        "and audience quality — on any public channel, no OAuth required.",
     },
     {
-        "icon": "trending-up",
-        "title": "Track",
-        "headline": "30-day growth velocity",
-        "description": "Monitor subscriber trends, view patterns, and engagement shifts. "
-        "Catch rising stars before they explode.",
+        "icon": "play-circle",
+        "title": "Playlist Analysis",
+        "headline": "Decode any content library",
+        "description": "Paste any public playlist URL. Get views, engagement patterns, "
+        "controversy signals, and viral scoring in under 2 seconds.",
     },
     {
         "icon": "dollar-sign",
@@ -222,28 +222,32 @@ LISTS_FEATURE_TABS = [
         "id": "top-rated",
         "label": "Top Rated",
         "icon": "star",
-        "description": "Discover creators with the highest quality scores",
-        "highlight": "10,000+ vetted creators",
+        "description": "Creators ranked by engagement quality, not subscriber count. "
+        "Filter by niche, country, and growth trend.",
+        "highlight": "1M+ ranked creators",
     },
     {
         "id": "by-country",
         "label": "By Country",
         "icon": "globe",
-        "description": "Browse talent by their home country",
-        "highlight": "142 countries",
+        "description": "Find creators in specific markets. Compare engagement benchmarks "
+        "across 150+ countries without manual research.",
+        "highlight": "150+ countries",
     },
     {
         "id": "by-category",
         "label": "By Category",
         "icon": "grid",
-        "description": "Explore creators grouped by topic/niche",
+        "description": "Discover top creators in Tech, Gaming, Finance, Beauty, "
+        "and 25+ other categories scored against their peers.",
         "highlight": "25+ categories",
     },
     {
         "id": "rising-stars",
         "label": "Rising Stars",
         "icon": "trending-up",
-        "description": "Channels with the fastest growth",
+        "description": "Channels gaining momentum right now — before their rates double. "
+        "Ranked by 30-day subscriber and engagement velocity.",
         "highlight": "Updated daily",
     },
 ]
