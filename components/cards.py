@@ -1229,7 +1229,7 @@ def CoreValuePropsSection() -> Section:
             # Icon container
             Div(
                 UkIcon(prop["icon"], cls="w-12 h-12 text-red-600"),
-                cls="mb-6 p-4 bg-red-50 rounded-2xl w-fit",
+                cls="mb-6 p-4 bg-red-50 dark:bg-red-950/30 rounded-2xl w-fit",
             ),
             # Title
             H3(
@@ -1239,15 +1239,15 @@ def CoreValuePropsSection() -> Section:
             # Headline
             H4(
                 prop["headline"],
-                cls="text-2xl font-bold text-gray-900 mb-4",
+                cls="text-2xl font-bold text-foreground mb-4",
             ),
             # Description
             P(
                 prop["description"],
-                cls="text-gray-600 leading-relaxed",
+                cls="text-muted-foreground leading-relaxed",
             ),
             cls=(
-                "bg-white rounded-2xl p-8 shadow-sm border border-gray-200 "
+                "bg-background rounded-2xl p-8 shadow-sm border border-border "
                 "hover:shadow-lg hover:border-red-200 transition-all duration-300 "
                 "flex flex-col"
             ),
@@ -1262,12 +1262,12 @@ def CoreValuePropsSection() -> Section:
             ),
             H2(
                 "Three tools. One outcome: campaigns that pay off.",
-                cls="text-4xl font-bold text-gray-900 text-center mb-4",
+                cls="text-4xl font-bold text-foreground text-center mb-4",
             ),
             P(
                 "Creator discovery, deep profile analysis, and content auditing — "
                 "on any public channel, without needing their login.",
-                cls="text-xl text-gray-600 text-center max-w-3xl mx-auto mb-16",
+                cls="text-xl text-muted-foreground text-center max-w-3xl mx-auto mb-16",
             ),
             cls="mb-12",
         ),
@@ -1276,7 +1276,7 @@ def CoreValuePropsSection() -> Section:
             *[value_prop_card(prop) for prop in CORE_VALUE_PROPS],
             cls="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto",
         ),
-        cls="px-4 lg:px-16 py-24 bg-gray-50",
+        cls="px-4 lg:px-16 py-24 bg-muted",
         id="core-value-props-section",
     )
 
@@ -1376,21 +1376,21 @@ def ListsFeatureShowcase():
                     # Title
                     H3(
                         tab["label"],
-                        cls="text-3xl font-bold text-gray-900 mb-4",
+                        cls="text-3xl font-bold text-foreground mb-4",
                     ),
                     # Description
                     P(
                         tab["description"],
-                        cls="text-lg text-gray-600 mb-6 leading-relaxed",
+                        cls="text-lg text-muted-foreground mb-6 leading-relaxed",
                     ),
                     # Highlight stat
                     Div(
                         Div(
                             UkIcon("check-circle", cls="size-5 text-green-500"),
-                            Span(tab["highlight"], cls="font-semibold text-gray-900"),
+                            Span(tab["highlight"], cls="font-semibold text-foreground"),
                             cls="flex items-center gap-2",
                         ),
-                        cls="inline-flex px-4 py-2 rounded-full bg-green-50 border border-green-200",
+                        cls="inline-flex px-4 py-2 rounded-full bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900",
                     ),
                     # CTA
                     A(
@@ -1461,11 +1461,11 @@ def ListsFeatureShowcase():
                 ),
                 H2(
                     "Discover 1M+ Creators",
-                    cls="text-4xl lg:text-5xl font-bold text-gray-900 mb-4",
+                    cls="text-4xl lg:text-5xl font-bold text-foreground mb-4",
                 ),
                 P(
                     "Browse curated creator rankings with 7 different lenses — from top-rated channels to rising stars. Filter by country, category, language, and more.",
-                    cls="text-xl text-gray-600 max-w-2xl",
+                    cls="text-xl text-muted-foreground max-w-2xl",
                 ),
                 cls="text-center mx-auto max-w-4xl mb-16",
             ),
@@ -1530,32 +1530,32 @@ def ListsFeatureShowcase():
         Div(
             Div(
                 Div(
-                    Span("7", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
-                    Span("Filter Options", cls="text-xs md:text-sm text-gray-600"),
+                    Span("7", cls="text-2xl md:text-4xl font-bold text-foreground mb-1"),
+                    Span("Filter Options", cls="text-xs md:text-sm text-muted-foreground"),
                     cls="flex flex-col items-center",
                 ),
-                Div(cls="hidden md:block w-px h-16 bg-gray-300"),
+                Div(cls="hidden md:block w-px h-16 bg-border"),
                 Div(
-                    Span("25+", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
-                    Span("Categories", cls="text-xs md:text-sm text-gray-600"),
+                    Span("25+", cls="text-2xl md:text-4xl font-bold text-foreground mb-1"),
+                    Span("Categories", cls="text-xs md:text-sm text-muted-foreground"),
                     cls="flex flex-col items-center",
                 ),
-                Div(cls="hidden md:block w-px h-16 bg-gray-300"),
+                Div(cls="hidden md:block w-px h-16 bg-border"),
                 Div(
-                    Span("Daily", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
-                    Span("Updates", cls="text-xs md:text-sm text-gray-600"),
+                    Span("Daily", cls="text-2xl md:text-4xl font-bold text-foreground mb-1"),
+                    Span("Updates", cls="text-xs md:text-sm text-muted-foreground"),
                     cls="flex flex-col items-center",
                 ),
-                Div(cls="hidden md:block w-px h-16 bg-gray-300"),
+                Div(cls="hidden md:block w-px h-16 bg-border"),
                 Div(
-                    Span("Free", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
-                    Span("To Browse", cls="text-xs md:text-sm text-gray-600"),
+                    Span("Free", cls="text-2xl md:text-4xl font-bold text-foreground mb-1"),
+                    Span("To Browse", cls="text-xs md:text-sm text-muted-foreground"),
                     cls="flex flex-col items-center",
                 ),
                 cls="grid grid-cols-2 md:flex md:items-center md:justify-center gap-6 md:gap-12",
             ),
             cls="container mx-auto px-4 lg:px-8 py-12",
         ),
-        cls="py-20 bg-gradient-to-b from-white via-gray-50 to-white overflow-hidden",
+        cls="py-20 bg-gradient-to-b from-background via-muted to-background overflow-hidden",
         id="lists-feature-showcase",
     )

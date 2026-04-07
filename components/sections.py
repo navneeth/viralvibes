@@ -427,8 +427,8 @@ def features_section():
         Card(
             Div(
                 UkIcon(icon, cls="w-10 h-10 text-red-600 mb-4"),
-                H4(title, cls="text-lg font-semibold text-gray-900 mb-2"),
-                P(desc, cls="text-sm text-gray-600 leading-relaxed"),
+                H4(title, cls="text-lg font-semibold text-foreground mb-2"),
+                P(desc, cls="text-sm text-muted-foreground leading-relaxed"),
                 cls="flex flex-col items-center text-center h-full",
             ),
             cls=(CardT.hover, "p-6 transition-all duration-300"),
@@ -444,11 +444,11 @@ def features_section():
             ),
             H2(
                 "Built for campaigns that have to perform",
-                cls="text-4xl font-bold text-center text-gray-900 mb-4",
+                cls="text-4xl font-bold text-center text-foreground mb-4",
             ),
             P(
                 "Not another dashboard full of vanity metrics. Six tools that move the needle on ROAS.",
-                cls="text-center text-gray-600 mb-12 max-w-2xl mx-auto",
+                cls="text-center text-muted-foreground mb-12 max-w-2xl mx-auto",
             ),
             Grid(
                 *cards,
@@ -458,7 +458,7 @@ def features_section():
                 cls="max-w-7xl mx-auto",
             ),
         ),
-        cls="py-16 bg-gray-50",
+        cls="py-16 bg-muted",
         id="features-section",
     )
 
