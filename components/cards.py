@@ -1460,7 +1460,7 @@ def ListsFeatureShowcase():
                     cls="inline-block px-3 py-1 rounded-full bg-red-100 text-red-600 text-sm font-semibold mb-4",
                 ),
                 H2(
-                    "Discover 10,000+ Creators",
+                    "Discover 1M+ Creators",
                     cls="text-4xl lg:text-5xl font-bold text-gray-900 mb-4",
                 ),
                 P(
@@ -1479,7 +1479,7 @@ def ListsFeatureShowcase():
                 Div(
                     Div(
                         UkIcon("users", cls="size-4 text-white"),
-                        Span("10,000+", cls="font-bold text-white"),
+                        Span("1M+", cls="font-bold text-white"),
                         Span("Creators", cls="text-xs text-white/80"),
                         cls="flex items-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-red-500 to-red-600 shadow-lg floating-badge",
                         style="position: absolute; top: 10%; left: -5%; z-index: 10;",
@@ -1487,7 +1487,7 @@ def ListsFeatureShowcase():
                     ),
                     Div(
                         UkIcon("globe", cls="size-4 text-white"),
-                        Span("142", cls="font-bold text-white"),
+                        Span("150+", cls="font-bold text-white"),
                         Span("Countries", cls="text-xs text-white/80"),
                         cls="flex items-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 shadow-lg floating-badge",
                         style="position: absolute; bottom: 15%; right: -5%; z-index: 10; animation-delay: 1.5s;",
@@ -1530,29 +1530,29 @@ def ListsFeatureShowcase():
         Div(
             Div(
                 Div(
-                    Span("7", cls="text-4xl font-bold text-gray-900 mb-1"),
-                    Span("Filter Options", cls="text-sm text-gray-600"),
+                    Span("7", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
+                    Span("Filter Options", cls="text-xs md:text-sm text-gray-600"),
                     cls="flex flex-col items-center",
                 ),
                 Div(cls="hidden md:block w-px h-16 bg-gray-300"),
                 Div(
-                    Span("25+", cls="text-4xl font-bold text-gray-900 mb-1"),
-                    Span("Categories", cls="text-sm text-gray-600"),
+                    Span("25+", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
+                    Span("Categories", cls="text-xs md:text-sm text-gray-600"),
                     cls="flex flex-col items-center",
                 ),
                 Div(cls="hidden md:block w-px h-16 bg-gray-300"),
                 Div(
-                    Span("Daily", cls="text-4xl font-bold text-gray-900 mb-1"),
-                    Span("Updates", cls="text-sm text-gray-600"),
+                    Span("Daily", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
+                    Span("Updates", cls="text-xs md:text-sm text-gray-600"),
                     cls="flex flex-col items-center",
                 ),
                 Div(cls="hidden md:block w-px h-16 bg-gray-300"),
                 Div(
-                    Span("Free", cls="text-4xl font-bold text-gray-900 mb-1"),
-                    Span("To Browse", cls="text-sm text-gray-600"),
+                    Span("Free", cls="text-2xl md:text-4xl font-bold text-gray-900 mb-1"),
+                    Span("To Browse", cls="text-xs md:text-sm text-gray-600"),
                     cls="flex flex-col items-center",
                 ),
-                cls="flex items-center justify-center gap-8 md:gap-12",
+                cls="grid grid-cols-2 md:flex md:items-center md:justify-center gap-6 md:gap-12",
             ),
             cls="container mx-auto px-4 lg:px-8 py-12",
         ),
