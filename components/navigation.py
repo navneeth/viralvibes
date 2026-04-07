@@ -28,8 +28,8 @@ def TopAlertBar():
         Div(
             Span("🚀", cls="mr-1"),
             Span("Now tracking "),
-            Span("38,900+ YouTube creators", cls="font-semibold"),
-            Span(" across 129 countries — "),
+            Span("1 Mil+ YouTube creators", cls="font-semibold"),
+            Span(" across 150+ countries — "),
             A(
                 "Explore free →",
                 href="/creators",
@@ -144,7 +144,7 @@ def NavComponent(oauth, req=None, sess=None):
             H3("ViralVibes", cls="text-lg font-bold"),
             UkIcon("chart-line", height=28, width=28),
             Span(
-                "38,900+ creators",
+                "1M+ creators",
                 cls="hidden lg:inline-flex ml-2 px-2 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100 rounded-full",
             ),
         ),
