@@ -96,7 +96,7 @@ from ui_components import (
 
 # Import modal components
 from .modals import ExportModal, Modal, ShareModal
-from .navigation import NavComponent
+from .navigation import NavComponent, TopAlertBar
 from .auth_dropdown import AuthDropdown
 
 __all__ = [

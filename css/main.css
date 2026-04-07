@@ -587,6 +587,24 @@
 }
 
 /* =============================================================================
+   TOP ALERT BAR
+   ============================================================================= */
+
+.vv-alert-bar {
+  /* Break out of any max-width container to span full viewport */
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Visual */
+  background: linear-gradient(90deg, #b91c1c 0%, #ef4444 50%, #b91c1c 100%);
+  color: white;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  z-index: 55; /* above sticky nav (z-50) */
+}
+
+/* =============================================================================
    HEADER CARD — vv-* (ViralVibes ticker hero)
    ============================================================================= */
 
