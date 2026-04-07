@@ -587,6 +587,23 @@
 }
 
 /* =============================================================================
+   TOP ALERT BAR
+   ============================================================================= */
+
+.vv-alert-bar {
+  /* Break out of any max-width container without a transform.
+     margin-left avoids the scrollbar-width issue of the 100vw+transform trick. */
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  /* Visual */
+  background: linear-gradient(90deg, #b91c1c 0%, #ef4444 50%, #b91c1c 100%);
+  color: white;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  z-index: 55; /* above sticky nav (z-50) */
+}
+
+/* =============================================================================
    HEADER CARD — vv-* (ViralVibes ticker hero)
    ============================================================================= */
 

@@ -40,6 +40,7 @@ from components import (
     NewsletterCard,
     SectionDivider,
     StepProgress,
+    TopAlertBar,
     engagement_slider_section,
     faq_section,
     features_section,
@@ -281,6 +282,7 @@ def index(req, sess):
     return Titled(
         "ViralVibes",
         Container(
+            TopAlertBar(),
             NavComponent(oauth, req, sess),
             Container(
                 *sections,

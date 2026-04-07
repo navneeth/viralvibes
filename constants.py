@@ -109,25 +109,26 @@ PLAYLIST_STEPS_CONFIG = [
 # =============================================================================
 # VALUE PROPOSITION (Creator-First Messaging)
 # =============================================================================
-HERO_HEADLINE = "Find & analyze YouTube creators at scale"
+HERO_HEADLINE = "Find YouTube creators who actually drive results"
 HERO_SUBHEADLINE = (
     "Browse ranked creator lists by niche, country, and growth. "
     "Track engagement, growth velocity, and revenue potential "
-    "Spot high-engagement channels and rising stars for brand campaigns."
+    "Spot high-engagement channels and rising stars for brand campaigns. "
+    "Spend less time researching and more time creating campaigns that pay off."
 )
 
 
 # Social proof metrics
-TOTAL_CREATORS = "10,000+"
+TOTAL_CREATORS = "1 Million+"
 TOTAL_CATEGORIES = "25+"
-COUNTRIES_COVERED = "142"
+COUNTRIES_COVERED = "150+"
 
 # Trust markers
 TRUST_MARKERS = [
     "No credit card required",
-    "Public data only",
+    "Real performance data, not vanity metrics",
+    "1 Million+ ranked creators",
     "Updated daily",
-    "Free to explore",
 ]
 
 # =============================================================================
@@ -176,18 +177,21 @@ CORE_VALUE_PROPS = [
 # =============================================================================
 FEATURES = [
     (
-        "Uncover Viral Secrets",
-        "Paste a playlist and uncover the secrets behind viral videos.",
-        "search",
+        "Real Engagement Signals",
+        "Filter by engagement quality — not inflated subscriber counts. "
+        "Find creators whose audiences actually watch and interact.",
+        "bar-chart-2",
     ),
     (
-        "Instant Playlist Insights",
-        "Get instant info on trending videos and engagement patterns.",
-        "zap",
+        "Growth Velocity",
+        "See who is rising, plateauing, or declining right now. "
+        "Catch rising stars before they become expensive.",
+        "trending-up",
     ),
     (
-        "No Login Required",
-        "Just paste a link and go. No signup needed!",
+        "No Login for Playlist Analysis",
+        "Paste any YouTube playlist URL and get instant viral pattern detection. "
+        "No account, no friction.",
         "unlock",
     ),
 ]
@@ -277,42 +281,51 @@ TESTIMONIALS = [
 FAQS = [
     (
         "What is ViralVibes best used for?",
-        "ViralVibes helps creators, marketers, and researchers understand why certain videos "
-        "perform better than others inside a playlist. Instead of raw stats, it highlights "
-        "engagement patterns, breakout videos, consistency gaps, and signals of viral traction — "
-        "so you can decide what to double down on next as part of a bigger content strategy.",
+        "ViralVibes is a creator intelligence platform for brands and agencies running YouTube "
+        "campaigns. Instead of picking creators by subscriber count, you get ranked lists built "
+        "on real engagement signals, growth velocity, and consistency — the inputs that actually "
+        "predict whether a campaign will convert. You can also analyze any public playlist for "
+        "free, with no account required.",
     ),
     (
-        "How is ViralVibes different from other tools like SocialBlade?",
-        "Most analytics tools focus on channels and surface raw metrics. ViralVibes focuses on "
-        "playlists and content performance. It analyzes engagement quality, consistency, and "
-        "outliers — helping you understand which videos actually drive growth, not just views.",
+        "What is ROAS and why does it matter for creator campaigns?",
+        "ROAS stands for Return on Ad Spend. If you spend $1,000 on a creator campaign and "
+        "generate $3,000 in revenue, your ROAS is 3x. Most creator campaigns look good in "
+        "reports — views, likes — but fail on ROAS because selection was based on vanity metrics. "
+        "ViralVibes surfaces signals that correlate with conversion, not just attention.",
     ),
     (
-        "Is ViralVibes interactive?",
-        "Yes. ViralVibes is fully interactive — you can sort videos, explore charts, compare "
-        "performance extremes, and drill into engagement patterns instead of reading static reports.",
+        "How does ViralVibes rank creators?",
+        "We analyze large-scale public YouTube data and normalize metrics across categories and "
+        "geographies — so a niche creator in Japan can be compared fairly to one in the US. "
+        "Rankings factor in engagement quality, content consistency, 30-day momentum, and "
+        "risk signals. The result is a composite score you can see and understand — not a "
+        "black-box recommendation.",
     ),
     (
-        "How accurate is the data?",
-        "ViralVibes pulls data directly from YouTube's official API, ensuring accuracy. "
-        "Results are cached for performance, so you might see a slight delay if a playlist "
-        "was recently analyzed. You can always trigger a fresh analysis.",
+        "How is ViralVibes different from SocialBlade or YouTube Analytics?",
+        "SocialBlade shows raw subscriber and view counts. YouTube Analytics only works on "
+        "channels you own. ViralVibes works on any public channel, focuses on engagement quality "
+        "over volume, surfaces momentum shifts (who is rising vs. declining), and ranks creators "
+        "in context — so you can compare across niches and geographies without manual research.",
     ),
     (
-        "Is ViralVibes free to use?",
-        "You can analyze playlists for free to explore key insights. Advanced features like "
-        "historical trends, saved dashboards, and exports are part of our Pro plans.",
+        "Is it free to use?",
+        "Yes — creator lists, search, and playlist analysis are all free to explore with no "
+        "credit card required. Pro unlocks deeper rankings, exports, and saved shortlists "
+        "for agency workflows.",
     ),
     (
-        "How often is playlist data updated?",
-        "Playlist data is refreshed when you trigger a new analysis. Saved dashboards can be "
-        "updated periodically depending on your plan.",
+        "How often is creator data updated?",
+        "Creator rankings are refreshed on a rolling basis. The platform tracks 1 Million+ channels "
+        "across 150+ countries, with momentum signals updated continuously. Playlist analysis "
+        "fetches live data from YouTube's API when triggered.",
     ),
     (
         "Who is ViralVibes for?",
-        "ViralVibes is built for creators, growth marketers, agencies, and researchers who want "
-        "to understand content performance — not just collect stats.",
+        "Brands running YouTube campaigns who want to improve ROAS. Agencies managing creator "
+        "rosters who need scalable discovery without manual research. And creators who want to "
+        "benchmark themselves and understand their own performance signals.",
     ),
 ]
 

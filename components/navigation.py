@@ -11,31 +11,76 @@ from monsterui.all import *
 from .auth_dropdown import AuthDropdown  # ✅ Import the dropdown
 
 
+def _nav_link_cls(req, path):
+    """Return Tailwind classes for a nav link, highlighting the active route."""
+    if req and req.url.path == path:
+        return "text-sm font-semibold text-red-600"
+    return "text-sm text-gray-700 hover:text-red-600 transition-colors duration-150"
+
+
+def TopAlertBar():
+    """
+    Full-width announcement bar displayed above the navbar on the homepage.
+    Uses the CSS 100vw escape trick to break out of any containing element.
+    Dismissable via close button with no dependencies.
+    """
+    return Div(
+        Div(
+            Span("🚀", cls="mr-1"),
+            Span("Now tracking "),
+            Span("1 Mil+ YouTube creators", cls="font-semibold"),
+            Span(" across 150+ countries — "),
+            A(
+                "Explore free →",
+                href="/creators",
+                cls="font-semibold underline underline-offset-2 hover:no-underline",
+            ),
+            cls="flex items-center justify-center gap-x-1 text-sm text-white flex-wrap px-8",
+        ),
+        Button(
+            "×",
+            onclick="document.getElementById('vv-alert-bar').style.display='none'",
+            cls="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white text-xl leading-none transition-colors cursor-pointer",
+            type="button",
+            aria_label="Dismiss",
+        ),
+        cls="vv-alert-bar",
+        id="vv-alert-bar",
+    )
+
+
 def NavComponent(oauth, req=None, sess=None):
     """
     Reusable navigation component with auth-aware rendering.
+
+    Product-pillar order: Creators → Lists → Analyze → Why ViralVibes
+    Active route is highlighted in red.
 
     When logged in:
     - Shows avatar dropdown with My Dashboards, Settings, Logout, Revoke
 
     When logged out:
-    - Shows "Try It Free" CTA + "Log in" button
+    - Primary CTA "Explore Creators" (no friction, goes straight to product)
+    - Secondary "Sign in" text link
 
     Args:
         oauth: OAuth instance for login link generation
-        req: Request object (needed for login link generation)
+        req: Request object (needed for login link generation and active state)
         sess: Session dict (contains auth status and user info)
 
     Returns:
         NavBar component with appropriate links based on auth status
     """
-    # Base navigation links (always visible)
+    # Product-pillar first, discovery links secondary
     base_links = [
-        A("Why ViralVibes", href="/#home-section", cls="text-sm hover:text-blue-600"),
-        A("Analysis", href="/analysis", cls="text-sm hover:text-blue-600"),
-        A("Creators", href="/creators", cls="text-sm hover:text-blue-600"),
-        A("Lists", href="/lists", cls="text-sm hover:text-blue-600"),
-        A("About", href="/#explore-section", cls="text-sm hover:text-blue-600"),
+        A("Creators", href="/creators", cls=_nav_link_cls(req, "/creators")),
+        A("Lists", href="/lists", cls=_nav_link_cls(req, "/lists")),
+        A("Analyze", href="/analysis", cls=_nav_link_cls(req, "/analysis")),
+        A(
+            "Why ViralVibes",
+            href="/#home-section",
+            cls="text-sm text-gray-500 hover:text-gray-800 transition-colors duration-150",
+        ),
     ]
 
     # Check auth from session
@@ -73,11 +118,20 @@ def NavComponent(oauth, req=None, sess=None):
         auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url, login_href=login_href)
 
     else:
-        # ❌ LOGGED OUT: Single red CTA — login and try-it are the same action
-        auth_section = A(
-            "Get Started Free",
-            href=login_href,
-            cls="btn-cta-primary text-sm",
+        # ❌ LOGGED OUT: Primary destination CTA + lightweight sign-in link
+        # Send visitors to the product first — reduce login friction
+        auth_section = Div(
+            A(
+                "Explore Creators",
+                href="/creators",
+                cls="btn-cta-primary text-sm",
+            ),
+            A(
+                "Sign in",
+                href=login_href,
+                cls="text-sm text-gray-600 hover:text-gray-900 font-medium transition-colors duration-150",
+            ),
+            cls="flex items-center gap-3",
         )
 
     # ============================================================================
@@ -88,7 +142,11 @@ def NavComponent(oauth, req=None, sess=None):
         auth_section,
         brand=DivLAligned(
             H3("ViralVibes", cls="text-lg font-bold"),
-            UkIcon("chart-line", height=30, width=30),
+            UkIcon("chart-line", height=28, width=28),
+            Span(
+                "1M+ creators",
+                cls="hidden lg:inline-flex ml-2 px-2 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100 rounded-full",
+            ),
         ),
         sticky=True,
         uk_scrollspy_nav=True,
