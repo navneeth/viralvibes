@@ -591,11 +591,10 @@
    ============================================================================= */
 
 .vv-alert-bar {
-  /* Break out of any max-width container to span full viewport */
+  /* Break out of any max-width container without a transform.
+     margin-left avoids the scrollbar-width issue of the 100vw+transform trick. */
   width: 100vw;
-  position: relative;
-  left: 50%;
-  transform: translateX(-50%);
+  margin-left: calc(50% - 50vw);
   /* Visual */
   background: linear-gradient(90deg, #b91c1c 0%, #ef4444 50%, #b91c1c 100%);
   color: white;

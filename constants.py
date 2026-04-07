@@ -113,7 +113,7 @@ HERO_HEADLINE = "Find YouTube creators who actually drive results"
 HERO_SUBHEADLINE = (
     "Browse ranked creator lists by niche, country, and growth. "
     "Track engagement, growth velocity, and revenue potential "
-    "Spot high-engagement channels and rising stars for brand campaigns."
+    "Spot high-engagement channels and rising stars for brand campaigns. "
     "Spend less time researching and more time creating campaigns that pay off."
 )
 
