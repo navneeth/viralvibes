@@ -969,6 +969,25 @@
   letter-spacing: 0.04em;
 }
 
+/* ── Product switcher tab panels ── */
+.vv-product-tab-panel {
+  min-height: 9rem;
+  padding: 0.25rem 0 0.5rem;
+}
+
+/* ── Creator row (rank + name + engagement bar) ── */
+.vv-creator-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.vv-creator-row:last-of-type {
+  border-bottom: none;
+}
+
 /* ── GIF placeholder ── */
 .vv-gif-placeholder {
   position: relative;

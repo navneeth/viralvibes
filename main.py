@@ -260,11 +260,10 @@ def index(req, sess):
 
     # Ensure all components are wrapped safely
     sections = [
-        hero_section() or Div(),  # Fallback if None
+        hero_section() or Div(),  # Full-screen hero (wraps HeaderCard)
         SectionDivider(),
         engagement_slider_section() or Div(),
-        _Section(HeaderCard(), id="home-section"),
-        CoreValuePropsSection(),  # NEW: 4-box value props section
+        CoreValuePropsSection(),  # 4-box value props section
         ListsFeatureShowcase(),  # NEW: Lists feature showcase with screenshot
         SectionDivider(),
         _Section(features_section() or Div(), id="features-section"),
