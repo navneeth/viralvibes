@@ -427,8 +427,8 @@ def features_section():
         Card(
             Div(
                 UkIcon(icon, cls="w-10 h-10 text-red-600 mb-4"),
-                H4(title, cls="text-lg font-semibold text-gray-900 mb-2"),
-                P(desc, cls="text-sm text-gray-600 leading-relaxed"),
+                H4(title, cls="text-lg font-semibold text-foreground mb-2"),
+                P(desc, cls="text-sm text-muted-foreground leading-relaxed"),
                 cls="flex flex-col items-center text-center h-full",
             ),
             cls=(CardT.hover, "p-6 transition-all duration-300"),
@@ -444,11 +444,11 @@ def features_section():
             ),
             H2(
                 "Built for campaigns that have to perform",
-                cls="text-4xl font-bold text-center text-gray-900 mb-4",
+                cls="text-4xl font-bold text-center text-foreground mb-4",
             ),
             P(
                 "Not another dashboard full of vanity metrics. Six tools that move the needle on ROAS.",
-                cls="text-center text-gray-600 mb-12 max-w-2xl mx-auto",
+                cls="text-center text-muted-foreground mb-12 max-w-2xl mx-auto",
             ),
             Grid(
                 *cards,
@@ -458,7 +458,7 @@ def features_section():
                 cls="max-w-7xl mx-auto",
             ),
         ),
-        cls="py-16 bg-gray-50",
+        cls="py-16 bg-muted",
         id="features-section",
     )
 
@@ -592,6 +592,126 @@ def footer():
             P("© 2026 ViralVibes. All rights reserved.", cls=TextT.lead + TextT.sm),
             cls="space-y-8 p-8",
         )
+    )
+
+
+def BottomCTASection() -> Section:
+    """
+    Dark full-bleed closing CTA — Clay.com inspired.
+
+    Layout:
+      - Left: headline + dual CTAs + trust line.
+      - Right: app window placeholder (replace with a 680×440 screenshot of
+        the /creators ranked list page — dark-themed, showing creator
+        rows with engagement bars; ideally a browser-framed PNG/WebP).
+
+    Best image: A cropped screenshot of the ViralVibes /creators or /lists
+    page showing 5–6 creator rows with rank numbers, engagement bars, and
+    category badges. Crop to ~680×440px, save as
+    /static/cta-preview.webp. The dark panel will frame it automatically.
+    """
+    # ── Placeholder image slot ──────────────────────────────────────────
+    # Replace Div below with: Img(src="/static/cta-preview.webp", ...)
+    # when real screenshot is ready.
+    placeholder = Div(
+        Div(
+            UkIcon("monitor", cls="w-10 h-10 text-white/20 mb-3"),
+            P(
+                "App screenshot goes here",
+                cls="text-white/30 text-sm font-medium text-center",
+            ),
+            P(
+                "680 × 440 px · /creators list view · dark theme",
+                cls="text-white/15 text-xs text-center font-mono mt-1",
+            ),
+            cls="flex flex-col items-center justify-center h-full",
+        ),
+        cls="w-full h-full min-h-[220px] border-2 border-dashed border-white/10 rounded-xl",
+    )
+
+    # ── Fake browser chrome wrapping the placeholder ────────────────────
+    app_window = Div(
+        # Traffic lights + URL bar
+        Div(
+            Div(
+                Span(cls="size-2.5 rounded-full bg-[#ff5f57]"),
+                Span(cls="size-2.5 rounded-full bg-[#febc2e]"),
+                Span(cls="size-2.5 rounded-full bg-[#28c840]"),
+                cls="flex items-center gap-1.5",
+            ),
+            Div(
+                "viralvibes.app/creators",
+                cls="flex-1 text-center font-mono text-[0.65rem] text-white/25",
+            ),
+            cls=(
+                "flex items-center gap-2 py-[0.6rem] px-4 "
+                "bg-white/5 border-b border-white/10 rounded-t-[0.9rem]"
+            ),
+        ),
+        # Image / placeholder
+        Div(placeholder, cls="p-4"),
+        cls=(
+            "flex-1 min-w-[280px] overflow-hidden "
+            "bg-white/[3%] border border-white/10 rounded-[0.9rem]"
+        ),
+    )
+
+    return Section(
+        # Decorative gradient blob — only the radial-gradient value needs inline style;
+        # all positioning and shape expressed via cls.
+        Div(
+            cls="absolute -top-20 -right-20 w-[480px] h-[480px] rounded-full pointer-events-none",
+            style="background:radial-gradient(circle,rgba(239,68,68,0.12) 0%,transparent 70%);",
+        ),
+        Div(
+            # ── Left: copy + CTAs ──────────────────────────────────────
+            Div(
+                P(
+                    "CLOSE MORE CAMPAIGNS",
+                    cls="text-xs font-semibold text-red-500 uppercase tracking-widest mb-4",
+                ),
+                H2(
+                    "Find the right creator before your competitor does.",
+                    cls="text-4xl lg:text-5xl font-bold text-white leading-tight mb-6",
+                ),
+                P(
+                    "Every day you spend on manual research is a day a better-fit creator "
+                    "signs with someone else. ViralVibes gives you the shortlist in minutes.",
+                    cls="text-white/60 text-lg leading-relaxed mb-10 max-w-lg",
+                ),
+                # Dual CTA
+                Div(
+                    A(
+                        UkIcon("users", cls="w-5 h-5"),
+                        Span("Explore Creators"),
+                        href="/creators",
+                        cls="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold transition-colors",
+                    ),
+                    A(
+                        UkIcon("play-circle", cls="w-5 h-5"),
+                        Span("Analyze a Playlist"),
+                        href="/analysis",
+                        cls="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-white/20 text-white hover:bg-white/5 font-semibold transition-colors",
+                    ),
+                    cls="flex flex-wrap gap-4",
+                ),
+                # Trust line
+                P(
+                    UkIcon("check", cls="w-4 h-4 text-red-500"),
+                    Span(
+                        " No credit card required  ·  Free to start  ·  Updated daily",
+                        cls="text-white/40 text-sm",
+                    ),
+                    cls="flex items-center gap-1 mt-6",
+                ),
+                cls="flex flex-col justify-center",
+            ),
+            # ── Right: app window ───────────────────────────────────────
+            app_window,
+            cls="flex flex-col lg:flex-row gap-12 lg:gap-16 items-center max-w-7xl mx-auto px-6 lg:px-16 py-24",
+        ),
+        cls="relative overflow-hidden bg-neutral-950",
+        id="cta-section",
     )
 
 
