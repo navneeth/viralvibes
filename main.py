@@ -30,6 +30,7 @@ from auth.token_revocation import clear_auth_session, revoke_google_token
 from components import (
     AnalyticsDashboardSection,
     BenefitsCard,
+    BottomCTASection,
     CoreValuePropsSection,
     ExploreGridSection,
     FeaturesCard,
@@ -272,6 +273,7 @@ def index(req, sess):
         _Section(HomepageAccordion(), id="explore-section"),
         SectionDivider(),
         _Section(faq_section() or Div(), id="faq-section"),
+        BottomCTASection(),
         footer() or Div(),
     ]
 

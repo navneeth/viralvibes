@@ -59,6 +59,7 @@ from components.errors import (
 
 # Section Components
 from components.sections import (
+    BottomCTASection,
     ExploreGridSection,
     FooterLinkGroup,
     SectionDivider,

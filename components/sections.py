@@ -595,6 +595,141 @@ def footer():
     )
 
 
+def BottomCTASection() -> Section:
+    """
+    Dark full-bleed closing CTA — Clay.com inspired.
+    Left: headline + dual CTAs + trust line.
+    Right: app window placeholder (replace with a 680×440 screenshot of
+           the /creators ranked list page — dark-themed, showing creator
+           rows with engagement bars; ideally a browser-framed PNG/WebP).
+
+    Best image: A cropped screenshot of the ViralVibes /creators or /lists
+    page showing 5-6 creator rows with rank numbers, engagement bars, and
+    category badges. Crop to ~680×440px, save as
+    /static/cta-preview.webp. The dark panel will frame it automatically.
+    """
+    # ── Placeholder image slot ──────────────────────────────────────────
+    # Replace Div below with: Img(src="/static/cta-preview.webp", ...)
+    # when real screenshot is ready.
+    placeholder = Div(
+        Div(
+            UkIcon("monitor", cls="w-10 h-10 text-white/20 mb-3"),
+            P(
+                "App screenshot goes here",
+                cls="text-white/30 text-sm font-medium text-center",
+            ),
+            P(
+                "680 × 440 px · /creators list view · dark theme",
+                cls="text-white/15 text-xs text-center font-mono mt-1",
+            ),
+            cls="flex flex-col items-center justify-center h-full",
+        ),
+        cls="w-full h-full min-h-[220px] border-2 border-dashed border-white/10 rounded-xl",
+    )
+
+    # ── Fake browser chrome wrapping the placeholder ────────────────────
+    app_window = Div(
+        # Traffic lights + URL bar
+        Div(
+            Div(
+                Span(style="width:10px;height:10px;border-radius:50%;background:#ff5f57;"),
+                Span(style="width:10px;height:10px;border-radius:50%;background:#febc2e;"),
+                Span(style="width:10px;height:10px;border-radius:50%;background:#28c840;"),
+                style="display:flex;gap:6px;align-items:center;",
+            ),
+            Div(
+                "viralvibes.app/creators",
+                style=(
+                    "flex:1;text-align:center;"
+                    "font-family:'Geist Mono',monospace;"
+                    "font-size:0.65rem;color:rgba(255,255,255,0.25);"
+                ),
+            ),
+            style=(
+                "display:flex;align-items:center;gap:0.5rem;"
+                "padding:0.6rem 1rem;"
+                "background:rgba(255,255,255,0.04);"
+                "border-bottom:1px solid rgba(255,255,255,0.07);"
+                "border-radius:0.9rem 0.9rem 0 0;"
+            ),
+        ),
+        # Image / placeholder
+        Div(
+            placeholder,
+            style="padding:1rem;",
+        ),
+        style=(
+            "background:rgba(255,255,255,0.03);"
+            "border:1px solid rgba(255,255,255,0.08);"
+            "border-radius:0.9rem;"
+            "overflow:hidden;"
+            "flex:1;"
+            "min-width:280px;"
+        ),
+    )
+
+    return Section(
+        # Decorative gradient blob
+        Div(
+            style=(
+                "position:absolute;top:-80px;right:-80px;"
+                "width:480px;height:480px;"
+                "background:radial-gradient(circle,rgba(239,68,68,0.12) 0%,transparent 70%);"
+                "border-radius:50%;pointer-events:none;"
+            )
+        ),
+        Div(
+            # ── Left: copy + CTAs ──────────────────────────────────────
+            Div(
+                P(
+                    "CLOSE MORE CAMPAIGNS",
+                    cls="text-xs font-semibold text-red-500 uppercase tracking-widest mb-4",
+                ),
+                H2(
+                    "Find the right creator before your competitor does.",
+                    cls="text-4xl lg:text-5xl font-bold text-white leading-tight mb-6",
+                ),
+                P(
+                    "Every day you spend on manual research is a day a better-fit creator "
+                    "signs with someone else. ViralVibes gives you the shortlist in minutes.",
+                    cls="text-gray-400 text-lg leading-relaxed mb-10 max-w-lg",
+                ),
+                # Dual CTA
+                Div(
+                    A(
+                        UkIcon("users", cls="w-5 h-5"),
+                        Span("Explore Creators"),
+                        href="/creators",
+                        cls="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold transition-colors",
+                    ),
+                    A(
+                        UkIcon("play-circle", cls="w-5 h-5"),
+                        Span("Analyze a Playlist"),
+                        href="/analysis",
+                        cls="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-white/20 text-white hover:bg-white/5 font-semibold transition-colors",
+                    ),
+                    cls="flex flex-wrap gap-4",
+                ),
+                # Trust line
+                P(
+                    UkIcon("check", cls="w-4 h-4 text-red-500"),
+                    Span(
+                        " No credit card required  ·  Free to start  ·  Updated daily",
+                        cls="text-gray-500 text-sm",
+                    ),
+                    cls="flex items-center gap-1 mt-6",
+                ),
+                cls="flex flex-col justify-center",
+            ),
+            # ── Right: app window ───────────────────────────────────────
+            app_window,
+            cls="flex flex-col lg:flex-row gap-12 lg:gap-16 items-center max-w-7xl mx-auto px-6 lg:px-16 py-24",
+        ),
+        style="background:#0d0d0d;position:relative;overflow:hidden;",
+        id="cta-section",
+    )
+
+
 def arrow(d):
     return Button(
         Img(src=f"{ICONS_PATH}/arrow-{d}.svg", alt="Arrow left"),
