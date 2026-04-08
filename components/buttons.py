@@ -118,3 +118,44 @@ def ViralVibesButton(
     content = Span(icon_comp, text) if icon_comp else text
 
     return Button(content, type=button_type, cls=final_cls, **kwargs)
+
+
+def SignUpNudge(
+    feature: str = "this feature",
+    benefit: str = "sign in to unlock full access",
+    return_url: str = "/",
+) -> Alert:
+    """Inline soft sign-up prompt — shown in place of a hard auth wall.
+
+    Stays on the current page; never redirects. Converts better than a
+    wall because users have already seen value before being asked to sign in.
+
+    Built on MonsterUI's Alert + DivFullySpaced primitives so it inherits
+    theme tokens and DaisyUI's alert accessibility role automatically.
+
+    Args:
+        feature:    Short label for what is locked, e.g. "full playlist analysis".
+        benefit:    Value proposition line shown under the heading.
+        return_url: Where to redirect after successful sign-in.
+    """
+    return Alert(
+        DivFullySpaced(
+            DivHStacked(
+                Div(
+                    UkIcon("lock", cls="size-5"),
+                    cls="size-10 rounded-full flex items-center justify-center bg-background/60 flex-shrink-0",
+                ),
+                Div(
+                    P(f"Sign in to unlock {feature}", cls="font-semibold text-sm"),
+                    P(benefit, cls="text-xs opacity-70 mt-0.5"),
+                ),
+            ),
+            A(
+                UkIcon("log-in", cls="size-4"),
+                Span("Sign in with Google"),
+                href=f"/login?return_url={return_url}",
+                cls=(ButtonT.primary, "inline-flex items-center gap-2 flex-shrink-0 text-sm"),
+            ),
+        ),
+        cls=(AlertT.info, "my-6"),
+    )

@@ -42,7 +42,15 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     "/newsletter",
     "/debug/supabase",
     "/avatar",
+    # Browse routes — guests can explore without signing in.
+    # Persistence (save/export) is soft-gated per-action, not at route level.
     "/creators",
+    r"/creator/.*",
+    "/lists",
+    r"/lists/.*",
+    "/analysis",
+    "/terms",
+    "/privacy",
 ]
 
 

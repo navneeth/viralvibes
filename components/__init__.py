@@ -22,6 +22,7 @@ from components.base import (
 from components.buttons import (
     # Button components
     FeaturePill,
+    SignUpNudge,
     ViralVibesButton,
     cta,
     paste_button,
