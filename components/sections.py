@@ -543,20 +543,71 @@ def faq_section():
     )
 
 
-def FooterLinkGroup(title, links):
+def FooterLinkGroup(title: str, links: list[tuple[str, str]]) -> Div:
+    """Render a footer link column.
+
+    Args:
+        title: Column heading.
+        links: List of (label, href) tuples.
+    """
     return DivVStacked(
-        H4(title),
-        *[A(text, href=f"#{text.lower().replace(' ', '-')}", cls=TextT.muted) for text in links],
+        H4(title, cls="font-semibold text-sm mb-3"),
+        *[
+            A(
+                label,
+                href=href,
+                cls=TextT.muted + " text-sm hover:text-foreground transition-colors",
+            )
+            for label, href in links
+        ],
+    )
+
+
+def _SocialIcon(icon: str, href: str, label: str) -> A:
+    """Award-SaaS-style circular social icon button.
+
+    Resting state: muted icon in a subtle bordered pill.
+    Hover: border + icon shift to red, gentle scale + background tint.
+    """
+    return A(
+        UkIcon(icon, cls="size-4"),
+        href=href,
+        target="_blank",
+        rel="noopener noreferrer",
+        aria_label=label,
+        cls=(
+            "size-9 rounded-full flex items-center justify-center "
+            "border border-border bg-background text-muted-foreground "
+            "hover:border-red-500 hover:text-red-500 hover:bg-red-50 "
+            "dark:hover:bg-red-950/20 "
+            "hover:scale-110 "
+            "transition-all duration-200 ease-out"
+        ),
     )
 
 
 def footer():
-    product = ["Creators", "Lists", "Analyze", "Pricing"]
-    company = ["About", "Blog", "Contact", "Press Kit"]
-    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings"]
+    product: list[tuple[str, str]] = [
+        ("Creators", "/creators"),
+        ("Lists", "/lists"),
+        ("Analyze", "/analysis"),
+        ("Pricing", "/pricing"),
+    ]
+    company: list[tuple[str, str]] = [
+        ("About", "/about"),
+        ("Blog", "/blog"),
+        ("Contact", "/contact"),
+        ("Press Kit", "/press"),
+    ]
+    legal: list[tuple[str, str]] = [
+        ("Terms of Service", "/terms"),
+        ("Privacy Policy", "/privacy"),
+        ("Cookie Settings", "#cookie-settings"),
+    ]
 
     return Container(cls="uk-background-muted py-12")(
         styled_div(
+            # ── Top row: brand + socials ──────────────────────────────
             DivFullySpaced(
                 Div(
                     H3("ViralVibes", cls="mb-1"),
@@ -565,24 +616,15 @@ def footer():
                         cls=TextT.muted + " text-sm max-w-xs",
                     ),
                 ),
-                DivHStacked(
-                    A(
-                        UkIcon("x", cls=TextT.lead),
-                        href=SOCIALS["x"],
-                        target="_blank",
-                        rel="noopener noreferrer",
-                        aria_label="ViralVibes on X (Twitter)",
-                    ),
-                    A(
-                        UkIcon("linkedin", cls=TextT.lead),
-                        href=SOCIALS["linkedin"],
-                        target="_blank",
-                        rel="noopener noreferrer",
-                        aria_label="ViralVibes on LinkedIn",
-                    ),
+                Div(
+                    _SocialIcon("youtube", SOCIALS["youtube"], "ViralVibes on YouTube"),
+                    _SocialIcon("x", SOCIALS["x"], "ViralVibes on X (Twitter)"),
+                    _SocialIcon("linkedin", SOCIALS["linkedin"], "ViralVibes on LinkedIn"),
+                    cls="flex items-center gap-3",
                 ),
             ),
             DividerLine(),
+            # ── Link columns ─────────────────────────────────────────
             DivFullySpaced(
                 FooterLinkGroup("Product", product),
                 FooterLinkGroup("Company", company),
