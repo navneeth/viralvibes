@@ -563,6 +563,29 @@ def FooterLinkGroup(title: str, links: list[tuple[str, str]]) -> Div:
     )
 
 
+def _SocialIcon(icon: str, href: str, label: str) -> A:
+    """Award-SaaS-style circular social icon button.
+
+    Resting state: muted icon in a subtle bordered pill.
+    Hover: border + icon shift to red, gentle scale + background tint.
+    """
+    return A(
+        UkIcon(icon, cls="size-4"),
+        href=href,
+        target="_blank",
+        rel="noopener noreferrer",
+        aria_label=label,
+        cls=(
+            "size-9 rounded-full flex items-center justify-center "
+            "border border-border bg-background text-muted-foreground "
+            "hover:border-red-500 hover:text-red-500 hover:bg-red-50 "
+            "dark:hover:bg-red-950/20 "
+            "hover:scale-110 "
+            "transition-all duration-200 ease-out"
+        ),
+    )
+
+
 def footer():
     product: list[tuple[str, str]] = [
         ("Creators", "/creators"),
@@ -593,23 +616,11 @@ def footer():
                         cls=TextT.muted + " text-sm max-w-xs",
                     ),
                 ),
-                DivHStacked(
-                    A(
-                        UkIcon("x", cls=TextT.lead),
-                        href=SOCIALS["x"],
-                        target="_blank",
-                        rel="noopener noreferrer",
-                        aria_label="ViralVibes on X (Twitter)",
-                        cls="text-muted-foreground hover:text-foreground transition-colors",
-                    ),
-                    A(
-                        UkIcon("linkedin", cls=TextT.lead),
-                        href=SOCIALS["linkedin"],
-                        target="_blank",
-                        rel="noopener noreferrer",
-                        aria_label="ViralVibes on LinkedIn",
-                        cls="text-muted-foreground hover:text-foreground transition-colors",
-                    ),
+                Div(
+                    _SocialIcon("youtube", SOCIALS["youtube"], "ViralVibes on YouTube"),
+                    _SocialIcon("x", SOCIALS["x"], "ViralVibes on X (Twitter)"),
+                    _SocialIcon("linkedin", SOCIALS["linkedin"], "ViralVibes on LinkedIn"),
+                    cls="flex items-center gap-3",
                 ),
             ),
             DividerLine(),
