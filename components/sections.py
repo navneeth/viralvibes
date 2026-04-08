@@ -543,20 +543,48 @@ def faq_section():
     )
 
 
-def FooterLinkGroup(title, links):
+def FooterLinkGroup(title: str, links: list[tuple[str, str]]) -> Div:
+    """Render a footer link column.
+
+    Args:
+        title: Column heading.
+        links: List of (label, href) tuples.
+    """
     return DivVStacked(
-        H4(title),
-        *[A(text, href=f"#{text.lower().replace(' ', '-')}", cls=TextT.muted) for text in links],
+        H4(title, cls="font-semibold text-sm mb-3"),
+        *[
+            A(
+                label,
+                href=href,
+                cls=TextT.muted + " text-sm hover:text-foreground transition-colors",
+            )
+            for label, href in links
+        ],
     )
 
 
 def footer():
-    product = ["Creators", "Lists", "Analyze", "Pricing"]
-    company = ["About", "Blog", "Contact", "Press Kit"]
-    legal = ["Terms of Service", "Privacy Policy", "Cookie Settings"]
+    product: list[tuple[str, str]] = [
+        ("Creators", "/creators"),
+        ("Lists", "/lists"),
+        ("Analyze", "/analysis"),
+        ("Pricing", "/pricing"),
+    ]
+    company: list[tuple[str, str]] = [
+        ("About", "/about"),
+        ("Blog", "/blog"),
+        ("Contact", "/contact"),
+        ("Press Kit", "/press"),
+    ]
+    legal: list[tuple[str, str]] = [
+        ("Terms of Service", "/terms"),
+        ("Privacy Policy", "/privacy"),
+        ("Cookie Settings", "#cookie-settings"),
+    ]
 
     return Container(cls="uk-background-muted py-12")(
         styled_div(
+            # ── Top row: brand + socials ──────────────────────────────
             DivFullySpaced(
                 Div(
                     H3("ViralVibes", cls="mb-1"),
@@ -572,6 +600,7 @@ def footer():
                         target="_blank",
                         rel="noopener noreferrer",
                         aria_label="ViralVibes on X (Twitter)",
+                        cls="text-muted-foreground hover:text-foreground transition-colors",
                     ),
                     A(
                         UkIcon("linkedin", cls=TextT.lead),
@@ -579,10 +608,12 @@ def footer():
                         target="_blank",
                         rel="noopener noreferrer",
                         aria_label="ViralVibes on LinkedIn",
+                        cls="text-muted-foreground hover:text-foreground transition-colors",
                     ),
                 ),
             ),
             DividerLine(),
+            # ── Link columns ─────────────────────────────────────────
             DivFullySpaced(
                 FooterLinkGroup("Product", product),
                 FooterLinkGroup("Company", company),

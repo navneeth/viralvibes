@@ -90,6 +90,7 @@ from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import creator_profile_route, creators_route
+from routes.legal import privacy_page_content, terms_page_content
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1358,6 +1359,32 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
                 search=search,
                 sort=sort,
             ),
+        ),
+    )
+
+
+@rt("/terms")
+def terms(req, sess):
+    """Terms of Service — public route."""
+    return Titled(
+        "Terms of Service - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            terms_page_content(),
+            cls=ContainerT.xl,
+        ),
+    )
+
+
+@rt("/privacy")
+def privacy(req, sess):
+    """Privacy Policy — public route."""
+    return Titled(
+        "Privacy Policy - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            privacy_page_content(),
+            cls=ContainerT.xl,
         ),
     )
 
