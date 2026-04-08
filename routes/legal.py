@@ -10,6 +10,7 @@ from monsterui.all import *
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _legal_page(title: str, last_updated: str, *sections) -> Div:
     """Wraps a legal page in a consistent container with a header."""
     return Div(
@@ -27,14 +28,14 @@ def _legal_page(title: str, last_updated: str, *sections) -> Div:
 
 def _section(heading: str, *paragraphs) -> Div:
     return Div(
-        H2(heading, cls="text-xl font-semibold text-foreground mb-3"),
+        *([H2(heading, cls="text-xl font-semibold text-foreground mb-3")] if heading else []),
         *[P(text, cls="text-muted-foreground leading-relaxed mb-3") for text in paragraphs],
     )
 
 
 def _bullet_section(heading: str, items: list[str]) -> Div:
     return Div(
-        H2(heading, cls="text-xl font-semibold text-foreground mb-3"),
+        *([H2(heading, cls="text-xl font-semibold text-foreground mb-3")] if heading else []),
         Ul(
             *[Li(item, cls="text-muted-foreground leading-relaxed mb-2") for item in items],
             cls="list-disc list-inside space-y-1",
@@ -46,13 +47,14 @@ def _bullet_section(heading: str, items: list[str]) -> Div:
 # Terms of Service
 # ---------------------------------------------------------------------------
 
+
 def terms_page_content() -> Div:
     return _legal_page(
         "Terms of Service",
         "April 8, 2026",
         _section(
             "1. Acceptance of Terms",
-            "By accessing or using ViralVibes ("the Service"), you agree to be bound by these "
+            'By accessing or using ViralVibes ("the Service"), you agree to be bound by these '
             "Terms of Service. If you do not agree to these terms, please do not use the Service.",
             "These terms apply to all visitors, users, and others who access the Service. "
             "ViralVibes reserves the right to update these terms at any time. Continued use of "
@@ -100,7 +102,7 @@ def terms_page_content() -> Div:
         ),
         _section(
             "6. Disclaimer of Warranties",
-            "The Service is provided on an \"as is\" and \"as available\" basis without warranties "
+            'The Service is provided on an "as is" and "as available" basis without warranties '
             "of any kind, either express or implied. ViralVibes does not warrant that the Service "
             "will be uninterrupted, error-free, or free of viruses or other harmful components.",
             "Creator rankings, engagement metrics, and estimated earnings are derived from "
@@ -131,13 +133,14 @@ def terms_page_content() -> Div:
 # Privacy Policy
 # ---------------------------------------------------------------------------
 
+
 def privacy_page_content() -> Div:
     return _legal_page(
         "Privacy Policy",
         "April 8, 2026",
         _section(
             "1. Introduction",
-            "ViralVibes ("we", "us", or "our") is committed to protecting your personal data. "
+            'ViralVibes ("we", "us", or "our") is committed to protecting your personal data. '
             "This Privacy Policy explains what information we collect, how we use it, and your "
             "rights in relation to it.",
             "We process data in accordance with applicable privacy law, including the General "
@@ -234,7 +237,7 @@ def privacy_page_content() -> Div:
         _section(
             "10. Changes to This Policy",
             "We may update this Privacy Policy from time to time. Material changes will be "
-            "communicated via the Service or by email. The \"last updated\" date at the top of "
+            'communicated via the Service or by email. The "last updated" date at the top of '
             "this page reflects the most recent revision.",
         ),
         _section(
