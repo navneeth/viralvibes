@@ -91,7 +91,7 @@ from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import creator_profile_route, creators_route
 from routes.legal import privacy_page_content, terms_page_content
-from routes.pricing import pricing_page_content as pricing_page_content_fn
+from routes.pricing import pricing_page_content
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1371,7 +1371,7 @@ def pricing(req, sess):
         "Pricing - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
-            pricing_page_content_fn(),
+            pricing_page_content(),
             footer(),
             cls=ContainerT.xl,
         ),

@@ -4,35 +4,50 @@ from fasthtml.common import *
 from monsterui.all import *
 
 # ---------------------------------------------------------------------------
+# Pricing data — single source of truth for all tier details
+# ---------------------------------------------------------------------------
+_PRICING = {
+    "pro": {"monthly": "$19", "annual": "$15", "annual_total": "$180", "shortlists": "5 \u00d7 25"},
+    "agency": {"monthly": "$49", "annual": "$39", "annual_total": "$468"},
+    "free": {"dashboards": "3"},
+}
+
+# ---------------------------------------------------------------------------
 # Billing toggle JS — annual is the default selected state
 # ---------------------------------------------------------------------------
-_TOGGLE_SCRIPT = Script("""
-(function () {
+_TOGGLE_SCRIPT = Script(
+    f"""
+(function () {{
     var annual = true;
-    var data = {
-        'pro-price':      ['$15', '$19'],
-        'agency-price':   ['$39', '$49'],
-        'pro-billing':    ['$180 billed annually', 'Billed monthly'],
-        'agency-billing': ['$468 billed annually', 'Billed monthly'],
-    };
-    function apply() {
+    var data = {{
+        'pro-price':      ['{_PRICING["pro"]["annual"]}', '{_PRICING["pro"]["monthly"]}'],
+        'agency-price':   ['{_PRICING["agency"]["annual"]}', '{_PRICING["agency"]["monthly"]}'],
+        'pro-billing':    ['{_PRICING["pro"]["annual_total"]} billed annually', 'Billed monthly'],
+        'agency-billing': ['{_PRICING["agency"]["annual_total"]} billed annually', 'Billed monthly'],
+    }};
+    function apply() {{
         var i = annual ? 0 : 1;
-        for (var id in data) { document.getElementById(id).textContent = data[id][i]; }
+        for (var id in data) {{ document.getElementById(id).textContent = data[id][i]; }}
         var thumb  = document.getElementById('toggle-thumb');
         var toggle = document.getElementById('billing-toggle');
+        var label  = document.getElementById('billing-period-text');
         thumb.style.transform = annual ? 'translateX(0)' : 'translateX(-24px)';
         toggle.classList.toggle('bg-red-500', annual);
         toggle.classList.toggle('bg-muted-foreground/40', !annual);
-    }
-    window.toggleBilling = function () { annual = !annual; apply(); };
+        toggle.setAttribute('aria-pressed', String(annual));
+        if (label) label.textContent = annual ? 'Annual' : 'Monthly';
+    }}
+    window.toggleBilling = function () {{ annual = !annual; apply(); }};
     apply();
-}());
-""")
+}}());
+"""
+)
 
 
 # ---------------------------------------------------------------------------
 # Shared micro-components
 # ---------------------------------------------------------------------------
+
 
 def _check(color: str = "green") -> UkIcon:
     return UkIcon("check", cls=f"w-4 h-4 text-{color}-500 mt-0.5 flex-shrink-0")
@@ -59,10 +74,14 @@ def _feature(text: str, bold: bool = False, color: str = "green") -> Li:
 # Pricing cards
 # ---------------------------------------------------------------------------
 
+
 def _free_card() -> Div:
     return Div(
         Div(
-            P("Free", cls="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2"),
+            P(
+                "Free",
+                cls="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2",
+            ),
             Div(
                 Span("$0", cls="text-5xl font-extrabold text-foreground"),
                 Span("/mo", cls="text-muted-foreground text-sm ml-1 mb-2"),
@@ -119,7 +138,7 @@ def _pro_card() -> Div:
             _feature("Everything in Free", bold=True, color="red"),
             _feature("Unlimited saved dashboards", color="red"),
             _feature("CSV & JSON export", color="red"),
-            _feature("Saved shortlists (5 \u00d7 25 creators)", color="red"),
+            _feature(f"Saved shortlists ({_PRICING['pro']['shortlists']} creators)", color="red"),
             _feature("Daily data refresh", color="red"),
             _feature("Rising star digest (weekly email)", color="red"),
             cls="space-y-3",
@@ -134,7 +153,10 @@ def _pro_card() -> Div:
 def _agency_card() -> Div:
     return Div(
         Div(
-            P("Agency", cls="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2"),
+            P(
+                "Agency",
+                cls="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2",
+            ),
             Div(
                 Span(id="agency-price", cls="text-5xl font-extrabold text-foreground"),
                 Span("/mo", cls="text-muted-foreground text-sm ml-1 mb-2"),
@@ -170,9 +192,15 @@ def _agency_card() -> Div:
 # Billing period toggle UI
 # ---------------------------------------------------------------------------
 
+
 def _billing_toggle() -> Div:
     return Div(
-        Span("Monthly", cls="text-sm font-medium text-muted-foreground"),
+        Span(
+            "Monthly",
+            id="billing-period-text",
+            cls="text-sm font-medium text-muted-foreground",
+            aria_live="polite",
+        ),
         Button(
             Span(
                 id="toggle-thumb",
@@ -183,6 +211,8 @@ def _billing_toggle() -> Div:
             cls="relative w-12 h-6 bg-red-500 rounded-full transition-colors focus:outline-none ml-3",
             type="button",
             aria_label="Toggle billing period",
+            aria_pressed="true",
+            aria_describedby="billing-period-text",
         ),
         Div(
             Span("Annual", cls="text-sm font-semibold text-foreground"),
@@ -203,6 +233,7 @@ def _billing_toggle() -> Div:
 # Feature comparison table
 # ---------------------------------------------------------------------------
 
+
 def _yes(color: str = "green") -> Div:
     return Div(UkIcon("check", cls=f"w-4 h-4 text-{color}-500 mx-auto"))
 
@@ -211,24 +242,34 @@ def _comparison_table() -> Div:
     def row(label, free, pro, agency):
         return Tr(
             Td(label, cls="py-3 pr-6 text-muted-foreground text-sm"),
-            Td(free,   cls="py-3 px-4 text-center"),
-            Td(pro,    cls="py-3 px-4 text-center"),
+            Td(free, cls="py-3 px-4 text-center"),
+            Td(pro, cls="py-3 px-4 text-center"),
             Td(agency, cls="py-3 px-4 text-center"),
         )
 
     rows = [
-        row("Creator lists & rankings",      _yes(),                                                   _yes("red"),                                               _yes()),
-        row("Creator profiles",              _yes(),                                                   _yes("red"),                                               _yes()),
-        row("Playlist analysis",             _yes(),                                                   _yes("red"),                                               _yes()),
-        row("Saved dashboards",              Span("3", cls="text-xs text-muted-foreground"),           Span("Unlimited", cls="text-xs font-semibold text-red-500"), Span("Unlimited", cls="text-xs")),
-        row("CSV & JSON export",             _no(),                                                    _yes("red"),                                               _yes()),
-        row("Saved shortlists",              _no(),                                                    Span("5 \u00d7 25", cls="text-xs font-semibold text-red-500"), Span("Unlimited", cls="text-xs")),
-        row("Daily data refresh",            _no(),                                                    _yes("red"),                                               _yes()),
-        row("Rising star digest",            _no(),                                                    _yes("red"),                                               _yes()),
-        row("Team seats",                    _no(),                                                    _no(),                                                     Span("Up to 5", cls="text-xs")),
-        row("Client-shareable report links", _no(),                                                    _no(),                                                     _yes()),
-        row("Bulk export",                   _no(),                                                    _no(),                                                     _yes()),
-        row("API access",                    _no(),                                                    _no(),                                                     Span("Coming soon", cls="text-xs text-muted-foreground")),
+        row("Creator lists & rankings", _yes(), _yes("red"), _yes()),
+        row("Creator profiles", _yes(), _yes("red"), _yes()),
+        row("Playlist analysis", _yes(), _yes("red"), _yes()),
+        row(
+            "Saved dashboards",
+            Span(_PRICING["free"]["dashboards"], cls="text-xs text-muted-foreground"),
+            Span("Unlimited", cls="text-xs font-semibold text-red-500"),
+            Span("Unlimited", cls="text-xs"),
+        ),
+        row("CSV & JSON export", _no(), _yes("red"), _yes()),
+        row(
+            "Saved shortlists",
+            _no(),
+            Span(_PRICING["pro"]["shortlists"], cls="text-xs font-semibold text-red-500"),
+            Span("Unlimited", cls="text-xs"),
+        ),
+        row("Daily data refresh", _no(), _yes("red"), _yes()),
+        row("Rising star digest", _no(), _yes("red"), _yes()),
+        row("Team seats", _no(), _no(), Span("Up to 5", cls="text-xs")),
+        row("Client-shareable report links", _no(), _no(), _yes()),
+        row("Bulk export", _no(), _no(), _yes()),
+        row("API access", _no(), _no(), Span("Coming soon", cls="text-xs text-muted-foreground")),
     ]
 
     return Div(
@@ -237,10 +278,19 @@ def _comparison_table() -> Div:
             Table(
                 Thead(
                     Tr(
-                        Th("Feature", cls="text-left py-3 pr-6 text-muted-foreground font-medium text-sm w-1/2"),
-                        Th("Free",    cls="text-center py-3 px-4 text-foreground font-semibold text-sm"),
-                        Th("Pro",     cls="text-center py-3 px-4 text-red-600 font-semibold text-sm"),
-                        Th("Agency",  cls="text-center py-3 px-4 text-foreground font-semibold text-sm"),
+                        Th(
+                            "Feature",
+                            cls="text-left py-3 pr-6 text-muted-foreground font-medium text-sm w-1/2",
+                        ),
+                        Th(
+                            "Free",
+                            cls="text-center py-3 px-4 text-foreground font-semibold text-sm",
+                        ),
+                        Th("Pro", cls="text-center py-3 px-4 text-red-600 font-semibold text-sm"),
+                        Th(
+                            "Agency",
+                            cls="text-center py-3 px-4 text-foreground font-semibold text-sm",
+                        ),
                         cls="border-b-2 border-border",
                     ),
                 ),
@@ -257,13 +307,17 @@ def _comparison_table() -> Div:
 # Bottom CTA strip
 # ---------------------------------------------------------------------------
 
+
 def _bottom_cta() -> Div:
     return Div(
         P(
             "Still deciding?",
             cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3",
         ),
-        H3("Start free \u2014 no credit card required.", cls="text-2xl font-bold text-foreground mb-2"),
+        H3(
+            "Start free \u2014 no credit card required.",
+            cls="text-2xl font-bold text-foreground mb-2",
+        ),
         P(
             "Browse 1M+ creators, run playlist analysis, and upgrade only when you\u2019re ready.",
             cls="text-muted-foreground mb-6",
@@ -281,6 +335,7 @@ def _bottom_cta() -> Div:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def pricing_page_content() -> Div:
     """Full pricing page body — passed directly to Titled() route handler."""
