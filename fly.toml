@@ -11,6 +11,24 @@ primary_region = "ams"
 [deploy]
   strategy = "immediate"
 
-# 🚫 NO services block
+# Tune worker throughput — all values are env-configurable at runtime.
+# WORKER_BATCH_SIZE: jobs claimed per poll cycle.
+# MIN/MAX_REQUEST_DELAY: anti-bot jitter before each job (seconds).
+# CREATOR_WORKER_MAX_RUNTIME: hard wall before the process exits (seconds).
+[env]
+  WORKER_POLL_INTERVAL = "10"
+  WORKER_BATCH_SIZE = "5"
+  MIN_REQUEST_DELAY = "0.5"
+  MAX_REQUEST_DELAY = "2.0"
+  CREATOR_WORKER_MAX_RUNTIME = "3600"
+  BOT_CHALLENGE_BACKOFF = "120"
+
+# shared-cpu-1x @ 256 MB is the cheapest Fly machine.
+# The worker is pure I/O (YouTube API + Supabase), never CPU-bound.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# 🚫 NO services block — background worker, no HTTP
 # 🚫 NO http checks
 # 🚫 NO ports
