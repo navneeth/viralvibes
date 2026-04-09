@@ -122,10 +122,14 @@ def NavComponent(oauth, req=None, sess=None):
         # Nav links already cover all discovery destinations. The only thing
         # missing for a guest is a way in. Mirroring Linear/Vercel/Notion pattern:
         # nav handles "where to go", CTA handles "what to do" — they never overlap.
-        auth_section = A(
-            "Sign in",
-            href=login_href,
-            cls="btn-cta-primary text-sm",
+        # Wrapped in a Div to match the structural weight of AuthDropdown so
+        # NavBar's internal flex layout treats both auth states consistently.
+        auth_section = Div(
+            A(
+                "Sign in",
+                href=login_href,
+                cls="btn-cta-primary text-sm",
+            ),
         )
 
     # ============================================================================
