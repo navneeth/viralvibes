@@ -4,11 +4,20 @@ primary_region = "nrt"   # Tokyo, since you’re in Japan
 [build]
   dockerfile = "Dockerfile"
 
+# CREATOR_WORKER_MAX_RUNTIME is in seconds (matches worker.py env var name).
+# CREATOR_WORKER_SKIP_DIAGNOSIS=true skips the 4-query DB diagnosis on every
+# process start — set to false only for the very first cold boot.
 [env]
   WORKER_POLL_INTERVAL = "10"
-  WORKER_BATCH_SIZE = "3"
-  WORKER_MAX_RUNTIME = "300"  # minutes
+  WORKER_BATCH_SIZE = "5"
+  MIN_REQUEST_DELAY = "0.5"
+  MAX_REQUEST_DELAY = "2.0"
+  CREATOR_WORKER_MAX_RUNTIME = "3600"
+  CREATOR_WORKER_SKIP_DIAGNOSIS = "true"
+  BOT_CHALLENGE_BACKOFF = "120"
 
-[[services]]
-  internal_port = 8080
-  processes = ["app"]
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# 🚫 NO services block — background worker, no HTTP port needed

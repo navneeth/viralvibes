@@ -116,9 +116,13 @@ from services.channel_utils import YouTubeResolver  # noqa: E402
 
 # ── Kaggle-specific loop config ───────────────────────────────────────────────
 _DEFAULT_MAX_JOBS = 5000
-_DEFAULT_MAX_EMPTY_POLLS = 3
-_RESOLVER_RESET_INTERVAL = 50  # reset YouTubeResolver every N jobs to flush
-# httplib2 state — replaces process isolation
+# Stop after 5 consecutive empty polls instead of 3 — prevents premature exit
+# during burst gaps where the queue drains briefly between job submissions.
+_DEFAULT_MAX_EMPTY_POLLS = 5
+# Reset YouTubeResolver every 100 jobs instead of 50.
+# GC + resolver re-init is ~1-2s of dead time; httplib2 only fragments under
+# sustained load and is safe well past 50 iterations.
+_RESOLVER_RESET_INTERVAL = 100
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
