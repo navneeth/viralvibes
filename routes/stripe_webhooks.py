@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Public entry point (called from main.py)
 # ---------------------------------------------------------------------------
 
+
 async def stripe_webhook(req: Request) -> JSONResponse:
     """Verify Stripe signature and dispatch to the appropriate handler."""
     payload = await req.body()
@@ -58,10 +59,10 @@ async def stripe_webhook(req: Request) -> JSONResponse:
     logger.info("[Webhook] Received event: %s  id=%s", event_type, event["id"])
 
     handlers = {
-        "checkout.session.completed":       _handle_checkout_completed,
-        "customer.subscription.created":    _handle_subscription_upsert,
-        "customer.subscription.updated":    _handle_subscription_upsert,
-        "customer.subscription.deleted":    _handle_subscription_deleted,
+        "checkout.session.completed": _handle_checkout_completed,
+        "customer.subscription.created": _handle_subscription_upsert,
+        "customer.subscription.updated": _handle_subscription_upsert,
+        "customer.subscription.deleted": _handle_subscription_deleted,
     }
 
     handler = handlers.get(event_type)
@@ -80,6 +81,7 @@ async def stripe_webhook(req: Request) -> JSONResponse:
 # Event handlers
 # ---------------------------------------------------------------------------
 
+
 def _handle_checkout_completed(session: dict) -> None:
     """
     Link Stripe customer → ViralVibes user.
@@ -95,11 +97,13 @@ def _handle_checkout_completed(session: dict) -> None:
     if not user_id or not customer_id:
         logger.warning(
             "[Webhook] checkout.session.completed missing user_id or customer: %s / %s",
-            user_id, customer_id,
+            user_id,
+            customer_id,
         )
         return
 
     from db import link_stripe_customer  # imported here to avoid circular at module level
+
     link_stripe_customer(user_id, customer_id)
     logger.info("[Webhook] Linked customer %s → user %s", customer_id, user_id)
 
@@ -110,15 +114,13 @@ def _handle_subscription_upsert(subscription: dict) -> None:
     user_id = get_user_id_by_stripe_customer(customer_id)
 
     if not user_id:
-        logger.warning(
-            "[Webhook] No user found for customer %s — skipping upsert", customer_id
-        )
+        logger.warning("[Webhook] No user found for customer %s — skipping upsert", customer_id)
         return
 
     price_id = _extract_price_id(subscription)
     plan, interval = get_plan_for_price(price_id)
     status: str = subscription.get("status", "inactive")
-    period_end_ts = (subscription.get("current_period_end") or 0)
+    period_end_ts = subscription.get("current_period_end") or 0
 
     upsert_subscription(
         user_id=user_id,
@@ -131,7 +133,11 @@ def _handle_subscription_upsert(subscription: dict) -> None:
     )
     logger.info(
         "[Webhook] Upserted subscription %s: user=%s plan=%s/%s status=%s",
-        subscription["id"], user_id, plan, interval, status,
+        subscription["id"],
+        user_id,
+        plan,
+        interval,
+        status,
     )
 
 
@@ -141,9 +147,7 @@ def _handle_subscription_deleted(subscription: dict) -> None:
     user_id = get_user_id_by_stripe_customer(customer_id)
 
     if not user_id:
-        logger.warning(
-            "[Webhook] No user found for customer %s — skipping cancel", customer_id
-        )
+        logger.warning("[Webhook] No user found for customer %s — skipping cancel", customer_id)
         return
 
     price_id = _extract_price_id(subscription)
@@ -160,13 +164,15 @@ def _handle_subscription_deleted(subscription: dict) -> None:
     )
     logger.info(
         "[Webhook] Marked subscription %s canceled for user %s",
-        subscription["id"], user_id,
+        subscription["id"],
+        user_id,
     )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_price_id(subscription: dict) -> str:
     """Pull the first price ID out of subscription.items.data[0].price.id."""
