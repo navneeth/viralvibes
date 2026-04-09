@@ -51,6 +51,7 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     "/analysis",
     "/terms",
     "/privacy",
+    "/pricing",
 ]
 
 
