@@ -28,10 +28,10 @@ DOMAIN_URL: str = os.environ.get("DOMAIN_URL", "http://localhost:5001").rstrip("
 PRICE_TO_PLAN: dict[str, tuple[str, str]] = {
     k: v
     for k, v in {
-        os.environ.get("STRIPE_PRICE_PRO_MONTHLY", ""):    ("pro",    "month"),
-        os.environ.get("STRIPE_PRICE_PRO_ANNUAL", ""):     ("pro",    "year"),
+        os.environ.get("STRIPE_PRICE_PRO_MONTHLY", ""): ("pro", "month"),
+        os.environ.get("STRIPE_PRICE_PRO_ANNUAL", ""): ("pro", "year"),
         os.environ.get("STRIPE_PRICE_AGENCY_MONTHLY", ""): ("agency", "month"),
-        os.environ.get("STRIPE_PRICE_AGENCY_ANNUAL", ""):  ("agency", "year"),
+        os.environ.get("STRIPE_PRICE_AGENCY_ANNUAL", ""): ("agency", "year"),
     }.items()
     if k  # exclude entries where the env var isn't set yet
 }

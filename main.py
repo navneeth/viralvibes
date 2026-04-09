@@ -92,6 +92,7 @@ from routes.analysis import analysis_page_content
 from routes.creators import creator_profile_route, creators_route
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
+from routes.stripe_webhooks import stripe_webhook
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1362,6 +1363,12 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
             ),
         ),
     )
+
+
+@rt("/webhook", methods=["POST"])
+async def webhook(req):
+    """Stripe webhook endpoint — no auth, no session, raw body."""
+    return await stripe_webhook(req)
 
 
 @rt("/pricing")
