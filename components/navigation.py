@@ -118,20 +118,14 @@ def NavComponent(oauth, req=None, sess=None):
         auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url, login_href=login_href)
 
     else:
-        # ❌ LOGGED OUT: Primary destination CTA + lightweight sign-in link
-        # Send visitors to the product first — reduce login friction
-        auth_section = Div(
-            A(
-                "Explore Creators",
-                href="/creators",
-                cls="btn-cta-primary text-sm",
-            ),
-            A(
-                "Sign in",
-                href=login_href,
-                cls="text-sm text-gray-600 hover:text-gray-900 font-medium transition-colors duration-150",
-            ),
-            cls="flex items-center gap-3",
+        # ❌ LOGGED OUT: Single conversion action — Sign in.
+        # Nav links already cover all discovery destinations. The only thing
+        # missing for a guest is a way in. Mirroring Linear/Vercel/Notion pattern:
+        # nav handles "where to go", CTA handles "what to do" — they never overlap.
+        auth_section = A(
+            "Sign in",
+            href=login_href,
+            cls="btn-cta-primary text-sm",
         )
 
     # ============================================================================
