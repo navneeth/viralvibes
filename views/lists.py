@@ -500,6 +500,48 @@ def _load_more_button(
     )
 
 
+def _page_based_load_more_button(
+    endpoint_url: str,
+    section_type: str,
+    page: int,
+    total_pages: int,
+) -> Div:
+    """
+    HTMX "Load More" button for page-based detail views (country/category/language).
+
+    Generates a button that fetches the next page and appends rows to a list,
+    or an empty out-of-band placeholder when at the last page.
+
+    Args:
+        endpoint_url: Full URL with {section_type} (e.g., "/lists/country/US/more")
+        section_type: "country", "category", or "language" — used for ID names
+        page: Current page number (1-based)
+        total_pages: Total number of pages
+
+    Returns:
+        Div with load-more button or empty OOB placeholder
+    """
+    list_id = f"{section_type}-creators-list"
+    btn_id = f"{section_type}-load-more-btn"
+
+    return (
+        Div(
+            Button(
+                "Load More",
+                hx_get=f"{endpoint_url}?page={page + 1}",
+                hx_target=f"#{list_id}",
+                hx_swap="beforeend",
+                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+            ),
+            id=btn_id,
+            hx_swap_oob="true",
+            cls="mt-8 text-center",
+        )
+        if page < total_pages
+        else Div(id=btn_id, hx_swap_oob="true")
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tab Content Renderers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1250,28 +1292,15 @@ def render_country_creators_rows(
         page_size: Number of creators per page (must match the route limit)
 
     Returns:
-        Div with creator rows and optional load-more button
+        Tuple of creator row components and load-more button
     """
-    if not creators:
-        return Div()
-
     start_rank = (page - 1) * page_size + 1
     rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
-    next_btn = (
-        Div(
-            Button(
-                "Load More",
-                hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
-                hx_target="#country-creators-list",
-                hx_swap="beforeend",
-                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
-            ),
-            id="country-load-more-btn",
-            hx_swap_oob="true",
-            cls="mt-8 text-center",
-        )
-        if page < total_pages
-        else Div(id="country-load-more-btn", hx_swap_oob="true")
+    next_btn = _page_based_load_more_button(
+        endpoint_url=f"/lists/country/{country_code}/more",
+        section_type="country",
+        page=page,
+        total_pages=total_pages,
     )
     return (*rows, next_btn)
 
@@ -1400,28 +1429,15 @@ def render_category_creators_rows(
         page_size: Number of creators per page (must match the route limit)
 
     Returns:
-        Div with creator rows and optional load-more button
+        Tuple of creator row components and load-more button
     """
-    if not creators:
-        return Div()
-
     start_rank = (page - 1) * page_size + 1
     rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
-    next_btn = (
-        Div(
-            Button(
-                "Load More",
-                hx_get=f"/lists/category/{category_slug}/more?page={page + 1}",
-                hx_target="#category-creators-list",
-                hx_swap="beforeend",
-                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
-            ),
-            id="category-load-more-btn",
-            hx_swap_oob="true",
-            cls="mt-8 text-center",
-        )
-        if page < total_pages
-        else Div(id="category-load-more-btn", hx_swap_oob="true")
+    next_btn = _page_based_load_more_button(
+        endpoint_url=f"/lists/category/{category_slug}/more",
+        section_type="category",
+        page=page,
+        total_pages=total_pages,
     )
     return (*rows, next_btn)
 
@@ -1550,29 +1566,15 @@ def render_language_creators_rows(
         page_size: Number of creators per page (must match the route limit).
 
     Returns:
-        Div with creator rows and optional load-more button.
+        Tuple of creator row components and load-more button.
     """
-    if not creators:
-        return Div()
-
     start_rank = (page - 1) * page_size + 1
-
     rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
-    next_btn = (
-        Div(
-            Button(
-                "Load More",
-                hx_get=f"/lists/language/{language_code}/more?page={page + 1}",
-                hx_target="#language-creators-list",
-                hx_swap="beforeend",
-                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
-            ),
-            id="language-load-more-btn",
-            hx_swap_oob="true",
-            cls="mt-8 text-center",
-        )
-        if page < total_pages
-        else Div(id="language-load-more-btn", hx_swap_oob="true")
+    next_btn = _page_based_load_more_button(
+        endpoint_url=f"/lists/language/{language_code}/more",
+        section_type="language",
+        page=page,
+        total_pages=total_pages,
     )
     return (*rows, next_btn)
 
