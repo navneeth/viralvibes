@@ -899,6 +899,130 @@ def queue_creator_sync_bulk(
         return 0, 0
 
 
+# ============================================================================
+# 💳 Stripe / Subscription helpers
+# ============================================================================
+
+SUBSCRIPTIONS_TABLE = "subscriptions"
+
+
+def link_stripe_customer(user_id: str, stripe_customer_id: str) -> bool:
+    """Write stripe_customer_id onto the users row (called once at checkout)."""
+    if not supabase_client:
+        logger.warning("[DB] Supabase not available for link_stripe_customer")
+        return False
+    try:
+        supabase_client.table("users").update({"stripe_customer_id": stripe_customer_id}).eq(
+            "id", user_id
+        ).execute()
+        return True
+    except Exception as exc:
+        logger.exception("[DB] link_stripe_customer failed: %s", exc)
+        return False
+
+
+def get_user_id_by_stripe_customer(stripe_customer_id: str) -> Optional[str]:
+    """Return the ViralVibes user_id for a given Stripe customer_id, or None."""
+    if not supabase_client or not stripe_customer_id:
+        return None
+    try:
+        resp = (
+            supabase_client.table("users")
+            .select("id")
+            .eq("stripe_customer_id", stripe_customer_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        return rows[0]["id"] if rows else None
+    except Exception as exc:
+        logger.exception("[DB] get_user_id_by_stripe_customer failed: %s", exc)
+        return None
+
+
+def upsert_subscription(
+    user_id: str,
+    stripe_subscription_id: str,
+    stripe_price_id: str,
+    plan: str,
+    interval: str,
+    status: str,
+    current_period_end_ts: int,
+) -> bool:
+    """
+    Insert or update a subscription row for a user.
+
+    Uses on_conflict on stripe_subscription_id (UNIQUE column) so re-delivered
+    webhook events are idempotent.
+    """
+    if not supabase_client:
+        logger.warning("[DB] Supabase not available for upsert_subscription")
+        return False
+
+    from datetime import datetime, timezone
+
+    period_end_iso = (
+        datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc).isoformat()
+        if current_period_end_ts
+        else None
+    )
+
+    payload = {
+        "user_id": user_id,
+        "stripe_subscription_id": stripe_subscription_id,
+        "stripe_price_id": stripe_price_id,
+        "plan": plan,
+        "interval": interval,
+        "status": status,
+        "current_period_end": period_end_iso,
+    }
+
+    try:
+        supabase_client.table(SUBSCRIPTIONS_TABLE).upsert(
+            payload,
+            on_conflict="stripe_subscription_id",
+        ).execute()
+        return True
+    except Exception as exc:
+        logger.exception("[DB] upsert_subscription failed: %s", exc)
+        return False
+
+
+def get_user_plan(user_id: str) -> Dict[str, Any]:
+    """
+    Return the active subscription info for a user.
+
+    Returns a dict with keys: plan, interval, status, current_period_end.
+    Defaults to {'plan': 'free', 'interval': None, 'status': 'inactive',
+    'current_period_end': None} when no active subscription exists.
+    """
+    default: Dict[str, Any] = {
+        "plan": "free",
+        "interval": None,
+        "status": "inactive",
+        "current_period_end": None,
+    }
+
+    if not supabase_client or not user_id:
+        return default
+
+    try:
+        resp = (
+            supabase_client.table(SUBSCRIPTIONS_TABLE)
+            .select("plan, interval, status, current_period_end")
+            .eq("user_id", user_id)
+            .in_("status", ["active", "trialing", "past_due"])
+            .order("current_period_end", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        return rows[0] if rows else default
+    except Exception as exc:
+        logger.exception("[DB] get_user_plan failed: %s", exc)
+        return default
+
+
 def get_pending_creator_syncs(batch_size: int = 1) -> List[Dict[str, Any]]:
     """
     Get pending creator syncs from queue.

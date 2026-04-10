@@ -21,3 +21,4 @@ pytest
 pytest-asyncio
 beautifulsoup4
 python-dotenv
+stripe>=11.0.0

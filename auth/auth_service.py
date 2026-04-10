@@ -52,6 +52,7 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     "/terms",
     "/privacy",
     "/pricing",
+    r"/webhook/?",
 ]
 
 
