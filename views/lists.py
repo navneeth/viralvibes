@@ -292,12 +292,15 @@ def _creator_mini_row(creator: dict, rank: int):
     """
     channel_name = safe_get_value(creator, "channel_name", "Unknown Creator")
     channel_url = safe_get_value(creator, "channel_url", "#")
+    creator_id = safe_get_value(creator, "id", "")
     thumbnail_url = safe_get_value(creator, "channel_thumbnail_url", "")
     current_subs = safe_get_value(creator, "current_subscribers", 0)
     quality_grade = safe_get_value(creator, "quality_grade", "C")
 
     # Get grade badge info
     grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
+
+    profile_href = f"/creator/{creator_id}" if creator_id else channel_url
 
     return Div(
         # Rank
@@ -314,8 +317,7 @@ def _creator_mini_row(creator: dict, rank: int):
         # Name
         A(
             channel_name,
-            href=channel_url,
-            target="_blank",
+            href=profile_href,
             cls="text-sm font-medium text-foreground hover:underline line-clamp-1 flex-1 min-w-0",
         ),
         # Subscribers
@@ -488,6 +490,7 @@ def _load_more_button(
             hx_target=f"#{target_id}",
             hx_swap="beforeend",
             hx_indicator=f"#{target_id}-spinner",
+            hx_disabled_elt="this",
             cls="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
         ),
         Span(id=f"{target_id}-spinner", cls="htmx-indicator"),
@@ -921,7 +924,7 @@ def render_more_countries(
         else Div(id="country-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
-    return Div(*cards, new_button)
+    return (*cards, new_button)
 
 
 def render_more_categories(
@@ -952,7 +955,7 @@ def render_more_categories(
         else Div(id="category-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
-    return Div(*cards, new_button)
+    return (*cards, new_button)
 
 
 def render_more_languages(
@@ -983,7 +986,7 @@ def render_more_languages(
         else Div(id="language-groups-grid-load-more", hx_swap_oob="true")  # clears the button
     )
 
-    return Div(*cards, new_button)
+    return (*cards, new_button)
 
 
 def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> FT:
@@ -1214,6 +1217,7 @@ def render_country_detail_page(
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
                 ),
+                id="country-load-more-btn",
                 cls="mt-8 text-center",
             )
             if page < total_pages
@@ -1252,26 +1256,24 @@ def render_country_creators_rows(
         return Div()
 
     start_rank = (page - 1) * page_size + 1
-
-    return Div(
-        # Creator rows
-        *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
-        # Load-more button (if not last page)
-        (
-            Div(
-                Button(
-                    "Load More",
-                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
-                    hx_target="#country-creators-list",
-                    hx_swap="beforeend",
-                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
-                ),
-                cls="",
-            )
-            if page < total_pages
-            else None
-        ),
+    rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
+    next_btn = (
+        Div(
+            Button(
+                "Load More",
+                hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
+                hx_target="#country-creators-list",
+                hx_swap="beforeend",
+                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+            ),
+            id="country-load-more-btn",
+            hx_swap_oob="true",
+            cls="mt-8 text-center",
+        )
+        if page < total_pages
+        else Div(id="country-load-more-btn", hx_swap_oob="true")
     )
+    return (*rows, next_btn)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1365,6 +1367,7 @@ def render_category_detail_page(
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
                 ),
+                id="category-load-more-btn",
                 cls="mt-8 text-center",
             )
             if page < total_pages
@@ -1403,26 +1406,24 @@ def render_category_creators_rows(
         return Div()
 
     start_rank = (page - 1) * page_size + 1
-
-    return Div(
-        # Creator rows
-        *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
-        # Load-more button (if not last page)
-        (
-            Div(
-                Button(
-                    "Load More",
-                    hx_get=f"/lists/category/{category_slug}/more?page={page + 1}",
-                    hx_target="#category-creators-list",
-                    hx_swap="beforeend",
-                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
-                ),
-                cls="",
-            )
-            if page < total_pages
-            else None
-        ),
+    rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
+    next_btn = (
+        Div(
+            Button(
+                "Load More",
+                hx_get=f"/lists/category/{category_slug}/more?page={page + 1}",
+                hx_target="#category-creators-list",
+                hx_swap="beforeend",
+                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+            ),
+            id="category-load-more-btn",
+            hx_swap_oob="true",
+            cls="mt-8 text-center",
+        )
+        if page < total_pages
+        else Div(id="category-load-more-btn", hx_swap_oob="true")
     )
+    return (*rows, next_btn)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1516,6 +1517,7 @@ def render_language_detail_page(
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
                 ),
+                id="language-load-more-btn",
                 cls="mt-8 text-center",
             )
             if page < total_pages
@@ -1555,23 +1557,24 @@ def render_language_creators_rows(
 
     start_rank = (page - 1) * page_size + 1
 
-    return Div(
-        *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
-        (
-            Div(
-                Button(
-                    "Load More",
-                    hx_get=f"/lists/language/{language_code}/more?page={page + 1}",
-                    hx_target="#language-creators-list",
-                    hx_swap="beforeend",
-                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors mt-3",
-                ),
-                cls="",
-            )
-            if page < total_pages
-            else None
-        ),
+    rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
+    next_btn = (
+        Div(
+            Button(
+                "Load More",
+                hx_get=f"/lists/language/{language_code}/more?page={page + 1}",
+                hx_target="#language-creators-list",
+                hx_swap="beforeend",
+                cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+            ),
+            id="language-load-more-btn",
+            hx_swap_oob="true",
+            cls="mt-8 text-center",
+        )
+        if page < total_pages
+        else Div(id="language-load-more-btn", hx_swap_oob="true")
     )
+    return (*rows, next_btn)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
