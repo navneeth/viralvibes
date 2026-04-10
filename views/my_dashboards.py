@@ -57,13 +57,13 @@ def render_billing_section(plan_info: dict) -> Div:
         try:
             dt = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
             verb = "Trial ends" if status == "trialing" else "Renews"
-            period_line = f"{verb} {dt.strftime('%b %-d, %Y')}"
+            period_line = f"{verb} {dt.strftime('%b %d, %Y').replace(' 0', ' ')}"
         except (ValueError, AttributeError):
             period_line = None
     elif status == "canceled" and period_end:
         try:
             dt = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
-            period_line = f"Access until {dt.strftime('%b %-d, %Y')}"
+            period_line = f"Access until {dt.strftime('%b %d, %Y').replace(' 0', ' ')}"
         except (ValueError, AttributeError):
             period_line = None
     else:
