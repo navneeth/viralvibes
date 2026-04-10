@@ -210,6 +210,18 @@ hdrs += (
     Script(src="https://cdn.vercel-insights.com/v1/script.js", defer=True),
 )
 
+# Add Vercel Speed Insights
+# Using ES module to inject Speed Insights tracking
+hdrs += (
+    Script(
+        """
+        import { injectSpeedInsights } from 'https://cdn.jsdelivr.net/npm/@vercel/speed-insights@1/+esm';
+        injectSpeedInsights();
+        """,
+        type="module",
+    ),
+)
+
 # Auth beforeware — canonical FastHTML pattern (adv_app.py, quickstart docs).
 # skip uses re.search(), so regex patterns like r'/static/.*' cover all children.
 _login_redir = RedirectResponse("/login", status_code=303)
