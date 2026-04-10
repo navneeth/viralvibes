@@ -70,10 +70,12 @@ async def stripe_webhook(req: Request) -> JSONResponse:
         try:
             handler(event["data"]["object"])
         except Exception as exc:
-            # Log but still return 200 — Stripe will retry on non-2xx
+            # Return 500 so Stripe retries transient failures (DB down, etc.).
+            # Stripe will retry with exponential back-off for up to 3 days.
             logger.exception("[Webhook] Handler error for %s: %s", event_type, exc)
+            return JSONResponse({"error": "handler failed"}, status_code=500)
 
-    # Always 200 for unhandled / successfully handled events
+    # 200 for successfully handled events and for event types we intentionally ignore
     return JSONResponse({"received": True})
 
 
@@ -118,7 +120,24 @@ def _handle_subscription_upsert(subscription: dict) -> None:
         return
 
     price_id = _extract_price_id(subscription)
+    if not price_id:
+        logger.error(
+            "[Webhook] Could not extract price_id from subscription %s — skipping upsert",
+            subscription.get("id"),
+        )
+        return
+
     plan, interval = get_plan_for_price(price_id)
+    if plan == "free":
+        # price_id wasn't in our mapping — likely a misconfigured env var
+        logger.error(
+            "[Webhook] price_id %s not in PRICE_TO_PLAN mapping (subscription %s) — "
+            "skipping upsert to avoid silently downgrading a paying customer",
+            price_id,
+            subscription.get("id"),
+        )
+        return
+
     status: str = subscription.get("status", "inactive")
     period_end_ts = subscription.get("current_period_end") or 0
 
@@ -151,7 +170,9 @@ def _handle_subscription_deleted(subscription: dict) -> None:
         return
 
     price_id = _extract_price_id(subscription)
-    plan, interval = get_plan_for_price(price_id)
+    # For deletions we preserve whatever price/plan was on the event if available,
+    # but we never skip — cancellation must always be written regardless.
+    plan, interval = get_plan_for_price(price_id) if price_id else ("free", "")
 
     upsert_subscription(
         user_id=user_id,

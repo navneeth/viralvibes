@@ -42,6 +42,24 @@ PLAN_TO_PRICE: dict[tuple[str, str], str] = {v: k for k, v in PRICE_TO_PLAN.item
 # Plan hierarchy — used for gate comparisons (higher index = more access)
 PLAN_RANK: dict[str, int] = {"free": 0, "pro": 1, "agency": 2}
 
+# ---------------------------------------------------------------------------
+# Startup validation
+# ---------------------------------------------------------------------------
+_REQUIRED_PRICE_VARS = (
+    "STRIPE_PRICE_PRO_MONTHLY",
+    "STRIPE_PRICE_PRO_ANNUAL",
+    "STRIPE_PRICE_AGENCY_MONTHLY",
+    "STRIPE_PRICE_AGENCY_ANNUAL",
+)
+import logging as _logging
+
+_log = _logging.getLogger(__name__)
+for _var in _REQUIRED_PRICE_VARS:
+    if not os.environ.get(_var):
+        _log.warning(
+            "[stripe_service] Missing env var %s — price→plan mapping will be incomplete", _var
+        )
+
 
 def get_plan_for_price(price_id: str) -> tuple[str, str]:
     """Return (plan, interval) for a Stripe price_id, or ('free', '') if unknown."""
