@@ -53,6 +53,10 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     "/privacy",
     "/pricing",
     r"/webhook/?",
+    # Billing routes — auth is checked inside each handler
+    "/billing/checkout",
+    "/billing/success",
+    "/billing/portal",
 ]
 
 

@@ -25,19 +25,27 @@ _TOGGLE_SCRIPT = Script(
         'pro-billing':    ['{_PRICING["pro"]["annual_total"]} billed annually', 'Billed monthly'],
         'agency-billing': ['{_PRICING["agency"]["annual_total"]} billed annually', 'Billed monthly'],
     }};
-    function apply() {{
+    function apply(announce) {{
         var i = annual ? 0 : 1;
         for (var id in data) {{ document.getElementById(id).textContent = data[id][i]; }}
         var thumb  = document.getElementById('toggle-thumb');
         var toggle = document.getElementById('billing-toggle');
-        var label  = document.getElementById('billing-period-text');
         thumb.style.transform = annual ? 'translateX(0)' : 'translateX(-24px)';
         toggle.classList.toggle('bg-red-500', annual);
         toggle.classList.toggle('bg-muted-foreground/40', !annual);
         toggle.setAttribute('aria-pressed', String(annual));
-        if (label) label.textContent = annual ? 'Annual' : 'Monthly';
+        // Only update the sr-only live region on explicit user interaction
+        if (announce) {{
+            var label = document.getElementById('billing-period-text');
+            if (label) label.textContent = annual ? 'Annual billing selected' : 'Monthly billing selected';
+        }}
+        // Update hidden interval fields in checkout forms
+        var interval = annual ? 'year' : 'month';
+        document.querySelectorAll('input[name="interval"]').forEach(function(el) {{
+            el.value = interval;
+        }});
     }}
-    window.toggleBilling = function () {{ annual = !annual; apply(); }};
+    window.toggleBilling = function () {{ annual = !annual; apply(true); }};
     apply();
 }}());
 """
@@ -129,10 +137,16 @@ def _pro_card() -> Div:
             P(id="pro-billing", cls="text-xs text-muted-foreground mt-1"),
             cls="mb-6",
         ),
-        A(
-            "Start Pro free for 7 days",
-            href="/login",
-            cls=(ButtonT.primary, "block w-full text-center font-semibold text-sm py-2.5 mb-8"),
+        Form(
+            Input(type="hidden", name="plan", value="pro"),
+            Input(type="hidden", name="interval", value="year"),
+            Button(
+                "Start Pro free for 7 days",
+                type="submit",
+                cls=(ButtonT.primary, "block w-full text-center font-semibold text-sm py-2.5 mb-8"),
+            ),
+            method="post",
+            action="/billing/checkout",
         ),
         Ul(
             _feature("Everything in Free", bold=True, color="red"),
@@ -165,14 +179,20 @@ def _agency_card() -> Div:
             P(id="agency-billing", cls="text-xs text-muted-foreground mt-1"),
             cls="mb-6",
         ),
-        A(
-            "Start Agency free for 7 days",
-            href="/login",
-            cls=(
-                "block w-full text-center font-semibold text-sm py-2.5 mb-8 rounded-lg "
-                "border-2 border-foreground text-foreground "
-                "hover:bg-foreground hover:text-background transition-colors"
+        Form(
+            Input(type="hidden", name="plan", value="agency"),
+            Input(type="hidden", name="interval", value="year"),
+            Button(
+                "Start Agency free for 7 days",
+                type="submit",
+                cls=(
+                    "block w-full text-center font-semibold text-sm py-2.5 mb-8 rounded-lg "
+                    "border-2 border-foreground text-foreground "
+                    "hover:bg-foreground hover:text-background transition-colors"
+                ),
             ),
+            method="post",
+            action="/billing/checkout",
         ),
         Ul(
             _feature("Everything in Pro", bold=True),
@@ -195,12 +215,7 @@ def _agency_card() -> Div:
 
 def _billing_toggle() -> Div:
     return Div(
-        Span(
-            "Monthly",
-            id="billing-period-text",
-            cls="text-sm font-medium text-muted-foreground",
-            aria_live="polite",
-        ),
+        Span("Monthly", cls="text-sm font-medium text-muted-foreground"),
         Button(
             Span(
                 id="toggle-thumb",
@@ -212,7 +227,6 @@ def _billing_toggle() -> Div:
             type="button",
             aria_label="Toggle billing period",
             aria_pressed="true",
-            aria_describedby="billing-period-text",
         ),
         Div(
             Span("Annual", cls="text-sm font-semibold text-foreground"),
@@ -224,6 +238,12 @@ def _billing_toggle() -> Div:
                 ),
             ),
             cls="flex items-center ml-3",
+        ),
+        # Visually-hidden live region — announces current state to screen readers only
+        Span(
+            id="billing-period-text",
+            aria_live="polite",
+            cls="sr-only",
         ),
         cls="flex items-center justify-center mb-14",
     )

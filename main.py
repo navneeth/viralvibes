@@ -93,6 +93,7 @@ from routes.creators import creator_profile_route, creators_route
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
+from routes.stripe_checkout import billing_checkout, billing_success_content, billing_portal
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1363,6 +1364,34 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
             ),
         ),
     )
+
+
+@rt("/billing/checkout", methods=["POST"])
+async def checkout(req, sess):
+    """Create Stripe Checkout session — redirects to Stripe-hosted page."""
+    return await billing_checkout(req, sess)
+
+
+@rt("/billing/success")
+def billing_success(req, sess, session_id: str = ""):
+    """Post-checkout landing page — verifies from DB that subscription is active."""
+    content = billing_success_content(req, sess, session_id)
+    if isinstance(content, Response):
+        return content
+    return Titled(
+        "Subscription Active — ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            content,
+            cls=ContainerT.xl,
+        ),
+    )
+
+
+@rt("/billing/portal")
+def portal(req, sess):
+    """Open Stripe Customer Portal for self-service billing management."""
+    return billing_portal(req, sess)
 
 
 @rt("/webhook", methods=["POST"])

@@ -906,6 +906,25 @@ def queue_creator_sync_bulk(
 SUBSCRIPTIONS_TABLE = "subscriptions"
 
 
+def get_stripe_customer_id(user_id: str) -> str | None:
+    """Return the Stripe customer_id for a given user, or None."""
+    if not supabase_client or not user_id:
+        return None
+    try:
+        resp = (
+            supabase_client.table("users")
+            .select("stripe_customer_id")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        return rows[0].get("stripe_customer_id") if rows else None
+    except Exception as exc:
+        logger.exception("[DB] get_stripe_customer_id failed: %s", exc)
+        return None
+
+
 def link_stripe_customer(user_id: str, stripe_customer_id: str) -> bool:
     """Write stripe_customer_id onto the users row (called once at checkout)."""
     if not supabase_client:
