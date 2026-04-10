@@ -41,9 +41,13 @@ def gate_plan(
     if not user_id:
         return RedirectResponse("/login", status_code=303)
 
-    plan_info = get_user_plan(user_id)
-    user_rank = PLAN_RANK.get(plan_info["plan"], 0)
-    required_rank = PLAN_RANK.get(required, 1)
+    plan_info = get_user_plan(user_id) or {}
+    user_rank = PLAN_RANK.get(plan_info.get("plan", "free"), 0)
+
+    if required not in PLAN_RANK:
+        raise ValueError(f"[gate_plan] Unknown required plan: {required!r} — must be one of {list(PLAN_RANK)}")
+
+    required_rank = PLAN_RANK[required]
 
     if user_rank >= required_rank:
         return None  # ✅ access granted
