@@ -49,6 +49,7 @@ def gate_plan(
         return None  # ✅ access granted
 
     from urllib.parse import quote_plus
+
     return RedirectResponse(
         f"/pricing?upgrade={required}&from={quote_plus(redirect_url)}",
         status_code=303,

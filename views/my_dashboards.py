@@ -15,6 +15,118 @@ from utils import format_date_relative, format_date_simple, format_number
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Billing section
+# ---------------------------------------------------------------------------
+
+_PLAN_BADGE_CLS = {
+    "free": "bg-gray-100 text-gray-700",
+    "pro": "bg-red-100 text-red-700",
+    "agency": "bg-purple-100 text-purple-700",
+}
+
+_STATUS_BADGE_CLS = {
+    "active": "bg-green-100 text-green-700",
+    "trialing": "bg-blue-100 text-blue-700",
+    "past_due": "bg-yellow-100 text-yellow-800",
+    "canceled": "bg-gray-100 text-gray-500",
+    "inactive": "bg-gray-100 text-gray-500",
+}
+
+
+def render_billing_section(plan_info: dict) -> Div:
+    """
+    Billing summary card — shown at the top of /me/dashboards.
+
+    plan_info keys (from db.get_user_plan):
+        plan, interval, status, current_period_end
+    """
+    plan = plan_info.get("plan", "free")
+    status = plan_info.get("status", "inactive")
+    interval = plan_info.get("interval")  # 'month' | 'year' | None
+    period_end = plan_info.get("current_period_end")  # ISO string | None
+
+    plan_label = plan.capitalize()
+    status_label = status.replace("_", " ").capitalize()
+
+    plan_badge_cls = _PLAN_BADGE_CLS.get(plan, "bg-gray-100 text-gray-700")
+    status_badge_cls = _STATUS_BADGE_CLS.get(status, "bg-gray-100 text-gray-500")
+
+    # Renewal / expiry line
+    if period_end and status in ("active", "trialing", "past_due"):
+        try:
+            dt = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
+            verb = "Trial ends" if status == "trialing" else "Renews"
+            period_line = f"{verb} {dt.strftime('%b %-d, %Y')}"
+        except (ValueError, AttributeError):
+            period_line = None
+    elif status == "canceled" and period_end:
+        try:
+            dt = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
+            period_line = f"Access until {dt.strftime('%b %-d, %Y')}"
+        except (ValueError, AttributeError):
+            period_line = None
+    else:
+        period_line = None
+
+    interval_label = {"month": "Monthly", "year": "Annual"}.get(interval, "") if interval else ""
+
+    # CTA buttons
+    if plan == "free":
+        cta = A(
+            UkIcon("arrow-up-circle", cls="w-4 h-4 mr-1.5"),
+            Span("Upgrade to Pro"),
+            href="/pricing",
+            cls="inline-flex items-center px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 "
+            "text-white text-sm font-semibold transition-colors",
+        )
+    else:
+        cta = A(
+            UkIcon("settings", cls="w-4 h-4 mr-1.5"),
+            Span("Manage billing"),
+            href="/billing/portal",
+            cls="inline-flex items-center px-4 py-2 rounded-lg border border-border "
+            "text-sm font-medium hover:bg-muted transition-colors",
+        )
+
+    return Div(
+        Div(
+            # Left: plan info
+            Div(
+                Span(
+                    "Your plan",
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block",
+                ),
+                Div(
+                    Span(
+                        plan_label,
+                        cls=f"text-sm font-bold px-2.5 py-0.5 rounded-full {plan_badge_cls}",
+                    ),
+                    *(
+                        [Span(interval_label, cls="text-xs text-muted-foreground ml-2")]
+                        if interval_label
+                        else []
+                    ),
+                    Span(
+                        status_label,
+                        cls=f"text-xs px-2 py-0.5 rounded-full ml-2 {status_badge_cls}",
+                    ),
+                    cls="flex items-center flex-wrap gap-1",
+                ),
+                *(
+                    [P(period_line, cls="text-xs text-muted-foreground mt-1.5")]
+                    if period_line
+                    else []
+                ),
+            ),
+            # Right: CTA
+            cta,
+            cls="flex items-center justify-between gap-4 flex-wrap",
+        ),
+        cls="mb-8 p-4 rounded-xl border border-border bg-muted/40",
+    )
+
+
 def extract_engagement_metrics(summary_stats: dict | None) -> dict:
     """
     Extract engagement metrics from summary_stats JSON.
@@ -58,12 +170,19 @@ def render_my_dashboards_page(
     user_name: str,
     search: str = "",
     sort: str = "recent",
+    plan_info: dict | None = None,
 ) -> Div:
     """
     Render the My Dashboards page with grid layout.
 
     Uses MonsterUI Grid component for responsive layout.
     """
+    _plan_info = plan_info or {
+        "plan": "free",
+        "status": "inactive",
+        "interval": None,
+        "current_period_end": None,
+    }
 
     return Container(
         # Page header
@@ -75,6 +194,8 @@ def render_my_dashboards_page(
             ),
             cls="mb-8 mt-8",
         ),
+        # Billing summary
+        render_billing_section(_plan_info),
         # Search & Filter Bar
         render_search_filter_bar(search=search, sort=sort),
         # Dashboard Grid or Empty State

@@ -74,6 +74,7 @@ from db import (
     get_playlist_job_status,
     get_playlist_preview_info,
     get_user_dashboards,
+    get_user_plan,
     init_supabase,
     resolve_playlist_url_from_dashboard_id,
     setup_logging,
@@ -1360,6 +1361,7 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
 
     # Fetch dashboards with filters
     dashboards = get_user_dashboards(user_id, search=search, sort=sort)
+    plan_info = get_user_plan(user_id)
 
     # Render page
     return Titled(
@@ -1371,6 +1373,7 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
                 user_name=user_name,
                 search=search,
                 sort=sort,
+                plan_info=plan_info,
             ),
         ),
     )
