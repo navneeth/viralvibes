@@ -23,6 +23,7 @@ dependencies = [
     "pycountry>=24.1.0",
     "isodate",
     "python-dotenv",
+    "stripe>=11.0.0",
 ]
 
 # Tell setuptools this is an application, not a library - don't auto-discover packages
