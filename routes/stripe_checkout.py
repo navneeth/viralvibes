@@ -92,8 +92,8 @@ def billing_success_content(req, sess, session_id: str = "") -> Union[Div, Respo
     if not session_id:
         return RedirectResponse("/pricing", status_code=303)
 
-    plan_info = get_user_plan(user_id)
-    is_active = plan_info["status"] in ("active", "trialing")
+    plan_info = get_user_plan(user_id) or {}
+    is_active = plan_info.get("status", "inactive") in ("active", "trialing")
 
     if not is_active:
         # Webhook hasn't arrived yet — show a friendly waiting state with
