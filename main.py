@@ -94,6 +94,7 @@ from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
 from routes.stripe_checkout import billing_checkout, billing_success_content, billing_portal
+from services.plan_gate import gate_plan
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1001,14 +1002,18 @@ def get_export_modal(dashboard_id: str, req, sess):
 
 @rt("/export/{dashboard_id}/csv")
 def export_csv(dashboard_id: str, req, sess):
-    """Export dashboard data as CSV."""
+    """Export dashboard data as CSV — requires Pro plan."""
 
-    # Extract user_id
     user_id = sess.get("user_id") if sess else None
 
     # Auth check
     if not (sess and sess.get("auth")):
         return RedirectResponse("/login", status_code=303)
+
+    # Plan gate: CSV export is a Pro+ feature
+    blocked = gate_plan(user_id, required="pro", redirect_url=f"/export/{dashboard_id}/csv")
+    if blocked:
+        return blocked
 
     # Get data
     playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id, user_id=user_id)
@@ -1032,7 +1037,7 @@ def export_csv(dashboard_id: str, req, sess):
 
 @rt("/export/{dashboard_id}/json")
 def export_json(dashboard_id: str, req, sess):
-    """Export dashboard data as JSON."""
+    """Export dashboard data as JSON — requires Pro plan."""
 
     # Extract user_id
     user_id = sess.get("user_id") if sess else None
@@ -1040,6 +1045,11 @@ def export_json(dashboard_id: str, req, sess):
     # Auth check
     if not (sess and sess.get("auth")):
         return RedirectResponse("/login", status_code=303)
+
+    # Plan gate: JSON export is a Pro+ feature
+    blocked = gate_plan(user_id, required="pro", redirect_url=f"/export/{dashboard_id}/json")
+    if blocked:
+        return blocked
 
     # Get data
     playlist_url = resolve_playlist_url_from_dashboard_id(dashboard_id, user_id=user_id)

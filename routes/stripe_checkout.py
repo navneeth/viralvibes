@@ -105,8 +105,10 @@ def billing_success_content(req, sess, session_id: str = "") -> Div | Response:
             Meta(http_equiv="refresh", content=f"3;url=/billing/success?session_id={session_id}"),
             UkIcon("loader", cls="w-12 h-12 text-muted-foreground mx-auto mb-4 animate-spin"),
             H1("Setting up your subscription…", cls="text-2xl font-bold text-foreground mb-2"),
-            P("This usually takes a second. The page will refresh automatically.",
-              cls="text-muted-foreground"),
+            P(
+                "This usually takes a second. The page will refresh automatically.",
+                cls="text-muted-foreground",
+            ),
             cls="text-center py-24 max-w-lg mx-auto",
         )
 
