@@ -12,7 +12,10 @@ Environment variables required:
     DOMAIN_URL                  https://viralvibes.fyi  (no trailing slash)
 """
 
+import logging as _logging
 import os
+from typing import Optional
+
 import stripe
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -51,7 +54,6 @@ _REQUIRED_PRICE_VARS = (
     "STRIPE_PRICE_AGENCY_MONTHLY",
     "STRIPE_PRICE_AGENCY_ANNUAL",
 )
-import logging as _logging
 
 _log = _logging.getLogger(__name__)
 for _var in _REQUIRED_PRICE_VARS:
@@ -66,6 +68,6 @@ def get_plan_for_price(price_id: str) -> tuple[str, str]:
     return PRICE_TO_PLAN.get(price_id, ("free", ""))
 
 
-def get_price_for_plan(plan: str, interval: str) -> str | None:
+def get_price_for_plan(plan: str, interval: str) -> Optional[str]:
     """Return the Stripe price_id for a given (plan, interval) pair, or None."""
     return PLAN_TO_PRICE.get((plan, interval))

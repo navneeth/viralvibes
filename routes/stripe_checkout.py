@@ -11,6 +11,7 @@ billing_portal      GET  /billing/portal    — open Customer Portal → redirec
 """
 
 import logging
+from typing import Optional, Union
 
 import stripe
 from fasthtml.common import *
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 async def billing_checkout(req, sess) -> Response:
     """Create a Stripe Checkout session and redirect the user there."""
-    user_id: str | None = sess.get("user_id")
+    user_id: Optional[str] = sess.get("user_id")
     auth = sess.get("auth")
     if not auth or not user_id:
         return RedirectResponse("/login", status_code=303)
@@ -74,7 +75,7 @@ async def billing_checkout(req, sess) -> Response:
 # ---------------------------------------------------------------------------
 
 
-def billing_success_content(req, sess, session_id: str = "") -> Div | Response:
+def billing_success_content(req, sess, session_id: str = "") -> Union[Div, Response]:
     """
     Show success page after Stripe checkout.
 
@@ -84,7 +85,7 @@ def billing_success_content(req, sess, session_id: str = "") -> Div | Response:
     If it hasn't arrived yet (rare race), we show a processing message rather
     than calling the Stripe API a second time.
     """
-    user_id: str | None = sess.get("user_id")
+    user_id: Optional[str] = sess.get("user_id")
     if not sess.get("auth") or not user_id:
         return RedirectResponse("/login", status_code=303)
 
@@ -144,7 +145,7 @@ def billing_success_content(req, sess, session_id: str = "") -> Div | Response:
 
 def billing_portal(req, sess) -> Response:
     """Open the Stripe Customer Portal for self-service billing management."""
-    user_id: str | None = sess.get("user_id")
+    user_id: Optional[str] = sess.get("user_id")
     auth = sess.get("auth")
     if not auth or not user_id:
         return RedirectResponse("/login", status_code=303)
