@@ -45,7 +45,9 @@ def gate_plan(
     user_rank = PLAN_RANK.get(plan_info.get("plan", "free"), 0)
 
     if required not in PLAN_RANK:
-        raise ValueError(f"[gate_plan] Unknown required plan: {required!r} — must be one of {list(PLAN_RANK)}")
+        raise ValueError(
+            f"[gate_plan] Unknown required plan: {required!r} — must be one of {list(PLAN_RANK)}"
+        )
 
     required_rank = PLAN_RANK[required]
 
