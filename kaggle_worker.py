@@ -227,9 +227,8 @@ class KeyPool:
             if self.slots[candidate].is_active:
                 self._index = candidate
                 logger.info(
-                    "  🔄 Rotated to key slot %d (...%s)",
+                    "  🔄 Rotated to key slot %d",
                     self._index,
-                    self.slots[self._index].api_key[-6:],
                 )
                 return True
 
