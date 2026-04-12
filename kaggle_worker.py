@@ -38,6 +38,7 @@ import logging
 import os
 import time
 import gc
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -145,9 +146,10 @@ class ApiKeySlot:
     def exhaust(self) -> None:
         self.status = "exhausted"
         self.exhausted_at = datetime.now(timezone.utc)
+        key_id = hashlib.sha256(self.api_key.encode("utf-8")).hexdigest()[:12]
         logger.warning(
-            "  🔑 Key ...%s exhausted after %d jobs",
-            self.api_key[-6:],
+            "  🔑 Key id=%s exhausted after %d jobs",
+            key_id,
             self.jobs_processed,
         )
 
