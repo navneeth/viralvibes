@@ -366,9 +366,8 @@ async def run(
             if isinstance(e, QuotaExceededException):
                 logger.warning(
                     "⏸  Quota exhausted on key slot %d (...%s) — attempting rotation",
-                    key_pool._index,
+                    "⏸  Quota exhausted on key slot %d — attempting rotation",
                     key_pool.current_slot.api_key[-6:],
-                )
                 rotated = key_pool.mark_exhausted_and_rotate()
                 if rotated:
                     # Swap resolver to new key
