@@ -246,7 +246,7 @@ class KeyPool:
         for i, slot in enumerate(self.slots):
             marker = "►" if i == self._index else " "
             parts.append(
-                f"  {marker} slot {i} [...{slot.api_key[-6:]}] "
+                f"  {marker} slot {i} "
                 f"{slot.status} | jobs: {slot.jobs_processed}"
             )
         return "\n".join(parts)
