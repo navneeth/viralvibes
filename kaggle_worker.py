@@ -195,6 +195,9 @@ class KeyPool:
             if k:
                 keys.append(k)
         if not keys:
+            raise ValueError("No YOUTUBE_API_KEY found in environment")
+        return cls(keys)
+        if not keys:
             raise EnvironmentError("No YOUTUBE_API_KEY found in environment")
         return cls(keys)
 
