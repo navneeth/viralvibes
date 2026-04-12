@@ -1137,16 +1137,17 @@ async def handle_sync_job(
         # ── Quota exhausted: transient — stop processing, do NOT purge ─────────
         # The daily quota resets at midnight Pacific. Mark the job failed so it
         # re-enters the queue tomorrow; do not touch the creator row.
+        # Re-raise to let kaggle_worker.py handle key rotation.
         if isinstance(e, QuotaExceededException):
             logger.error(
-                f"{job_tag} ⏸️  YouTube quota exhausted — job {job_id} marked failed "
+                f"{job_tag} ⏸️  YouTube quota exhausted — marking job {job_id} failed "
                 "for retry. Creator record preserved."
             )
             try:
                 mark_creator_sync_failed(job_id, "YouTube quota exceeded — will retry")
             except Exception as mark_err:
                 logger.warning(f"{job_tag} Could not mark job failed: {mark_err}")
-            return False
+            raise
 
         # ── Permanent failure: channel does not exist on YouTube ──────────────
         # Do NOT retry — the channel is gone. Hard-delete from creators table
