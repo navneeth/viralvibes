@@ -45,6 +45,14 @@ from typing import Optional
 
 logger = logging.getLogger("kaggle_worker")
 
+# ── Module constants ──────────────────────────────────────────────────────────
+# Centralized list of YouTube API key environment variable names for round-robin
+YOUTUBE_API_KEY_NAMES = [
+    "YOUTUBE_API_KEY",
+    "YOUTUBE_API_KEY_2",
+    "YOUTUBE_API_KEY_3",
+]
+
 # ── Step 1: fetch secrets once, before any worker import ─────────────────────
 # This MUST happen before importing creator_worker, because that module reads
 # os.environ at import time for YOUTUBE_DAILY_QUOTA and other constants.
@@ -53,7 +61,7 @@ logger = logging.getLogger("kaggle_worker")
 def _bootstrap_kaggle_secrets() -> None:
     """
     Pull secrets from Kaggle UserSecretsClient into os.environ once.
-    Loads YOUTUBE_API_KEY, YOUTUBE_API_KEY_2, YOUTUBE_API_KEY_3 (if present)
+    Loads all YouTube API keys from YOUTUBE_API_KEY_NAMES
     so KeyPool can populate itself with all available keys.
     """
     try:
@@ -71,10 +79,10 @@ def _bootstrap_kaggle_secrets() -> None:
     optional = {
         "YOUTUBE_DAILY_QUOTA": "10000",
         "NEXT_PUBLIC_SUPABASE_ANON_KEY": None,
-        # Extra API keys for round-robin rotation — add as many as you have
-        "YOUTUBE_API_KEY_2": None,
-        "YOUTUBE_API_KEY_3": None,
     }
+    # Add extra API key names as optional secrets
+    for key_name in YOUTUBE_API_KEY_NAMES[1:]:  # Skip first one, it's already required
+        optional[key_name] = None
 
     missing = []
     for key in required + list(optional):
@@ -94,17 +102,13 @@ def _bootstrap_kaggle_secrets() -> None:
                 os.environ[key] = optional[key]
 
     if missing:
-        raise EnvironmentError(
+        raise ValueError(
             f"Required Kaggle secrets not found: {missing}\n"
             "Add them under Add-ons → Secrets in your notebook."
         )
 
     # Log which API keys were found
-    keys_found = [
-        k
-        for k in ["YOUTUBE_API_KEY", "YOUTUBE_API_KEY_2", "YOUTUBE_API_KEY_3"]
-        if os.environ.get(k)
-    ]
+    keys_found = [k for k in YOUTUBE_API_KEY_NAMES if os.environ.get(k)]
     logger.info("✅ Secrets loaded. YouTube API keys available: %d", len(keys_found))
 
 
@@ -186,19 +190,22 @@ class KeyPool:
     @classmethod
     def from_env(cls) -> "KeyPool":
         """
-        Build pool from YOUTUBE_API_KEY, YOUTUBE_API_KEY_2, YOUTUBE_API_KEY_3.
+        Build pool from all YOUTUBE_API_KEY_* environment variables.
         Any key not present in env is silently skipped.
+
+        Raises:
+            ValueError: If no API keys are found in the environment.
         """
         keys = []
-        for name in ["YOUTUBE_API_KEY", "YOUTUBE_API_KEY_2", "YOUTUBE_API_KEY_3"]:
+        for name in YOUTUBE_API_KEY_NAMES:
             k = os.environ.get(name, "").strip()
             if k:
                 keys.append(k)
         if not keys:
-            raise ValueError("No YOUTUBE_API_KEY found in environment")
-        return cls(keys)
-        if not keys:
-            raise EnvironmentError("No YOUTUBE_API_KEY found in environment")
+            raise ValueError(
+                f"No YouTube API keys found in environment. "
+                f"Expected at least one of: {', '.join(YOUTUBE_API_KEY_NAMES)}"
+            )
         return cls(keys)
 
     @property
@@ -244,10 +251,7 @@ class KeyPool:
         parts = []
         for i, slot in enumerate(self.slots):
             marker = "►" if i == self._index else " "
-            parts.append(
-                f"  {marker} slot {i} "
-                f"{slot.status} | jobs: {slot.jobs_processed}"
-            )
+            parts.append(f"  {marker} slot {i} " f"{slot.status} | jobs: {slot.jobs_processed}")
         return "\n".join(parts)
 
 
@@ -358,6 +362,9 @@ async def run(
 
         except asyncio.TimeoutError:
             jobs_processed += 1
+            # Note: Timeouts are not recorded against the current key's job count,
+            # as the timeout represents a network/processing failure, not a successful
+            # API call. This avoids penalizing the key pool's rotation logic.
             logger.warning("⏱  Job %d timed out after 90s — continuing", jobs_processed)
 
         except Exception as e:
@@ -366,8 +373,9 @@ async def run(
             if isinstance(e, QuotaExceededException):
                 logger.warning(
                     "⏸  Quota exhausted on key slot %d (...%s) — attempting rotation",
-                    "⏸  Quota exhausted on key slot %d — attempting rotation",
+                    key_pool._index,
                     key_pool.current_slot.api_key[-6:],
+                )
                 rotated = key_pool.mark_exhausted_and_rotate()
                 if rotated:
                     # Swap resolver to new key
