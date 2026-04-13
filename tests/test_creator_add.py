@@ -228,7 +228,7 @@ class TestQueueCreatorAddRequest:
 
         ok, msg, creator_id = db_module.queue_creator_add_request("@channel", "user-1")
         assert ok is False
-        assert "rate" in msg.lower() or "limit" in msg.lower()
+        assert "submit" in msg.lower() or "requests" in msg.lower()
         assert creator_id is None
 
     def test_success_queues_job(self, monkeypatch):
@@ -417,12 +417,12 @@ class TestHandleResolveAndAddJob:
         monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: None)
         monkeypatch.setattr(cw, "mark_creator_sync_failed", lambda jid, error=None: None)
 
-        # Mock resolver to return a channel ID
+        # Mock youtube_resolver (module-level variable used by handle_resolve_and_add_job)
         mock_resolver = AsyncMock()
         mock_resolver.resolve_handle_to_channel_id = AsyncMock(
             return_value="UCX6OQ3DkcsbYNE6H8uQQuVA"
         )
-        monkeypatch.setattr(cw, "resolver", mock_resolver)
+        monkeypatch.setattr(cw, "youtube_resolver", mock_resolver)
 
         result = await cw.handle_resolve_and_add_job(
             job_id=1,
@@ -483,7 +483,7 @@ class TestHandleResolveAndAddJob:
 
         mock_resolver = AsyncMock()
         mock_resolver.resolve_handle_to_channel_id = AsyncMock(return_value=None)
-        monkeypatch.setattr(cw, "resolver", mock_resolver)
+        monkeypatch.setattr(cw, "youtube_resolver", mock_resolver)
 
         result = await cw.handle_resolve_and_add_job(job_id=5, input_query="@ghost_channel")
         assert result is False
@@ -502,7 +502,7 @@ class TestHandleResolveAndAddJob:
         mock_resolver.resolve_handle_to_channel_id = AsyncMock(
             side_effect=cw.QuotaExceededException("@MrBeast")
         )
-        monkeypatch.setattr(cw, "resolver", mock_resolver)
+        monkeypatch.setattr(cw, "youtube_resolver", mock_resolver)
 
         with pytest.raises(cw.QuotaExceededException):
             await cw.handle_resolve_and_add_job(job_id=7, input_query="@MrBeast")
@@ -594,10 +594,10 @@ class TestCreatorsAddStatusEndpoint:
         assert "processing" not in r.text.lower()
 
     def test_processing_returns_spinner_with_poll(self, authenticated_client, monkeypatch):
-        import db as db_module
+        import routes.creators as creators_routes
 
         monkeypatch.setattr(
-            db_module,
+            creators_routes,
             "get_creator_add_request_status",
             lambda q: {"status": "processing", "creator_id": None},
         )
@@ -610,10 +610,10 @@ class TestCreatorsAddStatusEndpoint:
     def test_completed_returns_profile_link_and_stops_polling(
         self, authenticated_client, monkeypatch
     ):
-        import db as db_module
+        import routes.creators as creators_routes
 
         monkeypatch.setattr(
-            db_module,
+            creators_routes,
             "get_creator_add_request_status",
             lambda q: {"status": "completed", "creator_id": "new-creator-uuid"},
         )
@@ -624,10 +624,10 @@ class TestCreatorsAddStatusEndpoint:
         assert "every 3s" not in r.text
 
     def test_failed_returns_error_card_and_stops_polling(self, authenticated_client, monkeypatch):
-        import db as db_module
+        import routes.creators as creators_routes
 
         monkeypatch.setattr(
-            db_module,
+            creators_routes,
             "get_creator_add_request_status",
             lambda q: {"status": "failed", "creator_id": None},
         )
@@ -646,10 +646,10 @@ class TestCreatorsAddStatusEndpoint:
         None from get_creator_add_request_status means invalid input or no DB
         client.  The route must render a terminal failed card so polling stops.
         """
-        import db as db_module
+        import routes.creators as creators_routes
 
         monkeypatch.setattr(
-            db_module,
+            creators_routes,
             "get_creator_add_request_status",
             lambda q: None,
         )
