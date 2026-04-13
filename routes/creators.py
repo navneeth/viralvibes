@@ -305,7 +305,7 @@ def creator_profile_route(request, creator_id: str):
     )
 
 
-def creator_request_route(request, sess):
+async def creator_request_route(request, sess):
     """
     POST /creators/request
     HTMX endpoint — queues a creator add request submitted by the user.
@@ -321,7 +321,7 @@ def creator_request_route(request, sess):
 
     # Read form body
     try:
-        form = request.form()
+        form = await request.form()
         q = form.get("q", "").strip()
     except Exception:
         q = ""

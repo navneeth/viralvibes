@@ -1124,6 +1124,12 @@ def creators(req, sess):
     )
 
 
+@rt("/creators/request")
+async def creators_request(req, sess):
+    """POST /creators/request — HTMX endpoint to queue a creator add request."""
+    return await creator_request_route(req, sess)
+
+
 @rt("/lists")
 def lists(req, sess):
     """Creator Lists page - curated, pre-filtered creator rankings"""
