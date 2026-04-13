@@ -937,7 +937,7 @@ def _validate_creator_input(q: str) -> tuple[bool, str]:
 def queue_creator_add_request(
     input_query: str,
     user_id: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, Optional[str]]:
     """
     Submit a user request to add a creator by @handle or channel ID.
 
@@ -960,18 +960,23 @@ def queue_creator_add_request(
         user_id:     Authenticated user UUID (from session).
 
     Returns:
-        ``(True, "queued")`` on success.
-        ``(False, reason_string)`` on any validation or DB failure.
+        ``(True, "queued", None)`` on success.
+        ``(False, message, None)`` on validation or DB failure.
+        ``(False, message, creator_id)`` when the creator already exists in the DB.
     """
     if not supabase_client:
-        return False, "Database unavailable"
+        return False, "Database unavailable", None
 
     # ── 1. Validate format ────────────────────────────────────────────────────
     is_valid, normalised = _validate_creator_input(input_query)
     if not is_valid:
-        return False, (
-            "Invalid input — please enter a YouTube @handle (e.g. @MrBeast) "
-            "or a channel ID starting with UC."
+        return (
+            False,
+            (
+                "Invalid input — please enter a YouTube @handle (e.g. @MrBeast) "
+                "or a channel ID starting with UC."
+            ),
+            None,
         )
 
     try:
@@ -996,7 +1001,7 @@ def queue_creator_add_request(
 
         if existing.data:
             creator_id = existing.data[0]["id"]
-            return False, f"already_tracked:{creator_id}"
+            return False, "This creator is already in the database.", creator_id
 
         # ── 3. Duplicate pending resolve_and_add? ────────────────────────────
         dup = (
@@ -1009,7 +1014,11 @@ def queue_creator_add_request(
             .execute()
         )
         if dup.data:
-            return False, "A request for this creator is already pending — please check back soon."
+            return (
+                False,
+                "A request for this creator is already pending — please check back soon.",
+                None,
+            )
 
         # ── 4. Rate limit ─────────────────────────────────────────────────────
         window_start = (
@@ -1026,9 +1035,13 @@ def queue_creator_add_request(
         )
         recent_count = recent.count or 0
         if recent_count >= _ADD_REQUEST_LIMIT:
-            return False, (
-                f"You can submit up to {_ADD_REQUEST_LIMIT} creator requests per "
-                f"{_ADD_REQUEST_WINDOW_HOURS}h. Please try again later."
+            return (
+                False,
+                (
+                    f"You can submit up to {_ADD_REQUEST_LIMIT} creator requests per "
+                    f"{_ADD_REQUEST_WINDOW_HOURS}h. Please try again later."
+                ),
+                None,
             )
 
         # ── 5. Insert the job ─────────────────────────────────────────────────
