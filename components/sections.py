@@ -655,7 +655,7 @@ def BottomCTASection() -> Section:
     # ── Screenshot image ──────────────────────────────────────────
     placeholder = Img(
         src="/static/lists_shots_so.png",
-        alt="ViralVibes creators list view",
+        alt="Screenshot of ViralVibes creators list view",
         cls="w-full h-full object-cover rounded-lg",
     )
 
