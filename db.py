@@ -928,6 +928,10 @@ def _validate_creator_input(q: str) -> tuple[bool, str]:
     q = q.strip()
     if _UC_ID_RE.match(q):
         return True, q
+    # Strings that start with "UC" but fail the strict regex are malformed
+    # channel IDs — reject them rather than silently treating as a handle.
+    if q.upper().startswith("UC") and not q.startswith("@"):
+        return False, q
     handle = q if q.startswith("@") else f"@{q}"
     if _HANDLE_RE.match(handle):
         return True, handle.lower()

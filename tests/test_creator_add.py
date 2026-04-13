@@ -35,21 +35,33 @@ def _chainable(final_resp):
     """
     Return a mock that supports arbitrary chained attribute accesses ending in
     .execute() that returns *final_resp*.
-
-    Supports common filter methods: .table(), .select(), .insert(), .update(),
-    .eq(), .ilike(), .gte(), .lte(), .is_(), .not_(), .in_(), .limit(),
-    .order(), .execute()
     """
     mock = MagicMock()
     mock.execute.return_value = final_resp
-
-    # Allow arbitrary chaining: every attribute and call returns the same mock
-    mock.__getattr__ = lambda self, name: mock
-    mock.return_value = mock
-
-    # Make sure .not_ also chains
+    # Explicitly return self from every filter/builder method so the chain
+    # always terminates at the same mock whose .execute() is configured.
+    for _m in (
+        "select",
+        "insert",
+        "update",
+        "upsert",
+        "eq",
+        "neq",
+        "ilike",
+        "like",
+        "gte",
+        "lte",
+        "gt",
+        "lt",
+        "is_",
+        "in_",
+        "not_in",
+        "limit",
+        "order",
+        "offset",
+    ):
+        getattr(mock, _m).return_value = mock
     mock.not_ = mock
-
     return mock
 
 
