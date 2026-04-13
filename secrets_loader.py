@@ -129,9 +129,8 @@ def _load_kaggle_secrets() -> None:
             # Unexpected client/runtime error — log clearly and abort.
             # Do NOT silently treat this as a missing key.
             logger.error(
-                "Unexpected error retrieving Kaggle secret '%s' — "
-                "check UserSecretsClient connectivity",
-                key,
+                "Unexpected error retrieving a Kaggle secret — "
+                "check UserSecretsClient connectivity"
             )
             raise
 
