@@ -332,7 +332,7 @@ def creator_request_route(request, sess):
             message="Please enter a @handle or channel ID.",
         )
 
-    ok, reason = queue_creator_add_request(q, user_id)
+    ok, message, creator_id = queue_creator_add_request(q, user_id)
 
     if ok:
         return render_add_creator_result(
@@ -343,13 +343,4 @@ def creator_request_route(request, sess):
             ),
         )
 
-    # Structured "already tracked" response — extract creator_id and link to profile
-    if reason.startswith("already_tracked:"):
-        creator_id = reason.split(":", 1)[1]
-        return render_add_creator_result(
-            success=False,
-            message=reason,
-            creator_id=creator_id,
-        )
-
-    return render_add_creator_result(success=False, message=reason)
+    return render_add_creator_result(success=False, message=message, creator_id=creator_id or "")

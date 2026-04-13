@@ -1062,45 +1062,14 @@ def queue_creator_add_request(
                 user_id,
                 resp.data[0].get("id"),
             )
-            return True, "queued"
+            return True, "queued", None
 
         logger.error("Insert returned no data for creator add request: %s", normalised)
-        return False, "Failed to queue request — please try again."
+        return False, "Failed to queue request — please try again.", None
 
     except Exception as e:
         logger.exception("Error queuing creator add request for %s: %s", normalised, e)
-        return False, "An unexpected error occurred — please try again."
-
-
-def get_creator_add_request_status(input_query: str) -> Optional[Dict[str, Any]]:
-    """
-    Return the most recent resolve_and_add job for the given input.
-
-    Used by the optional status-polling endpoint so the UI can show a
-    "still processing…" or "ready — view profile" state.
-
-    Returns:
-        Dict with keys ``status``, ``creator_id``, ``error_message``; or None.
-    """
-    if not supabase_client:
-        return None
-    is_valid, normalised = _validate_creator_input(input_query)
-    if not is_valid:
-        return None
-    try:
-        resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("status,creator_id,error_message")
-            .eq("input_query", normalised)
-            .eq("job_type", "resolve_and_add")
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        return resp.data[0] if resp.data else None
-    except Exception as e:
-        logger.exception("Error fetching add request status for %s: %s", normalised, e)
-        return None
+        return False, "An unexpected error occurred — please try again.", None
 
 
 # ============================================================================
