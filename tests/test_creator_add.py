@@ -22,6 +22,7 @@ from starlette.testclient import TestClient
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_supabase_resp(data=None, count=None):
     """Return a minimal Supabase-like response object."""
     resp = SimpleNamespace()
@@ -56,11 +57,13 @@ def _chainable(final_resp):
 # 1. _validate_creator_input
 # ===========================================================================
 
+
 class TestValidateCreatorInput:
     """Unit tests for db._validate_creator_input."""
 
     def setup_method(self):
         from db import _validate_creator_input
+
         self.validate = _validate_creator_input
 
     def test_valid_uc_id(self):
@@ -125,6 +128,7 @@ class TestValidateCreatorInput:
 # 2. queue_creator_add_request
 # ===========================================================================
 
+
 class TestQueueCreatorAddRequest:
     """Unit tests for db.queue_creator_add_request — all guard clauses."""
 
@@ -146,6 +150,7 @@ class TestQueueCreatorAddRequest:
 
     def test_invalid_format_returns_error(self, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(db_module, "supabase_client", object())  # won't be called
 
         ok, msg, creator_id = db_module.queue_creator_add_request(
@@ -158,9 +163,12 @@ class TestQueueCreatorAddRequest:
     def test_creator_already_in_db(self, monkeypatch):
         import db as db_module
 
-        self._patch_supabase(monkeypatch, {
-            db_module.CREATOR_TABLE: _make_supabase_resp(data=[{"id": "existing-uuid"}]),
-        })
+        self._patch_supabase(
+            monkeypatch,
+            {
+                db_module.CREATOR_TABLE: _make_supabase_resp(data=[{"id": "existing-uuid"}]),
+            },
+        )
 
         ok, msg, creator_id = db_module.queue_creator_add_request("@MrBeast", "user-1")
         assert ok is False
@@ -222,10 +230,10 @@ class TestQueueCreatorAddRequest:
                 return _chainable(_make_supabase_resp(data=[]))  # not in DB
             call_count["n"] += 1
             if call_count["n"] == 1:
-                return _chainable(_make_supabase_resp(data=[]))    # no dup
+                return _chainable(_make_supabase_resp(data=[]))  # no dup
             if call_count["n"] == 2:
                 return _chainable(_make_supabase_resp(data=[], count=0))  # under limit
-            return _chainable(_make_supabase_resp(data=inserted_job))     # insert
+            return _chainable(_make_supabase_resp(data=inserted_job))  # insert
 
         fake_client = SimpleNamespace(table=make_table)
         monkeypatch.setattr(db_module, "supabase_client", fake_client)
@@ -240,6 +248,7 @@ class TestQueueCreatorAddRequest:
 
     def test_no_supabase_client(self, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(db_module, "supabase_client", None)
 
         ok, msg, creator_id = db_module.queue_creator_add_request("@MrBeast", "user-1")
@@ -252,6 +261,7 @@ class TestQueueCreatorAddRequest:
 # 3. get_creator_add_request_status
 # ===========================================================================
 
+
 class TestGetCreatorAddRequestStatus:
     """Unit tests for db.get_creator_add_request_status."""
 
@@ -259,14 +269,13 @@ class TestGetCreatorAddRequestStatus:
         import db as db_module
 
         fake_client = SimpleNamespace(
-            table=lambda _: _chainable(
-                _make_supabase_resp(data=[row] if row else [])
-            )
+            table=lambda _: _chainable(_make_supabase_resp(data=[row] if row else []))
         )
         monkeypatch.setattr(db_module, "supabase_client", fake_client)
 
     def test_completed_when_creator_id_set(self, monkeypatch):
         import db as db_module
+
         self._patch_jobs_table(monkeypatch, {"status": "completed", "creator_id": "uuid-123"})
 
         result = db_module.get_creator_add_request_status("@mrbeast")
@@ -276,6 +285,7 @@ class TestGetCreatorAddRequestStatus:
 
     def test_failed_when_status_is_failed(self, monkeypatch):
         import db as db_module
+
         self._patch_jobs_table(monkeypatch, {"status": "failed", "creator_id": None})
 
         result = db_module.get_creator_add_request_status("@mrbeast")
@@ -285,6 +295,7 @@ class TestGetCreatorAddRequestStatus:
 
     def test_processing_when_pending(self, monkeypatch):
         import db as db_module
+
         self._patch_jobs_table(monkeypatch, {"status": "pending", "creator_id": None})
 
         result = db_module.get_creator_add_request_status("@mrbeast")
@@ -293,6 +304,7 @@ class TestGetCreatorAddRequestStatus:
 
     def test_processing_when_processing(self, monkeypatch):
         import db as db_module
+
         self._patch_jobs_table(monkeypatch, {"status": "processing", "creator_id": None})
 
         result = db_module.get_creator_add_request_status("@mrbeast")
@@ -300,6 +312,7 @@ class TestGetCreatorAddRequestStatus:
 
     def test_returns_none_when_no_job(self, monkeypatch):
         import db as db_module
+
         self._patch_jobs_table(monkeypatch, None)
 
         result = db_module.get_creator_add_request_status("@mrbeast")
@@ -307,6 +320,7 @@ class TestGetCreatorAddRequestStatus:
 
     def test_returns_none_for_invalid_input(self, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(db_module, "supabase_client", object())  # should not be reached
 
         result = db_module.get_creator_add_request_status("https://youtube.com")
@@ -314,6 +328,7 @@ class TestGetCreatorAddRequestStatus:
 
     def test_returns_none_when_no_client(self, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(db_module, "supabase_client", None)
 
         result = db_module.get_creator_add_request_status("@mrbeast")
@@ -323,6 +338,7 @@ class TestGetCreatorAddRequestStatus:
 # ===========================================================================
 # 4. handle_resolve_and_add_job  (worker)
 # ===========================================================================
+
 
 class TestHandleResolveAndAddJob:
     """Async unit tests for worker.creator_worker.handle_resolve_and_add_job."""
@@ -447,8 +463,7 @@ class TestHandleResolveAndAddJob:
 
         failed_jobs = []
         monkeypatch.setattr(
-            cw, "mark_creator_sync_failed",
-            lambda jid, error=None: failed_jobs.append(jid)
+            cw, "mark_creator_sync_failed", lambda jid, error=None: failed_jobs.append(jid)
         )
 
         mock_resolver = AsyncMock()
@@ -482,12 +497,14 @@ class TestHandleResolveAndAddJob:
 # 5. POST /creators/request  (endpoint)
 # ===========================================================================
 
+
 class TestCreatorsRequestEndpoint:
     """Integration tests for POST /creators/request."""
 
     @pytest.fixture
     def client(self):
         import main
+
         return TestClient(main.app)
 
     def test_unauthenticated_returns_error_partial(self, client):
@@ -502,8 +519,10 @@ class TestCreatorsRequestEndpoint:
 
     def test_invalid_format_returns_error_card(self, authenticated_client, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "queue_creator_add_request",
+            db_module,
+            "queue_creator_add_request",
             lambda q, uid: (False, "Invalid input — please enter a YouTube @handle.", None),
         )
         r = authenticated_client.post("/creators/request", data={"q": "https://youtube.com"})
@@ -512,8 +531,10 @@ class TestCreatorsRequestEndpoint:
 
     def test_success_returns_queued_card_with_htmx_poll(self, authenticated_client, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "queue_creator_add_request",
+            db_module,
+            "queue_creator_add_request",
             lambda q, uid: (True, "queued", None),
         )
         r = authenticated_client.post("/creators/request", data={"q": "@MrBeast"})
@@ -524,8 +545,10 @@ class TestCreatorsRequestEndpoint:
 
     def test_already_in_db_returns_profile_link(self, authenticated_client, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "queue_creator_add_request",
+            db_module,
+            "queue_creator_add_request",
             lambda q, uid: (False, "This creator is already in the database.", "existing-uuid"),
         )
         r = authenticated_client.post("/creators/request", data={"q": "@MrBeast"})
@@ -537,11 +560,13 @@ class TestCreatorsRequestEndpoint:
 # 6. GET /creators/add-status  (endpoint)
 # ===========================================================================
 
+
 class TestCreatorsAddStatusEndpoint:
     """Integration tests for GET /creators/add-status."""
 
     def test_unauthenticated_returns_failed_partial(self):
         import main
+
         client = TestClient(main.app)
         r = client.get("/creators/add-status?q=@MrBeast")
         assert r.status_code == 200
@@ -555,8 +580,10 @@ class TestCreatorsAddStatusEndpoint:
 
     def test_processing_returns_spinner_with_poll(self, authenticated_client, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "get_creator_add_request_status",
+            db_module,
+            "get_creator_add_request_status",
             lambda q: {"status": "processing", "creator_id": None},
         )
         r = authenticated_client.get("/creators/add-status?q=@MrBeast")
@@ -569,8 +596,10 @@ class TestCreatorsAddStatusEndpoint:
         self, authenticated_client, monkeypatch
     ):
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "get_creator_add_request_status",
+            db_module,
+            "get_creator_add_request_status",
             lambda q: {"status": "completed", "creator_id": "new-creator-uuid"},
         )
         r = authenticated_client.get("/creators/add-status?q=@MrBeast")
@@ -579,12 +608,12 @@ class TestCreatorsAddStatusEndpoint:
         # Completed card must NOT contain a poll trigger (stops polling)
         assert "every 3s" not in r.text
 
-    def test_failed_returns_error_card_and_stops_polling(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_failed_returns_error_card_and_stops_polling(self, authenticated_client, monkeypatch):
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "get_creator_add_request_status",
+            db_module,
+            "get_creator_add_request_status",
             lambda q: {"status": "failed", "creator_id": None},
         )
         r = authenticated_client.get("/creators/add-status?q=@MrBeast")
@@ -597,13 +626,13 @@ class TestCreatorsAddStatusEndpoint:
         )
         assert "every 3s" not in r.text
 
-    def test_job_not_found_returns_processing_with_poll(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_job_not_found_returns_processing_with_poll(self, authenticated_client, monkeypatch):
         """When the job row doesn't exist yet (timing race), treat as still processing."""
         import db as db_module
+
         monkeypatch.setattr(
-            db_module, "get_creator_add_request_status",
+            db_module,
+            "get_creator_add_request_status",
             lambda q: None,
         )
         r = authenticated_client.get("/creators/add-status?q=@MrBeast")
