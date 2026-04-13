@@ -900,7 +900,180 @@ def queue_creator_sync_bulk(
 
 
 # ============================================================================
-# 💳 Stripe / Subscription helpers
+# � Creator add-by-handle/ID request queue  (migration 018)
+# ============================================================================
+
+# Regex patterns for input validation — compiled once at module load
+import re as _re
+
+_UC_ID_RE = _re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
+_HANDLE_RE = _re.compile(r"^@[a-zA-Z0-9._-]{1,100}$")
+
+# Per-user rate limit: max requests per window
+_ADD_REQUEST_LIMIT = int(os.getenv("CREATOR_ADD_REQUEST_LIMIT", "5"))
+_ADD_REQUEST_WINDOW_HOURS = int(os.getenv("CREATOR_ADD_REQUEST_WINDOW_HOURS", "1"))
+
+
+def _validate_creator_input(q: str) -> tuple[bool, str]:
+    """
+    Validate a raw user input string as a YouTube channel identifier.
+
+    Accepts:
+        - Canonical channel ID: UC followed by exactly 22 base64url chars
+        - @handle: starting with @ followed by 1–100 alphanumeric/._- chars
+
+    Returns:
+        (is_valid, normalised_input)  — normalised lowercases handles, leaves UC IDs as-is.
+    """
+    q = q.strip()
+    if _UC_ID_RE.match(q):
+        return True, q
+    handle = q if q.startswith("@") else f"@{q}"
+    if _HANDLE_RE.match(handle):
+        return True, handle.lower()
+    return False, q
+
+
+def queue_creator_add_request(
+    input_query: str,
+    user_id: str,
+) -> tuple[bool, str, Optional[str]]:
+    """
+    Submit a user request to add a creator by @handle or channel ID.
+
+    This writes a ``job_type='resolve_and_add'`` row to ``creator_sync_jobs``
+    with ``creator_id=NULL``.  The worker resolves the input to a real channel,
+    upserts the creator row, then converts the job to ``job_type='sync_stats'``
+    so the normal pipeline takes over.
+
+    Validations performed (all enforced before any DB write):
+        1. Input matches UC ID or @handle format.
+        2. Creator not already in ``creators`` table (by channel_id or custom_url).
+        3. No pending ``resolve_and_add`` job for the same ``input_query`` exists
+           (enforced by partial unique index; also checked explicitly for a clear
+           error message).
+        4. Per-user rate limit: max ``CREATOR_ADD_REQUEST_LIMIT`` requests per
+           ``CREATOR_ADD_REQUEST_WINDOW_HOURS`` hours.
+
+    Args:
+        input_query: Raw user input — "@MrBeast" or "UCX6OQ3DkcsbYNE6H8uQQuVA".
+        user_id:     Authenticated user UUID (from session).
+
+    Returns:
+        ``(True, "queued", None)`` on success.
+        ``(False, message, None)`` on validation or DB failure.
+        ``(False, message, creator_id)`` when the creator already exists in the DB.
+    """
+    if not supabase_client:
+        return False, "Database unavailable", None
+
+    # ── 1. Validate format ────────────────────────────────────────────────────
+    is_valid, normalised = _validate_creator_input(input_query)
+    if not is_valid:
+        return (
+            False,
+            (
+                "Invalid input — please enter a YouTube @handle (e.g. @MrBeast) "
+                "or a channel ID starting with UC."
+            ),
+            None,
+        )
+
+    try:
+        # ── 2. Already in DB? ─────────────────────────────────────────────────
+        if normalised.startswith("UC"):
+            existing = (
+                supabase_client.table(CREATOR_TABLE)
+                .select("id")
+                .eq("channel_id", normalised)
+                .limit(1)
+                .execute()
+            )
+        else:
+            handle_slug = normalised.lstrip("@")
+            existing = (
+                supabase_client.table(CREATOR_TABLE)
+                .select("id")
+                .ilike("custom_url", handle_slug)
+                .limit(1)
+                .execute()
+            )
+
+        if existing.data:
+            creator_id = existing.data[0]["id"]
+            return False, "This creator is already in the database.", creator_id
+
+        # ── 3. Duplicate pending resolve_and_add? ────────────────────────────
+        dup = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id")
+            .eq("input_query", normalised)
+            .eq("job_type", "resolve_and_add")
+            .eq("status", "pending")
+            .limit(1)
+            .execute()
+        )
+        if dup.data:
+            return (
+                False,
+                "A request for this creator is already pending — please check back soon.",
+                None,
+            )
+
+        # ── 4. Rate limit ─────────────────────────────────────────────────────
+        window_start = (
+            datetime.now(timezone.utc) - timedelta(hours=_ADD_REQUEST_WINDOW_HOURS)
+        ).isoformat()
+
+        recent = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("id", count="exact")
+            .eq("requested_by", user_id)
+            .eq("job_type", "resolve_and_add")
+            .gte("created_at", window_start)
+            .execute()
+        )
+        recent_count = recent.count or 0
+        if recent_count >= _ADD_REQUEST_LIMIT:
+            return (
+                False,
+                (
+                    f"You can submit up to {_ADD_REQUEST_LIMIT} creator requests per "
+                    f"{_ADD_REQUEST_WINDOW_HOURS}h. Please try again later."
+                ),
+                None,
+            )
+
+        # ── 5. Insert the job ─────────────────────────────────────────────────
+        payload = {
+            "job_type": "resolve_and_add",
+            "status": "pending",
+            "source": "user_add",
+            "input_query": normalised,
+            "requested_by": user_id,
+            # creator_id intentionally NULL — filled in by the worker
+        }
+        resp = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+
+        if resp.data:
+            logger.info(
+                "Creator add request queued: input=%s user=%s job_id=%s",
+                normalised,
+                user_id,
+                resp.data[0].get("id"),
+            )
+            return True, "queued", None
+
+        logger.error("Insert returned no data for creator add request: %s", normalised)
+        return False, "Failed to queue request — please try again.", None
+
+    except Exception as e:
+        logger.exception("Error queuing creator add request for %s: %s", normalised, e)
+        return False, "An unexpected error occurred — please try again.", None
+
+
+# ============================================================================
+# �💳 Stripe / Subscription helpers
 # ============================================================================
 
 SUBSCRIPTIONS_TABLE = "subscriptions"

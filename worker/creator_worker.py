@@ -448,7 +448,7 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
         # Jobs with no retry_at scheduled (fresh or first attempt)
         fresh_resp = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id,creator_id,source,retry_count")
+            .select("id,creator_id,source,retry_count,job_type,input_query")
             .eq("status", JobStatus.PENDING.value)
             .is_("retry_at", "null")
             .order("created_at", desc=False)
@@ -462,7 +462,7 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
         if len(fresh_jobs) < batch_size:
             retry_resp = (
                 supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-                .select("id,creator_id,source,retry_count")
+                .select("id,creator_id,source,retry_count,job_type,input_query")
                 .eq("status", JobStatus.PENDING.value)
                 .not_.is_("retry_at", "null")
                 .lte("retry_at", now_iso)
@@ -752,6 +752,148 @@ def _compute_quality_grade(engagement: float, subscribers: int) -> str:
         return "B"
     else:
         return "C"
+
+
+# =============================================================================
+# resolve_and_add job handler
+# =============================================================================
+
+
+async def handle_resolve_and_add_job(
+    job_id: int,
+    input_query: str,
+    job_number: int = 0,
+) -> bool:
+    """
+    Handle a ``job_type='resolve_and_add'`` job submitted by the web frontend.
+
+    This is the first stage of creator addition when the Vercel frontend cannot
+    call the YouTube API directly (bundle-size constraint).  The steps are:
+
+    1. Validate input format (UC channel ID or @handle).
+    2. If @handle, resolve it to a canonical channel ID via YouTube API
+       (uses ``forUsername`` then ``search.list`` fallback — same as seed path,
+       costs 1 quota unit for handles, 0 for UC IDs).
+    3. Check if the creator already exists in the DB (idempotent).
+    4. Upsert a minimal creator stub row.
+    5. Convert this job to ``job_type='sync_stats'`` so the normal
+       ``handle_sync_job`` pipeline picks it up next.
+
+    On permanent failure (channel not found, invalid ID), the job is marked
+    ``failed`` with a user-readable ``error_message`` — no retry scheduled.
+
+    Args:
+        job_id:       ``creator_sync_jobs.id``
+        input_query:  Raw input as stored — "@handle" or "UCxxxxxxxx".
+        job_number:   For logging only.
+
+    Returns:
+        True on success, False on failure.
+    """
+    job_tag = f"[ResolveJob {job_number}:{job_id}]"
+    logger.info("%s ─── Starting resolve_and_add | input=%s", job_tag, input_query)
+
+    if not supabase_client:
+        raise RuntimeError("Supabase client not initialized")
+
+    # STAGE 1: Mark as processing
+    mark_creator_sync_processing(job_id)
+
+    try:
+        # STAGE 2: Determine channel_id
+        if input_query.startswith("UC"):
+            channel_id = input_query
+            logger.info("%s Input is a UC channel ID — skipping handle resolution", job_tag)
+        else:
+            # Strip leading @ for the resolver (it normalises internally)
+            handle_raw = input_query.lstrip("@")
+            logger.info("%s Resolving @%s to channel ID via YouTube API…", job_tag, handle_raw)
+
+            resolved = await asyncio.wait_for(
+                resolver.resolve_handle_to_channel_id(handle_raw),
+                timeout=SYNC_TIMEOUT,
+            )
+            if not resolved:
+                raise ChannelNotFoundException(
+                    f"YouTube could not find a channel for handle '{input_query}'."
+                )
+            channel_id = resolved
+            logger.info("%s Resolved %s → %s", job_tag, input_query, channel_id)
+
+        # STAGE 3: Check if already in DB (race: another worker or the user re-submitted)
+        existing_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id")
+            .eq("channel_id", channel_id)
+            .limit(1)
+            .execute()
+        )
+        if existing_resp.data:
+            creator_id = existing_resp.data[0]["id"]
+            logger.info(
+                "%s Creator %s already in DB (id=%s) — converting job to sync_stats",
+                job_tag,
+                channel_id,
+                creator_id,
+            )
+        else:
+            # STAGE 4: Insert minimal stub — worker will fill full stats next
+            stub = {
+                "channel_id": channel_id,
+                "channel_name": "Pending sync…",
+                "channel_url": f"https://www.youtube.com/channel/{channel_id}",
+                "current_subscribers": 0,
+                "current_view_count": 0,
+                "current_video_count": 0,
+            }
+            insert_resp = supabase_client.table(CREATOR_TABLE).insert(stub).execute()
+            if not insert_resp.data:
+                raise RuntimeError(f"Failed to insert creator stub for {channel_id}")
+            creator_id = insert_resp.data[0]["id"]
+            logger.info("%s Inserted creator stub id=%s for %s", job_tag, creator_id, channel_id)
+
+        # STAGE 5: Convert this job to sync_stats so the normal pipeline runs it
+        supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
+            {
+                "job_type": "sync_stats",
+                "creator_id": creator_id,
+                "status": "pending",
+                "retry_count": 0,
+                "retry_at": None,
+                "error_message": None,
+                "started_at": None,
+            }
+        ).eq("id", job_id).execute()
+
+        logger.info(
+            "%s ✅ Converted job %s to sync_stats for creator %s",
+            job_tag,
+            job_id,
+            creator_id,
+        )
+        return True
+
+    except ChannelNotFoundException as exc:
+        err = str(exc)
+        logger.warning("%s ❌ Channel not found: %s", job_tag, err)
+        mark_creator_sync_failed(job_id, error=err)
+        return False
+
+    except asyncio.TimeoutError:
+        err = f"YouTube API timeout after {SYNC_TIMEOUT}s during handle resolution"
+        logger.warning("%s ❌ %s", job_tag, err)
+        mark_creator_sync_failed(job_id, error=err)
+        return False
+
+    except QuotaExceededException:
+        # Let the outer loop catch this and halt processing
+        raise
+
+    except Exception as exc:
+        err = f"Unexpected error during resolve_and_add: {exc}"
+        logger.exception("%s ❌ %s", job_tag, err)
+        mark_creator_sync_failed(job_id, error=err)
+        return False
 
 
 # =============================================================================
@@ -1518,13 +1660,22 @@ async def process_creator_syncs():
             results = []
             for i, job in enumerate(jobs, 1):
                 try:
-                    result = await asyncio.wait_for(
-                        handle_sync_job(
+                    job_type = job.get("job_type", "sync_stats")
+                    if job_type == "resolve_and_add":
+                        coro = handle_resolve_and_add_job(
+                            job_id=job["id"],
+                            input_query=job.get("input_query", ""),
+                            job_number=i,
+                        )
+                    else:
+                        coro = handle_sync_job(
                             job_id=job["id"],
                             creator_id=job["creator_id"],
                             job_number=i,
                             retry_count=job.get("retry_count", 0),
-                        ),
+                        )
+                    result = await asyncio.wait_for(
+                        coro,
                         timeout=SYNC_TIMEOUT + 30,  # Extra buffer for DB ops
                     )
                     results.append(result)

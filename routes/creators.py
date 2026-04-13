@@ -18,6 +18,7 @@ from db import (
     get_creator_rank,
     get_creator_stats,
     get_creators,
+    queue_creator_add_request,
 )
 from db_lists import (
     get_lists_meta,
@@ -28,6 +29,7 @@ from db_lists import (
 
 # from services.youtube_backend_api import YouTubeBackendAPI
 from views.creators import (
+    render_add_creator_result,
     render_creator_preview,
     render_creator_profile_page,
     render_creators_page,
@@ -36,7 +38,7 @@ from views.creators import (
 logger = logging.getLogger(__name__)
 
 
-def creators_route(request):
+def creators_route(request, is_authenticated: bool = False):
     """GET /creators - Creators discovery page."""
 
     # Get query parameters
@@ -211,6 +213,7 @@ def creators_route(request):
         per_page=per_page,
         total_count=total_count,
         total_pages=total_pages,
+        is_authenticated=is_authenticated,
     )
 
 
@@ -300,3 +303,44 @@ def creator_profile_route(request, creator_id: str):
         context_ranks=context_ranks,
         category_stats=category_stats,
     )
+
+
+def creator_request_route(request, sess):
+    """
+    POST /creators/request
+    HTMX endpoint — queues a creator add request submitted by the user.
+    Accepts form field ``q`` (@handle or UC channel ID).
+    Returns an inline HTMX partial (no full page reload).
+    """
+    user_id = sess.get("user_id") if sess else None
+    if not user_id or not sess.get("auth"):
+        return render_add_creator_result(
+            success=False,
+            message="You must be logged in to submit a creator.",
+        )
+
+    # Read form body
+    try:
+        form = request.form()
+        q = form.get("q", "").strip()
+    except Exception:
+        q = ""
+
+    if not q:
+        return render_add_creator_result(
+            success=False,
+            message="Please enter a @handle or channel ID.",
+        )
+
+    ok, message, creator_id = queue_creator_add_request(q, user_id)
+
+    if ok:
+        return render_add_creator_result(
+            success=True,
+            message=(
+                "We'll add them within a few minutes. "
+                "Refresh the page shortly to find them in the list."
+            ),
+        )
+
+    return render_add_creator_result(success=False, message=message, creator_id=creator_id or "")

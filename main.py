@@ -90,7 +90,7 @@ from views.dashboard import render_full_dashboard
 from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
-from routes.creators import creator_profile_route, creators_route
+from routes.creators import creator_profile_route, creator_request_route, creators_route
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
@@ -1112,7 +1112,7 @@ def creators(req, sess):
     """Creators discovery page - PUBLIC route with filtering and sorting"""
 
     # Call the route handler
-    page_content = creators_route(req)
+    page_content = creators_route(req, is_authenticated=bool(sess.get("auth")))
 
     # Render with navigation
     return Titled(
