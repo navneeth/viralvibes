@@ -90,7 +90,12 @@ from views.dashboard import render_full_dashboard
 from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
-from routes.creators import creator_profile_route, creator_request_route, creators_route
+from routes.creators import (
+    creator_add_status_route,
+    creator_profile_route,
+    creator_request_route,
+    creators_route,
+)
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
@@ -1128,6 +1133,12 @@ def creators(req, sess):
 async def creators_request(req, sess):
     """POST /creators/request — HTMX endpoint to queue a creator add request."""
     return await creator_request_route(req, sess)
+
+
+@rt("/creators/add-status")
+async def creators_add_status(req, sess):
+    """GET /creators/add-status — HTMX polling endpoint for creator add job status."""
+    return await creator_add_status_route(req, sess)
 
 
 @rt("/lists")

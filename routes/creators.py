@@ -14,6 +14,7 @@ from db import (
     calculate_creator_stats,
     find_creator_by_handle,
     get_cached_category_box_stats,
+    get_creator_add_request_status,
     get_creator_hero_stats,
     get_creator_rank,
     get_creator_stats,
@@ -30,6 +31,7 @@ from db_lists import (
 # from services.youtube_backend_api import YouTubeBackendAPI
 from views.creators import (
     render_add_creator_result,
+    render_add_creator_status_result,
     render_creator_preview,
     render_creator_profile_page,
     render_creators_page,
@@ -337,10 +339,37 @@ async def creator_request_route(request, sess):
     if ok:
         return render_add_creator_result(
             success=True,
-            message=(
-                "We'll add them within a few minutes. "
-                "Refresh the page shortly to find them in the list."
-            ),
+            message="We'll update this notice automatically once the creator is added.",
+            input_query=q,
         )
 
     return render_add_creator_result(success=False, message=message, creator_id=creator_id or "")
+
+
+async def creator_add_status_route(request, sess):
+    """
+    GET /creators/add-status?q=@handle
+    HTMX polling endpoint — returns an inline partial with the current job
+    status for the given creator add request.
+
+    The success card in ``render_add_creator_result`` polls this endpoint every
+    3 s and replaces itself once the job reaches a terminal state.
+    """
+    user_id = sess.get("user_id") if sess else None
+    if not user_id or not sess.get("auth"):
+        return render_add_creator_status_result(status="failed")
+
+    q = request.query_params.get("q", "").strip()
+    if not q:
+        return render_add_creator_status_result(status="failed")
+
+    result = get_creator_add_request_status(q)
+    if result is None:
+        # Job row not found — treat as still processing (may be a timing race)
+        return render_add_creator_status_result(status="processing", input_query=q)
+
+    return render_add_creator_status_result(
+        status=result["status"],
+        creator_id=result.get("creator_id") or "",
+        input_query=q,
+    )
