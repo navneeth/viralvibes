@@ -441,6 +441,114 @@ def _build_filter_url(
 
 
 # ============================================================================
+# ADD CREATOR SECTION
+# ============================================================================
+
+
+def render_add_creator_section() -> Div:
+    """
+    HTMX form that lets authenticated users submit a creator by @handle or
+    channel ID.  No YouTube API is called on the Vercel frontend — the input
+    is passed directly to the backend worker queue via ``POST /creators/request``.
+    """
+    return Div(
+        Div(
+            Div(
+                UkIcon("plus-circle", cls="size-5 text-primary shrink-0 mt-0.5"),
+                Div(
+                    H3("Submit a Creator", cls="text-base font-semibold text-foreground"),
+                    P(
+                        "Know a channel that's not listed? Submit their @handle or "
+                        "channel ID and our system will add them automatically.",
+                        cls="text-sm text-muted-foreground mt-0.5",
+                    ),
+                    cls="flex-1 min-w-0",
+                ),
+                cls="flex items-start gap-3",
+            ),
+            # Input + submit (HTMX inline form)
+            Form(
+                Div(
+                    Input(
+                        type="text",
+                        name="q",
+                        id="creator-add-input",
+                        placeholder="@MrBeast or UCX6OQ3DkcsbYNE6H8uQQuVA",
+                        autocomplete="off",
+                        cls="flex-1 px-3 py-2 text-sm rounded-lg border border-border "
+                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
+                    ),
+                    Button(
+                        UkIcon("send", cls="size-4 mr-1.5"),
+                        "Submit",
+                        type="submit",
+                        cls="flex items-center px-4 py-2 text-sm font-medium rounded-lg "
+                        "bg-primary text-primary-foreground hover:bg-primary/90 "
+                        "transition-colors shrink-0",
+                    ),
+                    cls="flex gap-2 mt-3",
+                ),
+                # Response target injected below the form
+                Div(id="creator-add-result", cls="mt-3"),
+                hx_post="/creators/request",
+                hx_target="#creator-add-result",
+                hx_swap="innerHTML",
+            ),
+            cls="p-4 rounded-xl border border-border bg-background",
+        ),
+        cls="mt-6 mb-2",
+    )
+
+
+def render_add_creator_result(success: bool, message: str, creator_id: str = "") -> Div:
+    """
+    HTMX partial returned by POST /creators/request.
+    Renders a success or error notice inline below the submit form.
+    """
+    if success:
+        return Div(
+            UkIcon("check-circle", cls="size-4 text-green-600 shrink-0"),
+            Div(
+                P(
+                    "Request queued!",
+                    cls="text-sm font-semibold text-green-700 dark:text-green-400",
+                ),
+                P(message, cls="text-xs text-muted-foreground mt-0.5"),
+                cls="flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 "
+            "border border-green-200 dark:border-green-800",
+        )
+
+    # "already_tracked" is a structured code — link directly to the profile
+    if message.startswith("already_tracked:") and creator_id:
+        return Div(
+            UkIcon("info", cls="size-4 text-blue-600 shrink-0"),
+            Div(
+                P(
+                    "Already in the database",
+                    cls="text-sm font-semibold text-blue-700 dark:text-blue-400",
+                ),
+                A(
+                    "View their profile →",
+                    href=f"/creator/{creator_id}",
+                    cls="text-xs text-primary hover:underline",
+                ),
+                cls="flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 "
+            "border border-blue-200 dark:border-blue-800",
+        )
+
+    return Div(
+        UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+        P(message, cls="text-sm text-red-700 dark:text-red-400 flex-1"),
+        cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+        "border border-red-200 dark:border-red-800",
+    )
+
+
+# ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
 
@@ -460,6 +568,7 @@ def render_creators_page(
     per_page: int = 50,
     total_count: int = 0,
     total_pages: int = 1,
+    is_authenticated: bool = False,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -513,6 +622,8 @@ def render_creators_page(
             filtered_count=total_count,
             has_filters=has_active_filters,
         ),
+        # Add creator section — only visible to authenticated users
+        (render_add_creator_section() if is_authenticated else None),
         # Filter controls (sticky bar)
         _render_filter_bar(
             search=search,
