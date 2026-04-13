@@ -612,19 +612,27 @@ def render_add_creator_status_result(
             "border border-red-200 dark:border-red-800",
         )
 
+    # Processing without a query to poll is unrecoverable — render as failed.
+    if not input_query:
+        return Div(
+            UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+            P(
+                "We couldn't find that creator. Please check the @handle or channel ID and try again.",
+                cls="text-sm text-red-700 dark:text-red-400 flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+            "border border-red-200 dark:border-red-800",
+        )
+
     # Still processing — continue polling
     from urllib.parse import urlencode as _urlencode
 
-    status_url = f"/creators/add-status?{_urlencode({'q': input_query})}" if input_query else ""
-    poll_attrs = (
-        dict(
-            hx_get=status_url,
-            hx_trigger="every 3s",
-            hx_target="this",
-            hx_swap="outerHTML",
-        )
-        if status_url
-        else {}
+    status_url = f"/creators/add-status?{_urlencode({'q': input_query})}"
+    poll_attrs = dict(
+        hx_get=status_url,
+        hx_trigger="every 3s",
+        hx_target="this",
+        hx_swap="outerHTML",
     )
     return Div(
         Div(

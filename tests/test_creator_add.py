@@ -310,13 +310,15 @@ class TestGetCreatorAddRequestStatus:
         result = db_module.get_creator_add_request_status("@mrbeast")
         assert result["status"] == "processing"
 
-    def test_returns_none_when_no_job(self, monkeypatch):
+    def test_no_job_row_returns_processing(self, monkeypatch):
+        """Empty result set = timing race right after submission — should keep polling."""
         import db as db_module
 
         self._patch_jobs_table(monkeypatch, None)
 
         result = db_module.get_creator_add_request_status("@mrbeast")
-        assert result is None
+        assert result is not None
+        assert result["status"] == "processing"
 
     def test_returns_none_for_invalid_input(self, monkeypatch):
         import db as db_module
@@ -331,6 +333,7 @@ class TestGetCreatorAddRequestStatus:
 
         monkeypatch.setattr(db_module, "supabase_client", None)
 
+        # No client — None means the query could not be attempted at all
         result = db_module.get_creator_add_request_status("@mrbeast")
         assert result is None
 
@@ -626,8 +629,11 @@ class TestCreatorsAddStatusEndpoint:
         )
         assert "every 3s" not in r.text
 
-    def test_job_not_found_returns_processing_with_poll(self, authenticated_client, monkeypatch):
-        """When the job row doesn't exist yet (timing race), treat as still processing."""
+    def test_none_result_renders_failed_terminal_card(self, authenticated_client, monkeypatch):
+        """
+        None from get_creator_add_request_status means invalid input or no DB
+        client.  The route must render a terminal failed card so polling stops.
+        """
         import db as db_module
 
         monkeypatch.setattr(
@@ -637,5 +643,5 @@ class TestCreatorsAddStatusEndpoint:
         )
         r = authenticated_client.get("/creators/add-status?q=@MrBeast")
         assert r.status_code == 200
-        # Should keep polling
-        assert "/creators/add-status" in r.text
+        # Terminal state — must NOT include a polling trigger
+        assert "every 3s" not in r.text

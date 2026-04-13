@@ -365,8 +365,8 @@ async def creator_add_status_route(request, sess):
 
     result = get_creator_add_request_status(q)
     if result is None:
-        # Job row not found — treat as still processing (may be a timing race)
-        return render_add_creator_status_result(status="processing", input_query=q)
+        # None means invalid input or missing Supabase client — terminal failure.
+        return render_add_creator_status_result(status="failed")
 
     return render_add_creator_status_result(
         status=result["status"],

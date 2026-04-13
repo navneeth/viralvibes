@@ -1100,7 +1100,8 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
             .execute()
         )
         if not resp.data:
-            return None
+            # Row doesn't exist yet — likely a timing race right after submission.
+            return {"status": "processing", "creator_id": None}
 
         row = resp.data[0]
         creator_id = row.get("creator_id")
@@ -1116,7 +1117,7 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
 
     except Exception as e:
         logger.exception("get_creator_add_request_status error for %s: %s", normalised, e)
-        return None
+        return {"status": "failed", "creator_id": None}
 
 
 # ============================================================================
