@@ -29,6 +29,7 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
+from controllers.auth_routes import require_auth
 from views.creators import (
     render_add_creator_result,
     render_add_creator_status_result,
@@ -314,12 +315,15 @@ async def creator_request_route(request, sess):
     Accepts form field ``q`` (@handle or UC channel ID).
     Returns an inline HTMX partial (no full page reload).
     """
-    user_id = sess.get("user_id") if sess else None
-    if not user_id or not sess.get("auth"):
+    auth = sess.get("auth") if sess else None
+    auth_error = require_auth(auth)
+    if auth_error:
         return render_add_creator_result(
             success=False,
             message="You must be logged in to submit a creator.",
         )
+
+    user_id = sess.get("user_id") if sess else None
 
     # Read form body
     try:
@@ -355,8 +359,9 @@ async def creator_add_status_route(request, sess):
     The success card in ``render_add_creator_result`` polls this endpoint every
     3 s and replaces itself once the job reaches a terminal state.
     """
-    user_id = sess.get("user_id") if sess else None
-    if not user_id or not sess.get("auth"):
+    auth = sess.get("auth") if sess else None
+    auth_error = require_auth(auth)
+    if auth_error:
         return render_add_creator_status_result(status="failed")
 
     q = request.query_params.get("q", "").strip()

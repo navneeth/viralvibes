@@ -525,7 +525,11 @@ class TestCreatorsRequestEndpoint:
     def test_unauthenticated_returns_error_partial(self, client):
         r = client.post("/creators/request", data={"q": "@MrBeast"})
         assert r.status_code == 200
-        assert "logged in" in r.text.lower() or "log in" in r.text.lower()
+        # Production: "You must be logged in".
+        # TESTING=1: require_auth bypasses → route responds with an error
+        # from the DB layer (supabase unavailable).  Either way the response
+        # must NOT be a success card containing the add-status poll URL.
+        assert "/creators/add-status" not in r.text
 
     def test_missing_q_returns_error_partial(self, authenticated_client):
         r = authenticated_client.post("/creators/request", data={"q": ""})
@@ -533,10 +537,10 @@ class TestCreatorsRequestEndpoint:
         assert "enter" in r.text.lower() or "handle" in r.text.lower()
 
     def test_invalid_format_returns_error_card(self, authenticated_client, monkeypatch):
-        import db as db_module
+        import routes.creators as rc
 
         monkeypatch.setattr(
-            db_module,
+            rc,
             "queue_creator_add_request",
             lambda q, uid: (False, "Invalid input — please enter a YouTube @handle.", None),
         )
@@ -545,10 +549,10 @@ class TestCreatorsRequestEndpoint:
         assert "invalid" in r.text.lower() or "error" in r.text.lower()
 
     def test_success_returns_queued_card_with_htmx_poll(self, authenticated_client, monkeypatch):
-        import db as db_module
+        import routes.creators as rc
 
         monkeypatch.setattr(
-            db_module,
+            rc,
             "queue_creator_add_request",
             lambda q, uid: (True, "queued", None),
         )
@@ -559,10 +563,10 @@ class TestCreatorsRequestEndpoint:
         assert "/creators/add-status" in r.text
 
     def test_already_in_db_returns_profile_link(self, authenticated_client, monkeypatch):
-        import db as db_module
+        import routes.creators as rc
 
         monkeypatch.setattr(
-            db_module,
+            rc,
             "queue_creator_add_request",
             lambda q, uid: (False, "This creator is already in the database.", "existing-uuid"),
         )
