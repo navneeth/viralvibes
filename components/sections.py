@@ -652,23 +652,11 @@ def BottomCTASection() -> Section:
     category badges. Crop to ~680×440px, save as
     /static/cta-preview.webp. The dark panel will frame it automatically.
     """
-    # ── Placeholder image slot ──────────────────────────────────────────
-    # Replace Div below with: Img(src="/static/cta-preview.webp", ...)
-    # when real screenshot is ready.
-    placeholder = Div(
-        Div(
-            UkIcon("monitor", cls="w-10 h-10 text-white/20 mb-3"),
-            P(
-                "App screenshot goes here",
-                cls="text-white/30 text-sm font-medium text-center",
-            ),
-            P(
-                "680 × 440 px · /creators list view · dark theme",
-                cls="text-white/15 text-xs text-center font-mono mt-1",
-            ),
-            cls="flex flex-col items-center justify-center h-full",
-        ),
-        cls="w-full h-full min-h-[220px] border-2 border-dashed border-white/10 rounded-xl",
+    # ── Screenshot image ──────────────────────────────────────────
+    placeholder = Img(
+        src="/static/lists_shots_so.png",
+        alt="Screenshot of ViralVibes creators list view",
+        cls="w-full h-full object-cover rounded-lg",
     )
 
     # ── Fake browser chrome wrapping the placeholder ────────────────────

@@ -100,7 +100,7 @@ def _free_card() -> Div:
         ),
         A(
             "Get started free",
-            href="/login",
+            href="/creators",
             cls=(
                 "block w-full text-center font-semibold text-sm py-2.5 mb-8 rounded-lg "
                 "border-2 border-border text-foreground hover:border-foreground transition-colors"

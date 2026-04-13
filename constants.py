@@ -137,7 +137,7 @@ TRUST_MARKERS = [
 SOCIALS = {
     "x": "https://x.com/viralvibesfyi",
     "linkedin": "https://linkedin.com/company/viralvibesfyi",  # placeholder — swap when real
-    "youtube": "https://www.youtube.com/@viralvibes.fyi",
+    "youtube": "https://www.youtube.com/@viralvibesfyi",
 }
 
 # Core value propositions — 3-pillar product + ROAS framing
