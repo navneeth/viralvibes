@@ -928,6 +928,10 @@ def _validate_creator_input(q: str) -> tuple[bool, str]:
     q = q.strip()
     if _UC_ID_RE.match(q):
         return True, q
+    # Strings that start with "UC" but fail the strict regex are malformed
+    # channel IDs — reject them rather than silently treating as a handle.
+    if q.upper().startswith("UC") and not q.startswith("@"):
+        return False, q
     handle = q if q.startswith("@") else f"@{q}"
     if _HANDLE_RE.match(handle):
         return True, handle.lower()
@@ -1070,6 +1074,54 @@ def queue_creator_add_request(
     except Exception as e:
         logger.exception("Error queuing creator add request for %s: %s", normalised, e)
         return False, "An unexpected error occurred — please try again.", None
+
+
+def get_creator_add_request_status(input_query: str) -> Optional[dict]:
+    """
+    Return the status of the most recent resolve_and_add job for *input_query*.
+
+    The worker converts the job to job_type='sync_stats' once a creator row
+    exists, so we query by input_query alone (no job_type filter) and
+    use the presence of a non-NULL creator_id to signal completion.
+
+    Returns a dict with keys status and creator_id, or None
+    if no matching job is found or the input is invalid.
+    """
+    if not supabase_client:
+        return None
+
+    is_valid, normalised = _validate_creator_input(input_query)
+    if not is_valid:
+        return None
+
+    try:
+        resp = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("status,creator_id")
+            .eq("input_query", normalised)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            # Row doesn't exist yet — likely a timing race right after submission.
+            return {"status": "processing", "creator_id": None}
+
+        row = resp.data[0]
+        creator_id = row.get("creator_id")
+
+        if creator_id:
+            return {"status": "completed", "creator_id": creator_id}
+
+        raw_status = row.get("status", "")
+        if raw_status == "failed":
+            return {"status": "failed", "creator_id": None}
+
+        return {"status": "processing", "creator_id": None}
+
+    except Exception as e:
+        logger.exception("get_creator_add_request_status error for %s: %s", normalised, e)
+        return {"status": "failed", "creator_id": None}
 
 
 # ============================================================================

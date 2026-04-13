@@ -14,6 +14,7 @@ from db import (
     calculate_creator_stats,
     find_creator_by_handle,
     get_cached_category_box_stats,
+    get_creator_add_request_status,
     get_creator_hero_stats,
     get_creator_rank,
     get_creator_stats,
@@ -28,8 +29,10 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
+from controllers.auth_routes import require_auth
 from views.creators import (
     render_add_creator_result,
+    render_add_creator_status_result,
     render_creator_preview,
     render_creator_profile_page,
     render_creators_page,
@@ -305,23 +308,26 @@ def creator_profile_route(request, creator_id: str):
     )
 
 
-def creator_request_route(request, sess):
+async def creator_request_route(request, sess):
     """
     POST /creators/request
     HTMX endpoint — queues a creator add request submitted by the user.
     Accepts form field ``q`` (@handle or UC channel ID).
     Returns an inline HTMX partial (no full page reload).
     """
-    user_id = sess.get("user_id") if sess else None
-    if not user_id or not sess.get("auth"):
+    auth = sess.get("auth") if sess else None
+    auth_error = require_auth(auth)
+    if auth_error:
         return render_add_creator_result(
             success=False,
             message="You must be logged in to submit a creator.",
         )
 
+    user_id = sess.get("user_id") if sess else None
+
     # Read form body
     try:
-        form = request.form()
+        form = await request.form()
         q = form.get("q", "").strip()
     except Exception:
         q = ""
@@ -337,10 +343,38 @@ def creator_request_route(request, sess):
     if ok:
         return render_add_creator_result(
             success=True,
-            message=(
-                "We'll add them within a few minutes. "
-                "Refresh the page shortly to find them in the list."
-            ),
+            message="We'll update this notice automatically once the creator is added.",
+            input_query=q,
         )
 
     return render_add_creator_result(success=False, message=message, creator_id=creator_id or "")
+
+
+async def creator_add_status_route(request, sess):
+    """
+    GET /creators/add-status?q=@handle
+    HTMX polling endpoint — returns an inline partial with the current job
+    status for the given creator add request.
+
+    The success card in ``render_add_creator_result`` polls this endpoint every
+    3 s and replaces itself once the job reaches a terminal state.
+    """
+    auth = sess.get("auth") if sess else None
+    auth_error = require_auth(auth)
+    if auth_error:
+        return render_add_creator_status_result(status="failed")
+
+    q = request.query_params.get("q", "").strip()
+    if not q:
+        return render_add_creator_status_result(status="failed")
+
+    result = get_creator_add_request_status(q)
+    if result is None:
+        # None means invalid input or missing Supabase client — terminal failure.
+        return render_add_creator_status_result(status="failed")
+
+    return render_add_creator_status_result(
+        status=result["status"],
+        creator_id=result.get("creator_id") or "",
+        input_query=q,
+    )

@@ -500,12 +500,32 @@ def render_add_creator_section() -> Div:
     )
 
 
-def render_add_creator_result(success: bool, message: str, creator_id: str = "") -> Div:
+def render_add_creator_result(
+    success: bool,
+    message: str,
+    creator_id: str = "",
+    input_query: str = "",
+) -> Div:
     """
     HTMX partial returned by POST /creators/request.
     Renders a success or error notice inline below the submit form.
+
+    When ``success=True`` and ``input_query`` is provided, an HTMX poll is
+    attached so the card auto-updates to a profile link once the worker
+    completes (without requiring a full page reload).
     """
     if success:
+        poll_attrs = {}
+        if input_query:
+            from urllib.parse import urlencode as _urlencode
+
+            status_url = f"/creators/add-status?{_urlencode({'q': input_query})}"
+            poll_attrs = dict(
+                hx_get=status_url,
+                hx_trigger="load, every 3s",
+                hx_target="this",
+                hx_swap="outerHTML",
+            )
         return Div(
             UkIcon("check-circle", cls="size-4 text-green-600 shrink-0"),
             Div(
@@ -518,10 +538,11 @@ def render_add_creator_result(success: bool, message: str, creator_id: str = "")
             ),
             cls="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 "
             "border border-green-200 dark:border-green-800",
+            **poll_attrs,
         )
 
-    # "already_tracked" is a structured code — link directly to the profile
-    if message.startswith("already_tracked:") and creator_id:
+    # creator_id is non-empty when the creator already exists in the DB
+    if creator_id:
         return Div(
             UkIcon("info", cls="size-4 text-blue-600 shrink-0"),
             Div(
@@ -545,6 +566,84 @@ def render_add_creator_result(success: bool, message: str, creator_id: str = "")
         P(message, cls="text-sm text-red-700 dark:text-red-400 flex-1"),
         cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
         "border border-red-200 dark:border-red-800",
+    )
+
+
+def render_add_creator_status_result(
+    status: str,
+    creator_id: str = "",
+    input_query: str = "",
+) -> Div:
+    """
+    HTMX partial returned by GET /creators/add-status.
+
+    ``status`` values:
+        - ``"processing"`` — still in progress; card re-polls every 3 s.
+        - ``"completed"``  — creator is ready; renders a "View profile →" link.
+        - ``"failed"``     — worker could not resolve the creator.
+    """
+    if status == "completed" and creator_id:
+        return Div(
+            UkIcon("check-circle", cls="size-4 text-green-600 shrink-0"),
+            Div(
+                P(
+                    "Creator added!",
+                    cls="text-sm font-semibold text-green-700 dark:text-green-400",
+                ),
+                A(
+                    "View their profile →",
+                    href=f"/creator/{creator_id}",
+                    cls="text-xs text-primary hover:underline",
+                ),
+                cls="flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 "
+            "border border-green-200 dark:border-green-800",
+        )
+
+    if status == "failed":
+        return Div(
+            UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+            P(
+                "We couldn't find that creator. Please check the @handle or channel ID and try again.",
+                cls="text-sm text-red-700 dark:text-red-400 flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+            "border border-red-200 dark:border-red-800",
+        )
+
+    # Processing without a query to poll is unrecoverable — render as failed.
+    if not input_query:
+        return Div(
+            UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+            P(
+                "We couldn't find that creator. Please check the @handle or channel ID and try again.",
+                cls="text-sm text-red-700 dark:text-red-400 flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+            "border border-red-200 dark:border-red-800",
+        )
+
+    # Still processing — continue polling
+    from urllib.parse import urlencode as _urlencode
+
+    status_url = f"/creators/add-status?{_urlencode({'q': input_query})}"
+    poll_attrs = dict(
+        hx_get=status_url,
+        hx_trigger="every 3s",
+        hx_target="this",
+        hx_swap="outerHTML",
+    )
+    return Div(
+        Div(
+            cls="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0"
+        ),
+        P(
+            "Processing… this usually takes under a minute.",
+            cls="text-sm text-muted-foreground flex-1",
+        ),
+        cls="flex items-center gap-2 p-3 rounded-lg bg-muted/40 border border-border",
+        **poll_attrs,
     )
 
 

@@ -810,7 +810,7 @@ async def handle_resolve_and_add_job(
             logger.info("%s Resolving @%s to channel ID via YouTube API…", job_tag, handle_raw)
 
             resolved = await asyncio.wait_for(
-                resolver.resolve_handle_to_channel_id(handle_raw),
+                youtube_resolver.resolve_handle_to_channel_id(handle_raw),
                 timeout=SYNC_TIMEOUT,
             )
             if not resolved:
