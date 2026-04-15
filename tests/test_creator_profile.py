@@ -182,6 +182,7 @@ class TestCreatorProfile:
             lambda c: {"country_rank": None, "language_rank": None, "category_rank": None},
         )
         monkeypatch.setattr(rc, "get_cached_category_box_stats", lambda cat: None)
+        monkeypatch.setattr(rc, "is_creator_favourited", lambda uid, cid: False)
 
     def test_known_creator_returns_200(self, client, monkeypatch):
         self._patch_profile_db(monkeypatch)

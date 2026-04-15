@@ -278,13 +278,15 @@ def _get_context_ranks(creator: dict) -> dict:
     return result
 
 
-def creator_profile_route(request, creator_id: str):
+def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     """
     GET /creator/{creator_id} — Full profile page for a single creator.
 
     Args:
-        request: Starlette request (used for back_url via Referer/from param).
+        request:    Starlette request (used for back_url via Referer/from param).
         creator_id: Creator UUID (primary key of the creators table).
+        user_id:    Optional user UUID from session.  When provided the page
+                    will show the correct initial state for the favourite button.
 
     Returns:
         FT component with full profile, or a 404 message Div.
@@ -311,12 +313,14 @@ def creator_profile_route(request, creator_id: str):
     back_url = request.query_params.get("from", "/creators")
     context_ranks = _get_context_ranks(creator)
     category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
+    is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
 
     return render_creator_profile_page(
         creator,
         back_url=back_url,
         context_ranks=context_ranks,
         category_stats=category_stats,
+        is_favourited=is_fav,
     )
 
 
