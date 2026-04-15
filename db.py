@@ -27,6 +27,7 @@ from constants import (
     PLAYLIST_JOBS_TABLE,
     PLAYLIST_STATS_TABLE,
     SIGNUPS_TABLE,
+    USER_FAVOURITE_CREATORS_TABLE,
     JobStatus,
 )
 from utils import (
@@ -2031,7 +2032,7 @@ def get_user_dashboards(user_id: str, search: str = "", sort: str = "recent") ->
 # ❤️  User Favourite Creators
 # ============================================================================
 
-_USER_FAVOURITE_CREATORS_TABLE = "user_favourite_creators"
+_USER_FAVOURITE_CREATORS_TABLE = USER_FAVOURITE_CREATORS_TABLE
 
 
 def add_favourite_creator(user_id: str, creator_id: str) -> bool:

@@ -143,7 +143,10 @@ def render_favourites_page(creators: list[dict], user_name: str) -> Div:
         # Page header
         Div(
             Div(
-                H1("Saved Creators", cls="text-3xl font-bold text-foreground mb-1"),
+                H1(
+                    f"{user_name}'s Saved Creators" if user_name else "Saved Creators",
+                    cls="text-3xl font-bold text-foreground mb-1",
+                ),
                 P(
                     f"{count_label} bookmarked" if count else "Discover creators to save",
                     cls="text-muted-foreground text-sm",

@@ -313,6 +313,14 @@ class TestFavouritesDB:
         result = db.add_favourite_creator(FAKE_USER_ID, FAKE_CREATOR_UUID)
         assert result is True
 
+    def test_add_favourite_creator_is_idempotent(self, monkeypatch):
+        """add_favourite_creator called twice must not raise and must return True both times."""
+        import db
+
+        monkeypatch.setattr(db, "supabase_client", self._make_mock_supabase())
+        assert db.add_favourite_creator(FAKE_USER_ID, FAKE_CREATOR_UUID) is True
+        assert db.add_favourite_creator(FAKE_USER_ID, FAKE_CREATOR_UUID) is True
+
     def test_add_favourite_creator_false_when_no_client(self, monkeypatch):
         """add_favourite_creator must return False when supabase_client is None."""
         import db
@@ -326,6 +334,16 @@ class TestFavouritesDB:
         import db
 
         monkeypatch.setattr(db, "supabase_client", self._make_mock_supabase())
+        result = db.remove_favourite_creator(FAKE_USER_ID, FAKE_CREATOR_UUID)
+        assert result is True
+
+    def test_remove_favourite_creator_noop_on_missing_row(self, monkeypatch):
+        """remove_favourite_creator on a non-existent row must return True without raising."""
+        import db
+
+        # Empty table — row never existed
+        monkeypatch.setattr(db, "supabase_client", self._make_mock_supabase([]))
+        # Must not raise and must signal success (delete of 0 rows is fine)
         result = db.remove_favourite_creator(FAKE_USER_ID, FAKE_CREATOR_UUID)
         assert result is True
 
