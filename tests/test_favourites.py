@@ -175,46 +175,44 @@ class TestFavouritesPage:
 
     def test_favourites_page_returns_200(self, client, monkeypatch):
         """GET /me/favourites must return 200 in test mode."""
-        import db
+        import main
 
-        monkeypatch.setattr(db, "get_user_favourite_creators", lambda uid, **kw: [])
+        monkeypatch.setattr(main, "get_user_favourite_creators", lambda uid, **kw: [])
         r = client.get("/me/favourites")
         assert r.status_code == 200
-        assert r.status_code in (302, 303)
-        assert "/login" in r.headers.get("location", "")
 
     def test_empty_favourites_shows_empty_state(self, client, monkeypatch):
         """No favourites → empty-state text must appear."""
-        import db
+        import main
 
-        monkeypatch.setattr(db, "get_user_favourite_creators", lambda uid, **kw: [])
+        monkeypatch.setattr(main, "get_user_favourite_creators", lambda uid, **kw: [])
         r = client.get("/me/favourites")
         assert r.status_code == 200
         assert "No favourites yet" in r.text
 
     def test_with_favourites_shows_creator_name(self, client, monkeypatch):
         """Favourited creators must appear by name on the page."""
-        import db
+        import main
 
-        monkeypatch.setattr(db, "get_user_favourite_creators", lambda uid, **kw: [FAKE_CREATOR])
+        monkeypatch.setattr(main, "get_user_favourite_creators", lambda uid, **kw: [FAKE_CREATOR])
         r = client.get("/me/favourites")
         assert r.status_code == 200
         assert "Favourite Channel" in r.text
 
     def test_favourites_page_has_browse_link(self, client, monkeypatch):
         """Page must include a link back to /creators."""
-        import db
+        import main
 
-        monkeypatch.setattr(db, "get_user_favourite_creators", lambda uid, **kw: [])
+        monkeypatch.setattr(main, "get_user_favourite_creators", lambda uid, **kw: [])
         r = client.get("/me/favourites")
         assert r.status_code == 200
         assert "/creators" in r.text
 
     def test_favourites_page_shows_heart_button(self, client, monkeypatch):
         """Each favourited creator row must include the filled-heart 'Saved' button."""
-        import db
+        import main
 
-        monkeypatch.setattr(db, "get_user_favourite_creators", lambda uid, **kw: [FAKE_CREATOR])
+        monkeypatch.setattr(main, "get_user_favourite_creators", lambda uid, **kw: [FAKE_CREATOR])
         r = client.get("/me/favourites")
         assert r.status_code == 200
         # render_favourite_button(is_favourited=True) emits 'Saved'
