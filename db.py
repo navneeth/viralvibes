@@ -2027,6 +2027,150 @@ def get_user_dashboards(user_id: str, search: str = "", sort: str = "recent") ->
         return []
 
 
+# ============================================================================
+# ❤️  User Favourite Creators
+# ============================================================================
+
+_USER_FAVOURITE_CREATORS_TABLE = "user_favourite_creators"
+
+
+def add_favourite_creator(user_id: str, creator_id: str) -> bool:
+    """
+    Mark a creator as a favourite for a user.
+
+    Uses upsert so the call is idempotent — calling it twice does not
+    raise an error or duplicate the row.
+
+    Returns True on success, False on failure.
+    """
+    if not supabase_client or not user_id or not creator_id:
+        return False
+    try:
+        supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE).upsert(
+            {"user_id": user_id, "creator_id": creator_id},
+            on_conflict="user_id,creator_id",
+        ).execute()
+        logger.info("[Favourites] Added creator %s for user %s", creator_id, user_id)
+        return True
+    except Exception as exc:
+        logger.exception("[Favourites] add_favourite_creator failed: %s", exc)
+        return False
+
+
+def remove_favourite_creator(user_id: str, creator_id: str) -> bool:
+    """
+    Remove a creator from a user's favourites.
+
+    Returns True on success (including when the row did not exist),
+    False if the delete raised an unexpected error.
+    """
+    if not supabase_client or not user_id or not creator_id:
+        return False
+    try:
+        supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE).delete().eq("user_id", user_id).eq(
+            "creator_id", creator_id
+        ).execute()
+        logger.info("[Favourites] Removed creator %s for user %s", creator_id, user_id)
+        return True
+    except Exception as exc:
+        logger.exception("[Favourites] remove_favourite_creator failed: %s", exc)
+        return False
+
+
+def is_creator_favourited(user_id: str, creator_id: str) -> bool:
+    """
+    Return True if the user has favourited this creator, False otherwise.
+
+    Performs a lightweight COUNT query so it works even when the creator
+    row has been deleted (returns False in that case too).
+    """
+    if not supabase_client or not user_id or not creator_id:
+        return False
+    try:
+        resp = (
+            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("creator_id", creator_id)
+            .limit(1)
+            .execute()
+        )
+        return (resp.count or 0) > 0
+    except Exception as exc:
+        logger.exception("[Favourites] is_creator_favourited failed: %s", exc)
+        return False
+
+
+def get_user_favourite_creator_ids(user_id: str) -> set[str]:
+    """
+    Return the set of creator UUIDs the user has favourited.
+
+    Fetches only the creator_id column so the query is lightweight even
+    when a user has many favourites.  Used by list/browse views to render
+    heart icons without an extra per-creator query.
+    """
+    if not supabase_client or not user_id:
+        return set()
+    try:
+        resp = (
+            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
+            .select("creator_id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return {row["creator_id"] for row in (resp.data or [])}
+    except Exception as exc:
+        logger.exception("[Favourites] get_user_favourite_creator_ids failed: %s", exc)
+        return set()
+
+
+def get_user_favourite_creators(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Return full creator rows for all creators the user has favourited,
+    ordered by most-recently-favourited first.
+
+    Performs an explicit join via two queries:
+      1. Fetch creator_id list (ordered by fav.created_at DESC)
+      2. Fetch full creator rows for those IDs
+
+    This avoids requiring a Supabase foreign-table join and works with the
+    existing supabase-py query builder.
+
+    Returns a list of creator dicts (same shape as get_creators() rows)
+    ordered by when the user favourited them, newest first.
+    """
+    if not supabase_client or not user_id:
+        return []
+    try:
+        # Step 1: get ordered creator_id list
+        fav_resp = (
+            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
+            .select("creator_id, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = fav_resp.data or []
+        if not rows:
+            return []
+
+        creator_ids = [r["creator_id"] for r in rows]
+
+        # Step 2: fetch full creator rows for those IDs
+        creators_resp = (
+            supabase_client.table(CREATOR_TABLE).select("*").in_("id", creator_ids).execute()
+        )
+        creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
+
+        # Re-order to match the fav order (most recently favourited first)
+        return [creators_by_id[cid] for cid in creator_ids if cid in creators_by_id]
+
+    except Exception as exc:
+        logger.exception("[Favourites] get_user_favourite_creators failed: %s", exc)
+        return []
+
+
 def get_or_create_creator_from_playlist(
     channel_id: str,
     channel_name: str,

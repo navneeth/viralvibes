@@ -344,6 +344,7 @@ CREATORS_TABLE = "creators"
 # Creator tables (matching actual DB schema)
 CREATOR_TABLE = "creators"
 CREATOR_SYNC_JOBS_TABLE = "creator_sync_jobs"
+USER_FAVOURITE_CREATORS_TABLE = "user_favourite_creators"
 
 # Update frequency (frugal)
 CREATOR_WORKER_BATCH_SIZE = 2  # Process at a time
