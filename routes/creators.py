@@ -12,6 +12,7 @@ from monsterui.all import *
 
 from db import (
     add_creator_by_handle,
+    add_favourite_creator,
     calculate_creator_stats,
     find_creator_by_handle,
     get_cached_category_box_stats,
@@ -20,7 +21,10 @@ from db import (
     get_creator_rank,
     get_creator_stats,
     get_creators,
+    get_user_favourite_creator_ids,
+    is_creator_favourited,
     queue_creator_add_request,
+    remove_favourite_creator,
 )
 from db_lists import (
     get_lists_meta,
@@ -42,7 +46,7 @@ from views.creators import (
 logger = logging.getLogger(__name__)
 
 
-def creators_route(request, is_authenticated: bool = False):
+def creators_route(request, is_authenticated: bool = False, user_id: str | None = None):
     """GET /creators - Creators discovery page."""
 
     # Get query parameters
@@ -201,6 +205,12 @@ def creators_route(request, is_authenticated: bool = False):
     stats["top_categories"] = get_top_categories_with_counts(limit=4)
     stats["total_categories"] = get_lists_meta().get("total_categories", 0)
 
+    # Fetch the authenticated user's favourites so cards can show the heart state.
+    # One lightweight query (only creator_id column) per page load — acceptable.
+    favourite_ids: set[str] = (
+        get_user_favourite_creator_ids(user_id) if is_authenticated and user_id else set()
+    )
+
     # Render page
     return render_creators_page(
         creators=creators,
@@ -218,6 +228,7 @@ def creators_route(request, is_authenticated: bool = False):
         total_count=total_count,
         total_pages=total_pages,
         is_authenticated=is_authenticated,
+        favourite_ids=favourite_ids,
     )
 
 
@@ -267,13 +278,15 @@ def _get_context_ranks(creator: dict) -> dict:
     return result
 
 
-def creator_profile_route(request, creator_id: str):
+def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     """
     GET /creator/{creator_id} — Full profile page for a single creator.
 
     Args:
-        request: Starlette request (used for back_url via Referer/from param).
+        request:    Starlette request (used for back_url via Referer/from param).
         creator_id: Creator UUID (primary key of the creators table).
+        user_id:    Optional user UUID from session.  When provided the page
+                    will show the correct initial state for the favourite button.
 
     Returns:
         FT component with full profile, or a 404 message Div.
@@ -300,13 +313,58 @@ def creator_profile_route(request, creator_id: str):
     back_url = request.query_params.get("from", "/creators")
     context_ranks = _get_context_ranks(creator)
     category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
+    is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
 
     return render_creator_profile_page(
         creator,
         back_url=back_url,
         context_ranks=context_ranks,
         category_stats=category_stats,
+        is_favourited=is_fav,
     )
+
+
+def toggle_favourite_route(request, sess, creator_id: str):
+    """
+    POST /creator/{creator_id}/favourite
+    HTMX endpoint — toggles the favourite state for an authenticated user.
+
+    If the creator is not currently favourited it is added; if it is already
+    favourited it is removed.  Returns the updated FavouriteButton fragment
+    so HTMX can swap it in-place.
+
+    AUTH: Requires a valid session (``sess['auth']``).  Returns 401 when the
+    user is not logged in.
+    """
+    from views.creators import render_favourite_button
+
+    auth = sess.get("auth") if sess else None
+    user_id = sess.get("user_id") if sess else None
+    auth_error = require_auth(auth)
+    if auth_error:
+        return Response("Authentication required", status_code=401)
+    # In test mode require_auth is skipped; use a sentinel user_id so tests
+    # that supply a session work, and tests that don't still get a predictable id.
+    import os as _os
+
+    if not user_id and _os.getenv("TESTING") == "1":
+        user_id = "test-user-id"
+
+    currently_favourited = is_creator_favourited(user_id, creator_id)
+    if currently_favourited:
+        remove_favourite_creator(user_id, creator_id)
+        new_state = False
+    else:
+        add_favourite_creator(user_id, creator_id)
+        new_state = True
+
+    logger.info(
+        "[Favourites] User %s toggled creator %s → %s",
+        user_id,
+        creator_id,
+        "on" if new_state else "off",
+    )
+    return render_favourite_button(creator_id, is_favourited=new_state)
 
 
 async def creator_request_route(request, sess):

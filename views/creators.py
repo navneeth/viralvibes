@@ -648,6 +648,59 @@ def render_add_creator_status_result(
 
 
 # ============================================================================
+# FAVOURITE BUTTON COMPONENT
+# ============================================================================
+
+
+def render_favourite_button(creator_id: str, is_favourited: bool = False) -> Button:
+    """
+    Heart-shaped toggle button for marking a creator as a favourite.
+
+    The button posts to ``POST /creator/{creator_id}/favourite`` via HTMX and
+    swaps itself in-place when the server responds with the updated fragment.
+
+    Args:
+        creator_id:     UUID of the creator (used in the HTMX target URL).
+        is_favourited:  Current state — True renders a filled/red heart,
+                        False renders an outlined/grey heart.
+
+    The button is wrapped in a ``div`` with ``id="fav-btn-{creator_id}"`` so
+    HTMX can swap it precisely without affecting surrounding elements.
+    """
+    if is_favourited:
+        icon_cls = "w-5 h-5 fill-red-500 text-red-500"
+        btn_cls = (
+            "inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 "
+            "bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 "
+            "text-xs sm:text-sm font-semibold rounded-lg transition-colors"
+        )
+        label = "Saved"
+        aria_label = "Remove from favourites"
+    else:
+        icon_cls = "w-5 h-5 text-gray-400 hover:text-red-500"
+        btn_cls = (
+            "inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 "
+            "bg-accent hover:bg-red-50 border border-gray-200 hover:border-red-200 "
+            "text-foreground text-xs sm:text-sm font-semibold rounded-lg transition-colors"
+        )
+        label = "Save"
+        aria_label = "Add to favourites"
+
+    return Div(
+        Button(
+            UkIcon("heart", cls=icon_cls),
+            Span(label, cls="hidden sm:inline"),
+            hx_post=f"/creator/{creator_id}/favourite",
+            hx_target=f"#fav-btn-{creator_id}",
+            hx_swap="outerHTML",
+            aria_label=aria_label,
+            cls=btn_cls,
+        ),
+        id=f"fav-btn-{creator_id}",
+    )
+
+
+# ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
 
@@ -668,6 +721,7 @@ def render_creators_page(
     total_count: int = 0,
     total_pages: int = 1,
     is_authenticated: bool = False,
+    favourite_ids: set[str] | None = None,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -740,7 +794,7 @@ def render_creators_page(
         # Creators grid or empty state
         (
             Div(
-                _render_creators_grid(creators),
+                _render_creators_grid(creators, favourite_ids=favourite_ids),
                 # Pagination controls
                 _render_pagination(
                     page=page,
@@ -1400,10 +1454,14 @@ def _render_filter_bar(
     )
 
 
-def _render_creators_grid(creators: list[dict]) -> Div:
+def _render_creators_grid(creators: list[dict], favourite_ids: set[str] | None = None) -> Div:
     """Grid of creator cards with strict row-based layout."""
+    _favs = favourite_ids or set()
     return Div(
-        *[_render_creator_card(creator) for creator in creators],
+        *[
+            _render_creator_card(creator, is_favourited=safe_get_value(creator, "id", "") in _favs)
+            for creator in creators
+        ],
         cls="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 items-start",
     )
 
@@ -1789,16 +1847,42 @@ def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
     )
 
 
-def _build_card_footer(last_updated: str, channel_url: str) -> Div:
-    """Card footer: last-updated timestamp + YouTube link.
+def _build_card_footer(
+    last_updated: str, channel_url: str, creator_id: str = "", is_favourited: bool = False
+) -> Div:
+    """Card footer: last-updated timestamp + optional heart + YouTube link.
 
-    The YouTube link is a <button onclick> rather than <a> because the whole
-    card is already wrapped in an <a> (profile link).  Nested <a> tags are
-    invalid HTML and cause browsers to silently drop the inner link.
+    The YouTube link and favourite heart are <button> elements rather than <a>
+    because the whole card is already wrapped in an <a> (profile link).
+    Nested <a> tags are invalid HTML and cause browsers to silently drop the
+    inner link.  Both buttons call event.stopPropagation() to prevent the card
+    click from also triggering the outer link.
     """
     # json.dumps produces a fully JS-safe quoted string (handles backslashes,
     # newlines, and all special chars), not just single-quote substitution.
     js_url = json.dumps(channel_url)  # e.g. '"https://youtube.com/..."'
+
+    # Heart button — only rendered when creator_id is available
+    if creator_id:
+        heart_cls = "w-3.5 h-3.5" + (
+            " fill-red-500 text-red-500" if is_favourited else " text-gray-400"
+        )
+        heart_btn = Div(
+            Button(
+                UkIcon("heart", cls=heart_cls),
+                hx_post=f"/creator/{creator_id}/favourite",
+                hx_target=f"#fav-btn-{creator_id}",
+                hx_swap="outerHTML",
+                type="button",
+                onclick="event.stopPropagation(); event.preventDefault();",
+                aria_label="Toggle favourite",
+                cls="flex items-center text-xs font-semibold text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+            ),
+            id=f"fav-btn-{creator_id}",
+        )
+    else:
+        heart_btn = None
+
     return Div(
         Div(
             UkIcon("clock", cls="w-3 h-3 mr-1 opacity-50"),
@@ -1808,13 +1892,17 @@ def _build_card_footer(last_updated: str, channel_url: str) -> Div:
             ),
             cls="flex items-center gap-0.5",
         ),
-        # <button> stops the card-level click; JS opens YouTube in a new tab
-        Button(
-            UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
-            "YouTube",
-            type="button",
-            onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
-            cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+        Div(
+            heart_btn,
+            # <button> stops the card-level click; JS opens YouTube in a new tab
+            Button(
+                UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
+                "YouTube",
+                type="button",
+                onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
+                cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+            ),
+            cls="flex items-center gap-3",
         ),
         cls="flex justify-between items-center mt-auto pt-3 border-t border-border",
     )
@@ -1880,7 +1968,7 @@ def _build_info_strip(
     )
 
 
-def _render_creator_card(creator: dict) -> Div:
+def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     """
     Creator card - clean, data-driven design.
 
@@ -1893,7 +1981,7 @@ def _render_creator_card(creator: dict) -> Div:
     ────────────────────────────────────
     30-Day Trend bar
     ────────────────────────────────────
-    Updated · Analyze → (footer)
+    Updated · ❤ · Analyze → (footer)
     """
 
     # Extract all data
@@ -2020,7 +2108,12 @@ def _render_creator_card(creator: dict) -> Div:
         # Info strp at bottom of the card body, showing language, country, channel age, and activity badges as emojis with tooltips
         info_strip,
         # ── Footer slot (only the action row — no body content here) ──────────
-        footer=_build_card_footer(last_updated, channel_url),
+        footer=_build_card_footer(
+            last_updated,
+            channel_url,
+            creator_id=safe_get_value(creator, "id", ""),
+            is_favourited=is_favourited,
+        ),
         body_cls="space-y-3",
         cls=(
             CardT.hover,
@@ -2311,6 +2404,7 @@ def render_creator_profile_page(
     back_url: str = "/creators",
     context_ranks: dict | None = None,
     category_stats: dict | None = None,
+    is_favourited: bool = False,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
@@ -2323,6 +2417,9 @@ def render_creator_profile_page(
         category_stats:  Optional pre-aggregated box plot stats from
                          get_cached_category_box_stats() — passed through to
                          render_category_box_plots(). None = show placeholder.
+        is_favourited:   Whether the current user has already favourited this
+                         creator.  Drives the initial heart-button state.
+                         Pass False (default) for unauthenticated visitors.
 
     Layout:
       1. Cinematic banner + overlapping avatar + identity strip
@@ -2484,6 +2581,7 @@ def render_creator_profile_page(
                     rel="noopener noreferrer",
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
+                render_favourite_button(creator_id, is_favourited=is_favourited),
                 A(
                     UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
                     "Back",

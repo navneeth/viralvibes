@@ -86,6 +86,15 @@ def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/
                 cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
             )
         ),
+        # Saved Creators
+        Li(
+            A(
+                UkIcon("heart", width=16, height=16),
+                Span("Saved Creators", cls="ml-2"),
+                href="/me/favourites",
+                cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
+            )
+        ),
         # Divider
         Li(cls="uk-nav-divider"),
         # Logout

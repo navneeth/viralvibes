@@ -74,6 +74,7 @@ from db import (
     get_playlist_job_status,
     get_playlist_preview_info,
     get_user_dashboards,
+    get_user_favourite_creators,
     get_user_plan,
     init_supabase,
     resolve_playlist_url_from_dashboard_id,
@@ -87,6 +88,7 @@ from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
 from utils import compute_dashboard_id, get_columns, get_language_name, sort_dataframe
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
+from views.favourites import render_favourites_page
 from views.my_dashboards import render_my_dashboards_page
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
@@ -95,6 +97,7 @@ from routes.creators import (
     creator_profile_route,
     creator_request_route,
     creators_route,
+    toggle_favourite_route,
 )
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
@@ -1117,7 +1120,11 @@ def creators(req, sess):
     """Creators discovery page - PUBLIC route with filtering and sorting"""
 
     # Call the route handler
-    page_content = creators_route(req, is_authenticated=bool(sess.get("auth")))
+    page_content = creators_route(
+        req,
+        is_authenticated=bool(sess.get("auth")),
+        user_id=sess.get("user_id") if sess else None,
+    )
 
     # Pass through redirects (e.g. out-of-range page) without wrapping in the page template
     if isinstance(page_content, RedirectResponse):
@@ -1281,12 +1288,15 @@ def creator_profile(req, sess, creator_id: str):
 
     Call chain:
         main.py  @rt("/creator/{creator_id}")
-          └─ creator_profile_route(req, creator_id)       ← routes/creators.py
-               ├─ get_creator_stats(creator_id)            ← db.py (existing function)
+          └─ creator_profile_route(req, creator_id, user_id)  ← routes/creators.py
+               ├─ get_creator_stats(creator_id)                ← db.py
+               ├─ is_creator_favourited(user_id, creator_id)   ← db.py (if logged in)
                ├─ 404 Div if not found
-               └─ render_creator_profile_page(creator)     ← views/creators.py
+               └─ render_creator_profile_page(creator, ...)    ← views/creators.py
     """
-    page_content = creator_profile_route(req, creator_id)
+    page_content = creator_profile_route(
+        req, creator_id, user_id=sess.get("user_id") if sess else None
+    )
     # Best-effort: extract channel name from the content for the title.
     # Fall back to a generic title if the creator was not found.
     channel_name = req.query_params.get("name", "Creator Profile")
@@ -1297,6 +1307,25 @@ def creator_profile(req, sess, creator_id: str):
             page_content,
         ),
     )
+
+
+@rt("/creator/{creator_id}/favourite", methods=["POST"])
+def creator_favourite(req, sess, creator_id: str):
+    """HTMX endpoint — toggle favourite state for a creator.
+
+    POST /creator/{uuid}/favourite
+
+    Call chain:
+        main.py  @rt("/creator/{creator_id}/favourite")
+          └─ toggle_favourite_route(req, sess, creator_id)  ← routes/creators.py
+               ├─ is_creator_favourited(user_id, creator_id) ← db.py
+               ├─ add_favourite_creator / remove_favourite_creator ← db.py
+               └─ render_favourite_button(creator_id, is_favourited) ← views/creators.py
+
+    Returns an HTMX partial (the updated FavouriteButton) for in-place swap.
+    Requires authentication — returns 401 if not logged in.
+    """
+    return toggle_favourite_route(req, sess, creator_id)
 
 
 @rt("/lists/language/{language_code}/more")
@@ -1408,6 +1437,40 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
                 sort=sort,
                 plan_info=plan_info,
             ),
+        ),
+    )
+
+
+@rt("/me/favourites")
+def me_favourites(req, sess):
+    """User's bookmarked creators page — PROTECTED route.
+
+    Call chain:
+        main.py  @rt("/me/favourites")
+          └─ get_user_favourite_creators(user_id)  ← db.py
+          └─ render_favourites_page(creators, user_name)  ← views/favourites.py
+    """
+    user_id = sess.get("user_id") if sess else None
+    auth = sess.get("auth") if sess else None
+    user_name = sess.get("user_name", "User") if sess else "User"
+
+    if not auth or not user_id:
+        # In test mode, require_auth is skipped; fall back to a sentinel id
+        import os as _os
+
+        if _os.getenv("TESTING") == "1":
+            user_id = user_id or "test-user-id"
+        else:
+            sess["intended_url"] = "/me/favourites"
+            return RedirectResponse("/login", status_code=303)
+
+    creators = get_user_favourite_creators(user_id)
+
+    return Titled(
+        "Saved Creators - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            render_favourites_page(creators=creators, user_name=user_name),
         ),
     )
 
