@@ -152,11 +152,13 @@ class TestCreatorsPage:
         r = client.get("/creators")
         assert r.status_code == 200
 
-    def test_browse_page_out_of_range_page_redirects(self, client, monkeypatch):
+    def test_browse_page_out_of_range_page_redirects(self, monkeypatch):
         """page > total_pages must redirect to the last valid page, not return a 500."""
+        # Build a client that does NOT follow redirects so we can inspect the 303.
+        no_redirect_client = TestClient(main.app, follow_redirects=False)
         # 1 creator → 1 total page; requesting page=999 triggers the redirect
         self._patch_creators_db(monkeypatch)
-        r = client.get("/creators?page=999", follow_redirects=False)
+        r = no_redirect_client.get("/creators?page=999")
         assert r.status_code in (302, 303)
         assert "page=" in r.headers.get("location", "")
 

@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
+from monsterui.all import *
 
 from db import (
     add_creator_by_handle,
