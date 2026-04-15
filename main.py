@@ -1119,6 +1119,10 @@ def creators(req, sess):
     # Call the route handler
     page_content = creators_route(req, is_authenticated=bool(sess.get("auth")))
 
+    # Pass through redirects (e.g. out-of-range page) without wrapping in the page template
+    if isinstance(page_content, RedirectResponse):
+        return page_content
+
     # Render with navigation
     return Titled(
         "Top Creators - YouTube",
