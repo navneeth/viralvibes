@@ -51,6 +51,7 @@ from components import (
 )
 from components.modals import ExportModal, ShareModal
 from constants import (
+    JobStatus,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
@@ -134,6 +135,9 @@ SAFE_USER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 # Supported image formats for avatars
 # Only these extensions are tried to prevent arbitrary file access
 AVATAR_FORMATS = [".jpg", ".jpeg", ".png", ".webp"]
+
+# Whether the app is running under the test suite (set by GitHub Actions / pytest)
+IS_TESTING = os.getenv("TESTING") == "1"
 
 
 # ============================================================================
@@ -553,7 +557,7 @@ def dashboard_page(dashboard_id: str, req, sess, sort_by: str = "Views", order: 
     user_id = sess.get("user_id") if sess else None
     auth = sess.get("auth") if sess else None
 
-    if os.getenv("TESTING") != "1" and not auth:
+    if not IS_TESTING and not auth:
         sess["intended_url"] = str(req.url.path)
         return RedirectResponse("/login", status_code=303)
 
@@ -916,7 +920,7 @@ def check_job_status(playlist_url: str, req, sess):
     job_status = get_playlist_job_status(playlist_url)
 
     # Check for both "complete" and "done" status
-    if job_status in ["complete", "done"]:
+    if job_status in JobStatus.SUCCESS:
         logger.info(f"Job for {playlist_url} is complete. Loading full analysis.")
         return Script(
             "htmx.ajax('POST', '/validate/full', "
@@ -1456,9 +1460,7 @@ def me_favourites(req, sess):
 
     if not auth or not user_id:
         # In test mode, require_auth is skipped; fall back to a sentinel id
-        import os as _os
-
-        if _os.getenv("TESTING") == "1":
+        if IS_TESTING:
             user_id = user_id or "test-user-id"
         else:
             sess["intended_url"] = "/me/favourites"

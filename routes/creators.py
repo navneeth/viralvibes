@@ -3,6 +3,7 @@ Creators routes - browse and filter discovered YouTube creators.
 """
 
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 
@@ -44,6 +45,9 @@ from views.creators import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Whether the app is running under the test suite (set by GitHub Actions / pytest)
+_IS_TESTING = os.getenv("TESTING") == "1"
 
 
 def creators_route(request, is_authenticated: bool = False, user_id: str | None = None):
@@ -345,9 +349,7 @@ def toggle_favourite_route(request, sess, creator_id: str):
         return Response("Authentication required", status_code=401)
     # In test mode require_auth is skipped; use a sentinel user_id so tests
     # that supply a session work, and tests that don't still get a predictable id.
-    import os as _os
-
-    if not user_id and _os.getenv("TESTING") == "1":
+    if not user_id and _IS_TESTING:
         user_id = "test-user-id"
 
     currently_favourited = is_creator_favourited(user_id, creator_id)

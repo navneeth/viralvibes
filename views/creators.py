@@ -652,7 +652,7 @@ def render_add_creator_status_result(
 # ============================================================================
 
 
-def render_favourite_button(creator_id: str, is_favourited: bool = False) -> Button:
+def render_favourite_button(creator_id: str, is_favourited: bool = False) -> Div:
     """
     Heart-shaped toggle button for marking a creator as a favourite.
 
@@ -664,11 +664,11 @@ def render_favourite_button(creator_id: str, is_favourited: bool = False) -> But
         is_favourited:  Current state — True renders a filled/red heart,
                         False renders an outlined/grey heart.
 
-    The button is wrapped in a ``div`` with ``id="fav-btn-{creator_id}"`` so
-    HTMX can swap it precisely without affecting surrounding elements.
+    The wrapping ``div`` carries the ``id="fav-btn-{creator_id}"`` HTMX swap
+    target and is ``inline-flex`` so it does not disrupt flex-row siblings.
     """
     if is_favourited:
-        icon_cls = "w-5 h-5 fill-red-500 text-red-500"
+        icon_cls = "w-4 h-4 fill-red-500 text-red-500"
         btn_cls = (
             "inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 "
             "bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 "
@@ -677,7 +677,7 @@ def render_favourite_button(creator_id: str, is_favourited: bool = False) -> But
         label = "Saved"
         aria_label = "Remove from favourites"
     else:
-        icon_cls = "w-5 h-5 text-gray-400 hover:text-red-500"
+        icon_cls = "w-4 h-4 text-gray-400 hover:text-red-500"
         btn_cls = (
             "inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 "
             "bg-accent hover:bg-red-50 border border-gray-200 hover:border-red-200 "
@@ -689,7 +689,7 @@ def render_favourite_button(creator_id: str, is_favourited: bool = False) -> But
     return Div(
         Button(
             UkIcon("heart", cls=icon_cls),
-            Span(label, cls="hidden sm:inline"),
+            Span(label),  # always visible — consistent with sibling YouTube and Back buttons
             hx_post=f"/creator/{creator_id}/favourite",
             hx_target=f"#fav-btn-{creator_id}",
             hx_swap="outerHTML",
@@ -697,6 +697,7 @@ def render_favourite_button(creator_id: str, is_favourited: bool = False) -> But
             cls=btn_cls,
         ),
         id=f"fav-btn-{creator_id}",
+        cls="inline-flex",  # size to content — behaves as an inline sibling in flex rows
     )
 
 
@@ -2588,7 +2589,7 @@ def render_creator_profile_page(
                     href=back_url,
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
-                cls="flex gap-2 ml-auto items-center",
+                cls="flex gap-2 ml-auto items-center flex-wrap justify-end",
             ),
             cls="flex items-end justify-between px-4 sm:px-5 pt-3",
         ),
