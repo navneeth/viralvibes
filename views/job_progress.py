@@ -1,6 +1,7 @@
 # views/job_progress.py
 from urllib.parse import quote_plus
 
+from constants import JobStatus
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -195,7 +196,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                     f"setTimeout(() => {{ htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{state.playlist_url}'}}}}); }}, 1000);"
                 ),
             )
-            if state.status == "complete"
+            if state.status in JobStatus.SUCCESS
             else None
         ),
     ]
