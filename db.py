@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import random
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol, NamedTuple
@@ -905,10 +906,8 @@ def queue_creator_sync_bulk(
 # ============================================================================
 
 # Regex patterns for input validation — compiled once at module load
-import re as _re
-
-_UC_ID_RE = _re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
-_HANDLE_RE = _re.compile(r"^@[a-zA-Z0-9._-]{1,100}$")
+_UC_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
+_HANDLE_RE = re.compile(r"^@[a-zA-Z0-9._-]{1,100}$")
 
 # Per-user rate limit: max requests per window
 _ADD_REQUEST_LIMIT = int(os.getenv("CREATOR_ADD_REQUEST_LIMIT", "5"))
@@ -1203,8 +1202,6 @@ def upsert_subscription(
     if not supabase_client:
         logger.warning("[DB] Supabase not available for upsert_subscription")
         return False
-
-    from datetime import datetime, timezone
 
     period_end_iso = (
         datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc).isoformat()

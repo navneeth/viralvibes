@@ -1456,9 +1456,7 @@ def me_favourites(req, sess):
 
     if not auth or not user_id:
         # In test mode, require_auth is skipped; fall back to a sentinel id
-        import os as _os
-
-        if _os.getenv("TESTING") == "1":
+        if os.getenv("TESTING") == "1":
             user_id = user_id or "test-user-id"
         else:
             sess["intended_url"] = "/me/favourites"
