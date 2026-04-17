@@ -12,7 +12,7 @@ name: Creator Stats Worker
 #   - Early exit when queue exhausted (saves Actions minutes)
 #   - Bootstraps small batches on startup (safety net if bootstrap delayed)
 #
-# Quota budget: 500 jobs × 3 units = 1,500/run × 4 runs/day = 6,000/day (60% of 10k limit)
+# Quota budget: 700 jobs × 3 units = 2,100/run × 4 runs/day = 8,400/day (84% of 10k limit)
 
 on:
   schedule:
@@ -45,7 +45,7 @@ jobs:
       CREATOR_WORKER_POLL_INTERVAL:     "5"
       CREATOR_WORKER_EMPTY_BACKOFF_MAX: "10"
 
-      # Quota: 500 jobs x 3 units = 1,500/run x 4 runs/day = 6,000/day (within 10k limit)
+      # Quota: 700 jobs x 3 units = 2,100/run x 4 runs/day = 8,400/day (84% of 10k limit)
 
     steps:
       - uses: actions/checkout@v6
@@ -69,7 +69,7 @@ jobs:
           echo "Creator worker loop starting at $(date)"
 
           JOBS_PROCESSED=0
-          MAX_JOBS=500
+          MAX_JOBS=700
           EMPTY_RUNS=0
           MAX_EMPTY_RUNS=3
           CRASHED_JOBS=0

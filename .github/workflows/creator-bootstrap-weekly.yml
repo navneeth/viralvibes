@@ -47,7 +47,7 @@ jobs:
           echo "════════════════════════════════════════════════════════════"
 
           python -m worker.bootstrap_creators \
-            --unsynced-batch 500 \
+            --unsynced-batch 5000 \
             --stale-days 7 \
             --invalid-batch 50
 
