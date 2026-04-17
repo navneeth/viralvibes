@@ -3034,22 +3034,15 @@ def refresh_category_stats_cache() -> int:
         return 0
 
     try:
-        # Fetch all distinct categories that have at least one synced creator
-        cats_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("primary_category")
-            .eq("sync_status", "synced")
-            .gt("current_subscribers", 0)
-            .not_.is_("primary_category", None)
-            .execute()
-        )
-        categories = list(
-            {
-                row["primary_category"]
-                for row in (cats_resp.data or [])
-                if row.get("primary_category")
-            }
-        )
+        # Fetch all distinct categories via RPC — avoids the PostgREST server-side
+        # row limit (default 1,000) that silently truncated results when using a
+        # plain table query against 100k+ qualifying rows.
+        # Uses the get_distinct_synced_categories() RPC (migration 020) which does
+        # a DB-side SELECT DISTINCT backed by idx_creators_category_synced.
+        cats_resp = supabase_client.rpc("get_distinct_synced_categories").execute()
+        categories = [
+            row["primary_category"] for row in (cats_resp.data or []) if row.get("primary_category")
+        ]
 
         if not categories:
             logger.warning("refresh_category_stats_cache: no synced categories found")
