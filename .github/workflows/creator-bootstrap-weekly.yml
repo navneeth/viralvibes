@@ -29,6 +29,12 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_KEY:          ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      # Batch sizes — single definition so comments and invocations stay in sync.
+      # queue_creator_sync_bulk deduplicates at the DB level (skips existing
+      # pending rows), so there is no risk of overflowing the queue regardless
+      # of how large this batch is.
+      BOOTSTRAP_UNSYNCED_BATCH: "5000"
+
     steps:
       - uses: actions/checkout@v6
 
@@ -47,7 +53,7 @@ jobs:
           echo "════════════════════════════════════════════════════════════"
 
           python -m worker.bootstrap_creators \
-            --unsynced-batch 500 \
+            --unsynced-batch "${BOOTSTRAP_UNSYNCED_BATCH}" \
             --stale-days 7 \
             --invalid-batch 50
 

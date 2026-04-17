@@ -10,7 +10,7 @@ name: Creator Bootstrap
 #   2. Worker runs:            00:00, 06:00, 12:00, 18:00 UTC
 #
 # Bootstrap handles:
-#   - Never-synced creators (last_synced_at IS NULL) - up to 500/run
+#   - Never-synced creators (last_synced_at IS NULL) - up to 5000/run
 #   - Stale synced creators (>7 days old) - up to 100/run
 #   - Previously failed/invalid creators - up to 100/run
 #   - Category stats cache refresh (Pass 4)
@@ -42,6 +42,12 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_KEY:          ${{ secrets.SUPABASE_SERVICE_KEY }}
 
+      # Batch sizes — single definition so comments and invocations stay in sync.
+      # queue_creator_sync_bulk deduplicates at the DB level (skips existing
+      # pending rows), so there is no risk of overflowing the queue regardless
+      # of how large this batch is.
+      BOOTSTRAP_UNSYNCED_BATCH: "5000"
+
     steps:
       - uses: actions/checkout@v6
 
@@ -60,7 +66,7 @@ jobs:
           echo "════════════════════════════════════════════════════════════"
 
           python -m worker.bootstrap_creators \
-            --unsynced-batch 500 \
+            --unsynced-batch "${BOOTSTRAP_UNSYNCED_BATCH}" \
             --stale-days 7 \
             --invalid-batch 50 \
             --no-categories
