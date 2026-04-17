@@ -23,14 +23,13 @@ RETURNS TABLE (primary_category text)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = pg_catalog, public
 AS $$
     SELECT DISTINCT primary_category
     FROM public.creators
     WHERE sync_status = 'synced'
       AND current_subscribers > 0
-      AND primary_category IS NOT NULL
-    ORDER BY primary_category;
+      AND primary_category IS NOT NULL;
 $$;
 
 COMMENT ON FUNCTION public.get_distinct_synced_categories() IS
