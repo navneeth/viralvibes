@@ -38,6 +38,11 @@ jobs:
       YOUTUBE_API_KEY:               ${{ secrets.YOUTUBE_API_KEY }}
       YOUTUBE_DAILY_QUOTA:           "10000"
 
+      # Single source of truth for per-run job cap.
+      # Quota math: WORKER_MAX_JOBS × 3 units × 4 runs/day must stay ≤ 10,000.
+      # Current: 700 × 3 × 4 = 8,400 (84%). Update the header comment if changed.
+      WORKER_MAX_JOBS: "700"
+
       # Each Python process exits after 1 job (EXIT_AFTER_JOB=True).
       # MAX_RUNTIME is a per-process safety ceiling only.
       CREATOR_WORKER_MAX_RUNTIME:       "120"
@@ -69,7 +74,7 @@ jobs:
           echo "Creator worker loop starting at $(date)"
 
           JOBS_PROCESSED=0
-          MAX_JOBS=700
+          MAX_JOBS="${WORKER_MAX_JOBS}"
           EMPTY_RUNS=0
           MAX_EMPTY_RUNS=3
           CRASHED_JOBS=0
