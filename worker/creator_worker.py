@@ -77,7 +77,6 @@ POLL_INTERVAL = int(os.getenv("CREATOR_WORKER_POLL_INTERVAL", str(CREATOR_WORKER
 # Each job gets a completely fresh Python process and clean httplib2 state
 BATCH_SIZE = 1  # Changed from 15 - prevents memory corruption in httplib2 C library
 EXIT_AFTER_JOB = True  # Exit after processing 1 job for complete memory isolation
-_worker_outcome: WorkerOutcome | None = None  # Set before exit; None means queue was empty
 MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
@@ -131,6 +130,9 @@ class WorkerOutcome(Enum):
     SUCCESS = 0
     EMPTY_QUEUE = 2
     QUOTA_EXHAUSTED = 3
+
+
+_worker_outcome: WorkerOutcome | None = None  # Set before exit; None means queue was empty
 
 
 class ChannelNotFoundException(Exception):
