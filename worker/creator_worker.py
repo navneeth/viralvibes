@@ -77,8 +77,7 @@ POLL_INTERVAL = int(os.getenv("CREATOR_WORKER_POLL_INTERVAL", str(CREATOR_WORKER
 # Each job gets a completely fresh Python process and clean httplib2 state
 BATCH_SIZE = 1  # Changed from 15 - prevents memory corruption in httplib2 C library
 EXIT_AFTER_JOB = True  # Exit after processing 1 job for complete memory isolation
-_job_processed = False  # Set True when a job is processed; used for exit code signalling
-_quota_exhausted = False  # Set True when YouTube quota is exceeded; triggers exit code 3
+_worker_outcome: WorkerOutcome | None = None  # Set before exit; None means queue was empty
 MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))
 MAX_RETRY_ATTEMPTS = CREATOR_WORKER_MAX_RETRIES
 RETRY_BACKOFF_BASE = CREATOR_WORKER_RETRY_BASE
@@ -118,6 +117,20 @@ class JobStatus(Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     RETRY = "retry"
+
+
+class WorkerOutcome(Enum):
+    """Per-process exit outcome, values map directly to shell exit codes.
+
+    Exit codes consumed by the shell loop in creator-worker.yml:
+      0 = SUCCESS       — a job was processed
+      2 = EMPTY_QUEUE   — no pending jobs found
+      3 = QUOTA_EXHAUSTED — YouTube quota hit; loop should stop immediately
+    """
+
+    SUCCESS = 0
+    EMPTY_QUEUE = 2
+    QUOTA_EXHAUSTED = 3
 
 
 class ChannelNotFoundException(Exception):
@@ -1698,14 +1711,20 @@ async def process_creator_syncs():
                     "✅ Job processing complete - exiting for fresh process start "
                     "(prevents httplib2 memory corruption)"
                 )
-                global _job_processed, _quota_exhausted
-                _job_processed = True
-                if any(isinstance(r, QuotaExceededException) for r in results):
-                    _quota_exhausted = True
+                global _worker_outcome
+                quota_hit = any(
+                    isinstance(r, QuotaExceededException)
+                    for r in results
+                    if isinstance(r, Exception)
+                )
+                if quota_hit:
+                    _worker_outcome = WorkerOutcome.QUOTA_EXHAUSTED
                     logger.warning(
                         "⏸️  Quota exhausted — signalling shell loop to stop "
                         "(exit 3). Jobs scheduled for retry after quota reset."
                     )
+                else:
+                    _worker_outcome = WorkerOutcome.SUCCESS
                 break
 
             await asyncio.sleep(POLL_INTERVAL)
@@ -1742,12 +1761,9 @@ async def main():
         logger.exception(f"Fatal error: {e}")
         raise SystemExit(1)
     else:
-        # Signal to the bash loop whether a job was actually processed.
-        # Exit 0 = job processed. Exit 2 = queue was empty (no job found).
-        # Exit 1 = unhandled exception (handled above).
-        # Exit 3 = YouTube quota exhausted — shell loop should stop immediately.
-        # This replaces the unreliable duration-based heuristic in the shell loop.
-        raise SystemExit(3 if _quota_exhausted else (0 if _job_processed else 2))
+        # Signal to the bash loop via exit code (see WorkerOutcome for values).
+        # Unset outcome (None) means the queue was empty — no job was attempted.
+        raise SystemExit((_worker_outcome or WorkerOutcome.EMPTY_QUEUE).value)
     finally:
         logger.info(
             f"Worker shutdown complete | "
