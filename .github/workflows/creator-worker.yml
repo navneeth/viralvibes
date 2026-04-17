@@ -7,7 +7,7 @@ name: Creator Stats Worker
 #   2. Worker processes jobs:  00:00, 06:00, 12:00, 18:00 UTC (this file)
 #
 # Worker features:
-#   - Processes up to 500 jobs per run (frugal quota usage)
+#   - Processes up to 700 jobs per run (within 84% of daily quota)
 #   - Fresh Python process per job (prevents httplib2 memory corruption)
 #   - Early exit when queue exhausted (saves Actions minutes)
 #   - Bootstraps small batches on startup (safety net if bootstrap delayed)
