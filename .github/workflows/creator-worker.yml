@@ -109,8 +109,15 @@ jobs:
               # Shorter sleep when queue is empty - poll more frequently
               sleep 3
 
+            elif [ "$EXIT_CODE" -eq 3 ]; then
+              # YouTube quota exhausted — no point running more jobs this UTC day.
+              # Jobs were already scheduled for retry; quota resets at midnight Pacific.
+              echo "⏸️  YouTube quota exhausted after $JOBS_PROCESSED jobs - stopping loop early"
+              echo "    Pending jobs will retry automatically once quota resets (~midnight Pacific / 08:00 UTC)"
+              break
+
             else
-              # Non-zero, non-2: crash or unhandled error (e.g. exit 134 SIGABRT).
+              # Non-zero, non-2/3: crash or unhandled error (e.g. exit 134 SIGABRT).
               # Could be ChannelNotFoundException purge (which counts as "failed" job)
               # or actual Python crash. Log and continue.
               echo "⚠️  Worker exited with code $EXIT_CODE - counting as processed"
