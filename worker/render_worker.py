@@ -141,11 +141,20 @@ async def _run_job_subprocess(
         str(retry_count),
     ]
 
+    # Build subprocess env: inherit everything from the supervisor, then
+    # explicitly override CREATOR_WORKER_SKIP_DIAGNOSIS so the subprocess
+    # never re-runs the startup diagnosis or bootstrap that the supervisor
+    # already handled. This saves ~8s of overhead (3s RPC timeout + 1s
+    # bootstrap + 4s schema/init) per job.
+    subprocess_env = os.environ.copy()
+    subprocess_env["CREATOR_WORKER_SKIP_DIAGNOSIS"] = "true"
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,  # merge stderr → stdout
+            env=subprocess_env,
         )
 
         try:
