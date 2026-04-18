@@ -52,6 +52,9 @@ _KAGGLE_SECRET_KEYS: list[str] = [
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",  # web-app / fallback compat
     # YouTube
     "YOUTUBE_API_KEY",
+    # Creator worker uses this key specifically (services/youtube_config.py).
+    # Must be added to Kaggle secrets even when identical to YOUTUBE_API_KEY.
+    "YOUTUBE_API_KEY_CREATORS",
     "YOUTUBE_DAILY_QUOTA",
     # Worker tuning (optional — constants.py defaults are used when absent)
     "CREATOR_WORKER_BATCH_SIZE",
