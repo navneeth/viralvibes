@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol, NamedTuple
 
 from supabase import Client, create_client
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from constants import (
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
@@ -1584,7 +1584,14 @@ def get_creator_rank(
     if filter_key not in _ALLOWED:
         logger.warning("[DB] get_creator_rank: disallowed filter_key %s", filter_key)
         return None
-    try:
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=4),
+        retry=retry_if_exception_type(Exception),
+        reraise=False,
+    )
+    def _fetch_rank():
         resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id", count="exact")
@@ -1597,8 +1604,11 @@ def get_creator_rank(
         )
         above = getattr(resp, "count", None)
         return int(above) + 1 if above is not None else None
+
+    try:
+        return _fetch_rank()
     except Exception:
-        logger.exception("Error computing rank for %s=%s", filter_key, filter_val)
+        logger.exception("Error computing rank for %s=%s after retries", filter_key, filter_val)
         return None
 
 
