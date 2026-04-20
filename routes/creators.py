@@ -205,8 +205,8 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     if not has_active_filters:
         stats["total_creators"] = total_count
     stats["top_countries"] = get_top_countries_with_counts(limit=8)
-    stats["top_languages"] = get_top_languages_with_counts(limit=5)
-    stats["top_categories"] = get_top_categories_with_counts(limit=4)
+    stats["top_languages"] = get_top_languages_with_counts(limit=7)
+    stats["top_categories"] = get_top_categories_with_counts(limit=9)
     stats["total_categories"] = get_lists_meta().get("total_categories", 0)
 
     # Fetch the authenticated user's favourites so cards can show the heart state.

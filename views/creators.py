@@ -791,6 +791,9 @@ def render_creators_page(
             grade_counts=grade_counts,
             top_countries=stats.get("top_countries", []) if stats else [],
             top_categories=stats.get("top_categories", []) if stats else [],
+            top_languages=stats.get("top_languages", []) if stats else [],
+            total_count=total_count,
+            per_page=per_page,
         ),
         # Creators grid or empty state
         (
@@ -1039,6 +1042,9 @@ def _render_filter_bar(
     category_filter: str = "all",
     top_countries: list = None,
     top_categories: list = None,
+    top_languages: list = None,
+    total_count: int = 0,
+    per_page: int = 50,
 ) -> Div:
     """
     Clean horizontal card-based filter bar.
@@ -1142,14 +1148,30 @@ def _render_filter_bar(
     # ═══════════════════════════════════════════════════════════════
     # 4. LANGUAGE FILTER PILLS
     # ═══════════════════════════════════════════════════════════════
-    language_options = [
-        ("all", "All", "🌍"),
+    # Dynamic from RPC — reflects the actual language distribution in the DB.
+    # Falls back to popular defaults if the RPC returns nothing.
+    _fallback_languages = [
         ("en", "English", "🇺🇸"),
-        ("ja", "日本語", "🇯🇵"),
         ("es", "Español", "🇪🇸"),
+        ("ja", "日本語", "🇯🇵"),
         ("ko", "Korean", "🇰🇷"),
         ("zh", "Chinese", "🇨🇳"),
     ]
+    language_options = [("all", "All", "🌍")]
+    _lang_source = top_languages or []
+    if _lang_source:
+        for _lang_code, _lang_count in _lang_source[:7]:
+            if not _lang_code:
+                continue
+            language_options.append(
+                (
+                    _lang_code,
+                    get_language_name(_lang_code),
+                    get_language_emoji(_lang_code),
+                )
+            )
+    else:
+        language_options.extend(_fallback_languages)
 
     language_pills = _filter_pills(
         language_options,
@@ -1164,6 +1186,7 @@ def _render_filter_bar(
             age=age_filter,
             country=country_filter,
             category=category_filter,
+            per_page=per_page,
         ),
     )
 
@@ -1289,13 +1312,15 @@ def _render_filter_bar(
             age=age_filter,
             country=country_filter,
             category=v,
+            per_page=per_page,
         ),
     )
 
     # ═══════════════════════════════════════════════════════════════
     # 9. COUNT ACTIVE FILTERS
+    # Includes search so the FAB badge correctly reflects a text-only search.
     # ═══════════════════════════════════════════════════════════════
-    active_filters = sum(
+    active_filters = bool(search) + sum(
         f != "all"
         for f in (
             grade_filter,
@@ -1370,7 +1395,11 @@ def _render_filter_bar(
                             cls="text-xl font-bold text-foreground mb-1",
                         ),
                         P(
-                            f"{grade_counts.get('all', 0)} creators available",
+                            (
+                                f"{total_count:,} creators"
+                                if total_count
+                                else f"{grade_counts.get('all', 0)} on this page"
+                            ),
                             cls="text-sm text-muted-foreground",
                         ),
                         cls="flex-1",
