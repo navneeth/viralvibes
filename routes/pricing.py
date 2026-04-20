@@ -1,5 +1,7 @@
 """Pricing page — Free / Pro / Agency tiers."""
 
+from __future__ import annotations
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -357,9 +359,29 @@ def _bottom_cta() -> Div:
 # ---------------------------------------------------------------------------
 
 
-def pricing_page_content() -> Div:
+_ERROR_MESSAGES = {
+    "config": "Payment processing is not yet available. Please try again later or contact support.",
+    "stripe": "Something went wrong with payment processing. Please try again.",
+}
+
+
+def _error_banner(error: str) -> Alert | None:
+    """Return a MonsterUI Alert for checkout errors, or None if no error."""
+    msg = _ERROR_MESSAGES.get(error)
+    if not msg:
+        return None
+    return Alert(
+        UkIcon("alert-circle", cls="w-5 h-5 flex-shrink-0"),
+        P(msg, cls="text-sm"),
+        cls=(AlertT.error, "mb-8 flex items-center gap-3"),
+    )
+
+
+def pricing_page_content(error: str = "") -> Div:
     """Full pricing page body — passed directly to Titled() route handler."""
+    banner = _error_banner(error)
     return Div(
+        *([] if banner is None else [banner]),
         # ── Page header ────────────────────────────────────────────────────
         Div(
             P("Pricing", cls="text-sm font-semibold text-red-600 uppercase tracking-widest mb-3"),

@@ -125,6 +125,7 @@ def OneTapLoginCard(
     remembered_email: str = None,
     remembered_avatar: str = None,
     remembered_user_id: str = None,
+    subheadline: str = None,
 ):
     """
     Professional Google-only sign-in card.
@@ -138,6 +139,8 @@ def OneTapLoginCard(
         remembered_email: Last logged-in email (for account chooser)
         remembered_avatar: Avatar URL for returning user
         remembered_user_id: User ID for returning user
+        subheadline: Optional context message (e.g. "Sign in to start your Pro trial").
+                     Falls back to the default tagline when omitted.
 
     Features:
         - Centered elevation card
@@ -160,9 +163,9 @@ def OneTapLoginCard(
             "Welcome back" if remembered_email else "Sign in",
             cls="auth-headline",
         ),
-        # Subheadline
+        # Subheadline — caller can override for contextual messaging
         P(
-            "Analyze and discover top YouTube creators.",
+            subheadline or "Analyze and discover top YouTube creators.",
             cls="auth-subheadline",
         ),
         cls="auth-header",
