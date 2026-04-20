@@ -13,6 +13,7 @@ billing_portal          GET  /billing/portal          — open Customer Portal �
 
 import logging
 from typing import Optional, Union
+from urllib.parse import urlencode
 
 import stripe
 from fasthtml.common import *
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 async def _do_checkout(sess, plan: str, interval: str) -> Response:
     """Core Stripe session creation — caller must have already verified auth."""
     user_id: str = sess.get("user_id")
+    assert user_id, "_do_checkout called without an authenticated user_id in session"
     price_id = get_price_for_plan(plan, interval)
     if not price_id:
         logger.error(
@@ -74,6 +76,14 @@ def _checkout_login_subheadline(plan: str, interval: str) -> str:
     return f"Sign in to start your 7-day {label} trial ({billing} billing)"
 
 
+def _redirect_to_login(sess, plan: str, interval: str) -> Response:
+    """Store plan context in session and redirect unauthenticated users to /login."""
+    qs = urlencode({"plan": plan, "interval": interval})
+    sess["intended_url"] = f"/billing/checkout/begin?{qs}"
+    sess["login_context"] = _checkout_login_subheadline(plan, interval)
+    return RedirectResponse("/login", status_code=303)
+
+
 async def billing_checkout(req, sess) -> Response:
     """POST /billing/checkout — create Checkout session → redirect to Stripe."""
     form = await req.form()
@@ -81,10 +91,7 @@ async def billing_checkout(req, sess) -> Response:
     interval: str = form.get("interval", "year")
 
     if not sess.get("auth") or not sess.get("user_id"):
-        # Preserve plan context so the auth callback can complete checkout
-        sess["intended_url"] = f"/billing/checkout/begin?plan={plan}&interval={interval}"
-        sess["login_context"] = _checkout_login_subheadline(plan, interval)
-        return RedirectResponse("/login", status_code=303)
+        return _redirect_to_login(sess, plan, interval)
 
     return await _do_checkout(sess, plan, interval)
 
@@ -92,9 +99,7 @@ async def billing_checkout(req, sess) -> Response:
 async def billing_checkout_begin(req, sess, plan: str = "pro", interval: str = "year") -> Response:
     """GET /billing/checkout/begin — resume checkout after login redirects back with plan context."""
     if not sess.get("auth") or not sess.get("user_id"):
-        sess["intended_url"] = f"/billing/checkout/begin?plan={plan}&interval={interval}"
-        sess["login_context"] = _checkout_login_subheadline(plan, interval)
-        return RedirectResponse("/login", status_code=303)
+        return _redirect_to_login(sess, plan, interval)
 
     return await _do_checkout(sess, plan, interval)
 
