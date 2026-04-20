@@ -11,6 +11,8 @@ billing_success_content GET  /billing/success         — verify session_id, ret
 billing_portal          GET  /billing/portal          — open Customer Portal → redirect to Stripe
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional, Union
 from urllib.parse import urlencode

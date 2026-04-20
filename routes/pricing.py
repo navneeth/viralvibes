@@ -1,5 +1,7 @@
 """Pricing page — Free / Pro / Agency tiers."""
 
+from __future__ import annotations
+
 from fasthtml.common import *
 from monsterui.all import *
 
