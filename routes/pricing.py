@@ -85,9 +85,15 @@ def _feature(text: str, bold: bool = False, color: str = "green") -> Li:
 # ---------------------------------------------------------------------------
 
 
-def _free_card(is_authenticated: bool = False) -> Div:
-    cta_href = "/creators" if is_authenticated else "/login"
-    cta_label = "Go to creators" if is_authenticated else "Get started free"
+def _free_cta_target(is_authenticated: bool) -> tuple[str, str]:
+    """Return (href, label) for the free-tier CTA based on auth state."""
+    if is_authenticated:
+        return "/creators", "Go to creators"
+    return "/login", "Get started free"
+
+
+def _free_card(is_authenticated: bool) -> Div:
+    cta_href, cta_label = _free_cta_target(is_authenticated)
     return Div(
         Div(
             P(
@@ -332,8 +338,8 @@ def _comparison_table() -> Div:
 # ---------------------------------------------------------------------------
 
 
-def _bottom_cta(is_authenticated: bool = False) -> Div:
-    cta_href = "/creators" if is_authenticated else "/login"
+def _bottom_cta(is_authenticated: bool) -> Div:
+    cta_href, _ = _free_cta_target(is_authenticated)
     cta_label = "Start browsing creators" if is_authenticated else "Get started free"
     return Div(
         P(
@@ -381,7 +387,7 @@ def _error_banner(error: str) -> Alert | None:
     )
 
 
-def pricing_page_content(error: str = "", is_authenticated: bool = False) -> Div:
+def pricing_page_content(error: str = "", *, is_authenticated: bool) -> Div:
     """Full pricing page body — passed directly to Titled() route handler."""
     banner = _error_banner(error)
     return Div(
