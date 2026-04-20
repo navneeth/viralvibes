@@ -1319,8 +1319,9 @@ def _render_filter_bar(
     # ═══════════════════════════════════════════════════════════════
     # 9. COUNT ACTIVE FILTERS
     # Includes search so the FAB badge correctly reflects a text-only search.
+    # Strip whitespace so "   " doesn't inflate the badge when the input is blank.
     # ═══════════════════════════════════════════════════════════════
-    active_filters = bool(search) + sum(
+    active_filters = bool(search and search.strip()) + sum(
         f != "all"
         for f in (
             grade_filter,
