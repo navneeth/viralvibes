@@ -103,7 +103,12 @@ from routes.creators import (
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
-from routes.stripe_checkout import billing_checkout, billing_success_content, billing_portal
+from routes.stripe_checkout import (
+    billing_checkout,
+    billing_checkout_begin,
+    billing_success_content,
+    billing_portal,
+)
 from services.plan_gate import gate_plan
 from routes.lists import (
     categories_explorer_route,
@@ -347,7 +352,10 @@ def login(req, sess):
     # clear any stale URLs so they get redirected to homepage after login
     normalize_intended_url(sess)
 
-    return build_auth_redirect_page(oauth, req, sess, return_url="/")
+    # Consume any contextual message set by a pre-auth redirect (e.g. checkout)
+    subheadline = sess.pop("login_context", None)
+
+    return build_auth_redirect_page(oauth, req, sess, return_url="/", subheadline=subheadline)
 
 
 @rt("/login/onetap")
@@ -1483,6 +1491,12 @@ async def checkout(req, sess):
     return await billing_checkout(req, sess)
 
 
+@rt("/billing/checkout/begin")
+async def checkout_begin(req, sess, plan: str = "pro", interval: str = "year"):
+    """Resume checkout after login — redirected here via intended_url."""
+    return await billing_checkout_begin(req, sess, plan=plan, interval=interval)
+
+
 @rt("/billing/success")
 def billing_success(req, sess, session_id: str = ""):
     """Post-checkout landing page — verifies from DB that subscription is active."""
@@ -1514,11 +1528,12 @@ async def webhook(req):
 @rt("/pricing")
 def pricing(req, sess):
     """Pricing page — public route."""
+    error = req.query_params.get("error", "")
     return Titled(
         "Pricing - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
-            pricing_page_content(),
+            pricing_page_content(error=error),
             footer(),
             cls=ContainerT.xl,
         ),

@@ -44,6 +44,7 @@ def build_onetap_login_page(
     sess=None,
     return_url: str = None,
     remembered_email: str = None,
+    subheadline: str = None,
 ):
     """Build One-Tap login page - NEW OPTIONAL ENHANCEMENT
 
@@ -56,6 +57,7 @@ def build_onetap_login_page(
         sess: Session object (for remembered email)
         return_url: URL to redirect after login
         remembered_email: Last logged-in email (optional)
+        subheadline: Optional context message shown under the headline.
 
     Returns:
         OneTapLoginCard component
@@ -88,6 +90,7 @@ def build_onetap_login_page(
         remembered_email=remembered_email,
         remembered_avatar=remembered_avatar,
         remembered_user_id=remembered_user_id,
+        subheadline=subheadline,
     )
 
 
@@ -150,6 +153,7 @@ def build_auth_redirect_page(
     sess=None,
     return_url: str = "/",
     use_new_ui: bool = None,
+    subheadline: str = None,
 ):
     """
     UNIFIED AUTH PAGE BUILDER - Single source of truth for login UI
@@ -163,6 +167,7 @@ def build_auth_redirect_page(
         sess: Session object (optional, for remembered user data)
         return_url: Where to redirect after login (default: "/")
         use_new_ui: Force UI choice (None = use env var, True/False = override)
+        subheadline: Optional context message (e.g. "Sign in to start your Pro trial").
 
     Returns:
         Full page with NavComponent + auth card (new UI) or button (old UI)
@@ -193,7 +198,9 @@ def build_auth_redirect_page(
     # Build the auth card/button
     if use_new_ui:
         # NEW: One-Tap Material Design card (full-page with centering)
-        auth_content = build_onetap_login_page(oauth, req, sess, final_return_url)
+        auth_content = build_onetap_login_page(
+            oauth, req, sess, final_return_url, subheadline=subheadline
+        )
 
         # Return full page: navbar + centered card
         # Don't use Container wrapper for new UI, let auth-container handle layout

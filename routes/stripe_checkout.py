@@ -5,9 +5,10 @@ Stripe checkout flow.
 All three handlers are called from main.py which owns the @rt decorators
 and wraps HTML responses with NavComponent / Titled.
 
-billing_checkout    POST /billing/checkout  — create Checkout session → redirect to Stripe
-billing_success_content  GET /billing/success   — verify session_id, return page content Div
-billing_portal      GET  /billing/portal    — open Customer Portal → redirect to Stripe
+billing_checkout        POST /billing/checkout        — create Checkout session → redirect to Stripe
+billing_checkout_begin  GET  /billing/checkout/begin  — resume checkout after login redirect
+billing_success_content GET  /billing/success         — verify session_id, return page content Div
+billing_portal          GET  /billing/portal          — open Customer Portal → redirect to Stripe
 """
 
 import logging
@@ -28,17 +29,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-async def billing_checkout(req, sess) -> Response:
-    """Create a Stripe Checkout session and redirect the user there."""
-    user_id: Optional[str] = sess.get("user_id")
-    auth = sess.get("auth")
-    if not auth or not user_id:
-        return RedirectResponse("/login", status_code=303)
-
-    form = await req.form()
-    plan: str = form.get("plan", "pro")
-    interval: str = form.get("interval", "year")
-
+async def _do_checkout(sess, plan: str, interval: str) -> Response:
+    """Core Stripe session creation — caller must have already verified auth."""
+    user_id: str = sess.get("user_id")
     price_id = get_price_for_plan(plan, interval)
     if not price_id:
         logger.error(
@@ -68,6 +61,41 @@ async def billing_checkout(req, sess) -> Response:
         return RedirectResponse("/pricing?error=stripe", status_code=303)
 
     return Redirect(session.url)
+
+
+_PLAN_LABELS = {"pro": "Pro", "agency": "Agency"}
+_INTERVAL_LABELS = {"year": "annual", "month": "monthly"}
+
+
+def _checkout_login_subheadline(plan: str, interval: str) -> str:
+    label = _PLAN_LABELS.get(plan, plan.capitalize())
+    billing = _INTERVAL_LABELS.get(interval, interval)
+    return f"Sign in to start your 7-day {label} trial ({billing} billing)"
+
+
+async def billing_checkout(req, sess) -> Response:
+    """POST /billing/checkout — create Checkout session → redirect to Stripe."""
+    form = await req.form()
+    plan: str = form.get("plan", "pro")
+    interval: str = form.get("interval", "year")
+
+    if not sess.get("auth") or not sess.get("user_id"):
+        # Preserve plan context so the auth callback can complete checkout
+        sess["intended_url"] = f"/billing/checkout/begin?plan={plan}&interval={interval}"
+        sess["login_context"] = _checkout_login_subheadline(plan, interval)
+        return RedirectResponse("/login", status_code=303)
+
+    return await _do_checkout(sess, plan, interval)
+
+
+async def billing_checkout_begin(req, sess, plan: str = "pro", interval: str = "year") -> Response:
+    """GET /billing/checkout/begin — resume checkout after login redirects back with plan context."""
+    if not sess.get("auth") or not sess.get("user_id"):
+        sess["intended_url"] = f"/billing/checkout/begin?plan={plan}&interval={interval}"
+        sess["login_context"] = _checkout_login_subheadline(plan, interval)
+        return RedirectResponse("/login", status_code=303)
+
+    return await _do_checkout(sess, plan, interval)
 
 
 # ---------------------------------------------------------------------------
