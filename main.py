@@ -1529,11 +1529,12 @@ async def webhook(req):
 def pricing(req, sess):
     """Pricing page — public route."""
     error = req.query_params.get("error", "")
+    is_authenticated = bool(sess.get("auth"))
     return Titled(
         "Pricing - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
-            pricing_page_content(error=error),
+            pricing_page_content(error=error, is_authenticated=is_authenticated),
             footer(),
             cls=ContainerT.xl,
         ),
