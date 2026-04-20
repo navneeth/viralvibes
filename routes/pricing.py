@@ -85,7 +85,9 @@ def _feature(text: str, bold: bool = False, color: str = "green") -> Li:
 # ---------------------------------------------------------------------------
 
 
-def _free_card() -> Div:
+def _free_card(is_authenticated: bool = False) -> Div:
+    cta_href = "/creators" if is_authenticated else "/login"
+    cta_label = "Go to creators" if is_authenticated else "Get started free"
     return Div(
         Div(
             P(
@@ -101,8 +103,8 @@ def _free_card() -> Div:
             cls="mb-6",
         ),
         A(
-            "Get started free",
-            href="/creators",
+            cta_label,
+            href=cta_href,
             cls=(
                 "block w-full text-center font-semibold text-sm py-2.5 mb-8 rounded-lg "
                 "border-2 border-border text-foreground hover:border-foreground transition-colors"
@@ -330,7 +332,9 @@ def _comparison_table() -> Div:
 # ---------------------------------------------------------------------------
 
 
-def _bottom_cta() -> Div:
+def _bottom_cta(is_authenticated: bool = False) -> Div:
+    cta_href = "/creators" if is_authenticated else "/login"
+    cta_label = "Start browsing creators" if is_authenticated else "Get started free"
     return Div(
         P(
             "Still deciding?",
@@ -346,8 +350,8 @@ def _bottom_cta() -> Div:
         ),
         A(
             UkIcon("arrow-right", cls="w-4 h-4"),
-            Span("Get started free"),
-            href="/login",
+            Span(cta_label),
+            href=cta_href,
             cls="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold transition-colors",
         ),
         cls="mt-20 bg-muted rounded-2xl px-8 py-10 text-center border border-border",
@@ -377,7 +381,7 @@ def _error_banner(error: str) -> Alert | None:
     )
 
 
-def pricing_page_content(error: str = "") -> Div:
+def pricing_page_content(error: str = "", is_authenticated: bool = False) -> Div:
     """Full pricing page body — passed directly to Titled() route handler."""
     banner = _error_banner(error)
     return Div(
@@ -400,7 +404,7 @@ def pricing_page_content(error: str = "") -> Div:
         # ── Pricing cards ─────────────────────────────────────────────────
         # items-start so the Pro card badge overflow doesn't clip siblings
         Div(
-            _free_card(),
+            _free_card(is_authenticated),
             _pro_card(),
             _agency_card(),
             cls="grid grid-cols-1 md:grid-cols-3 gap-8 items-start",
@@ -413,7 +417,7 @@ def pricing_page_content(error: str = "") -> Div:
         # ── Feature comparison table ──────────────────────────────────────
         _comparison_table(),
         # ── Bottom CTA ────────────────────────────────────────────────────
-        _bottom_cta(),
+        _bottom_cta(is_authenticated),
         # ── Billing toggle script ─────────────────────────────────────────
         _TOGGLE_SCRIPT,
         cls="max-w-5xl mx-auto px-4 py-24",
