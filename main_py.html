@@ -55,9 +55,9 @@
             </div>
         </aside>
         <h2>
-            <span class="text">523 statements &nbsp;</span>
+            <span class="text">524 statements &nbsp;</span>
             <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">0<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">523<span class="text"> missing</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">524<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">0<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="run_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-20 07:08 +0000
+            created at 2026-04-20 08:22 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1613,48 +1613,49 @@
     <p class="mis show_mis"><span class="n"><a id="t1529" href="#t1529">1529</a></span><span class="t"><span class="key">def</span> <span class="nam">pricing</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1530" href="#t1530">1530</a></span><span class="t">    <span class="str">"""Pricing page &#8212; public route."""</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1531" href="#t1531">1531</a></span><span class="t">    <span class="nam">error</span> <span class="op">=</span> <span class="nam">req</span><span class="op">.</span><span class="nam">query_params</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"error"</span><span class="op">,</span> <span class="str">""</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1532" href="#t1532">1532</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1533" href="#t1533">1533</a></span><span class="t">        <span class="str">"Pricing - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1534" href="#t1534">1534</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1535" href="#t1535">1535</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1536" href="#t1536">1536</a></span><span class="t">            <span class="nam">pricing_page_content</span><span class="op">(</span><span class="nam">error</span><span class="op">=</span><span class="nam">error</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1537" href="#t1537">1537</a></span><span class="t">            <span class="nam">footer</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1538" href="#t1538">1538</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="nam">ContainerT</span><span class="op">.</span><span class="nam">xl</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1539" href="#t1539">1539</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1540" href="#t1540">1540</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1541" href="#t1541">1541</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1532" href="#t1532">1532</a></span><span class="t">    <span class="nam">is_authenticated</span> <span class="op">=</span> <span class="nam">bool</span><span class="op">(</span><span class="nam">sess</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">"auth"</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1533" href="#t1533">1533</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1534" href="#t1534">1534</a></span><span class="t">        <span class="str">"Pricing - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1535" href="#t1535">1535</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1536" href="#t1536">1536</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1537" href="#t1537">1537</a></span><span class="t">            <span class="nam">pricing_page_content</span><span class="op">(</span><span class="nam">error</span><span class="op">=</span><span class="nam">error</span><span class="op">,</span> <span class="nam">is_authenticated</span><span class="op">=</span><span class="nam">is_authenticated</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1538" href="#t1538">1538</a></span><span class="t">            <span class="nam">footer</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1539" href="#t1539">1539</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="nam">ContainerT</span><span class="op">.</span><span class="nam">xl</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1540" href="#t1540">1540</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1541" href="#t1541">1541</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1542" href="#t1542">1542</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1543" href="#t1543">1543</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/terms"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1544" href="#t1544">1544</a></span><span class="t"><span class="key">def</span> <span class="nam">terms</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1545" href="#t1545">1545</a></span><span class="t">    <span class="str">"""Terms of Service &#8212; public route."""</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1546" href="#t1546">1546</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1547" href="#t1547">1547</a></span><span class="t">        <span class="str">"Terms of Service - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1548" href="#t1548">1548</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1549" href="#t1549">1549</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1550" href="#t1550">1550</a></span><span class="t">            <span class="nam">terms_page_content</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1551" href="#t1551">1551</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="nam">ContainerT</span><span class="op">.</span><span class="nam">xl</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1552" href="#t1552">1552</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1553" href="#t1553">1553</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1554" href="#t1554">1554</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1543" href="#t1543">1543</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1544" href="#t1544">1544</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/terms"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1545" href="#t1545">1545</a></span><span class="t"><span class="key">def</span> <span class="nam">terms</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1546" href="#t1546">1546</a></span><span class="t">    <span class="str">"""Terms of Service &#8212; public route."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1547" href="#t1547">1547</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1548" href="#t1548">1548</a></span><span class="t">        <span class="str">"Terms of Service - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1549" href="#t1549">1549</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1550" href="#t1550">1550</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1551" href="#t1551">1551</a></span><span class="t">            <span class="nam">terms_page_content</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1552" href="#t1552">1552</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="nam">ContainerT</span><span class="op">.</span><span class="nam">xl</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1553" href="#t1553">1553</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1554" href="#t1554">1554</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1555" href="#t1555">1555</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1556" href="#t1556">1556</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/privacy"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1557" href="#t1557">1557</a></span><span class="t"><span class="key">def</span> <span class="nam">privacy</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1558" href="#t1558">1558</a></span><span class="t">    <span class="str">"""Privacy Policy &#8212; public route."""</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1559" href="#t1559">1559</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1560" href="#t1560">1560</a></span><span class="t">        <span class="str">"Privacy Policy - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1561" href="#t1561">1561</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1562" href="#t1562">1562</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1563" href="#t1563">1563</a></span><span class="t">            <span class="nam">privacy_page_content</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1564" href="#t1564">1564</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="nam">ContainerT</span><span class="op">.</span><span class="nam">xl</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1565" href="#t1565">1565</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1566" href="#t1566">1566</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1567" href="#t1567">1567</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1556" href="#t1556">1556</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1557" href="#t1557">1557</a></span><span class="t"><span class="op">@</span><span class="nam">rt</span><span class="op">(</span><span class="str">"/privacy"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1558" href="#t1558">1558</a></span><span class="t"><span class="key">def</span> <span class="nam">privacy</span><span class="op">(</span><span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1559" href="#t1559">1559</a></span><span class="t">    <span class="str">"""Privacy Policy &#8212; public route."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1560" href="#t1560">1560</a></span><span class="t">    <span class="key">return</span> <span class="nam">Titled</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1561" href="#t1561">1561</a></span><span class="t">        <span class="str">"Privacy Policy - ViralVibes"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1562" href="#t1562">1562</a></span><span class="t">        <span class="nam">Container</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1563" href="#t1563">1563</a></span><span class="t">            <span class="nam">NavComponent</span><span class="op">(</span><span class="nam">oauth</span><span class="op">,</span> <span class="nam">req</span><span class="op">,</span> <span class="nam">sess</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1564" href="#t1564">1564</a></span><span class="t">            <span class="nam">privacy_page_content</span><span class="op">(</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1565" href="#t1565">1565</a></span><span class="t">            <span class="nam">cls</span><span class="op">=</span><span class="nam">ContainerT</span><span class="op">.</span><span class="nam">xl</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1566" href="#t1566">1566</a></span><span class="t">        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1567" href="#t1567">1567</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1568" href="#t1568">1568</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1569" href="#t1569">1569</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1570" href="#t1570">1570</a></span><span class="t"><span class="com"># Run the app</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1571" href="#t1571">1571</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t1572" href="#t1572">1572</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1573" href="#t1573">1573</a></span><span class="t"><span class="nam">serve</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1569" href="#t1569">1569</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1570" href="#t1570">1570</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1571" href="#t1571">1571</a></span><span class="t"><span class="com"># Run the app</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1572" href="#t1572">1572</a></span><span class="t"><span class="com"># ============================================================================</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1573" href="#t1573">1573</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1574" href="#t1574">1574</a></span><span class="t"><span class="nam">serve</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -1664,7 +1665,7 @@
             <a class="nav" href="run_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-04-20 07:08 +0000
+            created at 2026-04-20 08:22 +0000
         </p>
     </div>
 </footer>
