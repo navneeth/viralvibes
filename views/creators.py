@@ -1463,7 +1463,7 @@ def _render_creators_grid(creators: list[dict], favourite_ids: set[str] | None =
             _render_creator_card(creator, is_favourited=safe_get_value(creator, "id", "") in _favs)
             for creator in creators
         ],
-        cls="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 items-start",
+        cls="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5",
     )
 
 
