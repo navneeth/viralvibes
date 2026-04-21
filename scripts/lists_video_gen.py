@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-tools/list_video.py — Export viralvibes.fyi/lists as an MP4.
+scripts/lists_video_gen.py — Ranking card video (Pillow + FFmpeg, v1).
 
-Fetches the top-N creators from your existing `creators` table,
-renders each as a styled frame with Pillow, then encodes to H.264
-via FFmpeg. No Manim. No time-series. No animation complexity.
+Exports any ViralVibes creator list as a 1920×1080 MP4, matching the data
+shown on viralvibes.fyi/lists.  All rows appear at once; subscriber bars grow
+from 0 → full over one second, then the card holds for HOLD_SECS seconds
+(handled by FFmpeg tpad — no duplicate frames in Python).
 
 Usage:
-    python tools/list_video.py --list top-rated --top-n 20 --output out/list.mp4
-    python tools/list_video.py --list rising-stars --audio music.mp3
-    python tools/list_video.py --list by-category --category Gaming
+    python scripts/lists_video_gen.py                             # top-rated
+    python scripts/lists_video_gen.py --list rising-stars
+    python scripts/lists_video_gen.py --list most-active
+    python scripts/lists_video_gen.py --list veteran
+    python scripts/lists_video_gen.py --list by-category --category Gaming
+    python scripts/lists_video_gen.py --list by-country  --country US
+    python scripts/lists_video_gen.py --all               # all six base lists
+    python scripts/lists_video_gen.py --list top-rated --audio music.mp3
 
 Reads NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_KEY from .env.
+Requires: Pillow, requests, python-dotenv, FFmpeg on PATH.
 """
 
 from __future__ import annotations
@@ -23,132 +30,201 @@ import logging
 import os
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable
 
 import requests
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
-from supabase import Client, create_client
+from PIL import Image, ImageDraw, ImageFont
 
 load_dotenv()
-logger = logging.getLogger("list_video")
+logger = logging.getLogger(__name__)
 
-# ── Video constants ────────────────────────────────────────────────────────────
+# ── Video params ─────────────────────────────────────────────────────────────
 W, H = 1920, 1080
 FPS = 30
-HOLD_SECS = 5  # seconds to show the full list card
-REVEAL_SECS = 0.6  # seconds to slide in each row (staggered)
+BAR_FRAMES = FPS  # frames to animate bars 0 → full (~1 second)
+HOLD_SECS = 5  # hold card via FFmpeg tpad (no Python duplicate frames)
 
-# ── Palette (editorial dark theme matching viralvibes.fyi) ────────────────────
-BG = (8, 8, 8)  # #080808
-SURFACE = (18, 18, 22)  # card background
-ACCENT = (255, 69, 0)  # #FF4500 orange
-CYAN = (0, 200, 255)  # #00C8FF
-CREAM = (245, 240, 232)  # text primary
-MUTED = (107, 107, 107)  # text secondary
-BAR_BG = (30, 30, 36)  # bar track
-RANK_COLORS = [
-    (255, 215, 0),  # gold   — rank 1
-    (192, 192, 192),  # silver — rank 2
-    (205, 127, 50),  # bronze — rank 3
-]
+# ── Palette (matches viralvibes.fyi dark theme) ──────────────────────────────
+BG = (8, 8, 8)
+ACCENT = (255, 69, 0)
+CYAN = (0, 200, 255)
+CREAM = (245, 240, 232)
+MUTED = (107, 107, 107)
+BAR_BG = (30, 30, 36)
+RANK_COLORS = [(255, 215, 0), (192, 192, 192), (205, 127, 50)]  # gold/silver/bronze
 
-# ── Layout ─────────────────────────────────────────────────────────────────────
+# ── Layout ───────────────────────────────────────────────────────────────────
 MARGIN_X = 80
-TOP_BAND = 120  # height of title band
+HEADER_H = 120
 ROW_H = 64
-ROW_GAP = 8
+ROW_GAP = 6
 AVATAR_SIZE = 48
+BAR_X = W - 560  # left edge of subscriber bar
+BAR_W_MAX = 280  # max bar pixel width
+METRIC_X = W - 250  # right-side metric column x
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data
+# Per-list configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ListSpec:
+    name: str  # CLI identifier
+    label: str  # video header label (may be overridden at runtime)
+    col_header: str  # right column header text
+    metric_key: str  # creator dict key for the right-side metric
+    metric_fmt: str  # "pct" | "count" | "age"
+
+
+LISTS: dict[str, ListSpec] = {
+    "top-rated": ListSpec(
+        "top-rated",
+        "Top Rated Creators",
+        "ENG RATE",
+        "engagement_score",
+        "pct",
+    ),
+    "rising-stars": ListSpec(
+        "rising-stars",
+        "Rising Stars — 30-Day Growth",
+        "GROWTH %",
+        "_growth_rate",
+        "pct",
+    ),
+    "most-active": ListSpec(
+        "most-active",
+        "Most Active Creators",
+        "UPLOADS/MO",
+        "monthly_uploads",
+        "count",
+    ),
+    "veteran": ListSpec(
+        "veteran",
+        "Veteran Creators (10+ years)",
+        "AGE (YRS)",
+        "channel_age_days",
+        "age",
+    ),
+    "by-category": ListSpec(
+        "by-category",
+        "Top by Category",
+        "ENG RATE",
+        "engagement_score",
+        "pct",
+    ),
+    "by-country": ListSpec(
+        "by-country",
+        "Top by Country",
+        "ENG RATE",
+        "engagement_score",
+        "pct",
+    ),
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data layer
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass
-class Creator:
+class Row:
     rank: int
     channel_name: str
     subscribers: int
-    view_count: int
-    engagement: float
+    metric: str  # pre-formatted display string for right column
+    metric_color: tuple  # RGB colour for metric text
     category: str
     country: str
     thumbnail_url: str
 
 
-LIST_QUERIES = {
-    "top-rated": {
-        "label": "Top Rated Creators",
-        "order": "engagement_score",
-    },
-    "rising-stars": {
-        "label": "Rising Stars",
-        "order": "subscriber_growth_30d",
-    },
-    "by-category": {
-        "label": "Top by Category",
-        "order": "current_subscribers",
-    },
-}
+def _format_metric(spec: ListSpec, raw: dict) -> tuple[str, tuple]:
+    """Return (display_string, rgb_colour) for the right-side metric."""
+    value = raw.get(spec.metric_key)
+    if value is None:
+        return "—", MUTED
+
+    if spec.metric_fmt == "pct":
+        v = float(value)
+        color = (80, 220, 100) if v >= 5.0 else (255, 200, 0) if v >= 2.0 else MUTED
+        return f"{v:.1f}%", color
+
+    if spec.metric_fmt == "count":
+        v = float(value)
+        color = (80, 200, 255) if v >= 10 else CREAM
+        return _fmt(int(v)), color
+
+    if spec.metric_fmt == "age":
+        years = int(float(value)) // 365
+        color = (255, 215, 0) if years >= 15 else CREAM
+        return f"{years}y", color
+
+    return str(value), MUTED
 
 
-def fetch_creators(
-    db: Client,
-    list_name: str,
-    top_n: int,
-    category: Optional[str],
-) -> tuple[list[Creator], str]:
-    """
-    Pull creators from Supabase. Returns (creators, display_label).
-    """
-    cfg = LIST_QUERIES.get(list_name, LIST_QUERIES["top-rated"])
-    order_col = cfg["order"]
-    label = cfg["label"]
-    if category:
-        label = f"{label} · {category}"
-
-    q = (
-        db.table("creators")
-        .select(
-            "channel_name, current_subscribers, current_view_count, "
-            "engagement_score, primary_category, country_code, "
-            "channel_thumbnail_url, subscriber_growth_30d"
-        )
-        .eq("sync_status", "synced")
-        .gt("current_subscribers", 0)
+def _to_row(rank: int, raw: dict, spec: ListSpec) -> Row:
+    metric_str, metric_color = _format_metric(spec, raw)
+    return Row(
+        rank=rank,
+        channel_name=raw.get("channel_name") or "Unknown",
+        subscribers=int(raw.get("current_subscribers") or 0),
+        metric=metric_str,
+        metric_color=metric_color,
+        category=raw.get("primary_category") or "",
+        country=raw.get("country_code") or "",
+        thumbnail_url=raw.get("channel_thumbnail_url") or "",
     )
-    if category:
-        q = q.eq("primary_category", category)
-    if order_col in ("engagement_score", "subscriber_growth_30d"):
-        q = q.not_.is_(order_col, "null")
 
-    resp = q.order(order_col, desc=True).limit(top_n).execute()
 
-    creators = []
-    for i, row in enumerate(resp.data or [], start=1):
-        creators.append(
-            Creator(
-                rank=i,
-                channel_name=row.get("channel_name") or "Unknown",
-                subscribers=int(row.get("current_subscribers") or 0),
-                view_count=int(row.get("current_view_count") or 0),
-                engagement=float(row.get("engagement_score") or 0.0),
-                category=row.get("primary_category") or "",
-                country=row.get("country_code") or "",
-                thumbnail_url=row.get("channel_thumbnail_url") or "",
-            )
-        )
+def fetch_list(
+    spec: ListSpec,
+    top_n: int,
+    category: str | None = None,
+    country: str | None = None,
+) -> tuple[list[Row], str]:
+    """
+    Pull data via db_lists (same source as the /lists page).
+    Returns (rows, video_label).
+    """
+    # Import after db.init_supabase() has been called in main().
+    from db_lists import (
+        get_creators_by_category,
+        get_creators_by_country,
+        get_most_active_creators,
+        get_rising_creators,
+        get_top_rated_creators,
+        get_veteran_creators,
+    )
 
-    if not creators:
-        raise RuntimeError(f"No creators found for list '{list_name}' category='{category}'")
+    fetchers: dict[str, Callable] = {
+        "top-rated": lambda: get_top_rated_creators(top_n),
+        "rising-stars": lambda: get_rising_creators(top_n),
+        "most-active": lambda: get_most_active_creators(top_n),
+        "veteran": lambda: get_veteran_creators(top_n),
+        "by-category": lambda: get_creators_by_category(category or "", top_n),
+        "by-country": lambda: get_creators_by_country(country or "", top_n),
+    }
 
-    logger.info("Fetched %d creators for '%s'", len(creators), label)
-    return creators, label
+    raw_rows = fetchers[spec.name]()
+    if not raw_rows:
+        raise RuntimeError(f"No creators returned for list '{spec.name}'")
+
+    rows = [_to_row(i, r, spec) for i, r in enumerate(raw_rows, start=1)]
+
+    label = spec.label
+    if spec.name == "by-category" and category:
+        label = f"Top in {category}"
+    elif spec.name == "by-country" and country:
+        label = f"Top in {country.upper()}"
+
+    logger.info("Fetched %d rows for '%s'", len(rows), label)
+    return rows, label
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,32 +233,29 @@ def fetch_creators(
 
 
 class Avatars:
-    def __init__(self, cache_dir: Path):
+    """Downloads, circle-crops, and disk-caches creator thumbnails."""
+
+    def __init__(self, cache_dir: Path) -> None:
         self._dir = cache_dir
         self._dir.mkdir(parents=True, exist_ok=True)
 
-    def get(self, url: str, size: int = AVATAR_SIZE) -> Image.Image:
+    def get(self, url: str) -> Image.Image | None:
         if not url:
-            return self._placeholder(size)
+            return None
         path = self._dir / f"{hashlib.md5(url.encode()).hexdigest()}.png"
         if not path.exists():
             try:
                 r = requests.get(url, timeout=6)
                 r.raise_for_status()
                 img = Image.open(io.BytesIO(r.content)).convert("RGBA")
-                img = _circle_crop(img, size)
-                img.save(path)
-            except Exception as e:
-                logger.debug("Avatar fetch failed %s: %s", url, e)
-                return self._placeholder(size)
-        return Image.open(path).convert("RGBA")
-
-    @staticmethod
-    def _placeholder(size: int) -> Image.Image:
-        img = Image.new("RGBA", (size, size), (40, 40, 50, 220))
-        draw = ImageDraw.Draw(img)
-        draw.ellipse((1, 1, size - 2, size - 2), outline=(*MUTED, 180), width=2)
-        return img
+                _circle_crop(img, AVATAR_SIZE).save(path)
+            except Exception as exc:
+                logger.debug("Avatar fetch failed %s: %s", url, exc)
+                return None
+        try:
+            return Image.open(path).convert("RGBA")
+        except Exception:
+            return None
 
 
 def _circle_crop(img: Image.Image, size: int) -> Image.Image:
@@ -194,23 +267,25 @@ def _circle_crop(img: Image.Image, size: int) -> Image.Image:
     return out
 
 
-def _load_font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    """Try system fonts by name; fall back to default."""
+def _load_font(weight: str, size: int) -> ImageFont.ImageFont:
     candidates = {
         "bold": [
+            "C:/Windows/Fonts/arialbd.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         ],
         "regular": [
+            "C:/Windows/Fonts/arial.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         ],
         "mono": [
+            "C:/Windows/Fonts/cour.ttf",
             "/System/Library/Fonts/Menlo.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
         ],
     }
-    for path in candidates.get(name, candidates["regular"]):
+    for path in candidates.get(weight, candidates["regular"]):
         if Path(path).exists():
             return ImageFont.truetype(path, size)
     return ImageFont.load_default()
@@ -218,9 +293,9 @@ def _load_font(name: str, size: int) -> ImageFont.FreeTypeFont:
 
 def _fmt(n: int) -> str:
     if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
+        return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n/1_000:.0f}K"
+        return f"{n / 1_000:.0f}K"
     return str(n)
 
 
@@ -231,236 +306,171 @@ def _fmt(n: int) -> str:
 
 class FrameRenderer:
     """
-    Renders all frames as PIL Images.
-    Returns a generator of (frame_index, Image) — caller pipes to FFmpeg.
+    Renders a ranking card with a simple bar-grow animation.
+
+    Phase 1 — BAR_FRAMES: all rows visible; subscriber bars grow 0 → full.
+    Phase 2 — hold: delegated to FFmpeg tpad (no Python duplicate frames).
     """
 
-    def __init__(self, creators: list[Creator], label: str, avatars: Avatars):
-        self.creators = creators
+    def __init__(
+        self,
+        rows: list[Row],
+        label: str,
+        col_header: str,
+        avatars: Avatars,
+    ) -> None:
+        self.rows = rows
         self.label = label
-        self.avatars = avatars
+        self.col_header = col_header
 
-        self.font_xl = _load_font("bold", 52)
-        self.font_lg = _load_font("bold", 28)
-        self.font_md = _load_font("regular", 22)
-        self.font_sm = _load_font("regular", 17)
-        self.font_mono = _load_font("mono", 20)
-        self.font_rank = _load_font("bold", 20)
+        self.f_bold = _load_font("bold", 26)
+        self.f_title = _load_font("bold", 30)
+        self.f_reg = _load_font("regular", 20)
+        self.f_sm = _load_font("regular", 16)
+        self.f_mono = _load_font("mono", 20)
+        self.f_rank = _load_font("bold", 18)
 
-        # Pre-fetch avatars
-        logger.info("Downloading avatars...")
-        self._avatars = {c.channel_name: avatars.get(c.thumbnail_url) for c in creators}
+        logger.info("Downloading %d avatars …", len(rows))
+        self._avatars: dict[str, Image.Image | None] = {
+            r.channel_name: avatars.get(r.thumbnail_url) for r in rows
+        }
+        self._max_subs = max((r.subscribers for r in rows), default=1) or 1
 
-        # Max subscribers for bar scaling
-        self._max_subs = max(c.subscribers for c in creators) or 1
-
-    # ── Layout helpers ─────────────────────────────────────────────────────
-
-    def _row_y(self, idx: int) -> int:
-        """Y coordinate of row `idx` (0-based)."""
-        return TOP_BAND + MARGIN_X // 2 + idx * (ROW_H + ROW_GAP)
+    # ── per-frame helpers ──────────────────────────────────────────────────
 
     def _canvas(self) -> Image.Image:
         img = Image.new("RGB", (W, H), BG)
-        # subtle grid texture
-        draw = ImageDraw.Draw(img)
+        d = ImageDraw.Draw(img)
         for x in range(0, W, 60):
-            draw.line([(x, 0), (x, H)], fill=(20, 20, 24), width=1)
+            d.line([(x, 0), (x, H)], fill=(20, 20, 24))
         for y in range(0, H, 60):
-            draw.line([(0, y), (W, y)], fill=(20, 20, 24), width=1)
+            d.line([(0, y), (W, y)], fill=(20, 20, 24))
         return img
 
-    def _draw_header(self, draw: ImageDraw.Draw, img: Image.Image) -> None:
-        # Orange accent bar at very top
-        draw.rectangle([(0, 0), (W, 4)], fill=ACCENT)
+    def _draw_header(self, d: ImageDraw.Draw) -> None:
+        d.rectangle([(0, 0), (W, 4)], fill=ACCENT)
 
-        # Title
-        draw.text((MARGIN_X, 24), "ViralVibes.fyi", font=self.font_lg, fill=ACCENT)
-        title_w = draw.textlength("ViralVibes.fyi", font=self.font_lg)
-        draw.text((MARGIN_X + title_w + 24, 30), "·", font=self.font_md, fill=MUTED)
-        draw.text((MARGIN_X + title_w + 44, 26), self.label, font=self.font_md, fill=CREAM)
+        brand = "ViralVibes.fyi"
+        d.text((MARGIN_X, 22), brand, font=self.f_bold, fill=ACCENT)
+        bw = int(d.textlength(brand, font=self.f_bold))
+        d.text((MARGIN_X + bw + 18, 26), "·", font=self.f_reg, fill=MUTED)
+        d.text((MARGIN_X + bw + 36, 22), self.label, font=self.f_reg, fill=CREAM)
 
-        # Column headers
-        header_y = TOP_BAND - 24
-        draw.text((MARGIN_X + 90, header_y), "CREATOR", font=self.font_sm, fill=(*MUTED,))
-        draw.text((W - 520, header_y), "SUBSCRIBERS", font=self.font_sm, fill=(*MUTED,))
-        draw.text((W - 340, header_y), "ENG RATE", font=self.font_sm, fill=(*MUTED,))
-        draw.text((W - 190, header_y), "COUNTRY", font=self.font_sm, fill=(*MUTED,))
+        hy = HEADER_H - 24
+        d.text((MARGIN_X + 116, hy), "CREATOR", font=self.f_sm, fill=MUTED)
+        d.text((BAR_X, hy), "SUBSCRIBERS", font=self.f_sm, fill=MUTED)
+        d.text((METRIC_X, hy), self.col_header, font=self.f_sm, fill=MUTED)
+        cw = int(d.textlength("COUNTRY", font=self.f_sm))
+        d.text((W - MARGIN_X - cw, hy), "COUNTRY", font=self.f_sm, fill=MUTED)
 
-        # Separator
-        draw.line(
-            [(MARGIN_X, TOP_BAND - 4), (W - MARGIN_X, TOP_BAND - 4)], fill=(*MUTED, 60), width=1
-        )
+        d.line([(MARGIN_X, HEADER_H - 4), (W - MARGIN_X, HEADER_H - 4)], fill=(*MUTED, 60), width=1)
 
     def _draw_row(
         self,
         img: Image.Image,
-        draw: ImageDraw.Draw,
-        creator: Creator,
-        row_idx: int,
-        alpha: float = 1.0,  # 0→1 reveal progress
+        d: ImageDraw.Draw,
+        row: Row,
+        idx: int,
+        t: float,
     ) -> None:
-        y = self._row_y(row_idx)
+        """Draw one creator row. t ∈ (0, 1] drives bar fill."""
+        y = HEADER_H + 10 + idx * (ROW_H + ROW_GAP)
         cx = MARGIN_X
 
-        # Row highlight on even rows
-        if row_idx % 2 == 0:
-            draw.rectangle(
-                [(cx, y - 4), (W - cx, y + ROW_H - 4)],
-                fill=(25, 25, 30),
-            )
+        # Alternating row background
+        if idx % 2 == 0:
+            d.rectangle([(cx, y - 2), (W - cx, y + ROW_H - 2)], fill=(22, 22, 28))
 
-        # ── Rank ────────────────────────────────────────────────────────────
-        rank_color = RANK_COLORS[creator.rank - 1] if creator.rank <= 3 else MUTED
-        draw.text(
-            (cx, y + (ROW_H - 24) // 2),
-            f"#{creator.rank:02d}",
-            font=self.font_rank,
-            fill=rank_color,
-        )
-        cx += 58
+        # ── rank badge ──────────────────────────────────────────────────────
+        rank_color = RANK_COLORS[row.rank - 1] if row.rank <= 3 else MUTED
+        d.text((cx, y + (ROW_H - 18) // 2), f"#{row.rank:02d}", font=self.f_rank, fill=rank_color)
+        cx += 56
 
-        # ── Avatar ──────────────────────────────────────────────────────────
-        av = self._avatars.get(creator.channel_name)
+        # ── avatar ──────────────────────────────────────────────────────────
+        av = self._avatars.get(row.channel_name)
+        av_y = y + (ROW_H - AVATAR_SIZE) // 2
         if av:
-            if alpha < 1.0:
-                # fade in
-                faded = av.copy()
-                faded.putalpha(int(255 * alpha))
-                img.paste(faded, (cx, y + (ROW_H - AVATAR_SIZE) // 2), faded)
-            else:
-                img.paste(av, (cx, y + (ROW_H - AVATAR_SIZE) // 2), av)
-        cx += AVATAR_SIZE + 16
-
-        # ── Name ────────────────────────────────────────────────────────────
-        name = creator.channel_name[:28]
-        draw.text((cx, y + (ROW_H - 28) // 2), name, font=self.font_lg, fill=CREAM)
-
-        # Category pill
-        if creator.category:
-            pill_x = cx
-            pill_y = y + ROW_H - 20
-            draw.text((pill_x, pill_y), creator.category[:20], font=self.font_sm, fill=(*CYAN,))
-
-        # ── Subscriber bar + value ───────────────────────────────────────────
-        bar_x = W - 540
-        bar_y = y + (ROW_H - 12) // 2
-        bar_total = 280
-        bar_fill = int(bar_total * creator.subscribers / self._max_subs * alpha)
-
-        draw.rectangle([(bar_x, bar_y), (bar_x + bar_total, bar_y + 12)], fill=BAR_BG)
-        if bar_fill > 0:
-            draw.rectangle(
-                [(bar_x, bar_y), (bar_x + bar_fill, bar_y + 12)],
-                fill=ACCENT if creator.rank == 1 else (*ACCENT[:2], 180),
+            img.paste(av, (cx, av_y), av)
+        else:
+            d.ellipse(
+                [(cx, av_y), (cx + AVATAR_SIZE, av_y + AVATAR_SIZE)],
+                fill=(35, 35, 45),
+                outline=(*MUTED, 100),
             )
+        cx += AVATAR_SIZE + 14
 
-        draw.text(
-            (bar_x + bar_total + 12, y + (ROW_H - 22) // 2),
-            _fmt(creator.subscribers),
-            font=self.font_mono,
+        # ── name + category tag ─────────────────────────────────────────────
+        d.text((cx, y + 10), row.channel_name[:28], font=self.f_bold, fill=CREAM)
+        if row.category:
+            d.text((cx, y + 38), row.category[:26], font=self.f_sm, fill=(*CYAN,))
+
+        # ── subscriber bar (grows with t) ───────────────────────────────────
+        bar_fill = int(BAR_W_MAX * row.subscribers / self._max_subs * t)
+        d.rectangle([(BAR_X, y + 24), (BAR_X + BAR_W_MAX, y + 36)], fill=BAR_BG)
+        if bar_fill > 0:
+            bar_color = ACCENT if row.rank == 1 else (200, 55, 0)
+            d.rectangle([(BAR_X, y + 24), (BAR_X + bar_fill, y + 36)], fill=bar_color)
+        d.text(
+            (BAR_X + BAR_W_MAX + 10, y + (ROW_H - 20) // 2),
+            _fmt(row.subscribers),
+            font=self.f_mono,
             fill=CREAM,
         )
 
-        # ── Engagement ──────────────────────────────────────────────────────
-        eng_color = (
-            (80, 220, 100)
-            if creator.engagement >= 5.0
-            else (255, 200, 0) if creator.engagement >= 2.0 else MUTED
-        )
-        draw.text(
-            (W - 340, y + (ROW_H - 22) // 2),
-            f"{creator.engagement:.1f}%",
-            font=self.font_mono,
-            fill=eng_color,
+        # ── right-side metric ───────────────────────────────────────────────
+        d.text(
+            (METRIC_X, y + (ROW_H - 20) // 2), row.metric, font=self.f_mono, fill=row.metric_color
         )
 
-        # ── Country ─────────────────────────────────────────────────────────
-        draw.text(
-            (W - 190, y + (ROW_H - 22) // 2),
-            creator.country or "—",
-            font=self.font_mono,
-            fill=MUTED,
-        )
+        # ── country code ────────────────────────────────────────────────────
+        if row.country:
+            cw = int(d.textlength(row.country, font=self.f_mono))
+            d.text(
+                (W - MARGIN_X - cw, y + (ROW_H - 20) // 2),
+                row.country,
+                font=self.f_mono,
+                fill=MUTED,
+            )
 
-    def _draw_footer(self, draw: ImageDraw.Draw) -> None:
-        draw.line([(MARGIN_X, H - 52), (W - MARGIN_X, H - 52)], fill=(*MUTED, 40), width=1)
-        draw.text(
-            (MARGIN_X, H - 40),
+    def _draw_footer(self, d: ImageDraw.Draw) -> None:
+        d.line([(MARGIN_X, H - 50), (W - MARGIN_X, H - 50)], fill=(*MUTED, 40))
+        d.text(
+            (MARGIN_X, H - 38),
             "viralvibes.fyi  ·  Creator Intelligence Platform",
-            font=self.font_sm,
-            fill=(*MUTED, 180),
+            font=self.f_sm,
+            fill=(*MUTED, 160),
         )
-        draw.text(
-            (W - MARGIN_X - 280, H - 40),
-            "Data updated daily  ·  Public sources only",
-            font=self.font_sm,
-            fill=(*MUTED, 120),
-        )
-        # Bottom accent line
-        draw.rectangle([(0, H - 4), (W, H)], fill=ACCENT)
+        rtext = "Data updated daily  ·  Public sources only"
+        rw = int(d.textlength(rtext, font=self.f_sm))
+        d.text((W - MARGIN_X - rw, H - 38), rtext, font=self.f_sm, fill=(*MUTED, 110))
+        d.rectangle([(0, H - 4), (W, H)], fill=ACCENT)
 
-    # ── Frame generation ───────────────────────────────────────────────────
-
-    def render_frames(self) -> list[Image.Image]:
-        """
-        Returns the list of unique frames.
-        Each frame is a full 1920×1080 PIL Image.
-        FFmpeg will be told to duplicate them to fill hold time.
-        """
-        total_rows = len(self.creators)
-        reveal_frames = int(FPS * REVEAL_SECS)
-        hold_frames = int(FPS * HOLD_SECS)
-
-        frames: list[Image.Image] = []
-
-        # Phase 1: staggered row reveal
-        # Each row slides in over `reveal_frames` frames,
-        # staggered by half a reveal window per row.
-        stagger = max(1, reveal_frames // 2)
-        total_reveal = reveal_frames + stagger * (total_rows - 1)
-
-        for f in range(total_reveal):
+    def render_frames(self):
+        """Yield 1920×1080 PIL Images; bars grow 0 → full over BAR_FRAMES frames."""
+        for f in range(BAR_FRAMES):
+            t = (f + 1) / BAR_FRAMES  # 1/30 … 30/30  (never 0)
             img = self._canvas()
-            draw = ImageDraw.Draw(img)
-            self._draw_header(draw, img)
-
-            for i, creator in enumerate(self.creators):
-                row_start = i * stagger
-                row_end = row_start + reveal_frames
-                if f < row_start:
-                    alpha = 0.0
-                elif f >= row_end:
-                    alpha = 1.0
-                else:
-                    alpha = (f - row_start) / reveal_frames
-
-                if alpha > 0:
-                    self._draw_row(img, draw, creator, i, alpha)
-
-            self._draw_footer(draw)
-            frames.append(img)
-
-        # Phase 2: hold final frame
-        final = frames[-1].copy()
-        for _ in range(hold_frames):
-            frames.append(final)
-
-        logger.info("Generated %d frames", len(frames))
-        return frames
+            d = ImageDraw.Draw(img)
+            self._draw_header(d)
+            for idx, row in enumerate(self.rows):
+                self._draw_row(img, d, row, idx, t)
+            self._draw_footer(d)
+            yield img
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Encode + mux
+# Encode
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def encode(frames: list[Image.Image], output: Path, audio: Optional[Path]) -> None:
+def encode(frames, output: Path, audio: Path | None) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Pipe raw RGB frames → FFmpeg stdin
-    # Format: rawvideo, rgb24, W×H at FPS
-    video_cmd = [
+    if audio and not audio.exists():
+        logger.warning("Audio file not found: %s — continuing without audio", audio)
+        audio = None
+
+    cmd = [
         "ffmpeg",
         "-y",
         "-f",
@@ -476,11 +486,13 @@ def encode(frames: list[Image.Image], output: Path, audio: Optional[Path]) -> No
         "-i",
         "pipe:0",
     ]
+    if audio:
+        cmd += ["-i", str(audio), "-shortest", "-c:a", "aac", "-b:a", "192k"]
 
-    if audio and audio.exists():
-        video_cmd += ["-i", str(audio), "-shortest", "-c:a", "aac", "-b:a", "192k"]
-
-    video_cmd += [
+    # tpad holds the last frame for HOLD_SECS — no Python duplicate frames needed.
+    cmd += [
+        "-vf",
+        f"tpad=stop_mode=clone:stop_duration={HOLD_SECS}",
         "-vcodec",
         "libx264",
         "-preset",
@@ -494,19 +506,22 @@ def encode(frames: list[Image.Image], output: Path, audio: Optional[Path]) -> No
         str(output),
     ]
 
-    logger.info("Encoding %d frames → %s", len(frames), output)
-    proc = subprocess.Popen(video_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    logger.info("Encoding → %s  (hold %ds via tpad)", output, HOLD_SECS)
+    # All args are constants/Path objects — no shell=True, no user input interpolated.
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603
 
+    n = 0
     for img in frames:
         proc.stdin.write(img.tobytes())
-
+        n += 1
     proc.stdin.close()
     _, stderr = proc.communicate()
 
     if proc.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed:\n{stderr.decode()}")
+        raise RuntimeError(f"FFmpeg error:\n{stderr.decode()}")
 
-    logger.info("✅  %s  (%.1f MB)", output, output.stat().st_size / 1e6)
+    mb = output.stat().st_size / 1e6
+    logger.info("✓  %s  (%.1f MB — %d frames + %ds hold)", output, mb, n, HOLD_SECS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -514,29 +529,56 @@ def encode(frames: list[Image.Image], output: Path, audio: Optional[Path]) -> No
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _render_one(
+    spec: ListSpec,
+    args: argparse.Namespace,
+    avatars: Avatars,
+    output: Path,
+) -> None:
+    rows, label = fetch_list(spec, args.top_n, args.category, args.country)
+    renderer = FrameRenderer(rows, label, spec.col_header, avatars)
+    audio = Path(args.audio) if args.audio else None
+    encode(renderer.render_frames(), output, audio)
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(
-        description="Export a ViralVibes creator list as an MP4.",
-    )
+    ap = argparse.ArgumentParser(description="Export a ViralVibes list as an MP4.")
     ap.add_argument(
         "--list",
         default="top-rated",
-        choices=list(LIST_QUERIES),
+        choices=list(LISTS),
         help="Which list to export (default: top-rated)",
     )
-    ap.add_argument("--category", default=None, help="Filter by category (e.g. Gaming, Music)")
-    ap.add_argument("--top-n", type=int, default=20, help="Number of rows (default: 20)")
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="Export all six base lists in sequence into --output-dir",
+    )
+    ap.add_argument(
+        "--category", default=None, help="Category name for --list by-category  (e.g. Gaming)"
+    )
+    ap.add_argument(
+        "--country", default=None, help="Country code for --list by-country    (e.g. US)"
+    )
+    ap.add_argument(
+        "--top-n", type=int, default=20, help="Number of rows              (default: 20)"
+    )
     ap.add_argument("--audio", default=None, help="Background audio file to mux (optional)")
     ap.add_argument(
-        "--output", default="output/list.mp4", help="Output path (default: output/list.mp4)"
+        "--output",
+        default="output/list.mp4",
+        help="Output path for single export (default: output/list.mp4)",
     )
-    ap.add_argument("--cache-dir", default=".cache/avatars", help="Avatar cache dir")
+    ap.add_argument(
+        "--output-dir", default="output", help="Output dir  for --all          (default: output/)"
+    )
+    ap.add_argument("--cache-dir", default=".cache/avatars", help="Avatar cache directory")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s: %(message)s",
+        format="%(asctime)s %(levelname)s %(message)s",
     )
 
     url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
@@ -544,15 +586,22 @@ def main() -> None:
     if not url or not key:
         sys.exit("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_KEY in .env")
 
-    db = create_client(url, key)
-    creators, label = fetch_creators(db, args.list, args.top_n, args.category)
+    import db
+
+    db.init_supabase()
 
     avatars = Avatars(Path(args.cache_dir))
-    renderer = FrameRenderer(creators, label, avatars)
-    frames = renderer.render_frames()
 
-    audio = Path(args.audio) if args.audio else None
-    encode(frames, Path(args.output), audio)
+    if args.all:
+        out_dir = Path(args.output_dir)
+        base_lists = [k for k in LISTS if k not in ("by-category", "by-country")]
+        for name in base_lists:
+            try:
+                _render_one(LISTS[name], args, avatars, out_dir / f"{name}.mp4")
+            except Exception as exc:
+                logger.error("Skipping '%s': %s", name, exc)
+    else:
+        _render_one(LISTS[args.list], args, avatars, Path(args.output))
 
 
 if __name__ == "__main__":
