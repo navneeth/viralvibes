@@ -586,6 +586,8 @@ def main() -> None:
     if not url or not key:
         sys.exit("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_KEY in .env")
 
+    # Add parent directory to path so we can import db
+    sys.path.insert(0, str(Path(__file__).parent.parent))
     import db
 
     db.init_supabase()
