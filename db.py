@@ -16,7 +16,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol, NamedTuple
 
 from supabase import Client, create_client
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    retry_if_exception,
+    before_sleep_log,
+)
 
 from constants import (
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
@@ -1585,11 +1592,36 @@ def get_creator_rank(
         logger.warning("[DB] get_creator_rank: disallowed filter_key %s", filter_key)
         return None
 
+    def _is_transient(exc: BaseException) -> bool:
+        """Retry only on network/transport failures and Supabase 5xx responses."""
+        # httpx transport errors (connection reset, timeout, etc.)
+        try:
+            import httpx
+
+            if isinstance(exc, (httpx.TransportError, httpx.TimeoutException)):
+                return True
+        except ImportError:
+            pass
+        # stdlib network errors
+        if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+            return True
+        # PostgREST APIError / supabase-py errors carry a .code (PG error code)
+        # or a .status_code attribute; retry only on 5xx backend failures
+        status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        if isinstance(status_code, int) and 500 <= status_code < 600:
+            return True
+        # PG error code 57014 = query_canceled (statement timeout)
+        pg_code = getattr(exc, "code", None)
+        if pg_code == "57014":
+            return True
+        return False
+
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=4),
-        retry=retry_if_exception_type(Exception),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        retry=retry_if_exception(_is_transient),
         reraise=False,
+        before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def _fetch_rank():
         resp = (
