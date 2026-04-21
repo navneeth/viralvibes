@@ -53,3 +53,4 @@ ehthumbs.db
 # Static/media/user uploads (if any)
 static/uploads/
 cookies.b64
+.cache/
