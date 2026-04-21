@@ -74,57 +74,87 @@ METRIC_X = W - 250  # right-side metric column x
 
 @dataclass(frozen=True)
 class ListSpec:
-    name: str  # CLI identifier
-    label: str  # video header label (may be overridden at runtime)
-    col_header: str  # right column header text
-    metric_key: str  # creator dict key for the right-side metric
+    name: str  # fetcher key
+    label: str  # header text (overridden per-job at runtime)
+    col_header: str  # right column header
+    metric_key: str  # creator dict key
     metric_fmt: str  # "pct" | "count" | "age"
 
 
 LISTS: dict[str, ListSpec] = {
-    "top-rated": ListSpec(
-        "top-rated",
-        "Top Rated Creators",
-        "ENG RATE",
-        "engagement_score",
-        "pct",
-    ),
+    "top-rated": ListSpec("top-rated", "Top Rated Creators", "ENG RATE", "engagement_score", "pct"),
     "rising-stars": ListSpec(
-        "rising-stars",
-        "Rising Stars — 30-Day Growth",
-        "GROWTH %",
-        "_growth_rate",
-        "pct",
+        "rising-stars", "Rising Stars — 30-Day Growth", "GROWTH %", "_growth_rate", "pct"
     ),
     "most-active": ListSpec(
-        "most-active",
-        "Most Active Creators",
-        "UPLOADS/MO",
-        "monthly_uploads",
-        "count",
+        "most-active", "Most Active Creators", "UPLOADS/MO", "monthly_uploads", "count"
     ),
     "veteran": ListSpec(
-        "veteran",
-        "Veteran Creators (10+ years)",
-        "AGE (YRS)",
-        "channel_age_days",
-        "age",
+        "veteran", "Veteran Creators (10+ years)", "AGE (YRS)", "channel_age_days", "age"
     ),
     "by-category": ListSpec(
-        "by-category",
-        "Top by Category",
-        "ENG RATE",
-        "engagement_score",
-        "pct",
+        "by-category", "Top by Category", "ENG RATE", "engagement_score", "pct"
     ),
-    "by-country": ListSpec(
-        "by-country",
-        "Top by Country",
-        "ENG RATE",
-        "engagement_score",
-        "pct",
-    ),
+    "by-country": ListSpec("by-country", "Top by Country", "ENG RATE", "engagement_score", "pct"),
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job — one video to produce
+# Each job owns its filename, label override, and optional filter params.
+# JOBS drives --all mode; add rows here to produce new videos automatically.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Job:
+    spec: ListSpec
+    filename: str  # e.g. TopCreators_IN.mp4
+    label: str  # header text shown in the video
+    category: str = ""  # only for by-category jobs
+    country: str = ""  # only for by-country jobs
+
+
+def _country_job(code: str, name: str) -> Job:
+    return Job(
+        LISTS["by-country"],
+        f"TopCreators_{code}.mp4",
+        f"Top Creators · {name} ({code})",
+        country=code,
+    )
+
+
+def _category_job(cat: str) -> Job:
+    slug = cat.replace(" ", "")
+    return Job(
+        LISTS["by-category"], f"TopCreators_{slug}.mp4", f"Top Creators · {cat}", category=cat
+    )
+
+
+JOBS: list[Job] = [
+    # ── base lists ─────────────────────────────────────────────────────────
+    Job(LISTS["top-rated"], "TopCreators_TopRated.mp4", "Top Rated Creators"),
+    Job(LISTS["rising-stars"], "TopCreators_RisingStars.mp4", "Rising Stars — 30-Day Growth"),
+    Job(LISTS["most-active"], "TopCreators_MostActive.mp4", "Most Active Creators"),
+    Job(LISTS["veteran"], "TopCreators_Veterans.mp4", "Veteran Creators (10+ years)"),
+    # ── top countries ──────────────────────────────────────────────────────
+    _country_job("US", "United States"),
+    _country_job("IN", "India"),
+    _country_job("GB", "United Kingdom"),
+    _country_job("BR", "Brazil"),
+    _country_job("JP", "Japan"),
+    _country_job("KR", "South Korea"),
+    _country_job("DE", "Germany"),
+    _country_job("FR", "France"),
+    _country_job("MX", "Mexico"),
+    _country_job("CA", "Canada"),
+    # ── top categories ─────────────────────────────────────────────────────
+    _category_job("Gaming"),
+    _category_job("Music"),
+    _category_job("Education"),
+    _category_job("Technology"),
+    _category_job("Entertainment"),
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,15 +212,10 @@ def _to_row(rank: int, raw: dict, spec: ListSpec) -> Row:
     )
 
 
-def fetch_list(
-    spec: ListSpec,
-    top_n: int,
-    category: str | None = None,
-    country: str | None = None,
-) -> tuple[list[Row], str]:
+def fetch_list(job: Job, top_n: int) -> list[Row]:
     """
     Pull data via db_lists (same source as the /lists page).
-    Returns (rows, video_label).
+    Returns the rendered Row list; label is carried by the Job.
     """
     # Import after db.init_supabase() has been called in main().
     from db_lists import (
@@ -202,29 +227,23 @@ def fetch_list(
         get_veteran_creators,
     )
 
+    spec = job.spec
     fetchers: dict[str, Callable] = {
         "top-rated": lambda: get_top_rated_creators(top_n),
         "rising-stars": lambda: get_rising_creators(top_n),
         "most-active": lambda: get_most_active_creators(top_n),
         "veteran": lambda: get_veteran_creators(top_n),
-        "by-category": lambda: get_creators_by_category(category or "", top_n),
-        "by-country": lambda: get_creators_by_country(country or "", top_n),
+        "by-category": lambda: get_creators_by_category(job.category, top_n),
+        "by-country": lambda: get_creators_by_country(job.country, top_n),
     }
 
     raw_rows = fetchers[spec.name]()
     if not raw_rows:
-        raise RuntimeError(f"No creators returned for list '{spec.name}'")
+        raise RuntimeError(f"No creators returned for '{job.filename}'")
 
     rows = [_to_row(i, r, spec) for i, r in enumerate(raw_rows, start=1)]
-
-    label = spec.label
-    if spec.name == "by-category" and category:
-        label = f"Top in {category}"
-    elif spec.name == "by-country" and country:
-        label = f"Top in {country.upper()}"
-
-    logger.info("Fetched %d rows for '%s'", len(rows), label)
-    return rows, label
+    logger.info("Fetched %d rows for '%s'", len(rows), job.label)
+    return rows
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -487,18 +506,31 @@ def encode(frames, output: Path, audio: Path | None) -> None:
         "pipe:0",
     ]
     if audio:
-        cmd += ["-i", str(audio), "-shortest", "-c:a", "aac", "-b:a", "192k"]
+        cmd += ["-i", str(audio), "-shortest", "-c:a", "aac", "-b:a", "320k"]
 
-    # tpad holds the last frame for HOLD_SECS — no Python duplicate frames needed.
+    # YouTube-optimised H.264:
+    #   -profile:v high -level 4.1   → required by YouTube for 1080p
+    #   -crf 18 -preset slow         → near-lossless quality
+    #   -g 30                        → keyframe every second (fast seeking)
+    #   -movflags +faststart         → moov atom first (instant play)
+    # tpad clones the last frame for HOLD_SECS — no Python duplicate frames.
     cmd += [
         "-vf",
         f"tpad=stop_mode=clone:stop_duration={HOLD_SECS}",
         "-vcodec",
         "libx264",
+        "-profile:v",
+        "high",
+        "-level",
+        "4.1",
         "-preset",
-        "fast",
+        "slow",
         "-crf",
         "18",
+        "-g",
+        str(FPS),
+        "-keyint_min",
+        str(FPS),
         "-pix_fmt",
         "yuv420p",
         "-movflags",
@@ -529,50 +561,39 @@ def encode(frames, output: Path, audio: Path | None) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _render_one(
-    spec: ListSpec,
-    args: argparse.Namespace,
-    avatars: Avatars,
-    output: Path,
-) -> None:
-    rows, label = fetch_list(spec, args.top_n, args.category, args.country)
-    renderer = FrameRenderer(rows, label, spec.col_header, avatars)
-    audio = Path(args.audio) if args.audio else None
+def _render_job(job: Job, top_n: int, avatars: Avatars, out_dir: Path, audio: Path | None) -> None:
+    """Fetch, render, and encode one job → out_dir/job.filename."""
+    output = out_dir / job.filename
+    rows = fetch_list(job, top_n)
+    renderer = FrameRenderer(rows, job.label, job.spec.col_header, avatars)
     encode(renderer.render_frames(), output, audio)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Export a ViralVibes list as an MP4.")
-    ap.add_argument(
-        "--list",
-        default="top-rated",
-        choices=list(LISTS),
-        help="Which list to export (default: top-rated)",
+    ap = argparse.ArgumentParser(
+        description="Render ViralVibes ranking lists as YouTube-ready MP4s.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+examples:
+  python scripts/lists_video_gen.py                 # all JOBS → output/
+  python scripts/lists_video_gen.py --job top-rated # single job by filename prefix
+  python scripts/lists_video_gen.py --list-jobs     # print every job and exit""",
     )
     ap.add_argument(
-        "--all",
+        "--job",
+        default=None,
+        metavar="NAME",
+        help="Run only jobs whose filename contains NAME (case-insensitive)",
+    )
+    ap.add_argument(
+        "--list-jobs",
         action="store_true",
-        help="Export all six base lists in sequence into --output-dir",
+        help="Print all configured jobs and exit",
     )
-    ap.add_argument(
-        "--category", default=None, help="Category name for --list by-category  (e.g. Gaming)"
-    )
-    ap.add_argument(
-        "--country", default=None, help="Country code for --list by-country    (e.g. US)"
-    )
-    ap.add_argument(
-        "--top-n", type=int, default=20, help="Number of rows              (default: 20)"
-    )
-    ap.add_argument("--audio", default=None, help="Background audio file to mux (optional)")
-    ap.add_argument(
-        "--output",
-        default="output/list.mp4",
-        help="Output path for single export (default: output/list.mp4)",
-    )
-    ap.add_argument(
-        "--output-dir", default="output", help="Output dir  for --all          (default: output/)"
-    )
-    ap.add_argument("--cache-dir", default=".cache/avatars", help="Avatar cache directory")
+    ap.add_argument("--top-n", type=int, default=20, help="Rows per video (default: 20)")
+    ap.add_argument("--audio", default=None, help="Background audio file to mux")
+    ap.add_argument("--output-dir", default="output", help="Output directory (default: output/)")
+    ap.add_argument("--cache-dir", default=".cache/avatars", help="Avatar thumbnail cache")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -581,29 +602,43 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    if args.list_jobs:
+        print(f"{'FILENAME':<40} LABEL")
+        print("-" * 70)
+        for j in JOBS:
+            print(f"{j.filename:<40} {j.label}")
+        return
+
     url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
     if not url or not key:
         sys.exit("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_KEY in .env")
 
-    # Add parent directory to path so we can import db
     sys.path.insert(0, str(Path(__file__).parent.parent))
     import db
 
     db.init_supabase()
 
+    out_dir = Path(args.output_dir)
+    audio = Path(args.audio) if args.audio else None
     avatars = Avatars(Path(args.cache_dir))
 
-    if args.all:
-        out_dir = Path(args.output_dir)
-        base_lists = [k for k in LISTS if k not in ("by-category", "by-country")]
-        for name in base_lists:
-            try:
-                _render_one(LISTS[name], args, avatars, out_dir / f"{name}.mp4")
-            except Exception as exc:
-                logger.error("Skipping '%s': %s", name, exc)
-    else:
-        _render_one(LISTS[args.list], args, avatars, Path(args.output))
+    jobs = JOBS
+    if args.job:
+        jobs = [j for j in JOBS if args.job.lower() in j.filename.lower()]
+        if not jobs:
+            sys.exit(f"No jobs match '{args.job}'. Run --list-jobs to see all.")
+
+    ok, fail = 0, 0
+    for job in jobs:
+        try:
+            _render_job(job, args.top_n, avatars, out_dir, audio)
+            ok += 1
+        except Exception as exc:
+            logger.error("SKIP %s — %s", job.filename, exc)
+            fail += 1
+
+    logger.info("Done: %d rendered, %d skipped.", ok, fail)
 
 
 if __name__ == "__main__":
