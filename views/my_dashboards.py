@@ -200,7 +200,7 @@ def render_my_dashboards_page(
         # ── 3. Playlist Analysis ───────────────────────────────────────────
         _section_analysis(dashboards, search, sort),
         # ── 4. Lists ───────────────────────────────────────────────────────
-        _section_lists(plan),
+        _section_lists(),
         # ── 5. Campaigns ───────────────────────────────────────────────────
         _section_campaigns(plan),
         cls=ContainerT.xl,
@@ -267,7 +267,7 @@ def _section_analysis(dashboards: list[dict], search: str, sort: str) -> Div:
     )
 
 
-def _section_lists(plan: str) -> Div:
+def _section_lists() -> Div:
     """Quick-access tiles for the public Lists product."""
     tiles = [
         ("🏆", "Top Rated", "/lists/top-rated"),
@@ -388,6 +388,7 @@ def _pulse_row(creator: dict) -> Div:
     delta = creator.get("subscribers_change_30d")
     grade = creator.get("quality_grade") or ""
     code = creator.get("country_code") or ""
+    flag = _flag(code)
     cat = creator.get("category") or ""
 
     avatar = (
@@ -410,7 +411,7 @@ def _pulse_row(creator: dict) -> Div:
             else []
         ),
         *(
-            [Span(f"{_flag(code)} {code}", cls="text-xs text-gray-400 w-10 text-center")]
+            [Span(f"{flag} {code}" if flag else code, cls="text-xs text-gray-400 w-10 text-center")]
             if code
             else []
         ),
