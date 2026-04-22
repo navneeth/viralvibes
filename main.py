@@ -71,6 +71,7 @@ from controllers.preview import preview_playlist_controller
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
+    get_favourite_creators_with_stats,
     get_job_progress,
     get_playlist_job_status,
     get_playlist_preview_info,
@@ -90,7 +91,11 @@ from utils import compute_dashboard_id, get_columns, get_language_name, sort_dat
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.favourites import render_favourites_page
-from views.my_dashboards import render_my_dashboards_page
+from views.my_dashboards import (
+    render_my_dashboards_page,
+    render_dashboard_page_partial,
+    render_dashboard_page_partial,
+)
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
@@ -1407,8 +1412,12 @@ async def add_creator(req, sess):
 
 
 @rt("/me/dashboards")
-def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
+def my_dashboards(
+    req, sess, htmx: HtmxHeaders, search: str = "", sort: str = "recent", page: int = 1
+):
     """User's personal dashboards page - PROTECTED route"""
+
+    _PAGE_SIZE = 12
 
     # Extract user info
     user_id = sess.get("user_id") if sess else None
@@ -1425,29 +1434,37 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
     if intended_playlist_url:
         sess.pop("intended_playlist_url", None)  # Remove after using
         logger.info(f"Submitting job for {intended_playlist_url} after login")
-
-        # Submit the playlist job
         submit_playlist_job(intended_playlist_url, user_id=user_id)
-
-        # Redirect to their dashboard
         dashboard_id = compute_dashboard_id(intended_playlist_url)
         return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
 
-    # Fetch dashboards with filters
-    dashboards = get_user_dashboards(user_id, search=search, sort=sort)
-    plan_info = get_user_plan(user_id)
+    # Fetch all matching dashboards (search/sort applied in DB), paginate in Python
+    all_dashboards = get_user_dashboards(user_id, search=search, sort=sort)
+    offset = (page - 1) * _PAGE_SIZE
+    page_items = all_dashboards[offset : offset + _PAGE_SIZE]
+    has_more = len(all_dashboards) > offset + _PAGE_SIZE
 
-    # Render page
+    # HTMX load-more: return only new rows + OOB button replacement
+    if htmx and page > 1:
+        return render_dashboard_page_partial(page_items, has_more, page, search, sort)
+
+    plan_info = get_user_plan(user_id)
+    plan = plan_info.get("plan", "free")
+    fav_creators = get_favourite_creators_with_stats(user_id) if plan in ("pro", "agency") else []
+
     return Titled(
         f"{user_name}'s Dashboards - YouTube",
         Container(
             NavComponent(oauth, req, sess),
             render_my_dashboards_page(
-                dashboards=dashboards,
+                dashboards=page_items,
                 user_name=user_name,
                 search=search,
                 sort=sort,
                 plan_info=plan_info,
+                fav_creators=fav_creators,
+                has_more=has_more,
+                page=page,
             ),
         ),
     )

@@ -2211,6 +2211,50 @@ def get_user_favourite_creators(user_id: str, limit: int = 50) -> List[Dict[str,
         return []
 
 
+def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Return saved creators for a user, sorted by 30-day subscriber growth (highest first).
+
+    Fetches a focused set of columns needed for the Watchlist Pulse card:
+        channel_name, channel_thumbnail_url, current_subscribers,
+        subscribers_change_30d, engagement_score, quality_grade, country_code, category
+
+    Two-query pattern (same as get_user_favourite_creators) because supabase-py
+    does not support cross-table ORDER BY in a single .select() call.
+    """
+    if not supabase_client or not user_id:
+        return []
+    try:
+        fav_resp = (
+            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
+            .select("creator_id")
+            .eq("user_id", user_id)
+            .limit(limit)
+            .execute()
+        )
+        rows = fav_resp.data or []
+        if not rows:
+            return []
+
+        creator_ids = [r["creator_id"] for r in rows]
+
+        creators_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select(
+                "id, channel_name, channel_thumbnail_url, current_subscribers, "
+                "subscribers_change_30d, engagement_score, quality_grade, country_code, category"
+            )
+            .in_("id", creator_ids)
+            .order("subscribers_change_30d", desc=True, nullsfirst=False)
+            .execute()
+        )
+        return creators_resp.data or []
+
+    except Exception as exc:
+        logger.exception("[Favourites] get_favourite_creators_with_stats failed: %s", exc)
+        return []
+
+
 def get_or_create_creator_from_playlist(
     channel_id: str,
     channel_name: str,
