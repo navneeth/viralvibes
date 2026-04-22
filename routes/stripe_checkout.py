@@ -41,7 +41,7 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
     if not price_id:
         logger.error(
             "[Checkout] No price_id configured for plan=%s interval=%s — "
-            "check STRIPE_PRICE_* env vars",
+            "see STRIPE_SETUP.md and check STRIPE_PRICE_* env vars are set",
             plan,
             interval,
         )

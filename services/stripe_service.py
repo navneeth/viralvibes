@@ -24,6 +24,17 @@ PUBLISHABLE_KEY: str = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 DOMAIN_URL: str = os.environ.get("DOMAIN_URL", "http://localhost:5001").rstrip("/")
 
 # ---------------------------------------------------------------------------
+# Startup validation
+# ---------------------------------------------------------------------------
+_log = _logging.getLogger(__name__)
+
+if not stripe.api_key:
+    _log.warning(
+        "[stripe_service] Missing STRIPE_SECRET_KEY — Stripe integration disabled. "
+        "Set the env var to enable checkout and billing."
+    )
+
+# ---------------------------------------------------------------------------
 # Price → plan mapping
 # ---------------------------------------------------------------------------
 # Maps Stripe price_id → (plan_name, billing_interval)
@@ -45,9 +56,7 @@ PLAN_TO_PRICE: dict[tuple[str, str], str] = {v: k for k, v in PRICE_TO_PLAN.item
 # Plan hierarchy — used for gate comparisons (higher index = more access)
 PLAN_RANK: dict[str, int] = {"free": 0, "pro": 1, "agency": 2}
 
-# ---------------------------------------------------------------------------
-# Startup validation
-# ---------------------------------------------------------------------------
+# Validate required price IDs
 _REQUIRED_PRICE_VARS = (
     "STRIPE_PRICE_PRO_MONTHLY",
     "STRIPE_PRICE_PRO_ANNUAL",
@@ -55,11 +64,12 @@ _REQUIRED_PRICE_VARS = (
     "STRIPE_PRICE_AGENCY_ANNUAL",
 )
 
-_log = _logging.getLogger(__name__)
 for _var in _REQUIRED_PRICE_VARS:
     if not os.environ.get(_var):
         _log.warning(
-            "[stripe_service] Missing env var %s — price→plan mapping will be incomplete", _var
+            "[stripe_service] Missing env var %s — price→plan mapping will be incomplete. "
+            "To set up Stripe, copy .env.example to .env and fill in the Stripe values.",
+            _var,
         )
 
 
