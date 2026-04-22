@@ -172,6 +172,8 @@ def render_my_dashboards_page(
     sort: str = "recent",
     plan_info: dict | None = None,
     fav_creators: list[dict] | None = None,
+    has_more: bool = False,
+    page: int = 1,
 ) -> Div:
     """
     Product-driven user home.
@@ -198,7 +200,7 @@ def render_my_dashboards_page(
         # ── 2. Watchlist Pulse ─────────────────────────────────────────────
         render_watchlist_pulse(_fav_creators, plan),
         # ── 3. Playlist Analysis ───────────────────────────────────────────
-        _section_analysis(dashboards, search, sort),
+        _section_analysis(dashboards, search, sort, has_more=has_more, page=page),
         # ── 4. Lists ───────────────────────────────────────────────────────
         _section_lists(),
         # ── 5. Campaigns ───────────────────────────────────────────────────
@@ -257,12 +259,20 @@ def _section_label(icon: str, title: str, href: str | None = None) -> Div:
     )
 
 
-def _section_analysis(dashboards: list[dict], search: str, sort: str) -> Div:
+def _section_analysis(
+    dashboards: list[dict], search: str, sort: str, has_more: bool = False, page: int = 1
+) -> Div:
     """Playlist analysis section — search bar + grid or empty state."""
     return Div(
         _section_label("📊", "Playlist Analysis", href="/analysis"),
         render_search_filter_bar(search=search, sort=sort),
-        render_dashboard_grid(dashboards) if dashboards else render_empty_state(search),
+        (
+            render_dashboard_grid(
+                dashboards, has_more=has_more, page=page, search=search, sort=sort
+            )
+            if dashboards
+            else render_empty_state(search)
+        ),
         cls="mb-10",
     )
 
@@ -533,23 +543,56 @@ def render_search_filter_bar(search: str = "", sort: str = "recent") -> Form:
     )
 
 
-def render_dashboard_grid(dashboards: list[dict]) -> Div:
-    """
-    Render responsive grid of dashboard cards.
-
-    Uses MonsterUI Grid component:
-    - 1 column on mobile
-    - 2 columns on tablet
-    - 3 columns on desktop
-    """
-
-    return Grid(
-        *[render_dashboard_card(d) for d in dashboards],
-        cols=1,  # Mobile: 1 column
-        cols_md=2,  # Tablet: 2 columns
-        cols_lg=3,  # Desktop: 3 columns
-        gap=6,  # 1.5rem gap
+def render_dashboard_grid(
+    dashboards: list[dict],
+    has_more: bool = False,
+    page: int = 1,
+    search: str = "",
+    sort: str = "recent",
+) -> Div:
+    """Flat list of compact cards + HTMX load-more button."""
+    return Div(
+        Div(
+            *[render_dashboard_card(d) for d in dashboards],
+            id="playlist-grid",
+            cls="rounded-xl border border-border bg-white overflow-hidden",
+        ),
+        _playlist_load_more_btn(page, search, sort) if has_more else None,
         cls="mb-12",
+    )
+
+
+def render_dashboard_page_partial(
+    items: list[dict], has_more: bool, page: int, search: str, sort: str
+):
+    """HTMX partial — new rows appended to #playlist-grid + OOB button replacement."""
+    return (
+        *[render_dashboard_card(d) for d in items],
+        (
+            _playlist_load_more_btn(page, search, sort, oob=True)
+            if has_more
+            else Div(id="playlist-grid-load-more", hx_swap_oob="true")
+        ),
+    )
+
+
+def _playlist_load_more_btn(page: int, search: str, sort: str, *, oob: bool = False) -> Div:
+    qs = f"page={page + 1}&sort={sort}" + (f"&search={search}" if search else "")
+    return Div(
+        Button(
+            UkIcon("chevrons-down", cls="size-4"),
+            "Load more",
+            hx_get=f"/me/dashboards?{qs}",
+            hx_target="#playlist-grid",
+            hx_swap="beforeend",
+            hx_indicator="#playlist-grid-spinner",
+            hx_disabled_elt="this",
+            cls="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+        ),
+        Span(id="playlist-grid-spinner", cls="htmx-indicator"),
+        id="playlist-grid-load-more",
+        hx_swap_oob="true" if oob else None,
+        cls="flex justify-center mt-4",
     )
 
 
@@ -565,168 +608,78 @@ def get_engagement_gradient(rate: float) -> str:
 
 def render_dashboard_card(dashboard: dict) -> A:
     """
-    Render a single dashboard card with proper aspect ratio, creator thumbnail,
-    and rich metrics.
+    Compact horizontal row card.
 
-    Design:
-    - 16:9 aspect ratio thumbnail (respects playlist image proportions)
-    - Creator avatar overlay (bottom-left corner) - prominently featured
-    - Rich metrics with visual hierarchy
-    - Smooth hover effects and transitions
+    Layout: [56px thumb] [title + channel] [metrics] [date] [›]
+    Keeps the list dense so 10+ playlists scan instantly.
     """
-
-    # Extract data with safe defaults
     dashboard_id = dashboard.get("dashboard_id", "")
     title = dashboard.get("title", "Untitled Playlist")
-    channel_name = dashboard.get("channel_name", "Unknown Channel")
-
-    channel_thumbnail = dashboard.get("channel_thumbnail", "/static/favicon.jpeg")
-    video_count = dashboard.get("video_count", 0) or 0
-    view_count = dashboard.get("view_count", 0) or 0
+    channel_name = dashboard.get("channel_name", "")
+    thumb = dashboard.get("channel_thumbnail") or "/static/favicon.jpeg"
+    video_count = dashboard.get("video_count") or 0
+    view_count = dashboard.get("view_count") or 0
     processed_on = dashboard.get("processed_on")
-
-    # Additional metrics (if available in your data structure)
-    engagement_score = dashboard.get("engagement_score", 0)
-    avg_views_per_video = dashboard.get("avg_views_per_video", 0)
 
     summary_stats = dashboard.get("summary_stats")
     engagement_metrics = extract_engagement_metrics(summary_stats)
-
-    # Format date
-    date_str = format_date_relative(processed_on)
-
-    # Format large numbers using existing utility
-    views_formatted = format_number(view_count)
-
-    # Calculate derived metrics
-    avg_views_per_video = (view_count / video_count) if video_count > 0 else 0
     engagement_rate = engagement_metrics["engagement_rate"]
-    avg_likes = engagement_metrics["avg_likes"]
 
-    # Determine engagement level for badge styling
-    engagement_level = "low"  # gray
-    if engagement_rate > 5:
-        engagement_level = "medium"  # yellow
-    if engagement_rate > 10:
-        engagement_level = "high"  # green
+    date_str = format_date_relative(processed_on)
+    views_fmt = format_number(view_count)
 
-    engagement_colors = {
-        "low": "bg-gray-100 text-gray-700",
-        "medium": "bg-yellow-100 text-yellow-700",
-        "high": "bg-green-100 text-green-700",
-    }
+    eng_cls = (
+        "text-green-600"
+        if engagement_rate > 10
+        else "text-yellow-600" if engagement_rate > 5 else "text-gray-400"
+    )
 
-    # ===== RENDER CARD =====
     return A(
-        Card(
-            # Thumbnail with 16:9 aspect ratio (REUSE EXISTING)
-            Div(
-                Div(
-                    Img(
-                        src=channel_thumbnail,
-                        alt=f"{title} playlist thumbnail",
-                        cls="w-full h-full object-cover",
-                        onerror="this.src='/static/favicon.jpeg'",
-                    ),
-                    cls="absolute inset-0 bg-gray-300",
-                ),
-                # Creator avatar overlay (bottom-left)
-                Div(
-                    Img(
-                        src=channel_thumbnail,
-                        alt=f"{channel_name} channel avatar",
-                        cls="w-12 h-12 rounded-full border-2 border-white shadow-lg object-cover",
-                        onerror="this.src='/static/favicon.jpeg'",
-                    ),
-                    # Scale on hover for premium feel
-                    cls="absolute bottom-3 left-3 z-10 group-hover:scale-110 transition-transform duration-200",
-                ),
-                # Dark overlay on hover
-                Div(
-                    cls="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200",
-                ),
-                cls="relative w-full overflow-hidden bg-gray-300 aspect-video rounded-t-lg group",
+        Div(
+            # Small square thumbnail
+            Img(
+                src=thumb,
+                alt=title,
+                cls="w-12 h-12 rounded-lg object-cover flex-shrink-0 bg-gray-100",
+                onerror="this.src='/static/favicon.jpeg'",
             ),
-            # Content section
+            # Title + channel
             Div(
-                # Title
-                H3(
-                    title,
-                    cls="text-sm font-semibold mb-1 line-clamp-2 text-gray-900 group-hover:text-blue-600 transition-colors duration-200",
-                    title=title,
+                P(title, cls="text-sm font-medium text-gray-900 truncate", title=title),
+                (
+                    P(channel_name, cls="text-xs text-gray-500 truncate mt-0.5")
+                    if channel_name
+                    else None
                 ),
-                # Channel name
-                Div(
-                    UkIcon("tv", cls="w-3 h-3 text-gray-400 mr-1"),
-                    Span(
-                        channel_name,
-                        cls="text-xs text-gray-700 font-medium truncate group-hover:text-gray-900",
-                        title=channel_name,
-                    ),
-                    cls="flex items-center gap-0 mb-2 min-h-[1.25rem]",
-                ),
-                # ✨ NEW: Engagement badges (reuse Badge component from cards.py)
-                Div(
-                    Badge(
-                        f"📊 {engagement_rate:.1f}% engagement",
-                        cls=engagement_colors[engagement_level],
-                    ),
-                    Badge(
-                        f"❤️ {format_number(int(engagement_metrics['avg_likes']))} avg likes",
-                        cls="bg-red-50 text-red-700",
-                    ),
-                    cls="flex flex-wrap gap-2 mb-2",
-                ),
-                # Primary metrics row
-                Div(
-                    Div(
-                        UkIcon("film", cls="w-3 h-3 mr-0.5"),
-                        Span(
-                            f"{video_count:,}",
-                            cls="font-semibold text-gray-900 text-xs",
-                        ),
-                        Span(" videos", cls="text-gray-500 text-xs"),
-                        cls="flex items-center gap-0.5",
-                    ),
-                    Span("•", cls="text-gray-300 text-xs mx-1"),
-                    Div(
-                        UkIcon("eye", cls="w-3 h-3 mr-0.5"),
-                        Span(views_formatted, cls="font-semibold text-gray-900 text-xs"),
-                        Span(" views", cls="text-gray-500 text-xs"),
-                        cls="flex items-center gap-0.5",
-                    ),
-                    cls="flex items-center gap-1 mb-2 text-xs flex-wrap",
-                ),
-                # Secondary metrics
-                Div(
-                    UkIcon("trending-up", cls="w-3 h-3 mr-0.5 text-blue-600"),
-                    Span(
-                        f"{format_number(int(avg_views_per_video))} avg/video",
-                        cls="text-xs text-gray-700 font-medium",
-                    ),
-                    cls="flex items-center gap-1 mb-2",
-                ),
-                # Engagement gauge
-                Div(
-                    Div(
-                        cls=f"h-1 bg-gradient-to-r {get_engagement_gradient(engagement_rate)}",
-                        style=f"width: {min(100, engagement_rate * 10)}%",
-                    ),
-                    cls="w-full h-2 bg-gray-200 rounded-full mb-3",
-                ),
-                # Footer with date
-                Div(
-                    UkIcon("calendar", cls="w-3 h-3 mr-1"),
-                    Span(date_str, cls="text-xs text-gray-500"),
-                    cls="flex items-center pt-2 border-t border-gray-200 gap-1",
-                ),
-                cls="p-4 flex flex-col flex-1 justify-between",
+                cls="flex-1 min-w-0",
             ),
-            cls="flex flex-col h-full hover:shadow-xl transition-all duration-200 bg-white overflow-hidden",
+            # Metrics — hidden below md
+            Div(
+                Span(f"{video_count:,} videos", cls="text-xs text-gray-400"),
+                Span("·", cls="text-gray-200 text-xs"),
+                Span(f"{views_fmt} views", cls="text-xs text-gray-400"),
+                *(
+                    [
+                        Span("·", cls="text-gray-200 text-xs"),
+                        Span(f"{engagement_rate:.1f}% eng", cls=f"text-xs font-medium {eng_cls}"),
+                    ]
+                    if engagement_rate > 0
+                    else []
+                ),
+                cls="hidden md:flex items-center gap-2 flex-shrink-0",
+            ),
+            # Date
+            Span(date_str, cls="text-xs text-gray-400 flex-shrink-0 hidden sm:block"),
+            # Chevron
+            UkIcon("chevron-right", cls="w-4 h-4 text-gray-300 flex-shrink-0"),
+            cls="flex items-center gap-4 px-4 py-3",
         ),
         href=f"/d/{dashboard_id}",
-        cls="block group no-underline h-full",
-        title=f"View dashboard: {title}",
+        cls=(
+            "block no-underline hover:bg-gray-50 "
+            "border-b border-gray-100 last:border-0 transition-colors duration-100 group"
+        ),
+        title=title,
     )
 
 
