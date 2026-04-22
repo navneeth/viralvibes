@@ -71,6 +71,7 @@ from controllers.preview import preview_playlist_controller
 from db import (
     get_cached_playlist_stats,
     get_estimated_stats,
+    get_favourite_creators_with_stats,
     get_job_progress,
     get_playlist_job_status,
     get_playlist_preview_info,
@@ -1436,6 +1437,8 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
     # Fetch dashboards with filters
     dashboards = get_user_dashboards(user_id, search=search, sort=sort)
     plan_info = get_user_plan(user_id)
+    plan = plan_info.get("plan", "free")
+    fav_creators = get_favourite_creators_with_stats(user_id) if plan in ("pro", "agency") else []
 
     # Render page
     return Titled(
@@ -1448,6 +1451,7 @@ def my_dashboards(req, sess, search: str = "", sort: str = "recent"):
                 search=search,
                 sort=sort,
                 plan_info=plan_info,
+                fav_creators=fav_creators,
             ),
         ),
     )

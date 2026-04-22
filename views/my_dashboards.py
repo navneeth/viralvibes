@@ -171,11 +171,17 @@ def render_my_dashboards_page(
     search: str = "",
     sort: str = "recent",
     plan_info: dict | None = None,
+    fav_creators: list[dict] | None = None,
 ) -> Div:
     """
-    Render the My Dashboards page with grid layout.
+    Product-driven user home.
 
-    Uses MonsterUI Grid component for responsive layout.
+    Sections (top → bottom):
+      1. Header  — greeting + plan badge
+      2. Creators / Watchlist Pulse  — saved creators ranked by growth (Pro/Agency)
+      3. Playlist Analysis  — the core job-to-be-done, search + grid
+      4. Lists  — discovery shortcuts to public lists
+      5. Campaigns  — stub, coming soon
     """
     _plan_info = plan_info or {
         "plan": "free",
@@ -183,24 +189,315 @@ def render_my_dashboards_page(
         "interval": None,
         "current_period_end": None,
     }
+    plan = _plan_info.get("plan", "free")
+    _fav_creators = fav_creators or []
 
     return Container(
-        # Page header
-        Div(
-            H1(f"👋 Welcome back, {user_name}!", cls="text-4xl font-bold mb-2"),
-            P(
-                f"You have {len(dashboards)} dashboard{'s' if len(dashboards) != 1 else ''}",
-                cls="text-gray-600 text-lg",
-            ),
-            cls="mb-8 mt-8",
-        ),
-        # Billing summary
-        render_billing_section(_plan_info),
-        # Search & Filter Bar
-        render_search_filter_bar(search=search, sort=sort),
-        # Dashboard Grid or Empty State
-        (render_dashboard_grid(dashboards) if dashboards else render_empty_state(search)),
+        # ── 1. Header ──────────────────────────────────────────────────────
+        _section_header(user_name, len(dashboards), _plan_info),
+        # ── 2. Watchlist Pulse ─────────────────────────────────────────────
+        render_watchlist_pulse(_fav_creators, plan),
+        # ── 3. Playlist Analysis ───────────────────────────────────────────
+        _section_analysis(dashboards, search, sort),
+        # ── 4. Lists ───────────────────────────────────────────────────────
+        _section_lists(plan),
+        # ── 5. Campaigns ───────────────────────────────────────────────────
+        _section_campaigns(plan),
         cls=ContainerT.xl,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section helpers
+# ---------------------------------------------------------------------------
+
+
+def _section_header(user_name: str, dashboard_count: int, plan_info: dict) -> Div:
+    plan = plan_info.get("plan", "free")
+    plan_cls = {
+        "free": "bg-gray-100 text-gray-600",
+        "pro": "bg-red-100 text-red-700",
+        "agency": "bg-purple-100 text-purple-700",
+    }.get(plan, "bg-gray-100 text-gray-600")
+
+    return Div(
+        Div(
+            H1(
+                f"👋 Welcome back, {user_name}",
+                cls="text-3xl font-bold text-gray-900",
+            ),
+            Span(
+                plan.capitalize(),
+                cls=f"text-xs font-bold px-2.5 py-1 rounded-full {plan_cls} ml-3 align-middle",
+            ),
+            cls="flex items-center mb-1",
+        ),
+        P(
+            f"{dashboard_count} playlist{'s' if dashboard_count != 1 else ''} analyzed",
+            cls="text-gray-500 text-sm",
+        ),
+        cls="mb-8 mt-8",
+    )
+
+
+def _section_label(icon: str, title: str, href: str | None = None) -> Div:
+    """Consistent section heading with optional 'View all' link."""
+    return Div(
+        Div(
+            Span(icon, cls="mr-2 text-base"),
+            Span(title, cls="font-semibold text-gray-800 text-sm uppercase tracking-wide"),
+            cls="flex items-center",
+        ),
+        *(
+            [A("View all →", href=href, cls="text-xs text-red-500 hover:underline font-medium")]
+            if href
+            else []
+        ),
+        cls="flex items-center justify-between mb-3",
+    )
+
+
+def _section_analysis(dashboards: list[dict], search: str, sort: str) -> Div:
+    """Playlist analysis section — search bar + grid or empty state."""
+    return Div(
+        _section_label("📊", "Playlist Analysis", href="/analysis"),
+        render_search_filter_bar(search=search, sort=sort),
+        render_dashboard_grid(dashboards) if dashboards else render_empty_state(search),
+        cls="mb-10",
+    )
+
+
+def _section_lists(plan: str) -> Div:
+    """Quick-access tiles for the public Lists product."""
+    tiles = [
+        ("🏆", "Top Rated", "/lists/top-rated"),
+        ("🚀", "Rising Stars", "/lists/rising-stars"),
+        ("⚡", "Most Active", "/lists/most-active"),
+        ("🌍", "By Country", "/lists"),
+        ("🎮", "By Category", "/lists"),
+    ]
+
+    def _tile(emoji, label, href):
+        return A(
+            Div(
+                Span(emoji, cls="text-2xl mb-1 block"),
+                Span(label, cls="text-xs font-medium text-gray-700 text-center leading-tight"),
+                cls="flex flex-col items-center justify-center p-3",
+            ),
+            href=href,
+            cls=(
+                "rounded-xl border border-border bg-white hover:border-gray-300 "
+                "hover:shadow-sm transition-all duration-150 no-underline"
+            ),
+        )
+
+    return Div(
+        _section_label("📋", "Lists", href="/lists"),
+        Div(
+            *[_tile(e, l, h) for e, l, h in tiles],
+            cls="grid grid-cols-5 gap-3",
+        ),
+        cls="mb-10",
+    )
+
+
+def _section_campaigns(plan: str) -> Div:
+    """Campaigns stub — gated behind agency plan, coming soon for others."""
+    is_agency = plan == "agency"
+
+    if is_agency:
+        body = Div(
+            P(
+                "Manage outreach campaigns across your saved creators.",
+                cls="text-sm text-gray-500 mb-3",
+            ),
+            A(
+                Button("+ New Campaign", cls=ButtonT.primary),
+                href="/campaigns/new",
+            ),
+            cls="py-2",
+        )
+    else:
+        body = Div(
+            P(
+                "Run outreach campaigns across your saved creators — schedule, track, and report in one place.",
+                cls="text-sm text-gray-500 mb-3 max-w-lg",
+            ),
+            Div(
+                Span(
+                    "Coming soon · Agency plan",
+                    cls="text-xs font-semibold text-purple-700 bg-purple-100 px-3 py-1 rounded-full",
+                ),
+                A(
+                    "Learn more →",
+                    href="/pricing",
+                    cls="text-xs text-red-500 hover:underline font-medium ml-4",
+                ),
+                cls="flex items-center gap-2 flex-wrap",
+            ),
+            cls="py-2",
+        )
+
+    return Div(
+        _section_label("📣", "Campaigns"),
+        Div(
+            body,
+            cls="p-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/60",
+        ),
+        cls="mb-10",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Watchlist Pulse
+# ---------------------------------------------------------------------------
+
+_GRADE_CLS = {
+    "A+": "bg-emerald-100 text-emerald-800",
+    "A": "bg-green-100 text-green-700",
+    "B+": "bg-blue-100 text-blue-800",
+    "B": "bg-blue-50 text-blue-700",
+    "C": "bg-yellow-100 text-yellow-800",
+    "D": "bg-red-100 text-red-700",
+}
+
+
+def _flag(country_code: str | None) -> str:
+    if not country_code or len(country_code) != 2:
+        return ""
+    try:
+        a, b = country_code.upper()
+        return chr(0x1F1E6 + ord(a) - 65) + chr(0x1F1E6 + ord(b) - 65)
+    except Exception:
+        return ""
+
+
+def _growth_cell(delta: int | None) -> Span:
+    if delta is None:
+        return Span("─  n/a", cls="text-gray-400 text-sm tabular-nums")
+    if delta > 0:
+        return Span(f"▲ +{delta:,}", cls="text-emerald-600 font-semibold text-sm tabular-nums")
+    if delta < 0:
+        return Span(f"▼ {delta:,}", cls="text-red-500 font-semibold text-sm tabular-nums")
+    return Span("─  0", cls="text-gray-400 text-sm tabular-nums")
+
+
+def _pulse_row(creator: dict) -> Div:
+    thumb = creator.get("channel_thumbnail_url") or ""
+    name = creator.get("channel_name") or "Unknown"
+    delta = creator.get("subscribers_change_30d")
+    grade = creator.get("quality_grade") or ""
+    code = creator.get("country_code") or ""
+    cat = creator.get("category") or ""
+
+    avatar = (
+        Img(src=thumb, alt=name, cls="w-9 h-9 rounded-full object-cover flex-shrink-0")
+        if thumb
+        else Div(
+            Span(name[:1].upper(), cls="text-xs font-bold text-gray-500"),
+            cls="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0",
+        )
+    )
+    grade_cls = _GRADE_CLS.get(grade, "bg-gray-100 text-gray-600")
+
+    return Div(
+        avatar,
+        Span(name, cls="flex-1 font-medium text-sm truncate min-w-0"),
+        _growth_cell(delta),
+        *(
+            [Span(grade, cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_cls}")]
+            if grade
+            else []
+        ),
+        *(
+            [Span(f"{_flag(code)} {code}", cls="text-xs text-gray-400 w-10 text-center")]
+            if code
+            else []
+        ),
+        *(
+            [Span(cat, cls="text-xs text-gray-400 hidden sm:block truncate max-w-[5rem]")]
+            if cat
+            else []
+        ),
+        cls="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0",
+    )
+
+
+def render_watchlist_pulse(creators: list[dict], plan: str) -> Div:
+    """
+    Watchlist Pulse — saved creators ranked by 30-day subscriber growth.
+    Gated to Pro / Agency plans.
+    """
+    label = _section_label("❤️", "Saved Creators", href="/me/favourites")
+
+    if plan not in ("pro", "agency"):
+        return Div(
+            label,
+            Div(
+                Div(
+                    Span("🔒", cls="text-xl mr-3"),
+                    Div(
+                        P(
+                            "Track subscriber growth for your saved creators.",
+                            cls="text-sm text-gray-600",
+                        ),
+                        P("Available on Pro and Agency plans.", cls="text-xs text-gray-400 mt-0.5"),
+                    ),
+                    A(
+                        UkIcon("arrow-up-circle", cls="w-4 h-4 mr-1"),
+                        Span("Upgrade"),
+                        href="/pricing",
+                        cls=(
+                            "ml-auto inline-flex items-center px-3 py-1.5 rounded-lg "
+                            "bg-red-500 hover:bg-red-600 text-white text-sm font-semibold "
+                            "transition-colors flex-shrink-0"
+                        ),
+                    ),
+                    cls="flex items-center gap-3",
+                ),
+                cls="p-4 rounded-xl border border-dashed border-red-200 bg-red-50/40",
+            ),
+            cls="mb-10",
+        )
+
+    if not creators:
+        body = Div(
+            P("No saved creators yet.", cls="text-sm text-gray-500 mb-2"),
+            A(
+                "Browse creators →",
+                href="/creators",
+                cls="text-sm text-red-500 hover:underline font-medium",
+            ),
+            cls="py-3 text-center",
+        )
+        return Div(
+            label,
+            Div(body, cls="p-4 rounded-xl border border-border bg-muted/30"),
+            cls="mb-10",
+        )
+
+    rows = [_pulse_row(c) for c in creators[:8]]
+    footer_link = (
+        Div(
+            A(
+                f"View all {len(creators)} saved creators →",
+                href="/me/favourites",
+                cls="text-xs text-red-500 hover:underline font-medium",
+            ),
+            cls="pt-2 text-right",
+        )
+        if len(creators) > 8
+        else None
+    )
+
+    return Div(
+        label,
+        Div(
+            Div(*rows),
+            *(([footer_link]) if footer_link else []),
+            cls="p-4 rounded-xl border border-border bg-white",
+        ),
+        cls="mb-10",
     )
 
 
