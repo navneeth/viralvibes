@@ -43,6 +43,13 @@ from views.lists import (
 
 logger = logging.getLogger(__name__)
 
+
+def _auth_context(request) -> tuple[str | None, bool, frozenset]:
+    """Extract (user_id, authenticated, fav_keys) from a request session."""
+    user_id = request.session.get("user_id") if hasattr(request, "session") else None
+    return user_id, bool(user_id), get_user_favourite_list_keys(user_id) if user_id else frozenset()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tuning constants — how many groups/creators to show initially vs on load-more
 # ─────────────────────────────────────────────────────────────────────────────
@@ -62,9 +69,7 @@ def lists_route(request):
     active_tab = request.query_params.get("tab", "top-rated")
 
     # Auth context for heart buttons
-    user_id = request.session.get("user_id") if hasattr(request, "session") else None
-    authenticated = bool(user_id)
-    fav_keys = get_user_favourite_list_keys(user_id) if user_id else frozenset()
+    user_id, authenticated, fav_keys = _auth_context(request)
 
     # ── Fetch live DB meta (one combined aggregation scan) ──────────────────
     meta = get_lists_meta()
@@ -127,9 +132,7 @@ def lists_more_countries_route(request):
     ``total`` is forwarded from the initial page load so that we avoid
     re-running the 50k-row get_lists_meta() scan on every click.
     """
-    user_id = request.session.get("user_id") if hasattr(request, "session") else None
-    authenticated = bool(user_id)
-    fav_keys = get_user_favourite_list_keys(user_id) if user_id else frozenset()
+    user_id, authenticated, fav_keys = _auth_context(request)
 
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
@@ -170,9 +173,7 @@ def lists_more_categories_route(request):
     ``total`` is forwarded from the initial page load so that we avoid
     re-running the 50k-row get_lists_meta() scan on every click.
     """
-    user_id = request.session.get("user_id") if hasattr(request, "session") else None
-    authenticated = bool(user_id)
-    fav_keys = get_user_favourite_list_keys(user_id) if user_id else frozenset()
+    user_id, authenticated, fav_keys = _auth_context(request)
 
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
@@ -211,9 +212,7 @@ def lists_more_languages_route(request):
     ``total`` is forwarded from the initial page load so that we avoid
     re-running the get_lists_meta() scan on every click.
     """
-    user_id = request.session.get("user_id") if hasattr(request, "session") else None
-    authenticated = bool(user_id)
-    fav_keys = get_user_favourite_list_keys(user_id) if user_id else frozenset()
+    user_id, authenticated, fav_keys = _auth_context(request)
 
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))

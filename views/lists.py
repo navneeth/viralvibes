@@ -362,9 +362,10 @@ def _list_heart_btn(
         "fill-red-500 text-red-500" if is_fav else "text-gray-300 group-hover:text-red-400"
     )
     if not authenticated:
-        return Span(
+        return A(
             UkIcon("heart", cls="size-4 text-gray-200"),
             id=btn_id,
+            href="/login",
             title="Sign in to save lists to your dashboard",
             cls="inline-flex items-center p-1",
         )
