@@ -282,6 +282,49 @@ def _get_context_ranks(creator: dict) -> dict:
     return result
 
 
+_SIMILAR_MIN = 3  # minimum tiles before we consider the rail worth showing
+_SIMILAR_MAX = 8  # tiles to display
+
+
+def _get_similar_creators(creator: dict) -> list[dict]:
+    """
+    Fetch up to _SIMILAR_MAX creators that share the same niche as *creator*,
+    excluding the creator itself.
+
+    Strategy:
+      1. Try same primary_category (any country) — best for topic discovery.
+      2. If fewer than _SIMILAR_MIN results remain after exclusion, fall back
+         to same country_code — still relevant, less specific.
+      3. Return [] on any error so the section simply doesn't render.
+    """
+    creator_id = creator.get("id", "")
+    category = creator.get("primary_category", "")
+    country = (creator.get("country_code") or "").lower()
+
+    def _fetch_and_exclude(category_filter="all", country_filter="all") -> list[dict]:
+        try:
+            results = get_creators(
+                category_filter=category_filter,
+                country_filter=country_filter,
+                sort="subscribers",
+                limit=_SIMILAR_MAX + 1,  # +1 so we can exclude self and still have _SIMILAR_MAX
+            )
+            return [c for c in results if c.get("id") != creator_id][:_SIMILAR_MAX]
+        except Exception:
+            logger.exception("[CreatorProfile] _get_similar_creators failed")
+            return []
+
+    if category:
+        candidates = _fetch_and_exclude(category_filter=category)
+        if len(candidates) >= _SIMILAR_MIN:
+            return candidates
+
+    if country:
+        return _fetch_and_exclude(country_filter=country)
+
+    return []
+
+
 def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     """
     GET /creator/{creator_id} — Full profile page for a single creator.
@@ -318,6 +361,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     context_ranks = _get_context_ranks(creator)
     category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
     is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
+    similar_creators = _get_similar_creators(creator)
 
     return render_creator_profile_page(
         creator,
@@ -325,6 +369,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         context_ranks=context_ranks,
         category_stats=category_stats,
         is_favourited=is_fav,
+        similar_creators=similar_creators,
     )
 
 

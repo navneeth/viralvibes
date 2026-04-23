@@ -2430,12 +2430,125 @@ def _count_by_grade(creators: list[dict]) -> dict:
 # ============================================================================
 
 
+def _render_similar_creators(creators: list[dict], category: str, country_code: str) -> Div | None:
+    """
+    Horizontal Apple-Music-style scroll rail of similar creators.
+
+    Each tile is a fixed-width card with a square avatar, channel name,
+    subscriber count, and quality grade. The rail uses scroll-snap so
+    swiping feels native on mobile.
+
+    Returns None when the list is empty so callers can safely omit it.
+    """
+    if not creators:
+        return None
+
+    _chip_cls = {
+        "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+        "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+        "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+        "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+    }
+
+    def _tile(c: dict):
+        cid = c.get("id", "")
+        name = c.get("channel_name") or "Creator"
+        thumb = c.get("channel_thumbnail_url") or ""
+        subs = int(c.get("current_subscribers") or 0)
+        grade = c.get("quality_grade") or ""
+        grade_cls = _chip_cls.get(grade, "bg-accent text-muted-foreground")
+
+        avatar = (
+            Img(
+                src=thumb,
+                alt=name,
+                cls="w-full aspect-square object-cover rounded-xl",
+                loading="lazy",
+            )
+            if thumb
+            else Div(
+                Span(name[:1].upper(), cls="text-xl font-bold text-muted-foreground"),
+                cls="w-full aspect-square rounded-xl bg-accent flex items-center justify-center",
+            )
+        )
+
+        return A(
+            Div(
+                avatar,
+                Div(
+                    P(
+                        name,
+                        cls="text-xs font-semibold text-foreground leading-tight line-clamp-2 mt-2",
+                    ),
+                    Div(
+                        Span(
+                            format_number(subs),
+                            cls="text-xs text-muted-foreground",
+                        ),
+                        *(
+                            [
+                                Span(
+                                    grade,
+                                    cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {grade_cls}",
+                                )
+                            ]
+                            if grade
+                            else []
+                        ),
+                        cls="flex items-center gap-1.5 mt-0.5",
+                    ),
+                ),
+                cls="flex flex-col",
+            ),
+            href=f"/creator/{cid}",
+            cls="flex-shrink-0 w-28 sm:w-32 no-underline snap-start",
+        )
+
+    tiles = [_tile(c) for c in creators]
+
+    # Determine the "See all" link — prefer category, fall back to country
+    if category:
+        see_all_href = f"/lists/category/{slugify(category)}"
+        see_all_label = f"{get_topic_category_emoji(category)} {category}"
+    elif country_code:
+        see_all_href = f"/lists/country/{country_code.upper()}"
+        see_all_label = f"{get_country_flag(country_code)} {country_code.upper()}"
+    else:
+        see_all_href = "/creators"
+        see_all_label = "All creators"
+
+    return Card(
+        Div(
+            H2("You may also like", cls="text-base font-bold text-foreground"),
+            A(
+                see_all_label + " →",
+                href=see_all_href,
+                cls="text-xs font-medium text-primary hover:underline no-underline shrink-0",
+            ),
+            cls="flex items-center justify-between mb-3",
+        ),
+        Div(
+            *tiles,
+            cls=(
+                "flex gap-3 overflow-x-auto pb-2"
+                " snap-x snap-mandatory"
+                " scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
+                " -mx-1 px-1"  # bleed edge so partial tile hints scroll
+            ),
+        ),
+        body_cls="p-5",
+        cls="mb-6",
+    )
+
+
 def render_creator_profile_page(
     creator: dict,
     back_url: str = "/creators",
     context_ranks: dict | None = None,
     category_stats: dict | None = None,
     is_favourited: bool = False,
+    similar_creators: list[dict] | None = None,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
@@ -2459,7 +2572,8 @@ def render_creator_profile_page(
            Left  — About + Channel Info + Social Links + Featured Channels
            Right — Performance + trend bar + Topics (with rank chips) +
                    Rankings card + Category breakdown
-      4. Sync / freshness footer
+      4. Similar creators horizontal scroll rail
+      5. Sync / freshness footer
     """
     context_ranks = context_ranks or {}
     # ── identity ──────────────────────────────────────────────────────────────
@@ -3255,7 +3369,14 @@ def render_creator_profile_page(
     body_cols = Grid(left_col, right_col, cols_sm=1, cols_lg=2, cls="mb-6")
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # SECTION 4 — Sync / freshness footer
+    # SECTION 4 — Similar creators rail
+    # ═══════════════════════════════════════════════════════════════════════════
+    similar_section = _render_similar_creators(
+        similar_creators or [], primary_category, country_code
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — Sync / freshness footer
     # ═══════════════════════════════════════════════════════════════════════════
     sync_colour = {
         "synced": "text-emerald-600",
@@ -3296,6 +3417,7 @@ def render_creator_profile_page(
         banner_section,
         stats_row,
         body_cols,
+        similar_section,
         box_plot_section,
         footer_section,
         cls="max-w-5xl mx-auto px-4 pb-16 pt-6",
