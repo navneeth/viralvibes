@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
     "vercel-runtime",
-    "python-fasthtml>=0.12.42",
+    "python-fasthtml>=0.13.3",
     "starlette>=0.40.0,<1.0.0",
     "MonsterUI>=0.3.0",
     "supabase>=2.0.0",
