@@ -77,6 +77,10 @@ from db import (
     get_playlist_preview_info,
     get_user_dashboards,
     get_user_favourite_creators,
+    get_user_favourite_list_keys,
+    get_user_favourite_lists,
+    add_favourite_list,
+    remove_favourite_list,
     get_user_plan,
     init_supabase,
     resolve_playlist_url_from_dashboard_id,
@@ -94,8 +98,8 @@ from views.favourites import render_favourites_page
 from views.my_dashboards import (
     render_my_dashboards_page,
     render_dashboard_page_partial,
-    render_dashboard_page_partial,
 )
+from views.lists import _list_heart_btn
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
@@ -1451,6 +1455,7 @@ def my_dashboards(
     plan_info = get_user_plan(user_id)
     plan = plan_info.get("plan", "free")
     fav_creators = get_favourite_creators_with_stats(user_id) if plan in ("pro", "agency") else []
+    fav_lists = get_user_favourite_lists(user_id)
 
     return Titled(
         f"{user_name}'s Dashboards - YouTube",
@@ -1463,11 +1468,47 @@ def my_dashboards(
                 sort=sort,
                 plan_info=plan_info,
                 fav_creators=fav_creators,
+                fav_lists=fav_lists,
                 has_more=has_more,
                 page=page,
             ),
         ),
     )
+
+
+@rt("/me/favourite-list", methods=["POST"])
+def toggle_favourite_list(req, sess, list_key: str = "", list_label: str = "", list_url: str = ""):
+    """
+    POST /me/favourite-list — toggle a curated list bookmark.
+
+    Returns the replacement _list_heart_btn form so HTMX can swap it in place.
+    Requires authentication; redirects to /login if not logged in.
+    """
+    user_id = sess.get("user_id") if sess else None
+    auth = sess.get("auth") if sess else None
+
+    if not auth or not user_id:
+        return RedirectResponse("/login", status_code=303)
+
+    # Validate inputs (list_key is further validated inside add_favourite_list)
+    if not list_key:
+        return Response(status_code=400)
+    # Clamp label/url lengths as a safety measure
+    list_label = list_label.strip()[:100]
+    list_url = list_url.strip()[:200]
+
+    # Determine current state and toggle
+    fav_keys = get_user_favourite_list_keys(user_id)
+    is_currently_fav = list_key in fav_keys
+
+    if is_currently_fav:
+        remove_favourite_list(user_id, list_key)
+        new_fav = False
+    else:
+        ok = add_favourite_list(user_id, list_key, list_label, list_url)
+        new_fav = ok  # False if validation failed
+
+    return _list_heart_btn(list_key, list_label, list_url, new_fav, authenticated=True)
 
 
 @rt("/me/favourites")

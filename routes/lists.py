@@ -8,6 +8,7 @@ from urllib.parse import unquote
 from fasthtml.common import Div
 
 from db import get_creators
+from db import get_user_favourite_list_keys
 from db_lists import (
     _count_distinct_languages,
     get_category_groups,
@@ -42,6 +43,13 @@ from views.lists import (
 
 logger = logging.getLogger(__name__)
 
+
+def _auth_context(request) -> tuple[str | None, bool, frozenset]:
+    """Extract (user_id, authenticated, fav_keys) from a request session."""
+    user_id = request.session.get("user_id") if hasattr(request, "session") else None
+    return user_id, bool(user_id), get_user_favourite_list_keys(user_id) if user_id else frozenset()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tuning constants — how many groups/creators to show initially vs on load-more
 # ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +67,9 @@ def lists_route(request):
     tab badges and load-more controls.
     """
     active_tab = request.query_params.get("tab", "top-rated")
+
+    # Auth context for heart buttons
+    user_id, authenticated, fav_keys = _auth_context(request)
 
     # ── Fetch live DB meta (one combined aggregation scan) ──────────────────
     meta = get_lists_meta()
@@ -105,7 +116,12 @@ def lists_route(request):
     # a zero-row-transfer COUNT(DISTINCT) query that has no row cap.
     tab_data["total_languages"] = meta.get("total_languages") or _count_distinct_languages()
 
-    return render_lists_page(active_tab=active_tab, tab_data=tab_data)
+    return render_lists_page(
+        active_tab=active_tab,
+        tab_data=tab_data,
+        fav_keys=fav_keys,
+        authenticated=authenticated,
+    )
 
 
 def lists_more_countries_route(request):
@@ -116,6 +132,8 @@ def lists_more_countries_route(request):
     ``total`` is forwarded from the initial page load so that we avoid
     re-running the 50k-row get_lists_meta() scan on every click.
     """
+    user_id, authenticated, fav_keys = _auth_context(request)
+
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
     except (TypeError, ValueError):
@@ -137,7 +155,14 @@ def lists_more_countries_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_countries(groups, next_offset=next_offset, has_more=has_more, total=total)
+    return render_more_countries(
+        groups,
+        next_offset=next_offset,
+        has_more=has_more,
+        total=total,
+        fav_keys=fav_keys,
+        authenticated=authenticated,
+    )
 
 
 def lists_more_categories_route(request):
@@ -148,6 +173,8 @@ def lists_more_categories_route(request):
     ``total`` is forwarded from the initial page load so that we avoid
     re-running the 50k-row get_lists_meta() scan on every click.
     """
+    user_id, authenticated, fav_keys = _auth_context(request)
+
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
     except (TypeError, ValueError):
@@ -167,7 +194,14 @@ def lists_more_categories_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_categories(groups, next_offset=next_offset, has_more=has_more, total=total)
+    return render_more_categories(
+        groups,
+        next_offset=next_offset,
+        has_more=has_more,
+        total=total,
+        fav_keys=fav_keys,
+        authenticated=authenticated,
+    )
 
 
 def lists_more_languages_route(request):
@@ -178,6 +212,8 @@ def lists_more_languages_route(request):
     ``total`` is forwarded from the initial page load so that we avoid
     re-running the get_lists_meta() scan on every click.
     """
+    user_id, authenticated, fav_keys = _auth_context(request)
+
     try:
         offset = int(request.query_params.get("offset", INITIAL_GROUPS))
     except (TypeError, ValueError):
@@ -197,7 +233,14 @@ def lists_more_languages_route(request):
     next_offset = offset + len(groups)
     has_more = next_offset < total
 
-    return render_more_languages(groups, next_offset=next_offset, has_more=has_more, total=total)
+    return render_more_languages(
+        groups,
+        next_offset=next_offset,
+        has_more=has_more,
+        total=total,
+        fav_keys=fav_keys,
+        authenticated=authenticated,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -336,37 +336,102 @@ def _creator_mini_row(creator: dict, rank: int):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# List Heart Button — save/unsave a list to the user dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _list_heart_btn(
+    list_key: str,
+    list_label: str,
+    list_url: str,
+    is_fav: bool,
+    *,
+    authenticated: bool = False,
+):
+    """
+    Heart toggle button that bookmarks/unbookmarks a curated list.
+
+    Authenticated users see a clickable heart that toggles via HTMX POST.
+    Unauthenticated users see a greyed-out heart that links to login.
+
+    The POST response is this same component with the new is_fav state, so
+    hx-swap=outerHTML replaces the entire form in-place.
+    """
+    btn_id = f"heart-{list_key.replace(':', '-').replace(' ', '-')}"
+    icon_cls = "size-4 " + (
+        "fill-red-500 text-red-500" if is_fav else "text-gray-300 group-hover:text-red-400"
+    )
+    if not authenticated:
+        return A(
+            UkIcon("heart", cls="size-4 text-gray-200"),
+            id=btn_id,
+            href="/login",
+            title="Sign in to save lists to your dashboard",
+            cls="inline-flex items-center p-1",
+        )
+    return Form(
+        Input(type="hidden", name="list_key", value=list_key),
+        Input(type="hidden", name="list_label", value=list_label),
+        Input(type="hidden", name="list_url", value=list_url),
+        Button(
+            UkIcon("heart", cls=icon_cls),
+            type="submit",
+            title="Remove from dashboard" if is_fav else "Save to dashboard",
+            cls="inline-flex items-center p-1 rounded hover:bg-gray-100 transition-colors group",
+        ),
+        id=btn_id,
+        hx_post="/me/favourite-list",
+        hx_swap="outerHTML",
+        hx_target=f"#{btn_id}",
+        cls="inline m-0 p-0",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Group card builders (country / category) — used by both initial render
 # and HTMX load-more partials
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _country_group_card(country_data: dict) -> Div:
+def _country_group_card(
+    country_data: dict,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Render a single country group card with its top creators."""
     country_code = country_data["country_code"]
     count = country_data["count"]
     creators = country_data["creators"]
 
     country_name = get_country_name(country_code)
+    list_key = f"country:{country_code}"
+    list_label = f"{get_country_flag(country_code) or '🌍'} {country_name}"
+    list_url = f"/lists/country/{country_code}"
 
     return Div(
-        # Header links to the full ranked list (detail route added in next step)
-        A(
-            Span(get_country_flag(country_code), cls="text-2xl shrink-0"),
-            Div(
-                H3(
-                    country_name,
-                    cls="text-base font-bold text-foreground leading-tight",
+        # Header: flag + name + creator count + heart
+        Div(
+            A(
+                Span(get_country_flag(country_code), cls="text-2xl shrink-0"),
+                Div(
+                    H3(
+                        country_name,
+                        cls="text-base font-bold text-foreground leading-tight",
+                    ),
+                    Span(country_code, cls="text-xs text-muted-foreground font-mono"),
+                    cls="flex flex-col min-w-0",
                 ),
-                Span(country_code, cls="text-xs text-muted-foreground font-mono"),
-                cls="flex flex-col min-w-0",
+                Span(
+                    f"{format_number(count)} creators →",
+                    cls="ml-auto shrink-0 text-xs font-medium text-primary",
+                ),
+                href=list_url,
+                cls="flex items-center gap-2 hover:opacity-75 transition-opacity flex-1 min-w-0",
             ),
-            Span(
-                f"{format_number(count)} creators →",
-                cls="ml-auto shrink-0 text-xs font-medium text-primary",
+            _list_heart_btn(
+                list_key, list_label, list_url, list_key in fav_keys, authenticated=authenticated
             ),
-            href=f"/lists/country/{country_code}",
-            cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
+            cls="flex items-center gap-2",
         ),
         (
             Div(
@@ -380,7 +445,11 @@ def _country_group_card(country_data: dict) -> Div:
     )
 
 
-def _category_group_card(category_data: dict) -> Div:
+def _category_group_card(
+    category_data: dict,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Render a single category group card with its top creators."""
     category = category_data["category"]
     count = category_data["count"]
@@ -392,20 +461,30 @@ def _category_group_card(category_data: dict) -> Div:
     # Title-case for readability
     display_name = display_name.title() if display_name == display_name.lower() else display_name
 
+    list_key = f"category:{display_name}"
+    list_label = f"{emoji} {display_name}"
+    list_url = f"/lists/category/{quote(display_name, safe='')}"
+
     return Div(
-        # Header links to the full ranked list (detail route added in next step)
-        A(
-            Span(emoji, cls="text-2xl shrink-0"),
-            Span(
-                display_name,
-                cls="text-base font-bold text-foreground leading-tight flex-1 min-w-0",
+        # Header: emoji + name + creator count + heart
+        Div(
+            A(
+                Span(emoji, cls="text-2xl shrink-0"),
+                Span(
+                    display_name,
+                    cls="text-base font-bold text-foreground leading-tight flex-1 min-w-0",
+                ),
+                Span(
+                    f"{format_number(count)} creators →",
+                    cls="ml-auto shrink-0 text-xs font-medium text-primary",
+                ),
+                href=list_url,
+                cls="flex items-center gap-2 hover:opacity-75 transition-opacity flex-1 min-w-0",
             ),
-            Span(
-                f"{format_number(count)} creators →",
-                cls="ml-auto shrink-0 text-xs font-medium text-primary",
+            _list_heart_btn(
+                list_key, list_label, list_url, list_key in fav_keys, authenticated=authenticated
             ),
-            href=f"/lists/category/{quote(display_name, safe='')}",
-            cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
+            cls="flex items-center gap-2",
         ),
         (
             Div(
@@ -419,7 +498,11 @@ def _category_group_card(category_data: dict) -> Div:
     )
 
 
-def _language_group_card(language_data: dict) -> Div:
+def _language_group_card(
+    language_data: dict,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Render a single language group card with its top creators."""
     language_code = language_data["language_code"]
     count = language_data["count"]
@@ -428,23 +511,34 @@ def _language_group_card(language_data: dict) -> Div:
     language_name = get_language_name(language_code)
     emoji = get_language_emoji(language_code)
 
+    list_key = f"language:{language_code.lower()}"
+    list_label = f"{emoji} {language_name}"
+    list_url = f"/lists/language/{language_code.lower()}"
+
     return Div(
-        A(
-            Span(emoji, cls="text-2xl shrink-0"),
-            Div(
-                H3(
-                    language_name,
-                    cls="text-base font-bold text-foreground leading-tight",
+        # Header: emoji + name + creator count + heart
+        Div(
+            A(
+                Span(emoji, cls="text-2xl shrink-0"),
+                Div(
+                    H3(
+                        language_name,
+                        cls="text-base font-bold text-foreground leading-tight",
+                    ),
+                    Span(language_code.upper(), cls="text-xs text-muted-foreground font-mono"),
+                    cls="flex flex-col min-w-0",
                 ),
-                Span(language_code.upper(), cls="text-xs text-muted-foreground font-mono"),
-                cls="flex flex-col min-w-0",
+                Span(
+                    f"{format_number(count)} creators →",
+                    cls="ml-auto shrink-0 text-xs font-medium text-primary",
+                ),
+                href=list_url,
+                cls="flex items-center gap-2 hover:opacity-75 transition-opacity flex-1 min-w-0",
             ),
-            Span(
-                f"{format_number(count)} creators →",
-                cls="ml-auto shrink-0 text-xs font-medium text-primary",
+            _list_heart_btn(
+                list_key, list_label, list_url, list_key in fav_keys, authenticated=authenticated
             ),
-            href=f"/lists/language/{language_code.lower()}",
-            cls="flex items-center gap-2 hover:opacity-75 transition-opacity",
+            cls="flex items-center gap-2",
         ),
         (
             Div(
@@ -547,13 +641,18 @@ def _page_based_load_more_button(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _render_top_rated_content(creators: list[dict], description: str) -> Div:
+def _render_top_rated_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Renders Top Rated tab with quality-sorted creators."""
     if not creators:
         return _placeholder_content(description, coming_soon=False)
 
     return Div(
-        # Description + count
+        # Description + count + heart
         DivFullySpaced(
             P(description, cls="text-sm text-muted-foreground max-w-xl"),
             Div(
@@ -561,7 +660,14 @@ def _render_top_rated_content(creators: list[dict], description: str) -> Div:
                     f"{len(creators)} creators",
                     cls="text-sm font-medium text-foreground",
                 ),
-                cls="shrink-0 hidden sm:block",
+                _list_heart_btn(
+                    "top-rated",
+                    "🏆 Top Rated",
+                    "/lists?tab=top-rated",
+                    "top-rated" in fav_keys,
+                    authenticated=authenticated,
+                ),
+                cls="shrink-0 hidden sm:flex items-center gap-2",
             ),
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
@@ -574,7 +680,12 @@ def _render_top_rated_content(creators: list[dict], description: str) -> Div:
     )
 
 
-def _render_most_active_content(creators: list[dict], description: str) -> Div:
+def _render_most_active_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Renders Most Active tab with upload frequency."""
     if not creators:
         return _placeholder_content(description, coming_soon=False)
@@ -587,7 +698,14 @@ def _render_most_active_content(creators: list[dict], description: str) -> Div:
                     f"{len(creators)} creators",
                     cls="text-sm font-medium text-foreground",
                 ),
-                cls="shrink-0 hidden sm:block",
+                _list_heart_btn(
+                    "most-active",
+                    "⚡ Most Active",
+                    "/lists?tab=most-active",
+                    "most-active" in fav_keys,
+                    authenticated=authenticated,
+                ),
+                cls="shrink-0 hidden sm:flex items-center gap-2",
             ),
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
@@ -606,6 +724,8 @@ def _render_by_country_content(
     country_rankings: list[dict],
     description: str,
     total_countries: int = 0,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
 ) -> Div:
     """
     Renders By Country tab with grouped country sections.
@@ -640,7 +760,10 @@ def _render_by_country_content(
         ),
         # Country cards grid — HTMX load-more appends into this div
         Div(
-            *[_country_group_card(c) for c in country_rankings],
+            *[
+                _country_group_card(c, fav_keys=fav_keys, authenticated=authenticated)
+                for c in country_rankings
+            ],
             id="country-groups-grid",
             cls="grid grid-cols-1 md:grid-cols-2 gap-4",
         ),
@@ -664,6 +787,8 @@ def _render_by_category_content(
     category_rankings: list[dict],
     description: str,
     total_categories: int = 0,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
 ) -> Div:
     """
     Renders By Category tab with grouped category sections.
@@ -702,7 +827,10 @@ def _render_by_category_content(
         ),
         # Category cards grid — HTMX load-more appends into this div
         Div(
-            *[_category_group_card(c) for c in category_rankings],
+            *[
+                _category_group_card(c, fav_keys=fav_keys, authenticated=authenticated)
+                for c in category_rankings
+            ],
             id="category-groups-grid",
             cls="grid grid-cols-1 md:grid-cols-2 gap-4",
         ),
@@ -726,6 +854,8 @@ def _render_by_language_content(
     language_rankings: list[dict],
     description: str,
     total_languages: int = 0,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
 ) -> Div:
     """
     Renders By Language tab with grouped language sections.
@@ -760,7 +890,10 @@ def _render_by_language_content(
         ),
         # Language cards grid — HTMX load-more appends into this div
         Div(
-            *[_language_group_card(c) for c in language_rankings],
+            *[
+                _language_group_card(c, fav_keys=fav_keys, authenticated=authenticated)
+                for c in language_rankings
+            ],
             id="language-groups-grid",
             cls="grid grid-cols-1 md:grid-cols-2 gap-4",
         ),
@@ -780,7 +913,12 @@ def _render_by_language_content(
     )
 
 
-def _render_rising_content(creators: list[dict], description: str) -> Div:
+def _render_rising_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Renders Rising Stars tab with growth metrics."""
     if not creators:
         return _placeholder_content(description, coming_soon=False)
@@ -793,7 +931,14 @@ def _render_rising_content(creators: list[dict], description: str) -> Div:
                     f"{len(creators)} creators",
                     cls="text-sm font-medium text-foreground",
                 ),
-                cls="shrink-0 hidden sm:block",
+                _list_heart_btn(
+                    "rising",
+                    "🚀 Rising Stars",
+                    "/lists?tab=rising",
+                    "rising" in fav_keys,
+                    authenticated=authenticated,
+                ),
+                cls="shrink-0 hidden sm:flex items-center gap-2",
             ),
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
@@ -808,7 +953,12 @@ def _render_rising_content(creators: list[dict], description: str) -> Div:
     )
 
 
-def _render_veterans_content(creators: list[dict], description: str) -> Div:
+def _render_veterans_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
     """Renders Veterans tab with channel age."""
     if not creators:
         return _placeholder_content(description, coming_soon=False)
@@ -821,7 +971,14 @@ def _render_veterans_content(creators: list[dict], description: str) -> Div:
                     f"{len(creators)} creators",
                     cls="text-sm font-medium text-foreground",
                 ),
-                cls="shrink-0 hidden sm:block",
+                _list_heart_btn(
+                    "veterans",
+                    "🏅 Veterans",
+                    "/lists?tab=veterans",
+                    "veterans" in fav_keys,
+                    authenticated=authenticated,
+                ),
+                cls="shrink-0 hidden sm:flex items-center gap-2",
             ),
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
@@ -941,6 +1098,8 @@ def render_more_countries(
     next_offset: int,
     has_more: bool,
     total: int = 0,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
 ) -> FT:
     """
     HTMX partial response for load-more countries.
@@ -949,7 +1108,7 @@ def render_more_countries(
         - New country group cards (appended into #country-groups-grid by hx-swap=beforeend)
         - An oob-swap to replace the old load-more button div
     """
-    cards = [_country_group_card(g) for g in groups]
+    cards = [_country_group_card(g, fav_keys=fav_keys, authenticated=authenticated) for g in groups]
 
     # Build the replacement load-more element; oob=True makes the element
     # carry hx-swap-oob itself so no extra wrapper div is needed.
@@ -974,6 +1133,8 @@ def render_more_categories(
     next_offset: int,
     has_more: bool,
     total: int = 0,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
 ) -> FT:
     """
     HTMX partial response for load-more categories.
@@ -982,7 +1143,9 @@ def render_more_categories(
         - New category group cards (appended into #category-groups-grid)
         - An oob-swap to replace the old load-more button div
     """
-    cards = [_category_group_card(g) for g in groups]
+    cards = [
+        _category_group_card(g, fav_keys=fav_keys, authenticated=authenticated) for g in groups
+    ]
 
     new_button = (
         _load_more_button(
@@ -1005,6 +1168,8 @@ def render_more_languages(
     next_offset: int,
     has_more: bool,
     total: int = 0,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
 ) -> FT:
     """
     HTMX partial response for load-more languages.
@@ -1013,7 +1178,9 @@ def render_more_languages(
         - New language group cards (appended into #language-groups-grid by hx-swap=beforeend)
         - An oob-swap to replace the old load-more button div
     """
-    cards = [_language_group_card(g) for g in groups]
+    cards = [
+        _language_group_card(g, fav_keys=fav_keys, authenticated=authenticated) for g in groups
+    ]
 
     new_button = (
         _load_more_button(
@@ -1031,7 +1198,12 @@ def render_more_languages(
     return (*cards, new_button)
 
 
-def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> FT:
+def render_lists_page(
+    active_tab: str = "top-rated",
+    tab_data: dict = None,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> FT:
     """
     Renders the full /lists page with tabbed creator list navigation.
     Tabs use UIkit's switcher for zero-JS panel switching.
@@ -1074,10 +1246,14 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
             panel_items.append(Li(_placeholder_content(description, coming_soon=True)))
         elif tab_id == "top-rated":
             creators = tab_data.get("top_rated", [])
-            panel_items.append(Li(_render_top_rated_content(creators, description)))
+            panel_items.append(
+                Li(_render_top_rated_content(creators, description, fav_keys, authenticated))
+            )
         elif tab_id == "most-active":
             creators = tab_data.get("most_active", [])
-            panel_items.append(Li(_render_most_active_content(creators, description)))
+            panel_items.append(
+                Li(_render_most_active_content(creators, description, fav_keys, authenticated))
+            )
         elif tab_id == "by-country":
             country_rankings = tab_data.get("country_rankings", [])
             panel_items.append(
@@ -1086,6 +1262,8 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
                         country_rankings,
                         description,
                         total_countries=total_countries,
+                        fav_keys=fav_keys,
+                        authenticated=authenticated,
                     )
                 )
             )
@@ -1097,6 +1275,8 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
                         category_rankings,
                         description,
                         total_categories=total_categories,
+                        fav_keys=fav_keys,
+                        authenticated=authenticated,
                     )
                 )
             )
@@ -1108,15 +1288,21 @@ def render_lists_page(active_tab: str = "top-rated", tab_data: dict = None) -> F
                         language_rankings,
                         description,
                         total_languages=total_languages,
+                        fav_keys=fav_keys,
+                        authenticated=authenticated,
                     )
                 )
             )
         elif tab_id == "rising":
             creators = tab_data.get("rising", [])
-            panel_items.append(Li(_render_rising_content(creators, description)))
+            panel_items.append(
+                Li(_render_rising_content(creators, description, fav_keys, authenticated))
+            )
         elif tab_id == "veterans":
             creators = tab_data.get("veterans", [])
-            panel_items.append(Li(_render_veterans_content(creators, description)))
+            panel_items.append(
+                Li(_render_veterans_content(creators, description, fav_keys, authenticated))
+            )
         else:
             panel_items.append(Li(_placeholder_content(description, coming_soon=False)))
 

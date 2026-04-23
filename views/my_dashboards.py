@@ -172,6 +172,7 @@ def render_my_dashboards_page(
     sort: str = "recent",
     plan_info: dict | None = None,
     fav_creators: list[dict] | None = None,
+    fav_lists: list[dict] | None = None,
     has_more: bool = False,
     page: int = 1,
 ) -> Div:
@@ -193,6 +194,7 @@ def render_my_dashboards_page(
     }
     plan = _plan_info.get("plan", "free")
     _fav_creators = fav_creators or []
+    _fav_lists = fav_lists or []
 
     return Container(
         # ── 1. Header ──────────────────────────────────────────────────────
@@ -202,7 +204,7 @@ def render_my_dashboards_page(
         # ── 3. Playlist Analysis ───────────────────────────────────────────
         _section_analysis(dashboards, search, sort, has_more=has_more, page=page),
         # ── 4. Lists ───────────────────────────────────────────────────────
-        _section_lists(),
+        _section_lists(_fav_lists),
         # ── 5. Campaigns ───────────────────────────────────────────────────
         _section_campaigns(plan),
         cls=ContainerT.xl,
@@ -277,14 +279,71 @@ def _section_analysis(
     )
 
 
-def _section_lists() -> Div:
-    """Quick-access tiles for the public Lists product."""
+def _section_lists(fav_lists: list[dict] | None = None) -> Div:
+    """Quick-access tiles for the public Lists product.
+
+    When the user has saved lists, shows those tiles (with unsave hearts).
+    Falls back to 5 default discovery tiles otherwise.
+    """
+    if fav_lists:
+
+        def _saved_tile(item: dict):
+            key = item.get("list_key", "")
+            label = item.get("list_label", "List")
+            url = item.get("list_url", "/lists")
+            btn_id = f"heart-{key.replace(':', '-').replace(' ', '-')}"
+            unsave_form = Form(
+                Input(type="hidden", name="list_key", value=key),
+                Input(type="hidden", name="list_label", value=label),
+                Input(type="hidden", name="list_url", value=url),
+                Button(
+                    UkIcon("heart", cls="size-3.5 fill-red-400 text-red-400"),
+                    type="submit",
+                    title="Remove from dashboard",
+                    cls="absolute top-1.5 right-1.5 p-0.5 rounded hover:bg-red-50 transition-colors",
+                ),
+                id=btn_id,
+                hx_post="/me/favourite-list",
+                hx_swap="none",
+                hx_on__after_request="this.closest('[data-list-tile]').remove()",
+                cls="contents",
+            )
+            return Div(
+                A(
+                    Div(
+                        Span(label[:2], cls="text-2xl mb-1 block"),
+                        Span(
+                            label[2:].strip() if len(label) > 2 else label,
+                            cls="text-xs font-medium text-gray-700 text-center leading-tight line-clamp-2",
+                        ),
+                        cls="flex flex-col items-center justify-center p-3 pt-4",
+                    ),
+                    href=url,
+                    cls="block no-underline flex-1",
+                ),
+                unsave_form,
+                data_list_tile="1",
+                cls=(
+                    "relative rounded-xl border border-red-200 bg-red-50/40 hover:border-red-300 "
+                    "hover:shadow-sm transition-all duration-150 flex flex-col"
+                ),
+            )
+
+        return Div(
+            _section_label("📋", "Saved Lists", href="/lists"),
+            Div(
+                *[_saved_tile(item) for item in fav_lists[:8]],
+                cls="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-8 gap-3",
+            ),
+            cls="mb-10",
+        )
+
     tiles = [
-        ("🏆", "Top Rated", "/lists/top-rated"),
-        ("🚀", "Rising Stars", "/lists/rising-stars"),
-        ("⚡", "Most Active", "/lists/most-active"),
-        ("🌍", "By Country", "/lists"),
-        ("🎮", "By Category", "/lists"),
+        ("🏆", "Top Rated", "/lists?tab=top-rated"),
+        ("🚀", "Rising Stars", "/lists?tab=rising"),
+        ("⚡", "Most Active", "/lists?tab=most-active"),
+        ("🌍", "By Country", "/lists?tab=by-country"),
+        ("🎨", "By Category", "/lists?tab=by-category"),
     ]
 
     def _tile(emoji, label, href):
@@ -306,6 +365,14 @@ def _section_lists() -> Div:
         Div(
             *[_tile(e, l, h) for e, l, h in tiles],
             cls="grid grid-cols-5 gap-3",
+        ),
+        P(
+            A(
+                "♥ Heart any list on the Lists page to pin it here.",
+                href="/lists",
+                cls="text-red-400 hover:underline",
+            ),
+            cls="text-xs text-gray-400 mt-2",
         ),
         cls="mb-10",
     )
