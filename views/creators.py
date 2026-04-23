@@ -2579,6 +2579,33 @@ def render_creator_profile_page(
             cls="flex justify-between items-center py-2 border-b border-border last:border-0",
         )
 
+    def _rank_chip(text: str, href: str, title: str):
+        """Linked pill chip for rank badges in the identity strip."""
+        return A(
+            text,
+            href=href,
+            title=title,
+            cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
+        )
+
+    def _stat_card(label, value, delta_val, number_cls, bg_cls, *, delta_pct=None, rank_line=None):
+        return Card(
+            Div(
+                P(
+                    label,
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+                ),
+                Div(
+                    Span(value, cls=f"text-3xl font-bold {number_cls}"),
+                    _delta_badge(delta_val, pct=delta_pct),
+                    cls="flex items-baseline flex-wrap mt-1",
+                ),
+                rank_line,
+            ),
+            cls=f"{bg_cls} border-0",
+            body_cls="p-4",
+        )
+
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 1 — Cinematic banner + overlapping avatar + identity strip
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2746,33 +2773,6 @@ def render_creator_profile_page(
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 2 — 4-up stat cards (dark-mode safe)
     # ═══════════════════════════════════════════════════════════════════════════
-    def _rank_chip(text: str, href: str, title: str):
-        """Linked pill chip for rank badges in the identity strip."""
-        return A(
-            text,
-            href=href,
-            title=title,
-            cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
-        )
-
-    def _stat_card(label, value, delta_val, number_cls, bg_cls, *, delta_pct=None, rank_line=None):
-        return Card(
-            Div(
-                P(
-                    label,
-                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
-                ),
-                Div(
-                    Span(value, cls=f"text-3xl font-bold {number_cls}"),
-                    _delta_badge(delta_val, pct=delta_pct),
-                    cls="flex items-baseline flex-wrap mt-1",
-                ),
-                rank_line,
-            ),
-            cls=f"{bg_cls} border-0",
-            body_cls="p-4",
-        )
-
     # Rank line for Subscribers card — prefer country, fall back to category
     _subs_rank_line = None
     if not hidden_subs:
