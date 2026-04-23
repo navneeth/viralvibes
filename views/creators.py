@@ -2534,8 +2534,11 @@ def render_creator_profile_page(
     category_rank = context_ranks.get("category_rank")
 
     # ── small helpers (private to this call) ─────────────────────────────────
-    def _delta_badge(val: int | None) -> Span | None:
-        """Inline +/- badge for 30-day delta next to a stat value."""
+    def _delta_badge(val: int | None, pct: float | None = None) -> Span | None:
+        """Inline +/- badge for 30-day delta next to a stat value.
+
+        When pct is provided (subscribers only) renders e.g. "+280K 30d  ↑6.7%".
+        """
         if val is None:
             return None
         colour = (
@@ -2544,8 +2547,12 @@ def render_creator_profile_page(
             else "text-red-600 bg-red-50 dark:bg-red-900/30"
         )
         sign = "+" if val > 0 else ""
+        text = f"{sign}{format_number(val)} 30d"
+        if pct is not None:
+            arrow = "↑" if pct >= 0 else "↓"
+            text += f"  {arrow}{abs(pct):.1f}%"
         return Span(
-            f"{sign}{format_number(val)} 30d",
+            text,
             cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {colour} ml-1.5",
         )
 
@@ -2640,15 +2647,45 @@ def render_creator_profile_page(
                     if official
                     else None
                 ),
-                (
-                    Span(
-                        f"{grade_icon} {grade_label}",
-                        cls=f"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 {grade_bg}",
-                    )
-                    if quality_grade and quality_grade != "C"
-                    else None
-                ),
                 cls="flex items-center gap-2 flex-wrap",
+            ),
+            # Rank chips — grade + subscriber rank badges, links to list pages
+            *(
+                [
+                    Div(
+                        (
+                            Span(
+                                f"{grade_icon} {grade_label}",
+                                cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {grade_bg}",
+                            )
+                            if quality_grade
+                            else None
+                        ),
+                        (
+                            A(
+                                f"#{country_rank} {country_flag} {country_code.upper()}",
+                                href=f"/lists/country/{country_code.upper()}",
+                                cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
+                                title=f"#{country_rank} by subscribers in {country_code.upper()}",
+                            )
+                            if country_rank is not None and country_code
+                            else None
+                        ),
+                        (
+                            A(
+                                f"#{category_rank} {get_topic_category_emoji(primary_category)} {primary_category[:20]}",
+                                href=f"/lists/category/{slugify(primary_category)}",
+                                cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
+                                title=f"#{category_rank} by subscribers in {primary_category}",
+                            )
+                            if category_rank is not None and primary_category
+                            else None
+                        ),
+                        cls="flex flex-wrap items-center gap-1.5 mt-1",
+                    )
+                ]
+                if (quality_grade or country_rank is not None or category_rank is not None)
+                else []
             ),
             # Handle + country + language + age tags
             # Previously these were width-starved inside a flex child with no
@@ -2706,7 +2743,7 @@ def render_creator_profile_page(
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 2 — 4-up stat cards (dark-mode safe)
     # ═══════════════════════════════════════════════════════════════════════════
-    def _stat_card(label, value, delta_val, number_cls, bg_cls):
+    def _stat_card(label, value, delta_val, number_cls, bg_cls, delta_pct=None, rank_line=None):
         return Card(
             Div(
                 P(
@@ -2715,13 +2752,33 @@ def render_creator_profile_page(
                 ),
                 Div(
                     Span(value, cls=f"text-3xl font-bold {number_cls}"),
-                    _delta_badge(delta_val),
+                    _delta_badge(delta_val, pct=delta_pct),
                     cls="flex items-baseline flex-wrap mt-1",
                 ),
+                rank_line,
             ),
             cls=f"{bg_cls} border-0",
             body_cls="p-4",
         )
+
+    # Rank line for Subscribers card — prefer country, fall back to category
+    _subs_rank_line = None
+    if not hidden_subs:
+        if country_rank is not None and country_code:
+            _subs_rank_line = Div(
+                Span(f"#{country_rank}", cls="text-xs font-bold text-blue-500 dark:text-blue-400"),
+                Span(
+                    f" in {country_flag} {country_code.upper()}",
+                    cls="text-xs text-muted-foreground",
+                ),
+                cls="mt-2",
+            )
+        elif category_rank is not None and primary_category:
+            _subs_rank_line = Div(
+                Span(f"#{category_rank}", cls="text-xs font-bold text-blue-500 dark:text-blue-400"),
+                Span(f" in {primary_category}", cls="text-xs text-muted-foreground"),
+                cls="mt-2",
+            )
 
     stats_row = Grid(
         _stat_card(
@@ -2730,6 +2787,8 @@ def render_creator_profile_page(
             subs_change,
             "text-blue-600 dark:text-blue-400",
             "bg-blue-50 dark:bg-blue-950/40",
+            delta_pct=growth_rate if subs_change is not None else None,
+            rank_line=_subs_rank_line,
         ),
         _stat_card(
             "Total Views",
