@@ -36,6 +36,7 @@ from constants import (
     PLAYLIST_STATS_TABLE,
     SIGNUPS_TABLE,
     USER_FAVOURITE_CREATORS_TABLE,
+    USER_FAVOURITE_LISTS_TABLE,
     JobStatus,
 )
 from utils import (
@@ -2253,6 +2254,128 @@ def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dic
     except Exception as exc:
         logger.exception("[Favourites] get_favourite_creators_with_stats failed: %s", exc)
         return []
+
+
+# ============================================================================
+# 🔖  User Favourite Lists
+# ============================================================================
+
+_USER_FAVOURITE_LISTS_TABLE = USER_FAVOURITE_LISTS_TABLE
+
+# Allowlist of valid list_key formats (checked on write)
+import re as _re
+
+_LIST_KEY_RE = _re.compile(
+    r"^(top-rated|most-active|rising|veterans|by-country|by-category|by-language"
+    r"|country:[A-Z]{2}"
+    r"|category:[^:]{1,80}"
+    r"|language:[a-z]{2,10})$"
+)
+
+
+def add_favourite_list(
+    user_id: str,
+    list_key: str,
+    list_label: str,
+    list_url: str,
+) -> bool:
+    """
+    Bookmark a curated list for a user.
+
+    Uses upsert on (user_id, list_key) so the call is idempotent.
+    Validates list_key against an allowlist and list_url as an internal path.
+
+    Returns True on success, False on failure.
+    """
+    if not supabase_client or not user_id:
+        return False
+    if not _LIST_KEY_RE.match(list_key):
+        logger.warning("[FavLists] Rejected invalid list_key: %r", list_key)
+        return False
+    if not list_url.startswith("/lists"):
+        logger.warning("[FavLists] Rejected non-internal list_url: %r", list_url)
+        return False
+    # Sanitise label: strip leading/trailing whitespace, cap length
+    list_label = list_label.strip()[:100]
+    try:
+        supabase_client.table(_USER_FAVOURITE_LISTS_TABLE).upsert(
+            {
+                "user_id": user_id,
+                "list_key": list_key,
+                "list_label": list_label,
+                "list_url": list_url,
+            },
+            on_conflict="user_id,list_key",
+        ).execute()
+        logger.info("[FavLists] Added list %s for user %s", list_key, user_id)
+        return True
+    except Exception as exc:
+        logger.exception("[FavLists] add_favourite_list failed: %s", exc)
+        return False
+
+
+def remove_favourite_list(user_id: str, list_key: str) -> bool:
+    """
+    Remove a bookmarked list for a user.
+
+    Returns True on success (including when the row did not exist).
+    """
+    if not supabase_client or not user_id or not list_key:
+        return False
+    try:
+        supabase_client.table(_USER_FAVOURITE_LISTS_TABLE).delete().eq("user_id", user_id).eq(
+            "list_key", list_key
+        ).execute()
+        logger.info("[FavLists] Removed list %s for user %s", list_key, user_id)
+        return True
+    except Exception as exc:
+        logger.exception("[FavLists] remove_favourite_list failed: %s", exc)
+        return False
+
+
+def get_user_favourite_lists(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Return all bookmarked lists for a user, ordered by most recently saved first.
+
+    Each item has keys: list_key, list_label, list_url, created_at.
+    """
+    if not supabase_client or not user_id:
+        return []
+    try:
+        resp = (
+            supabase_client.table(_USER_FAVOURITE_LISTS_TABLE)
+            .select("list_key, list_label, list_url, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return resp.data or []
+    except Exception as exc:
+        logger.exception("[FavLists] get_user_favourite_lists failed: %s", exc)
+        return []
+
+
+def get_user_favourite_list_keys(user_id: str) -> frozenset:
+    """
+    Return the set of list_key strings the user has bookmarked.
+
+    Lightweight: fetches only list_key column.  Used by list renderers to
+    decide filled vs. outline heart icons without per-item DB queries.
+    """
+    if not supabase_client or not user_id:
+        return frozenset()
+    try:
+        resp = (
+            supabase_client.table(_USER_FAVOURITE_LISTS_TABLE)
+            .select("list_key")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return frozenset(row["list_key"] for row in (resp.data or []))
+    except Exception as exc:
+        logger.exception("[FavLists] get_user_favourite_list_keys failed: %s", exc)
+        return frozenset()
 
 
 def get_or_create_creator_from_playlist(
