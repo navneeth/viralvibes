@@ -2821,11 +2821,18 @@ def get_creators(
             )
             search_pattern = f"%{escaped_search}%"
 
-            query = query.or_(
-                f"channel_name.ilike.{search_pattern},"
-                f"custom_url.ilike.{search_pattern},"
-                f"keywords.ilike.{search_pattern}"
+            # Use ilike on channel_name OR custom_url OR keywords
+            # Build filter string in proper PostgREST format: col1.op.val,col2.op.val,...
+            # Note: The % and \ characters in search_pattern are literal and should not be URL-encoded
+            # as postgrest-py handles encoding internally
+            or_filter = ",".join(
+                [
+                    f"channel_name.ilike.{search_pattern}",
+                    f"custom_url.ilike.{search_pattern}",
+                    f"keywords.ilike.{search_pattern}",
+                ]
             )
+            query = query.or_(or_filter)
 
         # Apply grade filter
         valid_grades = ["A+", "A", "B+", "B", "C"]
@@ -2888,7 +2895,17 @@ def get_creators(
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
 
         # Execute query (count already included in select if needed)
-        response = query.execute()
+        try:
+            response = query.execute()
+        except Exception as e:
+            logger.error(
+                f"Query execution failed: {type(e).__name__}: {str(e)}\n"
+                f"Sort: {sort}, Search: {search!r}, Filters: "
+                f"[grade={grade_filter}, lang={language_filter}, activity={activity_filter}, "
+                f"age={age_filter}, country={country_filter}, category={category_filter}]",
+                exc_info=True,
+            )
+            raise
         creators = response.data if response.data else []
         total_count = (getattr(response, "count", 0) or 0) if return_count else 0
 
