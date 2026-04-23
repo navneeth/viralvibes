@@ -419,7 +419,7 @@ def compare_creators_route(request, user_id: str | None = None):
     """
     GET /compare?a=<uuid>&b=<uuid> — Side-by-side creator comparison page.
 
-    Returns a 400 Div when either creator ID is missing or not found.
+    Returns an error Div when either creator ID is missing or not found.
     """
     id_a = request.query_params.get("a", "")
     id_b = request.query_params.get("b", "")
@@ -475,6 +475,8 @@ def compare_creators_route(request, user_id: str | None = None):
         is_fav_b=is_fav_b,
     )
 
+
+async def creator_request_route(request, sess):
     """
     POST /creators/request
     HTMX endpoint — queues a creator add request submitted by the user.

@@ -113,8 +113,8 @@ def _metric_row(
     *,
     higher_is_better: bool = True,
     unit: str = "",
-    val_a_raw: float = 0.0,
-    val_b_raw: float = 0.0,
+    val_a_raw: float | None = None,
+    val_b_raw: float | None = None,
     show_bar: bool = False,
     colour_a: str = "bg-blue-500",
     colour_b: str = "bg-violet-500",
@@ -123,11 +123,15 @@ def _metric_row(
     A single comparison row:
       label  |  val_a  🏆?  |  bar (optional)  |  🏆?  val_b
     """
-    raw_a = val_a_raw or (
-        float(str(val_a).replace(",", "").replace("%", "") or 0) if val_a else 0.0
+    raw_a = (
+        val_a_raw
+        if val_a_raw is not None
+        else (float(str(val_a).replace(",", "").replace("%", "") or 0) if val_a else 0.0)
     )
-    raw_b = val_b_raw or (
-        float(str(val_b).replace(",", "").replace("%", "") or 0) if val_b else 0.0
+    raw_b = (
+        val_b_raw
+        if val_b_raw is not None
+        else (float(str(val_b).replace(",", "").replace("%", "") or 0) if val_b else 0.0)
     )
 
     if raw_a == raw_b:
@@ -440,13 +444,6 @@ def render_compare_page(
     subs_ratio = subs_a / subs_b if subs_b else None
     views_ratio = views_a / views_b if views_b else None
 
-    def _ratio_label(ratio: float | None, name_bigger: str) -> str:
-        if ratio is None:
-            return ""
-        r = ratio if ratio >= 1 else 1 / ratio
-        n = name_bigger if ratio >= 1 else (name_b if name_bigger == name_a else name_a)
-        return f"{n} is {r:.1f}× larger"
-
     scale_insight = None
     if subs_ratio is not None:
         bigger = name_a if subs_a >= subs_b else name_b
@@ -704,27 +701,27 @@ def render_compare_page(
     wins_b = []
     if subs_a > subs_b:
         wins_a.append("Reach & brand potential")
-    else:
+    elif subs_b > subs_a:
         wins_b.append("Reach & brand potential")
     if growth_rate_a > growth_rate_b:
         wins_a.append("Growth momentum")
-    else:
+    elif growth_rate_b > growth_rate_a:
         wins_b.append("Growth momentum")
     if eng_a > eng_b:
         wins_a.append("Engagement")
-    else:
+    elif eng_b > eng_a:
         wins_b.append("Engagement")
     if vps_a > vps_b:
         wins_a.append("Loyal viewership (views/sub)")
-    else:
+    elif vps_b > vps_a:
         wins_b.append("Loyal viewership (views/sub)")
     if uploads_a > uploads_b:
         wins_a.append("Upload consistency")
-    else:
+    elif uploads_b > uploads_a:
         wins_b.append("Upload consistency")
     if avg_views_a > avg_views_b:
         wins_a.append("Avg video performance")
-    else:
+    elif avg_views_b > avg_views_a:
         wins_b.append("Avg video performance")
 
     # Contextual use-case copy

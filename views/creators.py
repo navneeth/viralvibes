@@ -2456,11 +2456,6 @@ def _render_similar_creators(
         "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
     }
 
-    # The rail needs the current creator's ID to build compare links.
-    # We embed it as a data attribute on the container and use a tiny inline
-    # script to rewrite the placeholder href values after render.
-    _CURRENT_CREATOR_ID_PLACEHOLDER = "__CURRENT_ID__"
-
     def _tile(c: dict):
         cid = c.get("id", "")
         name = c.get("channel_name") or "Creator"
