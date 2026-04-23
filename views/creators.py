@@ -2538,18 +2538,23 @@ def render_creator_profile_page(
         """Inline +/- badge for 30-day delta next to a stat value.
 
         When pct is provided (subscribers only) renders e.g. "+280K 30d  ↑6.7%".
+        pct == 0 is treated as neutral (no arrow, grey) to avoid implying growth.
         """
         if val is None:
             return None
         colour = (
             "text-green-600 bg-green-50 dark:bg-green-900/30"
-            if val >= 0
-            else "text-red-600 bg-red-50 dark:bg-red-900/30"
+            if val > 0
+            else (
+                "text-red-600 bg-red-50 dark:bg-red-900/30"
+                if val < 0
+                else "text-muted-foreground bg-accent"
+            )
         )
         sign = "+" if val > 0 else ""
         text = f"{sign}{format_number(val)} 30d"
-        if pct is not None:
-            arrow = "↑" if pct >= 0 else "↓"
+        if pct is not None and pct != 0:
+            arrow = "↑" if pct > 0 else "↓"
             text += f"  {arrow}{abs(pct):.1f}%"
         return Span(
             text,
@@ -2662,20 +2667,18 @@ def render_creator_profile_page(
                             else None
                         ),
                         (
-                            A(
+                            _rank_chip(
                                 f"#{country_rank} {country_flag} {country_code.upper()}",
                                 href=f"/lists/country/{country_code.upper()}",
-                                cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
                                 title=f"#{country_rank} by subscribers in {country_code.upper()}",
                             )
                             if country_rank is not None and country_code
                             else None
                         ),
                         (
-                            A(
+                            _rank_chip(
                                 f"#{category_rank} {get_topic_category_emoji(primary_category)} {primary_category[:20]}",
                                 href=f"/lists/category/{slugify(primary_category)}",
-                                cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
                                 title=f"#{category_rank} by subscribers in {primary_category}",
                             )
                             if category_rank is not None and primary_category
@@ -2743,7 +2746,16 @@ def render_creator_profile_page(
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 2 — 4-up stat cards (dark-mode safe)
     # ═══════════════════════════════════════════════════════════════════════════
-    def _stat_card(label, value, delta_val, number_cls, bg_cls, delta_pct=None, rank_line=None):
+    def _rank_chip(text: str, href: str, title: str):
+        """Linked pill chip for rank badges in the identity strip."""
+        return A(
+            text,
+            href=href,
+            title=title,
+            cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
+        )
+
+    def _stat_card(label, value, delta_val, number_cls, bg_cls, *, delta_pct=None, rank_line=None):
         return Card(
             Div(
                 P(
