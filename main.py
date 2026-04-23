@@ -103,6 +103,7 @@ from views.lists import _list_heart_btn
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
+    compare_creators_route,
     creator_add_status_route,
     creator_profile_route,
     creator_request_route,
@@ -1332,7 +1333,8 @@ def creator_profile(req, sess, creator_id: str):
 
 @rt("/creator/{creator_id}/favourite", methods=["POST"])
 def creator_favourite(req, sess, creator_id: str):
-    """HTMX endpoint — toggle favourite state for a creator.
+    """
+    HTMX endpoint — toggle favourite state for a creator.
 
     POST /creator/{uuid}/favourite
 
@@ -1347,6 +1349,20 @@ def creator_favourite(req, sess, creator_id: str):
     Requires authentication — returns 401 if not logged in.
     """
     return toggle_favourite_route(req, sess, creator_id)
+
+
+@rt("/compare")
+def compare_creators(req, sess):
+    """GET /compare?a=<uuid>&b=<uuid> — side-by-side creator comparison."""
+    user_id = sess.get("user_id") if sess else None
+    page_content = compare_creators_route(req, user_id=user_id)
+    return Titled(
+        "Creator Comparison — ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
 
 
 @rt("/lists/language/{language_code}/more")

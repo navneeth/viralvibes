@@ -2430,7 +2430,12 @@ def _count_by_grade(creators: list[dict]) -> dict:
 # ============================================================================
 
 
-def _render_similar_creators(creators: list[dict], category: str, country_code: str) -> Div | None:
+def _render_similar_creators(
+    creators: list[dict],
+    category: str,
+    country_code: str,
+    current_creator_id: str = "",
+) -> Div | None:
     """
     Horizontal Apple-Music-style scroll rail of similar creators.
 
@@ -2473,36 +2478,52 @@ def _render_similar_creators(creators: list[dict], category: str, country_code: 
             )
         )
 
-        return A(
-            Div(
-                avatar,
+        return Div(
+            A(
                 Div(
-                    P(
-                        name,
-                        cls="text-xs font-semibold text-foreground leading-tight line-clamp-2 mt-2",
-                    ),
+                    avatar,
                     Div(
-                        Span(
-                            format_number(subs),
-                            cls="text-xs text-muted-foreground",
+                        P(
+                            name,
+                            cls="text-xs font-semibold text-foreground leading-tight line-clamp-2 mt-2",
                         ),
-                        *(
-                            [
-                                Span(
-                                    grade,
-                                    cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {grade_cls}",
-                                )
-                            ]
-                            if grade
-                            else []
+                        Div(
+                            Span(
+                                format_number(subs),
+                                cls="text-xs text-muted-foreground",
+                            ),
+                            *(
+                                [
+                                    Span(
+                                        grade,
+                                        cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {grade_cls}",
+                                    )
+                                ]
+                                if grade
+                                else []
+                            ),
+                            cls="flex items-center gap-1.5 mt-0.5",
                         ),
-                        cls="flex items-center gap-1.5 mt-0.5",
                     ),
+                    cls="flex flex-col",
                 ),
-                cls="flex flex-col",
+                href=f"/creator/{cid}",
+                cls="no-underline",
             ),
-            href=f"/creator/{cid}",
-            cls="flex-shrink-0 w-28 sm:w-32 no-underline snap-start",
+            # ⇄ Compare link below the tile
+            *(
+                [
+                    A(
+                        UkIcon("git-compare", cls="w-3 h-3 mr-0.5"),
+                        "Compare",
+                        href=f"/compare?a={current_creator_id}&b={cid}",
+                        cls="text-[10px] text-muted-foreground hover:text-primary no-underline flex items-center justify-center mt-1 transition-colors",
+                    )
+                ]
+                if current_creator_id
+                else []
+            ),
+            cls="flex-shrink-0 w-28 sm:w-32 snap-start flex flex-col",
         )
 
     tiles = [_tile(c) for c in creators]
@@ -2518,6 +2539,7 @@ def _render_similar_creators(creators: list[dict], category: str, country_code: 
         see_all_href = "/creators"
         see_all_label = "All creators"
 
+    rail_id = f"similar-rail-{current_creator_id or 'x'}"
     return Card(
         Div(
             H2("You may also like", cls="text-base font-bold text-foreground"),
@@ -2530,11 +2552,12 @@ def _render_similar_creators(creators: list[dict], category: str, country_code: 
         ),
         Div(
             *tiles,
+            id=rail_id,
             cls=(
                 "flex gap-3 overflow-x-auto pb-2"
                 " snap-x snap-mandatory"
                 " scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
-                " -mx-1 px-1"  # bleed edge so partial tile hints scroll
+                " -mx-1 px-1"
             ),
         ),
         body_cls="p-5",
@@ -2766,6 +2789,14 @@ def render_creator_profile_page(
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
                 render_favourite_button(creator_id, is_favourited=is_favourited),
+                A(
+                    UkIcon("git-compare", cls="w-4 h-4 mr-1"),
+                    "Compare",
+                    href=f"/compare?a={creator_id}&b=",
+                    id="compare-btn",
+                    title="Compare with another creator — paste a creator profile URL as ?b=<id>",
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
                 A(
                     UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
                     "Back",
@@ -3372,7 +3403,10 @@ def render_creator_profile_page(
     # SECTION 4 — Similar creators rail
     # ═══════════════════════════════════════════════════════════════════════════
     similar_section = _render_similar_creators(
-        similar_creators or [], primary_category, country_code
+        similar_creators or [],
+        primary_category,
+        country_code,
+        current_creator_id=creator_id,
     )
 
     # ═══════════════════════════════════════════════════════════════════════════

@@ -36,6 +36,7 @@ from db_lists import (
 
 # from services.youtube_backend_api import YouTubeBackendAPI
 from controllers.auth_routes import require_auth
+from views.compare import render_compare_page
 from views.creators import (
     render_add_creator_result,
     render_add_creator_status_result,
@@ -412,6 +413,67 @@ def toggle_favourite_route(request, sess, creator_id: str):
         "on" if new_state else "off",
     )
     return render_favourite_button(creator_id, is_favourited=new_state)
+
+
+def compare_creators_route(request, user_id: str | None = None):
+    """
+    GET /compare?a=<uuid>&b=<uuid> — Side-by-side creator comparison page.
+
+    Returns an error Div when either creator ID is missing or not found.
+    """
+    id_a = request.query_params.get("a", "")
+    id_b = request.query_params.get("b", "")
+
+    if not id_a or not id_b:
+        return Div(
+            H2("Two creators required", cls="text-xl font-bold text-foreground mb-2"),
+            P("Add ?a=<id>&b=<id> to compare two creators.", cls="text-muted-foreground"),
+            A(
+                "← Browse creators",
+                href="/creators",
+                cls="mt-4 inline-flex text-sm font-medium text-primary hover:underline",
+            ),
+            cls="max-w-2xl mx-auto px-4 py-24 text-center",
+        )
+
+    creator_a = get_creator_stats(id_a)
+    creator_b = get_creator_stats(id_b)
+
+    def _not_found(cid):
+        return Div(
+            H2("Creator not found", cls="text-xl font-bold text-foreground mb-2"),
+            P(f"No creator with ID {cid!r} exists.", cls="text-muted-foreground"),
+            A(
+                "← Browse creators",
+                href="/creators",
+                cls="mt-4 inline-flex text-sm font-medium text-primary hover:underline",
+            ),
+            cls="max-w-2xl mx-auto px-4 py-24 text-center",
+        )
+
+    if not creator_a:
+        return _not_found(id_a)
+    if not creator_b:
+        return _not_found(id_b)
+
+    # Fetch ranks in parallel — same pattern as creator profile
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_a = pool.submit(_get_context_ranks, creator_a)
+        fut_b = pool.submit(_get_context_ranks, creator_b)
+        ranks_a = fut_a.result()
+        ranks_b = fut_b.result()
+
+    is_fav_a = is_creator_favourited(user_id, id_a) if user_id else False
+    is_fav_b = is_creator_favourited(user_id, id_b) if user_id else False
+
+    return render_compare_page(
+        creator_a,
+        creator_b,
+        ranks_a=ranks_a,
+        ranks_b=ranks_b,
+        is_fav_a=is_fav_a,
+        is_fav_b=is_fav_b,
+    )
 
 
 async def creator_request_route(request, sess):
