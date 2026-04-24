@@ -17,6 +17,7 @@ from db import (
     calculate_creator_stats,
     find_creator_by_handle,
     get_cached_category_box_stats,
+    get_category_peer_benchmarks,
     get_creator_add_request_status,
     get_creator_hero_stats,
     get_creator_rank,
@@ -473,6 +474,46 @@ def compare_creators_route(request, user_id: str | None = None):
         ranks_b=ranks_b,
         is_fav_a=is_fav_a,
         is_fav_b=is_fav_b,
+    )
+
+
+def blueprint_route(request, creator_id: str, user_id: str | None = None):
+    """
+    GET /creator/{creator_id}/blueprint — Growth Blueprint page.
+
+    Loads the creator row, fetches category peer benchmarks, builds the
+    signal vector, runs the scorer, and delegates rendering to the view.
+
+    Returns a Div (page fragment) — wrapped in a full Titled page by main.py.
+    """
+    from utils.blueprint import signals_from_row, score_all_actions
+    from views.blueprint import render_blueprint_page
+
+    creator = get_creator_stats(creator_id)
+    if not creator:
+        logger.warning("[Blueprint] Creator not found: %s", creator_id)
+        return Div(
+            H2("Creator not found", cls="text-2xl font-bold text-foreground mb-2"),
+            A("← Back to Creators", href="/creators", cls="text-sm text-primary hover:underline"),
+            cls="max-w-2xl mx-auto px-4 py-24 text-center",
+        )
+
+    category = creator.get("primary_category", "")
+    back_url = request.query_params.get("from", f"/creator/{creator_id}")
+
+    benchmarks = get_category_peer_benchmarks(category)
+    signals = signals_from_row(
+        creator,
+        peer_vpv_p75=benchmarks["peer_vpv_p75"],
+        peer_vc_p75=benchmarks["peer_vc_p75"],
+    )
+    actions = score_all_actions(signals)
+
+    return render_blueprint_page(
+        creator,
+        signals=signals,
+        actions=actions,
+        back_url=back_url,
     )
 
 

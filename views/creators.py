@@ -2798,6 +2798,13 @@ def render_creator_profile_page(
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
                 A(
+                    UkIcon("map", cls="w-4 h-4 mr-1"),
+                    "Blueprint",
+                    href=f"/creator/{creator_id}/blueprint?from=/creator/{creator_id}&name={channel_name}",
+                    title="Growth Blueprint — Studio-grounded actions ranked by confidence",
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                A(
                     UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
                     "Back",
                     href=back_url,

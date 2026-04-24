@@ -1566,6 +1566,70 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_category_peer_benchmarks(category: str) -> dict[str, float]:
+    """
+    Return p75 views-per-video and viral-coeff for all synced creators
+    in ``category``.  Used by the Growth Blueprint scorer to contextualise
+    a single creator against its cohort.
+
+    Fetches only the four numeric columns needed; typically <200 rows per
+    category so the PostgREST default limit (1 000) is not a concern.
+
+    Returns:
+        {"peer_vpv_p75": float, "peer_vc_p75": float}
+        Both values are 0.0 when the category has no synced peers.
+    """
+    _default = {"peer_vpv_p75": 0.0, "peer_vc_p75": 0.0}
+
+    if not supabase_client or not category:
+        return _default
+
+    try:
+        resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select(
+                "current_view_count,"
+                "current_video_count,"
+                "views_change_30d,"
+                "current_subscribers"
+            )
+            .eq("sync_status", "synced")
+            .eq("primary_category", category)
+            .gt("current_video_count", 0)
+            .gt("current_subscribers", 0)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return _default
+
+        vpvs: list[float] = [
+            r["current_view_count"] / r["current_video_count"]
+            for r in rows
+            if (r.get("current_view_count") or 0) > 0
+        ]
+        vcs: list[float] = [
+            (r.get("views_change_30d") or 0) / r["current_subscribers"]
+            for r in rows
+            if (r.get("views_change_30d") or 0) >= 0
+        ]
+
+        def _p75(lst: list[float]) -> float:
+            if not lst:
+                return 0.0
+            s = sorted(lst)
+            return s[min(int(len(s) * 0.75), len(s) - 1)]
+
+        return {
+            "peer_vpv_p75": _p75(vpvs),
+            "peer_vc_p75": _p75(vcs),
+        }
+
+    except Exception:
+        logger.exception("get_category_peer_benchmarks failed for category '%s'", category)
+        return _default
+
+
 def get_creator_rank(
     current_subscribers: int,
     filter_key: str,
