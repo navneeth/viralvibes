@@ -162,7 +162,11 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
     peer_str = (
         f"{peer_vpv / 1_000_000:.1f}M"
         if peer_vpv >= 1_000_000
-        else f"{peer_vpv / 1_000:.0f}K" if peer_vpv >= 1_000 else "—"
+        else (
+            f"{peer_vpv / 1_000:.0f}K"
+            if peer_vpv >= 1_000
+            else str(int(peer_vpv)) if peer_vpv > 0 else "—"
+        )
     )
     viral_str = f"{signals.viral_coeff:.2f}×"
     growth_str = f"{signals.sub_growth_pct:.2f}%"

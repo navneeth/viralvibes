@@ -477,7 +477,7 @@ def compare_creators_route(request, user_id: str | None = None):
     )
 
 
-def blueprint_route(request, creator_id: str, user_id: str | None = None):
+def blueprint_route(request, creator_id: str):
     """
     GET /creator/{creator_id}/blueprint — Growth Blueprint page.
 

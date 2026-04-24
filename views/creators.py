@@ -25,7 +25,7 @@ import json
 import logging
 import re as _re  # private alias — wildcard `from fasthtml.common import *` cannot shadow it
 from collections.abc import Callable
-from urllib.parse import urlencode, unquote, quote, urlparse
+from urllib.parse import urlencode, unquote, quote, quote_plus, urlparse
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -2800,7 +2800,7 @@ def render_creator_profile_page(
                 A(
                     UkIcon("map", cls="w-4 h-4 mr-1"),
                     "Blueprint",
-                    href=f"/creator/{creator_id}/blueprint?from=/creator/{creator_id}&name={channel_name}",
+                    href=f"/creator/{creator_id}/blueprint?from=/creator/{creator_id}&name={quote_plus(channel_name)}",
                     title="Growth Blueprint — Studio-grounded actions ranked by confidence",
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),

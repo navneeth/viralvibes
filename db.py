@@ -1625,9 +1625,33 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
             "peer_vc_p75": _p75(vcs),
         }
 
-    except Exception:
-        logger.exception("get_category_peer_benchmarks failed for category '%s'", category)
-        return _default
+    except Exception as exc:
+        # Log and swallow only network/transport and Supabase API errors so that
+        # the caller always gets a usable default instead of a 500 page.
+        # Programming errors (AttributeError, TypeError, etc.) are re-raised so
+        # they surface in logs and are not silently swallowed as "empty data".
+        try:
+            import httpx
+
+            _SWALLOWED = (httpx.TransportError, httpx.TimeoutException)
+        except ImportError:
+            _SWALLOWED = ()
+        _SWALLOWED = _SWALLOWED + (TimeoutError, ConnectionError, OSError)
+        if isinstance(exc, _SWALLOWED):
+            logger.warning(
+                "get_category_peer_benchmarks: transient error for '%s': %s",
+                category,
+                exc,
+            )
+            return _default
+        # Supabase / PostgREST API errors have a status_code; treat all as
+        # swallowed since they represent valid "no data" server responses.
+        if getattr(exc, "status_code", None) is not None:
+            logger.exception("get_category_peer_benchmarks: API error for '%s'", category)
+            return _default
+        # Unexpected programming error — re-raise so it's caught in tests.
+        logger.exception("get_category_peer_benchmarks: unexpected error for '%s'", category)
+        raise
 
 
 def get_creator_rank(

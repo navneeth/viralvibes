@@ -139,22 +139,34 @@ _ACTION_REGISTRY: dict[str, ActionMeta] = {}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# Minimum subscriber count below which viral_coeff is too noisy to trust.
+# A channel with 500 subs and 1 000 new views looks like viral_coeff = 2.0,
+# but that's statistical noise, not a real leaky-bucket signal.
+_END_SCREENS_MIN_SUBS = 50_000
+
+
 def _score_end_screens(s: CreatorSignals) -> float:
     """
     Score the "Add End Screens" recommendation.
 
     High confidence when:
       - Channel is active (has recent views — not dormant)
+      - Channel is large enough that viral_coeff is statistically meaningful
       - Views/video is above the category floor (content is watched)
       - Subscriber growth is low relative to viewership (viewers aren't converting)
 
     Scales with how far views outpace subscriber growth (the "leaky bucket" gap).
 
-    Returns 0 when the channel is dormant — end screens help only when
-    new uploads exist to link from.
+    Returns 0 when the channel is dormant or below the minimum subscriber
+    threshold — end screens help only when new uploads exist to link from, and
+    when the subscriber base is large enough that conversion rates are reliable.
     """
     # Guard: dormant channel — no new views or subs in 30 days
     if s.views_change_30d == 0 and s.subs_change_30d == 0:
+        return 0.0
+
+    # Guard: too small — viral_coeff is statistically unreliable below this threshold
+    if s.subscribers < _END_SCREENS_MIN_SUBS:
         return 0.0
 
     score = 0.0
