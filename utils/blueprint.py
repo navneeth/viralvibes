@@ -606,6 +606,12 @@ _ACTION_REGISTRY["Unlist Old Videos"] = ActionMeta(
 # automatically activates once blueprint_signals is populated.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Minimum reach thresholds: only recommend a shift to long-form once the
+# Shorts channel has built enough audience to seed a long-form baseline.
+# Treat missing metrics as 0 to keep the guard conservative.
+_LONGFORM_MIN_SUBSCRIBERS = 1_000
+_LONGFORM_MIN_VIEWS_PER_VIDEO = 500
+
 
 def _score_shorts_to_longform(s: CreatorSignals) -> float:
     """
@@ -620,6 +626,15 @@ def _score_shorts_to_longform(s: CreatorSignals) -> float:
         return 0.0
 
     if s.shorts_ratio < 0.7:
+        return 0.0
+
+    # Minimum scale guard: only recommend a shift to long-form once there is
+    # enough audience to seed an initial long-form baseline.
+    # Require at least one of the reach metrics to clear its threshold.
+    if (
+        s.subscribers < _LONGFORM_MIN_SUBSCRIBERS
+        and s.views_per_video < _LONGFORM_MIN_VIEWS_PER_VIDEO
+    ):
         return 0.0
 
     score = 0.0
