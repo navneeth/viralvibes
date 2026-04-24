@@ -103,6 +103,7 @@ from views.lists import _list_heart_btn
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
+    blueprint_route,
     compare_creators_route,
     creator_add_status_route,
     creator_profile_route,
@@ -1349,6 +1350,31 @@ def creator_favourite(req, sess, creator_id: str):
     Requires authentication — returns 401 if not logged in.
     """
     return toggle_favourite_route(req, sess, creator_id)
+
+
+@rt("/creator/{creator_id}/blueprint")
+def creator_blueprint(req, sess, creator_id: str):
+    """
+    GET /creator/{uuid}/blueprint — Growth Blueprint page.
+
+    Call chain:
+        main.py  @rt("/creator/{creator_id}/blueprint")
+          └─ blueprint_route(req, creator_id, user_id)  ← routes/creators.py
+               ├─ get_creator_stats(creator_id)          ← db.py
+               ├─ get_category_peer_benchmarks(category) ← db.py
+               ├─ signals_from_row(row, ...)             ← utils/blueprint.py
+               ├─ score_all_actions(signals)             ← utils/blueprint.py
+               └─ render_blueprint_page(...)             ← views/blueprint.py
+    """
+    channel_name = req.query_params.get("name", "Growth Blueprint")
+    page_content = blueprint_route(req, creator_id)
+    return Titled(
+        f"{channel_name} — Growth Blueprint — ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+    )
 
 
 @rt("/compare")
