@@ -105,6 +105,71 @@ def calculate_views_per_subscriber(total_views: int, current_subs: int) -> float
     return total_views / current_subs if current_subs > 0 else 0.0
 
 
+def calculate_momentum_score(
+    views_change_30d: int | None,
+    subs_change_30d: int | None,
+    current_subs: int,
+) -> float | None:
+    """
+    Compute a 0–100 momentum score that combines subscriber growth velocity
+    with view velocity.
+
+    The score blends two signals with equal weight:
+      - Sub velocity:  subs_change_30d / current_subs * 100  (30-day growth %)
+      - View velocity: views_change_30d / current_subs        (viral coefficient)
+
+    Both are normalised against representative ceilings so the result sits
+    naturally in the 0–100 range for typical creators:
+      - sub_pct     normalised at 5 %  (5 % 30d growth → score contribution 50)
+      - viral_coeff normalised at 5.0  (viral_coeff 5 → score contribution 50)
+
+    Returns None when neither delta is available (channel not yet tracked).
+    """
+    if views_change_30d is None and subs_change_30d is None:
+        return None
+    if current_subs <= 0:
+        return None
+
+    _views = max(views_change_30d or 0, 0)
+    _subs = max(subs_change_30d or 0, 0)
+
+    # Normalised sub growth (ceiling = 5%)
+    sub_component = min((_subs / current_subs * 100) / 5.0, 1.0) * 50
+
+    # Normalised view velocity / viral coeff (ceiling = 5.0)
+    view_component = min((_views / current_subs) / 5.0, 1.0) * 50
+
+    return round(sub_component + view_component, 1)
+
+
+def get_momentum_label(score: float) -> tuple[str, str]:
+    """
+    Map a momentum score to a display label and badge CSS classes.
+
+    Returns (label, tailwind_classes).
+    """
+    if score >= 70:
+        return (
+            "🚀 Surging",
+            "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300",
+        )
+    elif score >= 40:
+        return (
+            "📈 Building",
+            "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300",
+        )
+    elif score >= 15:
+        return (
+            "→ Holding",
+            "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300",
+        )
+    else:
+        return (
+            "📉 Cooling",
+            "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300",
+        )
+
+
 def format_channel_age(channel_age_days: Optional[int]) -> str:
     """
     Format channel age in human-readable format.
