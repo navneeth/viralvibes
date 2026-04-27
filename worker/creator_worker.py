@@ -25,6 +25,7 @@ Run as: python -m worker.creator_worker
 import asyncio
 import logging
 import os
+import re
 import signal
 import time
 import traceback
@@ -33,6 +34,9 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 import json as _json
+
+# Pre-compiled regex for ISO 8601 duration parsing (e.g. PT1H2M3S)
+_ISO8601_DURATION_RE = re.compile(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
 
 from secrets_loader import load_secrets
 
@@ -744,7 +748,16 @@ async def _fetch_recent_upload(channel_id: str) -> dict | None:
 
         vid_items = vid_resp.get("items", [])
         if not vid_items:
-            return None
+            # videos.list returned no items — return partial data without stats/duration
+            return {
+                "video_id": video_id,
+                "title": title,
+                "thumbnail_url": thumbnail_url,
+                "published_at": published_at,
+                "view_count": 0,
+                "duration_sec": 0,
+                "is_short": False,
+            }
 
         vid = vid_items[0]
         stats = vid.get("statistics", {})
@@ -776,14 +789,9 @@ def _parse_iso8601_duration(duration: str) -> int:
     Examples: "PT1M30S" → 90, "PT4M" → 240, "PT45S" → 45, "PT0S" → 0.
     Returns 0 on any parse error.
     """
-    import re as _re
-
     if not duration:
         return 0
-    m = _re.match(
-        r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$",
-        duration,
-    )
+    m = _ISO8601_DURATION_RE.match(duration)
     if not m:
         return 0
     hours = int(m.group(1) or 0)
