@@ -3059,13 +3059,6 @@ def render_creator_profile_page(
         body_cls="p-5",
     )
 
-    left_col = Div(
-        about_card,
-        channel_info_card,
-        *(recent_upload_card and [recent_upload_card] or []),
-        cls="flex flex-col gap-4",
-    )
-
     # ── Recent Upload card ─────────────────────────────────────────────────────
     # Use the parameter if explicitly provided, otherwise fall back to the
     # cached value stored in the creator row.
@@ -3154,6 +3147,14 @@ def render_creator_profile_page(
             ),
             body_cls="p-5",
         )
+
+    # Default left_col — overridden below if social/featured cards are present
+    left_col = Div(
+        about_card,
+        channel_info_card,
+        *(recent_upload_card and [recent_upload_card] or []),
+        cls="flex flex-col gap-4",
+    )
 
     # ── Social links card ──────────────────────────────────────────────────────
     if social_links:
@@ -3560,7 +3561,6 @@ def render_creator_profile_page(
             peer_id = peer.get("id", "")
             peer_name = peer.get("channel_name", "Unknown")
             peer_thumb = peer.get("channel_thumbnail_url") or "/static/favicon.jpeg"
-            peer_handle = peer.get("custom_url") or peer_name[:18]
             peer_eng = float(peer.get("engagement_score") or 0)
             peer_subs = int(peer.get("current_subscribers") or 0)
             is_self = peer_id == creator_id
@@ -3623,7 +3623,7 @@ def render_creator_profile_page(
     right_col = Div(
         performance_card,
         rankings_card,
-        leaderboard_card,
+        *(leaderboard_card and [leaderboard_card] or []),
         topic_pill_section,
         cat_dist_card,
         cls="flex flex-col gap-4",

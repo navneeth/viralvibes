@@ -1616,7 +1616,7 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
         ]
 
         eng_scores: list[float] = [
-            float(r["engagement_score"]) for r in rows if (r.get("engagement_score") or 0) > 0
+            float(val) for r in rows if (val := r.get("engagement_score")) and float(val) > 0
         ]
 
         def _p75(lst: list[float]) -> float:
