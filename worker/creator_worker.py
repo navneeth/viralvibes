@@ -25,6 +25,7 @@ Run as: python -m worker.creator_worker
 import asyncio
 import logging
 import os
+import re
 import signal
 import time
 import traceback
@@ -33,6 +34,9 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 import json as _json
+
+# Pre-compiled regex for ISO 8601 duration parsing (e.g. PT1H2M3S)
+_ISO8601_DURATION_RE = re.compile(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
 
 from secrets_loader import load_secrets
 
@@ -662,6 +666,140 @@ async def _calculate_engagement_score(channel_id: str) -> float:
         return 0.0
 
 
+async def _fetch_recent_upload(channel_id: str) -> dict | None:
+    """
+    Fetch the most recently published video for a channel.
+
+    Costs 2 quota units (1 for playlistItems.list + 1 for videos.list).
+    Returns None gracefully on any error so the sync is never blocked.
+
+    Args:
+        channel_id: YouTube channel ID (UC…)
+
+    Returns:
+        Dict with keys: video_id, title, thumbnail_url, published_at,
+        view_count, duration_sec, is_short.
+        None on error or when the channel has no uploads.
+    """
+    try:
+        if not youtube_resolver:
+            return None
+
+        youtube = youtube_resolver._get_youtube_client()
+        uploads_playlist_id = "UU" + channel_id[2:]
+
+        # 1 quota unit — get the most recent item
+        try:
+            pl_resp = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: youtube.playlistItems()
+                    .list(
+                        part="contentDetails,snippet",
+                        playlistId=uploads_playlist_id,
+                        maxResults=1,
+                    )
+                    .execute(),
+                ),
+                timeout=5,
+            )
+        except Exception as e:
+            logger.debug(f"[RecentUpload] playlistItems failed for {channel_id}: {e}")
+            return None
+
+        items = pl_resp.get("items", [])
+        if not items:
+            return None
+
+        item = items[0]
+        video_id = item["contentDetails"]["videoId"]
+        snippet = item.get("snippet", {})
+        published_at = snippet.get("publishedAt", "")
+        title = snippet.get("title", "")
+        thumbnail_url = (
+            (snippet.get("thumbnails") or {}).get("medium", {}).get("url")
+            or (snippet.get("thumbnails") or {}).get("default", {}).get("url")
+            or ""
+        )
+
+        # 1 quota unit — get statistics + duration
+        try:
+            vid_resp = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: youtube.videos()
+                    .list(part="statistics,contentDetails", id=video_id)
+                    .execute(),
+                ),
+                timeout=5,
+            )
+        except Exception as e:
+            logger.debug(f"[RecentUpload] videos.list failed for {video_id}: {e}")
+            # Return partial data without stats
+            return {
+                "video_id": video_id,
+                "title": title,
+                "thumbnail_url": thumbnail_url,
+                "published_at": published_at,
+                "view_count": 0,
+                "duration_sec": 0,
+                "is_short": False,
+            }
+
+        vid_items = vid_resp.get("items", [])
+        if not vid_items:
+            # videos.list returned no items — return partial data without stats/duration
+            return {
+                "video_id": video_id,
+                "title": title,
+                "thumbnail_url": thumbnail_url,
+                "published_at": published_at,
+                "view_count": 0,
+                "duration_sec": 0,
+                "is_short": False,
+            }
+
+        vid = vid_items[0]
+        stats = vid.get("statistics", {})
+        view_count = int(stats.get("viewCount", 0) or 0)
+
+        # Parse ISO 8601 duration (e.g. PT1M30S → 90 sec)
+        raw_duration = vid.get("contentDetails", {}).get("duration", "PT0S")
+        duration_sec = _parse_iso8601_duration(raw_duration)
+        is_short = duration_sec > 0 and duration_sec <= 60
+
+        return {
+            "video_id": video_id,
+            "title": title,
+            "thumbnail_url": thumbnail_url,
+            "published_at": published_at,
+            "view_count": view_count,
+            "duration_sec": duration_sec,
+            "is_short": is_short,
+        }
+    except Exception as e:
+        logger.debug(f"[RecentUpload] Unexpected error for {channel_id}: {e}")
+        return None
+
+
+def _parse_iso8601_duration(duration: str) -> int:
+    """
+    Parse an ISO 8601 duration string to total seconds.
+
+    Examples: "PT1M30S" → 90, "PT4M" → 240, "PT45S" → 45, "PT0S" → 0.
+    Returns 0 on any parse error.
+    """
+    if not duration:
+        return 0
+    m = _ISO8601_DURATION_RE.match(duration)
+    if not m:
+        return 0
+    hours = int(m.group(1) or 0)
+    minutes = int(m.group(2) or 0)
+    seconds = int(m.group(3) or 0)
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def _format_categories(topic_categories: list) -> list[str]:
     """
     Convert raw YouTube topicCategories Wikipedia URLs to readable names.
@@ -997,17 +1135,22 @@ async def handle_sync_job(
         except asyncio.TimeoutError:
             raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s")
 
-        # STAGE 3.5: Engagement score + category distribution (both optional)
+        # STAGE 3.5: Engagement score + category distribution + recent upload (all optional)
         # Category costs 2 extra quota units — only fetch when primary_category
         # is NULL (never been set). To force a re-fetch, NULL the column in DB.
+        # Recent upload costs 2 quota units (playlistItems + videos) every sync.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
         if should_fetch_categories:
-            engagement, cat_data = await asyncio.gather(
+            engagement, cat_data, recent_upload = await asyncio.gather(
                 _calculate_engagement_score(channel_id),
                 _fetch_channel_category_distribution(channel_id),
+                _fetch_recent_upload(channel_id),
             )
         else:
-            engagement = await _calculate_engagement_score(channel_id)
+            engagement, recent_upload = await asyncio.gather(
+                _calculate_engagement_score(channel_id),
+                _fetch_recent_upload(channel_id),
+            )
             cat_data = {
                 "primary_category": creator.get("primary_category"),
                 "primary_category_id": None,
@@ -1202,6 +1345,8 @@ async def handle_sync_job(
                 # filters return zero results for every value. Fixed here.
                 "quality_grade": quality,
                 "engagement_score": round(engagement, 4),
+                # ── Recent upload (latest video snapshot) ─────────────────
+                "recent_upload": recent_upload,
                 # ──────────────────────────────────────────────────────────
                 "sync_status": sync_status,
                 "sync_error_message": sync_error,
