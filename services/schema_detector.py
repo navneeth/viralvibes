@@ -65,7 +65,34 @@ class SchemaDetector:
             return self.available_columns
 
         try:
-            # Try to fetch schema via RPC or direct query
+            # Fetch column names from information_schema — this is reliable regardless
+            # of whether rows exist or have NULL values. PostgREST omits NULL-valued
+            # columns from SELECT * results, so reading keys() from a live row
+            # silently misses columns that haven't been populated yet (e.g. recent_upload).
+            try:
+                schema_resp = (
+                    supabase_client.table("information_schema.columns")
+                    .select("column_name")
+                    .eq("table_schema", "public")
+                    .eq("table_name", table_name)
+                    .execute()
+                )
+                if schema_resp.data:
+                    self.available_columns = {r["column_name"] for r in schema_resp.data}
+                    self.initialized = True
+                    logger.info(
+                        f"✅ Schema detected for '{table_name}': "
+                        f"{len(self.available_columns)} columns available"
+                    )
+                    return self.available_columns
+            except Exception as e:
+                logger.debug(
+                    "information_schema lookup failed for '%s'; falling back to live-row detection",
+                    table_name,
+                    exc_info=e,
+                )
+
+            # Fallback: try to fetch schema via live row
             response = supabase_client.table(table_name).select("*").limit(1).execute()
 
             if response.data and len(response.data) > 0:

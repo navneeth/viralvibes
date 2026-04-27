@@ -1139,24 +1139,27 @@ async def handle_sync_job(
         # Category costs 2 extra quota units — only fetch when primary_category
         # is NULL (never been set). To force a re-fetch, NULL the column in DB.
         # Recent upload costs 2 quota units (playlistItems + videos) every sync.
+        #
+        # IMPORTANT: these are called sequentially (not via asyncio.gather) because
+        # all three share the same httplib2-backed YouTube client via run_in_executor.
+        # httplib2's C internals are not thread-safe — concurrent executor threads
+        # corrupt its heap, producing segfaults and "free(): corrupted unsorted chunks"
+        # crashes. Sequential calls are safe; the per-job latency increase is
+        # acceptable because EXIT_AFTER_JOB ensures only one job runs per process.
+        # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
+        # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
+        engagement = await _calculate_engagement_score(channel_id)
         if should_fetch_categories:
-            engagement, cat_data, recent_upload = await asyncio.gather(
-                _calculate_engagement_score(channel_id),
-                _fetch_channel_category_distribution(channel_id),
-                _fetch_recent_upload(channel_id),
-            )
+            cat_data = await _fetch_channel_category_distribution(channel_id)
         else:
-            engagement, recent_upload = await asyncio.gather(
-                _calculate_engagement_score(channel_id),
-                _fetch_recent_upload(channel_id),
-            )
             cat_data = {
                 "primary_category": creator.get("primary_category"),
                 "primary_category_id": None,
                 "category_distribution": None,  # None = leave existing DB value as-is
             }
             logger.debug(f"{job_tag} Category already set — skipping fetch")
+        recent_upload = await _fetch_recent_upload(channel_id)
         quality = _compute_quality_grade(engagement, channel_data["current_subscribers"])
 
         subs = channel_data["current_subscribers"]
