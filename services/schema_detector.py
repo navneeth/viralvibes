@@ -85,8 +85,12 @@ class SchemaDetector:
                         f"{len(self.available_columns)} columns available"
                     )
                     return self.available_columns
-            except Exception:
-                pass  # Fall through to live-row detection
+            except Exception as e:
+                logger.debug(
+                    "information_schema lookup failed for '%s'; falling back to live-row detection",
+                    table_name,
+                    exc_info=e,
+                )
 
             # Fallback: try to fetch schema via live row
             response = supabase_client.table(table_name).select("*").limit(1).execute()

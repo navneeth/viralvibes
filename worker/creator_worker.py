@@ -1144,8 +1144,10 @@ async def handle_sync_job(
         # all three share the same httplib2-backed YouTube client via run_in_executor.
         # httplib2's C internals are not thread-safe — concurrent executor threads
         # corrupt its heap, producing segfaults and "free(): corrupted unsorted chunks"
-        # crashes. Sequential calls are safe and the per-job latency increase is
-        # acceptable given EXIT_AFTER_JOB=True means only one job runs per process.
+        # crashes. Sequential calls are safe; the per-job latency increase is
+        # acceptable because EXIT_AFTER_JOB ensures only one job runs per process.
+        # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
+        # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
         engagement = await _calculate_engagement_score(channel_id)
         if should_fetch_categories:
