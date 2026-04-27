@@ -1579,7 +1579,7 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
         {"peer_vpv_p75": float, "peer_vc_p75": float}
         Both values are 0.0 when the category has no synced peers.
     """
-    _default = {"peer_vpv_p75": 0.0, "peer_vc_p75": 0.0}
+    _default = {"peer_vpv_p75": 0.0, "peer_vc_p75": 0.0, "peer_engagement_p75": 0.0}
 
     if not supabase_client or not category:
         return _default
@@ -1591,7 +1591,8 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
                 "current_view_count,"
                 "current_video_count,"
                 "views_change_30d,"
-                "current_subscribers"
+                "current_subscribers,"
+                "engagement_score"
             )
             .eq("sync_status", "synced")
             .eq("primary_category", category)
@@ -1614,6 +1615,10 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
             if (r.get("views_change_30d") or 0) >= 0
         ]
 
+        eng_scores: list[float] = [
+            float(val) for r in rows if (val := r.get("engagement_score")) and float(val) > 0
+        ]
+
         def _p75(lst: list[float]) -> float:
             if not lst:
                 return 0.0
@@ -1623,6 +1628,7 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
         return {
             "peer_vpv_p75": _p75(vpvs),
             "peer_vc_p75": _p75(vcs),
+            "peer_engagement_p75": _p75(eng_scores),
         }
 
     except Exception as exc:
@@ -1652,6 +1658,48 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
         # Unexpected programming error — re-raise so it's caught in tests.
         logger.exception("get_category_peer_benchmarks: unexpected error for '%s'", category)
         raise
+
+
+def get_category_leaderboard(category: str, limit: int = 5) -> list[dict]:
+    """
+    Return the top-N synced creators in ``category`` ranked by engagement score
+    descending.  Used to render the Niche Leaderboard widget on creator profiles.
+
+    Args:
+        category: Primary category string (e.g. "Gaming", "Tech").
+        limit:    Number of rows to return (default 5, max 10).
+
+    Returns:
+        List of dicts with keys: id, channel_name, channel_thumbnail_url,
+        custom_url, engagement_score, current_subscribers.
+        Empty list when the category is unknown or DB is unavailable.
+    """
+    if not supabase_client or not category:
+        return []
+
+    safe_limit = max(1, min(10, limit))
+    try:
+        resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select(
+                "id,"
+                "channel_name,"
+                "channel_thumbnail_url,"
+                "custom_url,"
+                "engagement_score,"
+                "current_subscribers"
+            )
+            .eq("sync_status", "synced")
+            .eq("primary_category", category)
+            .gt("engagement_score", 0)
+            .order("engagement_score", desc=True)
+            .limit(safe_limit)
+            .execute()
+        )
+        return resp.data or []
+    except Exception:
+        logger.exception("get_category_leaderboard: error for '%s'", category)
+        return []
 
 
 def get_creator_rank(

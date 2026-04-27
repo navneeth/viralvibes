@@ -17,6 +17,7 @@ from db import (
     calculate_creator_stats,
     find_creator_by_handle,
     get_cached_category_box_stats,
+    get_category_leaderboard,
     get_category_peer_benchmarks,
     get_creator_add_request_status,
     get_creator_hero_stats,
@@ -362,6 +363,8 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     back_url = request.query_params.get("from", "/creators")
     context_ranks = _get_context_ranks(creator)
     category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
+    peer_benchmarks = get_category_peer_benchmarks(creator.get("primary_category", ""))
+    niche_leaderboard = get_category_leaderboard(creator.get("primary_category", ""), limit=5)
     is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
     similar_creators = _get_similar_creators(creator)
 
@@ -370,6 +373,8 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         back_url=back_url,
         context_ranks=context_ranks,
         category_stats=category_stats,
+        peer_engagement_p75=peer_benchmarks.get("peer_engagement_p75", 0.0),
+        niche_leaderboard=niche_leaderboard,
         is_favourited=is_fav,
         similar_creators=similar_creators,
     )

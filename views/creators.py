@@ -34,8 +34,10 @@ from utils import format_date_relative, format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
+    calculate_momentum_score,
     calculate_views_per_subscriber,
     estimate_monthly_revenue_v4,
+    get_momentum_label,
     format_channel_age,
     get_activity_badge,
     get_activity_title,
@@ -2572,6 +2574,9 @@ def render_creator_profile_page(
     category_stats: dict | None = None,
     is_favourited: bool = False,
     similar_creators: list[dict] | None = None,
+    peer_engagement_p75: float = 0.0,
+    niche_leaderboard: list[dict] | None = None,
+    recent_upload: dict | None = None,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
@@ -2645,6 +2650,11 @@ def render_creator_profile_page(
     growth_label, growth_style = get_growth_signal(growth_rate)
     avg_views = calculate_avg_views_per_video(current_views, current_videos)
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
+    momentum_score = calculate_momentum_score(views_change, subs_change, current_subs)
+    if momentum_score is not None:
+        momentum_label, momentum_style = get_momentum_label(momentum_score)
+    else:
+        momentum_label, momentum_style = None, ""
     # v4 revenue model — country + niche-aware, Shorts-split, sponsorships included
     _rev = estimate_monthly_revenue_v4(
         total_subs=current_subs,
@@ -3049,7 +3059,102 @@ def render_creator_profile_page(
         body_cls="p-5",
     )
 
-    left_col = Div(about_card, channel_info_card, cls="flex flex-col gap-4")
+    # ── Recent Upload card ─────────────────────────────────────────────────────
+    # Use the parameter if explicitly provided, otherwise fall back to the
+    # cached value stored in the creator row.
+    _ru = recent_upload or safe_get_value(creator, "recent_upload")
+    if isinstance(_ru, str):
+        try:
+            import json as _json
+
+            _ru = _json.loads(_ru)
+        except Exception:
+            _ru = None
+    recent_upload_card = None
+    if isinstance(_ru, dict) and _ru.get("video_id"):
+        ru_vid_id = _ru["video_id"]
+        ru_title = _ru.get("title") or "Untitled"
+        ru_thumb = _ru.get("thumbnail_url") or ""
+        ru_views = int(_ru.get("view_count") or 0)
+        ru_pub = _ru.get("published_at") or ""
+        ru_dur_sec = int(_ru.get("duration_sec") or 0)
+        ru_is_short = bool(_ru.get("is_short"))
+        ru_url = f"https://www.youtube.com/watch?v={ru_vid_id}"
+        ru_dur_str = f"{ru_dur_sec // 60}:{ru_dur_sec % 60:02d}" if ru_dur_sec > 0 else ""
+        recent_upload_card = Card(
+            Div(
+                UkIcon("play-circle", cls="w-4 h-4 text-red-500 mr-2"),
+                H2("Latest Upload", cls="text-base font-bold text-foreground"),
+                *(
+                    [
+                        Span(
+                            "#Shorts",
+                            cls="text-xs font-semibold text-purple-600 dark:text-purple-400 ml-auto",
+                        )
+                    ]
+                    if ru_is_short
+                    else []
+                ),
+                cls="flex items-center mb-3",
+            ),
+            A(
+                Div(
+                    *(
+                        [
+                            Img(
+                                src=ru_thumb,
+                                alt=ru_title,
+                                cls="w-full rounded-lg object-cover aspect-video",
+                                loading="lazy",
+                            )
+                        ]
+                        if ru_thumb
+                        else []
+                    ),
+                    cls="relative",
+                ),
+                P(
+                    ru_title,
+                    cls="text-sm font-semibold text-foreground mt-2 line-clamp-2 hover:underline",
+                ),
+                href=ru_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                cls="no-underline block",
+            ),
+            Div(
+                Span(
+                    f"{format_number(ru_views)} views",
+                    cls="text-xs text-muted-foreground",
+                ),
+                *(
+                    [
+                        Span("·", cls="text-border mx-1"),
+                        Span(ru_dur_str, cls="text-xs text-muted-foreground"),
+                    ]
+                    if ru_dur_str
+                    else []
+                ),
+                *(
+                    [
+                        Span("·", cls="text-border mx-1"),
+                        Span(format_date_relative(ru_pub), cls="text-xs text-muted-foreground"),
+                    ]
+                    if ru_pub
+                    else []
+                ),
+                cls="flex items-center flex-wrap mt-2",
+            ),
+            body_cls="p-5",
+        )
+
+    # Default left_col — overridden below if social/featured cards are present
+    left_col = Div(
+        about_card,
+        channel_info_card,
+        *(recent_upload_card and [recent_upload_card] or []),
+        cls="flex flex-col gap-4",
+    )
 
     # ── Social links card ──────────────────────────────────────────────────────
     if social_links:
@@ -3079,7 +3184,13 @@ def render_creator_profile_page(
             ),
             body_cls="p-5",
         )
-        left_col = Div(about_card, channel_info_card, social_card, cls="flex flex-col gap-4")
+        left_col = Div(
+            about_card,
+            channel_info_card,
+            social_card,
+            *(recent_upload_card and [recent_upload_card] or []),
+            cls="flex flex-col gap-4",
+        )
 
     # ── Featured channels card ─────────────────────────────────────────────────
     if featured_ch_urls:
@@ -3113,11 +3224,28 @@ def render_creator_profile_page(
             channel_info_card,
             *(social_links and [social_card] or []),
             featured_card,
+            *(recent_upload_card and [recent_upload_card] or []),
             cls="flex flex-col gap-4",
         )
 
     # ── Right column: Performance + Growth trend ───────────────────────────────
     # Hero-level secondary metrics
+    # ── engagement comparison vs category peers ───────────────────────────────
+    if peer_engagement_p75 > 0 and engagement_score > 0:
+        eng_ratio = engagement_score / peer_engagement_p75
+        if eng_ratio >= 1.1:
+            eng_vs = f"{eng_ratio:.1f}× category avg"
+            eng_vs_cls = "text-emerald-600 dark:text-emerald-400"
+        elif eng_ratio <= 0.75:
+            eng_vs = f"{eng_ratio:.1f}× category avg"
+            eng_vs_cls = "text-red-500"
+        else:
+            eng_vs = "≈ category avg"
+            eng_vs_cls = "text-muted-foreground"
+    else:
+        eng_vs = None
+        eng_vs_cls = ""
+
     secondary_metrics = Div(
         _perf_row("Avg Views / Video", format_number(avg_views)),
         _perf_row("Views / Subscriber", f"{views_per_sub:.2f}x"),
@@ -3125,14 +3253,43 @@ def render_creator_profile_page(
             "Upload Rate",
             f"{monthly_uploads:.1f} / month" if monthly_uploads else "—",
         ),
-        _perf_row(
-            "Engagement Score",
-            f"{engagement_score:.2f} / 10",
-            "text-blue-600" if engagement_score >= 7 else "text-foreground",
+        Div(
+            Div(
+                Span(
+                    "Engagement Score",
+                    cls="text-sm text-muted-foreground",
+                ),
+                Div(
+                    Span(
+                        f"{engagement_score:.2f} / 10",
+                        cls="text-sm font-semibold "
+                        + ("text-blue-600" if engagement_score >= 7 else "text-foreground"),
+                    ),
+                    *([Span(eng_vs, cls=f"text-xs ml-2 {eng_vs_cls}")] if eng_vs else []),
+                    cls="flex items-center gap-1",
+                ),
+                cls="flex justify-between items-center py-1.5",
+            ),
+        ),
+        *(
+            [
+                Div(
+                    Span("Momentum", cls="text-sm text-muted-foreground"),
+                    Div(
+                        Span(f"{momentum_score:.0f}", cls="text-sm font-bold text-foreground"),
+                        Span(
+                            momentum_label,
+                            cls=f"text-xs font-semibold px-2 py-0.5 rounded-full border ml-2 {momentum_style}",
+                        ),
+                        cls="flex items-center",
+                    ),
+                    cls="flex justify-between items-center py-1.5",
+                )
+            ]
+            if momentum_label
+            else []
         ),
     )
-
-    # Growth trend bar
     has_growth_data = subs_change is not None
     if has_growth_data:
         bar_width = min(100, max(2, abs(growth_rate) * 5))
@@ -3396,9 +3553,77 @@ def render_creator_profile_page(
         except Exception:
             pass
 
+    # ── Niche Leaderboard card ──────────────────────────────────────────────
+    leaderboard_card = None
+    if niche_leaderboard and primary_category:
+        lb_rows = []
+        for i, peer in enumerate(niche_leaderboard):
+            peer_id = peer.get("id", "")
+            peer_name = peer.get("channel_name", "Unknown")
+            peer_thumb = peer.get("channel_thumbnail_url") or "/static/favicon.jpeg"
+            peer_eng = float(peer.get("engagement_score") or 0)
+            peer_subs = int(peer.get("current_subscribers") or 0)
+            is_self = peer_id == creator_id
+            row_cls = (
+                "flex items-center gap-3 py-2 px-2 rounded-lg bg-primary/10 border border-primary/30"
+                if is_self
+                else "flex items-center gap-3 py-2"
+            )
+            lb_rows.append(
+                Div(
+                    Span(f"{i + 1}", cls="text-xs font-bold text-muted-foreground w-4 shrink-0"),
+                    Img(
+                        src=peer_thumb,
+                        alt=peer_name,
+                        cls="size-7 rounded-full object-cover shrink-0",
+                    ),
+                    Div(
+                        A(
+                            peer_name,
+                            href=f"/creator/{peer_id}" if peer_id else "#",
+                            cls="text-xs font-semibold text-foreground hover:underline line-clamp-1"
+                            + (" text-primary" if is_self else ""),
+                        ),
+                        Span(
+                            format_number(peer_subs),
+                            cls="text-xs text-muted-foreground",
+                        ),
+                        cls="flex-1 min-w-0",
+                    ),
+                    Span(
+                        f"{peer_eng:.2f}",
+                        cls="text-xs font-bold text-blue-600 shrink-0",
+                        title="Engagement score",
+                    ),
+                    cls=row_cls,
+                )
+            )
+        leaderboard_card = Card(
+            Div(
+                UkIcon("flame", cls="w-4 h-4 text-orange-500 mr-2"),
+                H2(
+                    f"Top {primary_category}",
+                    cls="text-base font-bold text-foreground",
+                ),
+                Span(
+                    "by engagement",
+                    cls="text-xs text-muted-foreground ml-auto",
+                ),
+                cls="flex items-center mb-3",
+            ),
+            Div(*lb_rows, cls="space-y-0.5"),
+            A(
+                f"See all {primary_category} creators →",
+                href=f"/lists/category/{slugify(primary_category)}",
+                cls="mt-3 block text-xs text-primary hover:underline text-right",
+            ),
+            body_cls="p-5",
+        )
+
     right_col = Div(
         performance_card,
         rankings_card,
+        *(leaderboard_card and [leaderboard_card] or []),
         topic_pill_section,
         cat_dist_card,
         cls="flex flex-col gap-4",
