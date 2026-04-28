@@ -2399,9 +2399,7 @@ def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dic
 _USER_FAVOURITE_LISTS_TABLE = USER_FAVOURITE_LISTS_TABLE
 
 # Allowlist of valid list_key formats (checked on write)
-import re as _re
-
-_LIST_KEY_RE = _re.compile(
+_LIST_KEY_RE = re.compile(
     r"^(top-rated|most-active|rising|veterans|by-country|by-category|by-language"
     r"|country:[A-Z]{2}"
     r"|category:[^:]{1,80}"

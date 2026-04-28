@@ -26,7 +26,11 @@ reports/
 worker/
 run_worker.py
 cli.py
-generate_sitemap.py
+scripts/verify_sitemap.py
+scripts/seed_creators.py
+scripts/test_migration_007.py
+scripts/verify_python_version.py
+scripts/lists_video_gen.py
 tests/
 
 # Sensitive/Large Data

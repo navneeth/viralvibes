@@ -1,0 +1,8 @@
+{
+  "buildCommand": "python scripts/generate_sitemap.py",
+  "github": {
+    "deploymentEnabled": {
+      "gh-pages": false
+    }
+  }
+}

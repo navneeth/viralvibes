@@ -1,6 +1,9 @@
 .vercel
 .sesskey
 
+# Generated at build time — do not commit
+public/sitemap.xml
+
 # Python
 __pycache__/
 .pytest_cache/
