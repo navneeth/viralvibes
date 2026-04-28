@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pip install -r requirements.txt && python scripts/generate_sitemap.py",
+  "buildCommand": "python scripts/generate_sitemap.py",
   "github": {
     "deploymentEnabled": {
       "gh-pages": false
