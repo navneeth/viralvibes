@@ -1107,10 +1107,10 @@ def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
         grade = row.get("quality_grade") or ""
         is_premium = grade in ("A+", "A")
 
-        # Growth pct: positive changes only (negative = losing subs, not useful here)
+        # Growth pct: preserve sign so declining categories surface in the Cooling panel
         growth_pct = None
         if subs_change is not None and current_subs > 0:
-            growth_pct = max(subs_change / current_subs * 100, 0.0)
+            growth_pct = subs_change / current_subs * 100
 
         for cat in cat_list:
             clean = normalize_category_name(str(cat))

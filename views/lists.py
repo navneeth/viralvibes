@@ -2395,13 +2395,16 @@ def render_languages_explorer_page(
 # Niche Heat Map
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Momentum colour bands:  avg_growth_pct threshold → (label, emoji, tile CSS)
+# Momentum colour bands:  (min_threshold, label, emoji, tile_css, swatch_css)
+# threshold=None entries are terminal: "Flat" catches any remaining numeric value;
+# "No data" is reserved for avg_growth_pct is None (handled explicitly in _heat_band).
 _HEAT_BANDS = [
-    (25.0, "Surging", "🚀", "bg-emerald-500  border-emerald-400  text-white"),
-    (12.0, "Building", "📈", "bg-blue-500     border-blue-400     text-white"),
-    (4.0, "Stable", "📊", "bg-amber-400    border-amber-300    text-foreground"),
-    (0.001, "Cooling", "📉", "bg-orange-400   border-orange-300   text-white"),
-    (None, "No data", "—", "bg-muted        border-border       text-muted-foreground"),
+    (25.0, "Surging", "🚀", "bg-emerald-500  border-emerald-400  text-white", "bg-emerald-500"),
+    (12.0, "Building", "📈", "bg-blue-500     border-blue-400     text-white", "bg-blue-500"),
+    (4.0, "Stable", "📊", "bg-amber-400    border-amber-300    text-foreground", "bg-amber-400"),
+    (0.001, "Cooling", "📉", "bg-orange-400   border-orange-300   text-white", "bg-orange-400"),
+    (None, "Flat", "⏸", "bg-muted        border-border       text-muted-foreground", "bg-muted"),
+    (None, "No data", "—", "bg-muted        border-border       text-muted-foreground", "bg-muted"),
 ]
 
 # Category → emoji (best-effort; falls back to 📺)
@@ -2443,11 +2446,11 @@ _CATEGORY_EMOJI: dict[str, str] = {
 def _heat_band(avg_growth_pct: float | None) -> tuple[str, str, str]:
     """Return (label, emoji, tile_css) for a given avg_growth_pct."""
     if avg_growth_pct is None:
-        return _HEAT_BANDS[-1][1], _HEAT_BANDS[-1][2], _HEAT_BANDS[-1][3]
-    for threshold, label, emoji, css in _HEAT_BANDS[:-1]:
-        if avg_growth_pct >= threshold:
+        return _HEAT_BANDS[-1][1], _HEAT_BANDS[-1][2], _HEAT_BANDS[-1][3]  # "No data"
+    for threshold, label, emoji, css, _ in _HEAT_BANDS:
+        if threshold is not None and avg_growth_pct >= threshold:
             return label, emoji, css
-    return _HEAT_BANDS[-1][1], _HEAT_BANDS[-1][2], _HEAT_BANDS[-1][3]
+    return _HEAT_BANDS[-2][1], _HEAT_BANDS[-2][2], _HEAT_BANDS[-2][3]  # "Flat"
 
 
 def _heatmap_tile(item: dict, max_count: int) -> FT:
@@ -2461,7 +2464,7 @@ def _heatmap_tile(item: dict, max_count: int) -> FT:
     band_label, band_emoji, tile_css = _heat_band(avg_growth)
     emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
     flex_pct = max(10, min(40, round(count / max_count * 100)))
-    growth_str = f"+{avg_growth:.1f}%" if avg_growth is not None else "—"
+    growth_str = f"{avg_growth:+.1f}%" if avg_growth is not None else "—"
     engagement_str = f"{avg_eng:.1f}" if avg_eng is not None else "—"
     premium_str = f"{premium_ratio * 100:.0f}%"
     tooltip = (
@@ -2507,11 +2510,11 @@ def _heatmap_spotlight_bar(item: dict, rank: int) -> FT:
     count = item["creator_count"]
     avg_growth = item.get("avg_growth_pct")
     _, band_emoji, _ = _heat_band(avg_growth)
-    growth_str = f"+{avg_growth:.1f}%" if avg_growth is not None else "—"
+    growth_str = f"{avg_growth:+.1f}%" if avg_growth is not None else "—"
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     rank_badge = medals.get(rank, f"#{rank}")
     href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
-    bar_pct = min(100, round((avg_growth or 0) / 35 * 100))
+    bar_pct = max(0, min(100, round((avg_growth or 0) / 35 * 100)))
     emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
 
     return Div(
@@ -2538,7 +2541,7 @@ def _heatmap_cooling_bar(item: dict) -> FT:
     """Single row for a cooling niche."""
     cat = item["category"]
     avg_growth = item.get("avg_growth_pct")
-    growth_str = f"+{avg_growth:.1f}%" if avg_growth is not None else "—"
+    growth_str = f"{avg_growth:+.1f}%" if avg_growth is not None else "—"
     emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
     href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
 
@@ -2580,11 +2583,11 @@ def render_niche_heatmap_tab(heatmap_data: list[dict]) -> FT:
     legend = Div(
         *[
             Div(
-                Div(cls=f"w-3 h-3 rounded-sm {css.split()[0]}"),
+                Div(cls=f"w-3 h-3 rounded-sm {swatch_css}"),
                 Span(label, cls="text-xs text-muted-foreground"),
                 cls="flex items-center gap-1.5",
             )
-            for _, label, _, css in _HEAT_BANDS
+            for _, label, _, _, swatch_css in _HEAT_BANDS
         ],
         cls="flex flex-wrap gap-4 mb-4",
     )
