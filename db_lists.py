@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # Maximum rows fetched in client-side fallback scans (when RPC is unavailable).
 _MAX_FALLBACK_FETCH = 50_000
 
+# Channels created within this many days are considered "new".
+NEW_CHANNEL_MAX_AGE_DAYS = 365
+
 
 def _get_supabase_client():
     """Access the Supabase client (initialized at app startup via db.init_supabase())."""
@@ -634,6 +637,50 @@ def get_veteran_creators(limit: int = 20) -> list[dict]:
 
     except Exception as e:
         logger.exception(f"Error fetching veteran creators: {e}")
+        return []
+
+
+def get_new_channels(limit: int = 20) -> list[dict]:
+    """
+    Get recently-created YouTube channels (channel_age_days <= 365).
+
+    Sorted by engagement_score descending so the highest-quality new
+    channels surface first rather than just the newest ones.
+
+    Filters:
+    - channel_age_days <= 365 (created within the last year on YouTube)
+    - sync_status = 'synced'
+    - current_subscribers > 0 (channel has an audience)
+
+    Args:
+        limit: Maximum number of creators to return
+
+    Returns:
+        List of creator dicts sorted by engagement_score descending
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] No Supabase client - returning empty list")
+        return []
+
+    try:
+        response = (
+            supabase_client.table("creators")
+            .select("*")
+            .eq("sync_status", "synced")
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
+            .not_.is_("channel_age_days", "null")
+            .lte("channel_age_days", NEW_CHANNEL_MAX_AGE_DAYS)
+            .order("engagement_score", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        return response.data if response.data else []
+
+    except Exception as e:
+        logger.exception(f"Error fetching new channels: {e}")
         return []
 
 

@@ -142,7 +142,7 @@ LISTS_TABS = [
         "New Channels",
         "sparkles",
         "Channels created in the last year. Early-stage creators to watch.",
-        True,
+        False,
     ),
 ]
 
@@ -953,13 +953,23 @@ def _render_rising_content(
     )
 
 
-def _render_veterans_content(
+def _render_simple_creator_list(
     creators: list[dict],
     description: str,
+    tab_id: str,
+    heart_label: str,
     fav_keys: frozenset = frozenset(),
     authenticated: bool = False,
+    show_growth: bool = False,
+    show_activity: bool = False,
 ) -> Div:
-    """Renders Veterans tab with channel age."""
+    """
+    Shared layout for tabs that render a flat ranked list of creators.
+
+    Handles the empty-state, header bar (description + count + heart button),
+    and creator rows. Tab-specific render functions delegate here so the
+    structure stays consistent and isn't duplicated.
+    """
     if not creators:
         return _placeholder_content(description, coming_soon=False)
 
@@ -972,10 +982,10 @@ def _render_veterans_content(
                     cls="text-sm font-medium text-foreground",
                 ),
                 _list_heart_btn(
-                    "veterans",
-                    "🏅 Veterans",
-                    "/lists?tab=veterans",
-                    "veterans" in fav_keys,
+                    tab_id,
+                    heart_label,
+                    f"/lists?tab={tab_id}",
+                    tab_id in fav_keys,
                     authenticated=authenticated,
                 ),
                 cls="shrink-0 hidden sm:flex items-center gap-2",
@@ -983,10 +993,50 @@ def _render_veterans_content(
             cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
         ),
         Div(
-            *[_creator_row(creator, rank=i + 1) for i, creator in enumerate(creators)],
+            *[
+                _creator_row(
+                    creator, rank=i + 1, show_growth=show_growth, show_activity=show_activity
+                )
+                for i, creator in enumerate(creators)
+            ],
             cls="space-y-3",
         ),
         cls="min-h-64",
+    )
+
+
+def _render_veterans_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
+    """Renders Veterans tab with channel age."""
+    return _render_simple_creator_list(
+        creators,
+        description,
+        tab_id="veterans",
+        heart_label="🏅 Veterans",
+        fav_keys=fav_keys,
+        authenticated=authenticated,
+    )
+
+
+def _render_new_channels_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
+    """Renders New Channels tab — channels created within the last year."""
+    return _render_simple_creator_list(
+        creators,
+        description,
+        tab_id="new-channels",
+        heart_label="✨ New Channels",
+        fav_keys=fav_keys,
+        authenticated=authenticated,
+        show_activity=True,
     )
 
 
@@ -1302,6 +1352,11 @@ def render_lists_page(
             creators = tab_data.get("veterans", [])
             panel_items.append(
                 Li(_render_veterans_content(creators, description, fav_keys, authenticated))
+            )
+        elif tab_id == "new-channels":
+            creators = tab_data.get("new_channels", [])
+            panel_items.append(
+                Li(_render_new_channels_content(creators, description, fav_keys, authenticated))
             )
         else:
             panel_items.append(Li(_placeholder_content(description, coming_soon=False)))

@@ -16,6 +16,7 @@ from db_lists import (
     get_language_groups,
     get_lists_meta,
     get_most_active_creators,
+    get_new_channels,
     get_rising_creators,
     get_top_categories_with_counts,
     get_top_countries_with_counts,
@@ -104,6 +105,9 @@ def lists_route(request):
 
     # Veterans: 10+ year channels
     tab_data["veterans"] = get_veteran_creators(limit=20)
+
+    # New Channels: created within the last year, sorted by engagement
+    tab_data["new_channels"] = get_new_channels(limit=20)
 
     # By Language: first page of groups (offset=0)
     tab_data["language_rankings"] = get_language_groups(
