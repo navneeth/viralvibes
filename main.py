@@ -10,12 +10,10 @@ import mimetypes
 import os
 import re
 import time as _time_module
-import xml.etree.ElementTree as _ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus, urljoin as _urljoin
-from xml.dom import minidom as _minidom
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from fasthtml.common import *
@@ -124,6 +122,7 @@ from routes.stripe_checkout import (
     billing_portal,
 )
 from services.plan_gate import gate_plan
+from services.sitemap import build_sitemap_xml as _sitemap_build_xml
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
