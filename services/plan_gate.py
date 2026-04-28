@@ -14,6 +14,8 @@ Usage in a route handler:
 RedirectResponse to the pricing page when they don't.
 """
 
+from urllib.parse import quote_plus
+
 from fasthtml.common import RedirectResponse
 
 from db import get_user_plan
@@ -53,8 +55,6 @@ def gate_plan(
 
     if user_rank >= required_rank:
         return None  # ✅ access granted
-
-    from urllib.parse import quote_plus
 
     return RedirectResponse(
         f"/pricing?upgrade={required}&from={quote_plus(redirect_url)}",

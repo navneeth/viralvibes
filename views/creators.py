@@ -519,9 +519,7 @@ def render_add_creator_result(
     if success:
         poll_attrs = {}
         if input_query:
-            from urllib.parse import urlencode as _urlencode
-
-            status_url = f"/creators/add-status?{_urlencode({'q': input_query})}"
+            status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
             poll_attrs = dict(
                 hx_get=status_url,
                 hx_trigger="load, every 3s",
@@ -627,9 +625,7 @@ def render_add_creator_status_result(
         )
 
     # Still processing — continue polling
-    from urllib.parse import urlencode as _urlencode
-
-    status_url = f"/creators/add-status?{_urlencode({'q': input_query})}"
+    status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
     poll_attrs = dict(
         hx_get=status_url,
         hx_trigger="every 3s",
@@ -3065,9 +3061,7 @@ def render_creator_profile_page(
     _ru = recent_upload or safe_get_value(creator, "recent_upload")
     if isinstance(_ru, str):
         try:
-            import json as _json
-
-            _ru = _json.loads(_ru)
+            _ru = json.loads(_ru)
         except Exception:
             _ru = None
     recent_upload_card = None

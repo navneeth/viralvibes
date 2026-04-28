@@ -57,6 +57,9 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     "/billing/checkout",
     "/billing/success",
     "/billing/portal",
+    # SEO / crawler routes — must be accessible without session
+    "/sitemap.xml",
+    "/robots.txt",
 ]
 
 

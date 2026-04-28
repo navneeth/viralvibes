@@ -9,10 +9,13 @@ import logging
 import mimetypes
 import os
 import re
-from datetime import datetime
+import time as _time_module
+import xml.etree.ElementTree as _ET
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urljoin as _urljoin
+from xml.dom import minidom as _minidom
 
 from dotenv import load_dotenv
 from fasthtml.common import *
@@ -1664,6 +1667,91 @@ def privacy(req, sess):
             privacy_page_content(),
             cls=ContainerT.xl,
         ),
+    )
+
+
+# ============================================================================
+# Sitemap — live route with 24-hour in-process cache
+# ============================================================================
+
+_SITEMAP_BASE_URL = "https://viralvibes.fyi"
+_SITEMAP_CACHE: dict = {"xml": None, "generated_at": None}
+_SITEMAP_CACHE_TTL = 86_400  # 24 hours
+
+_SITEMAP_STATIC_ROUTES = [
+    ("/", "daily", "1.0"),
+    ("/analyze", "weekly", "0.8"),
+    ("/creators", "daily", "0.8"),
+    ("/lists", "weekly", "0.7"),
+    ("/lists/categories", "weekly", "0.6"),
+    ("/lists/countries", "weekly", "0.6"),
+    ("/lists/languages", "weekly", "0.6"),
+    ("/pricing", "monthly", "0.5"),
+    ("/terms", "monthly", "0.3"),
+    ("/privacy", "monthly", "0.3"),
+]
+
+
+def _build_sitemap_xml() -> str:
+    """Query Supabase for synced creators and return a sitemap XML string."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    urlset = _ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+
+    # Static routes
+    for path, changefreq, priority in _SITEMAP_STATIC_ROUTES:
+        url_el = _ET.SubElement(urlset, "url")
+        _ET.SubElement(url_el, "loc").text = _urljoin(_SITEMAP_BASE_URL, path)
+        _ET.SubElement(url_el, "lastmod").text = today
+        _ET.SubElement(url_el, "changefreq").text = changefreq
+        _ET.SubElement(url_el, "priority").text = priority
+
+    # Dynamic creator pages
+    try:
+        resp = (
+            supabase_client.table("creators")
+            .select("id, last_updated_at")
+            .eq("sync_status", "synced")
+            .execute()
+        )
+        creators = resp.data or []
+    except Exception:
+        logger.warning("sitemap: could not fetch creators from Supabase", exc_info=True)
+        creators = []
+
+    for creator in creators:
+        creator_id = creator.get("id")
+        if not creator_id:
+            continue
+        raw_lastmod = creator.get("last_updated_at") or ""
+        lastmod = raw_lastmod[:10] if len(raw_lastmod) >= 10 else today
+
+        url_el = _ET.SubElement(urlset, "url")
+        _ET.SubElement(url_el, "loc").text = _urljoin(_SITEMAP_BASE_URL, f"/creator/{creator_id}")
+        _ET.SubElement(url_el, "lastmod").text = lastmod
+        _ET.SubElement(url_el, "changefreq").text = "weekly"
+        _ET.SubElement(url_el, "priority").text = "0.7"
+
+    rough = _ET.tostring(urlset, "utf-8")
+    return _minidom.parseString(rough).toprettyxml(indent="  ")
+
+
+@rt("/sitemap.xml")
+def sitemap_xml(req):
+    """GET /sitemap.xml — dynamic sitemap, cached in-process for 24 h."""
+    now = _time_module.monotonic()
+    generated_at = _SITEMAP_CACHE.get("generated_at")
+    if (
+        _SITEMAP_CACHE["xml"] is None
+        or generated_at is None
+        or (now - generated_at) > _SITEMAP_CACHE_TTL
+    ):
+        _SITEMAP_CACHE["xml"] = _build_sitemap_xml()
+        _SITEMAP_CACHE["generated_at"] = now
+
+    return Response(
+        content=_SITEMAP_CACHE["xml"],
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
