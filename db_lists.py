@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # Maximum rows fetched in client-side fallback scans (when RPC is unavailable).
 _MAX_FALLBACK_FETCH = 50_000
 
+# Channels created within this many days are considered "new".
+NEW_CHANNEL_MAX_AGE_DAYS = 365
+
 
 def _get_supabase_client():
     """Access the Supabase client (initialized at app startup via db.init_supabase())."""
@@ -668,7 +671,7 @@ def get_new_channels(limit: int = 20) -> list[dict]:
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .not_.is_("channel_age_days", "null")
-            .lte("channel_age_days", 365)
+            .lte("channel_age_days", NEW_CHANNEL_MAX_AGE_DAYS)
             .order("engagement_score", desc=True)
             .limit(limit)
             .execute()
