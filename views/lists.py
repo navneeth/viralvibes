@@ -142,7 +142,7 @@ LISTS_TABS = [
         "New Channels",
         "sparkles",
         "Channels created in the last year. Early-stage creators to watch.",
-        True,
+        False,
     ),
 ]
 
@@ -990,6 +990,46 @@ def _render_veterans_content(
     )
 
 
+def _render_new_channels_content(
+    creators: list[dict],
+    description: str,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> Div:
+    """Renders New Channels tab — channels created within the last year."""
+    if not creators:
+        return _placeholder_content(description, coming_soon=False)
+
+    return Div(
+        DivFullySpaced(
+            P(description, cls="text-sm text-muted-foreground max-w-xl"),
+            Div(
+                Span(
+                    f"{len(creators)} creators",
+                    cls="text-sm font-medium text-foreground",
+                ),
+                _list_heart_btn(
+                    "new-channels",
+                    "✨ New Channels",
+                    "/lists?tab=new-channels",
+                    "new-channels" in fav_keys,
+                    authenticated=authenticated,
+                ),
+                cls="shrink-0 hidden sm:flex items-center gap-2",
+            ),
+            cls="mb-6 gap-4 flex-col sm:flex-row items-start sm:items-center",
+        ),
+        Div(
+            *[
+                _creator_row(creator, rank=i + 1, show_activity=True)
+                for i, creator in enumerate(creators)
+            ],
+            cls="space-y-3",
+        ),
+        cls="min-h-64",
+    )
+
+
 def _placeholder_content(description: str, coming_soon: bool = False):
     """Renders the placeholder body for a single tab panel."""
 
@@ -1302,6 +1342,11 @@ def render_lists_page(
             creators = tab_data.get("veterans", [])
             panel_items.append(
                 Li(_render_veterans_content(creators, description, fav_keys, authenticated))
+            )
+        elif tab_id == "new-channels":
+            creators = tab_data.get("new_channels", [])
+            panel_items.append(
+                Li(_render_new_channels_content(creators, description, fav_keys, authenticated))
             )
         else:
             panel_items.append(Li(_placeholder_content(description, coming_soon=False)))
