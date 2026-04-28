@@ -144,6 +144,13 @@ LISTS_TABS = [
         "Channels created in the last year. Early-stage creators to watch.",
         False,
     ),
+    (
+        "niche-heatmap",
+        "Niche Heat Map",
+        "flame",
+        "Aggregate momentum across all tracked niches. Spot which categories are surging or cooling.",
+        False,
+    ),
 ]
 
 
@@ -1358,6 +1365,8 @@ def render_lists_page(
             panel_items.append(
                 Li(_render_new_channels_content(creators, description, fav_keys, authenticated))
             )
+        elif tab_id == "niche-heatmap":
+            panel_items.append(Li(render_niche_heatmap_tab(tab_data.get("heatmap", []))))
         else:
             panel_items.append(Li(_placeholder_content(description, coming_soon=False)))
 
@@ -2379,4 +2388,263 @@ def render_languages_explorer_page(
         Card(chart, body_cls="p-4"),
         js,
         cls="max-w-3xl mx-auto px-4 py-8",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Niche Heat Map
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Momentum colour bands:  avg_growth_pct threshold → (label, emoji, tile CSS)
+_HEAT_BANDS = [
+    (25.0, "Surging", "🚀", "bg-emerald-500  border-emerald-400  text-white"),
+    (12.0, "Building", "📈", "bg-blue-500     border-blue-400     text-white"),
+    (4.0, "Stable", "📊", "bg-amber-400    border-amber-300    text-foreground"),
+    (0.001, "Cooling", "📉", "bg-orange-400   border-orange-300   text-white"),
+    (None, "No data", "—", "bg-muted        border-border       text-muted-foreground"),
+]
+
+# Category → emoji (best-effort; falls back to 📺)
+_CATEGORY_EMOJI: dict[str, str] = {
+    "gaming": "🎮",
+    "education": "🎓",
+    "finance": "💰",
+    "tech": "💻",
+    "music": "🎵",
+    "sports": "⚽",
+    "travel": "✈️",
+    "food": "🍳",
+    "fitness": "🏋️",
+    "comedy": "😄",
+    "science": "🔬",
+    "news": "📰",
+    "fashion": "👗",
+    "beauty": "💄",
+    "business": "💼",
+    "animals": "🐾",
+    "art": "🎨",
+    "health": "🏥",
+    "politics": "🏛️",
+    "religion": "✝️",
+    "nature": "🌿",
+    "diy": "🔧",
+    "parenting": "👶",
+    "automotive": "🚗",
+    "real estate": "🏠",
+    "crypto": "₿",
+    "movies": "🎬",
+    "books": "📚",
+    "photography": "📷",
+    "dance": "💃",
+    "lifestyle": "✨",
+}
+
+
+def _heat_band(avg_growth_pct: float | None) -> tuple[str, str, str]:
+    """Return (label, emoji, tile_css) for a given avg_growth_pct."""
+    if avg_growth_pct is None:
+        return _HEAT_BANDS[-1][1], _HEAT_BANDS[-1][2], _HEAT_BANDS[-1][3]
+    for threshold, label, emoji, css in _HEAT_BANDS[:-1]:
+        if avg_growth_pct >= threshold:
+            return label, emoji, css
+    return _HEAT_BANDS[-1][1], _HEAT_BANDS[-1][2], _HEAT_BANDS[-1][3]
+
+
+def _heatmap_tile(item: dict, max_count: int) -> FT:
+    """Render a single treemap tile. Tile area is proportional to creator count."""
+    cat = item["category"]
+    count = item["creator_count"]
+    avg_growth = item.get("avg_growth_pct")
+    avg_eng = item.get("avg_engagement")
+    premium_ratio = item.get("premium_ratio", 0)
+
+    band_label, band_emoji, tile_css = _heat_band(avg_growth)
+    emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
+    flex_pct = max(10, min(40, round(count / max_count * 100)))
+    growth_str = f"+{avg_growth:.1f}%" if avg_growth is not None else "—"
+    engagement_str = f"{avg_eng:.1f}" if avg_eng is not None else "—"
+    premium_str = f"{premium_ratio * 100:.0f}%"
+    tooltip = (
+        f"{cat} · {format_number(count)} creators · "
+        f"avg growth {growth_str} · engagement {engagement_str} · "
+        f"A/A+ {premium_str}"
+    )
+    href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
+
+    return A(
+        Div(
+            Div(
+                Span(emoji, cls="text-lg leading-none"),
+                Span(cat.title(), cls="font-bold text-sm leading-tight line-clamp-1"),
+                cls="flex items-start gap-1.5",
+            ),
+            Div(
+                Span(band_emoji, cls="text-xs"),
+                Span(growth_str, cls="text-xs font-semibold"),
+                cls="flex items-center gap-1 mt-1.5",
+            ),
+            Div(
+                Span(format_number(count), cls="text-xs opacity-80"),
+                Span(f"A: {premium_str}", cls="text-xs opacity-70 ml-auto"),
+                cls="flex items-center mt-auto pt-2",
+            ),
+            cls="flex flex-col h-full",
+        ),
+        href=href,
+        title=tooltip,
+        style=f"flex: {flex_pct} {flex_pct} 0%; min-width: 110px; min-height: 90px;",
+        cls=(
+            f"p-3 rounded-xl border-2 cursor-pointer transition-all "
+            f"hover:scale-[1.03] hover:shadow-lg hover:z-10 relative "
+            f"{tile_css}"
+        ),
+    )
+
+
+def _heatmap_spotlight_bar(item: dict, rank: int) -> FT:
+    """Single row in the Spotlight ranked list."""
+    cat = item["category"]
+    count = item["creator_count"]
+    avg_growth = item.get("avg_growth_pct")
+    _, band_emoji, _ = _heat_band(avg_growth)
+    growth_str = f"+{avg_growth:.1f}%" if avg_growth is not None else "—"
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    rank_badge = medals.get(rank, f"#{rank}")
+    href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
+    bar_pct = min(100, round((avg_growth or 0) / 35 * 100))
+    emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
+
+    return Div(
+        Span(rank_badge, cls="text-base w-8 shrink-0 text-center"),
+        A(
+            f"{emoji} {cat.title()}",
+            href=href,
+            cls="text-sm font-semibold text-foreground hover:underline w-32 shrink-0",
+        ),
+        Div(
+            Div(cls="h-2 rounded-full bg-emerald-500", style=f"width: {bar_pct}%"),
+            cls="flex-1 bg-muted rounded-full overflow-hidden h-2",
+        ),
+        Span(f"{band_emoji} {growth_str}", cls="text-sm font-bold w-20 shrink-0 text-right"),
+        Span(
+            format_number(count),
+            cls="text-xs text-muted-foreground w-16 shrink-0 text-right hidden sm:inline",
+        ),
+        cls="flex items-center gap-3 py-2",
+    )
+
+
+def _heatmap_cooling_bar(item: dict) -> FT:
+    """Single row for a cooling niche."""
+    cat = item["category"]
+    avg_growth = item.get("avg_growth_pct")
+    growth_str = f"+{avg_growth:.1f}%" if avg_growth is not None else "—"
+    emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
+    href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
+
+    return Div(
+        Span("📉", cls="shrink-0"),
+        A(
+            f"{emoji} {cat.title()}",
+            href=href,
+            cls="text-sm font-medium text-foreground hover:underline flex-1",
+        ),
+        Span(growth_str, cls="text-sm font-semibold text-orange-500"),
+        cls="flex items-center gap-3 py-1.5 border-b border-border last:border-0",
+    )
+
+
+def render_niche_heatmap_tab(heatmap_data: list[dict]) -> FT:
+    """
+    Render the full Niche Heat Map tab panel.
+
+    Treemap tiles: area ∝ creator count, colour = momentum temperature.
+    Below: Spotlight (top 5 surging) + Cooling (bottom 5 momentum) ranked bars.
+    """
+    if not heatmap_data:
+        return Div(
+            P(
+                "Not enough data to render the heat map yet.",
+                cls="text-muted-foreground text-sm text-center py-12",
+            )
+        )
+
+    max_count = max((d["creator_count"] for d in heatmap_data), default=1)
+    total_creators = sum(d["creator_count"] for d in heatmap_data)
+    total_cats = len(heatmap_data)
+
+    with_growth = [d for d in heatmap_data if d.get("avg_growth_pct") is not None]
+    spotlight = sorted(with_growth, key=lambda x: x["avg_growth_pct"], reverse=True)[:5]
+    cooling = sorted(with_growth, key=lambda x: x["avg_growth_pct"])[:5]
+
+    legend = Div(
+        *[
+            Div(
+                Div(cls=f"w-3 h-3 rounded-sm {css.split()[0]}"),
+                Span(label, cls="text-xs text-muted-foreground"),
+                cls="flex items-center gap-1.5",
+            )
+            for _, label, _, css in _HEAT_BANDS
+        ],
+        cls="flex flex-wrap gap-4 mb-4",
+    )
+
+    header = Div(
+        Div(
+            H2("🌡 Niche Heat Map", cls="text-xl font-bold text-foreground"),
+            P(
+                f"Aggregate momentum across {format_number(total_creators)} creators "
+                f"· {total_cats} categories",
+                cls="text-sm text-muted-foreground mt-0.5",
+            ),
+            cls="flex-1",
+        ),
+        legend,
+        cls="flex flex-col sm:flex-row sm:items-start gap-4 mb-5",
+    )
+
+    size_note = P(
+        "Tile size = creator count  ·  Tile colour = avg 30-day subscriber growth",
+        cls="text-xs text-muted-foreground mb-3 italic",
+    )
+
+    treemap = Div(
+        *[_heatmap_tile(item, max_count) for item in heatmap_data],
+        cls="flex flex-wrap gap-2 w-full",
+    )
+
+    spotlight_section = (
+        Div(
+            H3("🏆 Fastest Growing Niches", cls="text-base font-bold text-foreground mb-3"),
+            Div(
+                *[_heatmap_spotlight_bar(item, rank=i + 1) for i, item in enumerate(spotlight)],
+                cls="divide-y divide-border",
+            ),
+            cls="p-4 rounded-xl border border-border bg-background",
+        )
+        if spotlight
+        else None
+    )
+
+    cooling_section = (
+        Div(
+            H3("🧊 Cooling Niches", cls="text-base font-bold text-foreground mb-3"),
+            Div(*[_heatmap_cooling_bar(item) for item in cooling]),
+            cls="p-4 rounded-xl border border-border bg-background",
+        )
+        if cooling
+        else None
+    )
+
+    bottom_panels = Div(
+        *[s for s in [spotlight_section, cooling_section] if s is not None],
+        cls="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6",
+    )
+
+    return Div(
+        header,
+        size_note,
+        Card(treemap, body_cls="p-4"),
+        bottom_panels,
+        cls="max-w-5xl mx-auto px-4 py-6",
     )

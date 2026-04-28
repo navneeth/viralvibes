@@ -1044,3 +1044,117 @@ def get_category_groups(offset: int = 0, limit: int = 8, creators_per_group: int
         }
         for category, count in page
     ]
+
+
+def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
+    """
+    Aggregate per-category momentum for the Niche Heat Map.
+
+    For each normalized category with at least *min_creators* synced creators,
+    computes:
+      - creator_count
+      - avg_engagement  (mean engagement_score, null rows excluded)
+      - avg_growth_pct  (mean subscribers_change_30d / current_subscribers * 100)
+      - premium_ratio   (fraction of creators with quality_grade A+ or A)
+
+    Returns list of dicts sorted by creator_count descending (largest tiles first).
+    No new DB columns required — all derived from existing creators fields.
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        return []
+
+    try:
+        response = (
+            supabase_client.table("creators")
+            .select(
+                "topic_categories, engagement_score, "
+                "subscribers_change_30d, current_subscribers, quality_grade"
+            )
+            .eq("sync_status", "synced")
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
+            .not_.is_("topic_categories", "null")
+            .limit(_MAX_FALLBACK_FETCH)
+            .execute()
+        )
+        rows = response.data or []
+    except Exception as e:
+        logger.exception("get_niche_heatmap_data: DB error: %s", e)
+        return []
+
+    # Accumulate per-category stats
+    buckets: dict[str, dict] = {}
+    for row in rows:
+        cats_raw = row.get("topic_categories")
+        if not cats_raw:
+            continue
+        if isinstance(cats_raw, list):
+            cat_list = cats_raw
+        elif isinstance(cats_raw, str):
+            try:
+                cat_list = json.loads(cats_raw)
+                if not isinstance(cat_list, list):
+                    cat_list = []
+            except (json.JSONDecodeError, ValueError):
+                cat_list = [c.strip() for c in cats_raw.split(",")]
+        else:
+            continue
+
+        engagement = row.get("engagement_score")
+        subs_change = row.get("subscribers_change_30d")
+        current_subs = row.get("current_subscribers") or 0
+        grade = row.get("quality_grade") or ""
+        is_premium = grade in ("A+", "A")
+
+        # Growth pct: positive changes only (negative = losing subs, not useful here)
+        growth_pct = None
+        if subs_change is not None and current_subs > 0:
+            growth_pct = max(subs_change / current_subs * 100, 0.0)
+
+        for cat in cat_list:
+            clean = normalize_category_name(str(cat))
+            if not clean:
+                continue
+            if clean not in buckets:
+                buckets[clean] = {
+                    "category": clean,
+                    "creator_count": 0,
+                    "_engagement_sum": 0.0,
+                    "_engagement_n": 0,
+                    "_growth_sum": 0.0,
+                    "_growth_n": 0,
+                    "_premium_count": 0,
+                }
+            b = buckets[clean]
+            b["creator_count"] += 1
+            if engagement is not None:
+                b["_engagement_sum"] += float(engagement)
+                b["_engagement_n"] += 1
+            if growth_pct is not None:
+                b["_growth_sum"] += growth_pct
+                b["_growth_n"] += 1
+            if is_premium:
+                b["_premium_count"] += 1
+
+    results = []
+    for b in buckets.values():
+        if b["creator_count"] < min_creators:
+            continue
+        avg_engagement = (
+            round(b["_engagement_sum"] / b["_engagement_n"], 1) if b["_engagement_n"] else None
+        )
+        avg_growth_pct = round(b["_growth_sum"] / b["_growth_n"], 1) if b["_growth_n"] else None
+        premium_ratio = round(b["_premium_count"] / b["creator_count"], 2)
+        results.append(
+            {
+                "category": b["category"],
+                "creator_count": b["creator_count"],
+                "avg_engagement": avg_engagement,
+                "avg_growth_pct": avg_growth_pct,
+                "premium_ratio": premium_ratio,
+            }
+        )
+
+    results.sort(key=lambda x: x["creator_count"], reverse=True)
+    return results

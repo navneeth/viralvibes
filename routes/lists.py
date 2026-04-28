@@ -17,6 +17,7 @@ from db_lists import (
     get_lists_meta,
     get_most_active_creators,
     get_new_channels,
+    get_niche_heatmap_data,
     get_rising_creators,
     get_top_categories_with_counts,
     get_top_countries_with_counts,
@@ -108,6 +109,9 @@ def lists_route(request):
 
     # New Channels: created within the last year, sorted by engagement
     tab_data["new_channels"] = get_new_channels(limit=20)
+
+    # Niche Heat Map: category-level aggregated momentum
+    tab_data["heatmap"] = get_niche_heatmap_data()
 
     # By Language: first page of groups (offset=0)
     tab_data["language_rankings"] = get_language_groups(
