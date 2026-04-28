@@ -61,6 +61,15 @@ jobs:
         run: |
           python -m compileall .
 
+      - name: Sitemap smoke test
+        env:
+          TESTING: "1"
+        run: |
+          # Run without DB creds — falls back to static-routes-only output.
+          # We only verify the script runs cleanly and produces valid XML.
+          python scripts/generate_sitemap.py
+          python scripts/verify_sitemap.py
+
   # =========================================================================
   # Call the reusable tests workflow
   # =========================================================================

@@ -115,13 +115,13 @@ def generate_sitemap() -> bool:
     client = init_supabase()
     if client is None:
         print(
-            "Error: could not connect to Supabase. "
-            "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_KEY are set."
+            "Warning: could not connect to Supabase — writing static-routes-only sitemap. "
+            "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_KEY are set for full output."
         )
-        return False
-
-    creators = _fetch_synced_creators(client)
-    print(f"Found {len(creators)} synced creators.")
+        creators = []
+    else:
+        creators = _fetch_synced_creators(client)
+        print(f"Found {len(creators)} synced creators.")
 
     xml_content = build_sitemap_xml(creators)
 
