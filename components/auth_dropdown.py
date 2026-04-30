@@ -9,12 +9,15 @@ from fasthtml.common import *
 from monsterui.all import *
 
 
-def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/login"):
+def AuthDropdown(
+    user: dict = None, avatar_url: str = None, login_href: str = "/login", is_admin: bool = False
+):
     """
     Authentication dropdown menu.
 
     ✅ MonsterUI DropDownNavContainer pattern
     ✅ Shows different UI for logged in/out users
+    ✅ Admin link shown conditionally
     ✅ Reusable component
 
     Args:
@@ -25,6 +28,7 @@ def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/
               - user_email
         avatar_url: Avatar URL from Google (stored in session)
         login_href: OAuth-aware login URL (allows NavComponent to share its URL generation)
+        is_admin: Whether user has admin access (controls visibility of admin link)
 
     Returns:
         Dropdown component or login button
@@ -94,6 +98,21 @@ def AuthDropdown(user: dict = None, avatar_url: str = None, login_href: str = "/
                 href="/me/favourites",
                 cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
             )
+        ),
+        # Admin Dashboard (conditional)
+        *(
+            [
+                Li(
+                    A(
+                        UkIcon("settings", width=16, height=16),
+                        Span("Admin Dashboard", cls="ml-2"),
+                        href="/admin",
+                        cls="flex items-center px-4 py-2 text-sm hover:bg-blue-100 transition-colors text-blue-600",
+                    )
+                ),
+            ]
+            if is_admin
+            else []
         ),
         # Divider
         Li(cls="uk-nav-divider"),

@@ -9,6 +9,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from .auth_dropdown import AuthDropdown  # ✅ Import the dropdown
+from routes.admin import _is_admin  # ✅ Import admin check
 
 
 def _nav_link_cls(req, path):
@@ -49,7 +50,7 @@ def TopAlertBar():
     )
 
 
-def NavComponent(oauth, req=None, sess=None):
+def NavComponent(oauth, req=None, sess=None, supabase_client=None):
     """
     Reusable navigation component with auth-aware rendering.
 
@@ -58,6 +59,7 @@ def NavComponent(oauth, req=None, sess=None):
 
     When logged in:
     - Shows avatar dropdown with My Dashboards, Settings, Logout, Revoke
+    - If user is admin: Shows Admin Dashboard link in dropdown
 
     When logged out:
     - Primary CTA "Explore Creators" (no friction, goes straight to product)
@@ -67,6 +69,7 @@ def NavComponent(oauth, req=None, sess=None):
         oauth: OAuth instance for login link generation
         req: Request object (needed for login link generation and active state)
         sess: Session dict (contains auth status and user info)
+        supabase_client: Supabase client for admin status check
 
     Returns:
         NavBar component with appropriate links based on auth status
@@ -114,8 +117,22 @@ def NavComponent(oauth, req=None, sess=None):
         # Get avatar URL from session (set by auth_service.py)
         avatar_url = sess.get("avatar_url")
 
+        # Compute admin status (default to False if no supabase_client)
+        user_id = sess.get("user_id")
+        is_admin = False
+        if user_id and supabase_client:
+            try:
+                is_admin = _is_admin(user_id, supabase_client)
+            except Exception as e:
+                logging.warning(f"Failed to check admin status for {user_id}: {e}")
+
         # ✅ Use the dropdown component with OAuth-aware login URL for consistency
-        auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url, login_href=login_href)
+        auth_section = AuthDropdown(
+            user=user_data,
+            avatar_url=avatar_url,
+            login_href=login_href,
+            is_admin=is_admin,
+        )
 
     else:
         # ❌ LOGGED OUT: Single conversion action — Sign in.
