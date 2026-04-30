@@ -397,8 +397,29 @@ async def run(
                 jobs_processed += 1
                 logger.exception("❌ Job %d raised: %s", jobs_processed, e)
 
-    # ── Final summary ─────────────────────────────────────────────────────────
+    # ── Final summary + refresh hero stats ───────────────────────────────────
     elapsed = time.time() - start_time
+
+    # Refresh hero stats after all jobs processed
+    if jobs_processed > 0:
+        try:
+            from db import refresh_hero_stats_cache
+
+            logger.info("[Hero Stats Cache] Refreshing after %d jobs...", jobs_processed)
+            result = refresh_hero_stats_cache()
+            if result.get("success"):
+                logger.info(
+                    "[Hero Stats Cache] ✅ Refreshed: %s",
+                    result.get("materialized_views"),
+                )
+            else:
+                logger.warning(
+                    "[Hero Stats Cache] ⚠️  Refresh failed: %s",
+                    result.get("error"),
+                )
+        except Exception as e:
+            logger.warning("[Hero Stats Cache] ⚠️  Refresh exception: %s", e)
+
     logger.info("=" * 60)
     logger.info("Kaggle worker finished")
     logger.info("  Jobs processed : %d", jobs_processed)

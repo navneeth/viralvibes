@@ -56,6 +56,7 @@ from db import (
     queue_creator_sync,
     queue_creator_sync_bulk,
     queue_invalid_creators_for_retry,
+    refresh_hero_stats_cache,
     setup_logging,
     supabase_client,
 )
@@ -1861,6 +1862,23 @@ async def process_creator_syncs():
                     "✅ Job processing complete - exiting for fresh process start "
                     "(prevents httplib2 memory corruption)"
                 )
+
+                # Refresh hero stats cache after successful batch
+                try:
+                    result = refresh_hero_stats_cache()
+                    if result.get("success"):
+                        logger.info(
+                            "[Hero Stats Cache] ✅ Refreshed after batch: %s",
+                            result.get("materialized_views"),
+                        )
+                    else:
+                        logger.warning(
+                            "[Hero Stats Cache] ⚠️  Refresh failed: %s",
+                            result.get("error"),
+                        )
+                except Exception as e:
+                    logger.warning("[Hero Stats Cache] ⚠️  Refresh exception: %s", e)
+
                 global _worker_outcome
                 quota_hit = any(
                     isinstance(r, QuotaExceededException)
