@@ -13,6 +13,11 @@
 -- query. PostgreSQL can satisfy each query with a tiny index scan rather than
 -- reading all 800K rows.
 
+-- NOTE: CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
+-- If your migration runner wraps migrations in a transaction, run these manually:
+--   1. Paste each CREATE INDEX CONCURRENTLY statement into the SQL editor.
+--   2. Run one at a time, outside any transaction.
+
 -- ── Index 1: fresh pending jobs (no retry scheduled) ─────────────────────────
 -- Covers: WHERE status = 'pending' AND retry_at IS NULL ORDER BY created_at ASC
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creator_sync_jobs_pending_fresh
