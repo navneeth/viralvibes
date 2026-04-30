@@ -15,19 +15,18 @@
 
 -- ── Index 1: fresh pending jobs (no retry scheduled) ─────────────────────────
 -- Covers: WHERE status = 'pending' AND retry_at IS NULL ORDER BY created_at ASC
-CREATE INDEX IF NOT EXISTS idx_creator_sync_jobs_pending_fresh
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creator_sync_jobs_pending_fresh
     ON public.creator_sync_jobs (created_at ASC)
     WHERE status = 'pending' AND retry_at IS NULL;
 
 -- ── Index 2: retry-ready jobs (backoff window expired) ────────────────────────
 -- Covers: WHERE status = 'pending' AND retry_at IS NOT NULL AND retry_at <= now()
 --         ORDER BY retry_at ASC
-CREATE INDEX IF NOT EXISTS idx_creator_sync_jobs_pending_retry
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creator_sync_jobs_pending_retry
     ON public.creator_sync_jobs (retry_at ASC)
     WHERE status = 'pending' AND retry_at IS NOT NULL;
 
--- Refresh planner statistics immediately so the new indexes are used at once
-ANALYZE public.creator_sync_jobs;
+-- (No explicit ANALYZE; rely on autovacuum or run manually if needed)
 
 -- ── Verification ─────────────────────────────────────────────────────────────
 -- Run after applying to confirm both indexes exist:
