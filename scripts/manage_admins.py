@@ -24,6 +24,7 @@ Examples:
 
 import sys
 import os
+import uuid
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -64,7 +65,13 @@ def _resolve(email_or_uuid: str) -> tuple[str, str] | None:
     Inserting an auth.users.id (or any random UUID) that has no matching
     public.users row will raise a FK violation.
     """
-    field = "email" if "@" in email_or_uuid else "id"
+    # Prefer UUID parsing over @-heuristic — UUIDs are unambiguous; everything
+    # else is treated as an email address.
+    try:
+        uuid.UUID(email_or_uuid)
+        field = "id"
+    except ValueError:
+        field = "email"
     try:
         resp = sb.table("users").select("id, email").eq(field, email_or_uuid).limit(1).execute()
     except Exception as e:
@@ -86,8 +93,12 @@ def _resolve(email_or_uuid: str) -> tuple[str, str] | None:
 
 
 def _already_admin(user_id: str) -> bool:
-    resp = sb.table("admin_users").select("id").eq("user_id", user_id).limit(1).execute()
-    return bool(resp.data)
+    try:
+        resp = sb.table("admin_users").select("id").eq("user_id", user_id).limit(1).execute()
+        return bool(resp.data)
+    except Exception as e:
+        print(f"❌  DB error checking admin status: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +155,10 @@ def revoke_admin(target: str) -> bool:
         return False
 
 
-def check_admin(target: str) -> None:
+def check_admin(target: str) -> bool:
     resolved = _resolve(target)
     if not resolved:
-        return
+        return False
     user_id, email = resolved
 
     try:
@@ -160,7 +171,7 @@ def check_admin(target: str) -> None:
         )
     except Exception as e:
         print(f"❌  DB error: {e}")
-        return
+        return False
 
     if resp.data:
         row = resp.data[0]
@@ -168,12 +179,14 @@ def check_admin(target: str) -> None:
         print(f"    user_id : {user_id}")
         print(f"    reason  : {row.get('reason') or '(none)'}")
         print(f"    granted : {(row.get('granted_at') or '')[:19]}")
+        return True
     else:
         print(f"❌  {email} ({user_id}) is NOT an admin")
         print(f'\n    To grant: python3 scripts/manage_admins.py grant {email} "<reason>"')
+        return False
 
 
-def list_admins() -> None:
+def list_admins() -> bool:
     try:
         resp = (
             sb.table("admin_users")
@@ -183,11 +196,11 @@ def list_admins() -> None:
         )
     except Exception as e:
         print(f"❌  DB error: {e}")
-        return
+        return False
 
     if not resp.data:
         print("ℹ️   No admin users yet.")
-        return
+        return True
 
     # Bulk-resolve emails from public.users
     ids = [r["user_id"] for r in resp.data]
@@ -207,6 +220,7 @@ def list_admins() -> None:
         granted_at = (row.get("granted_at") or "")[:19]
         print(f"{email:<35} {uid:<36} {reason:<25} {granted_at:<19}")
     print()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -220,23 +234,26 @@ def main() -> None:
         sys.exit(1)
 
     cmd = _args[0].lower()
+    ok = False
 
     if cmd == "grant" and len(_args) >= 2:
         reason = " ".join(_args[2:]) if len(_args) > 2 else ""
-        grant_admin(_args[1], reason)
+        ok = grant_admin(_args[1], reason)
 
     elif cmd == "revoke" and len(_args) >= 2:
-        revoke_admin(_args[1])
+        ok = revoke_admin(_args[1])
 
     elif cmd == "check" and len(_args) >= 2:
-        check_admin(_args[1])
+        ok = check_admin(_args[1])
 
     elif cmd == "list":
-        list_admins()
+        ok = list_admins()
 
     else:
         print(__doc__)
         sys.exit(1)
+
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
