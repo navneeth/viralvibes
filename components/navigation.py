@@ -9,6 +9,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from .auth_dropdown import AuthDropdown
+from routes.admin import _is_admin  # ✅ Import admin check
 
 
 def _nav_link_cls(req, path):
@@ -105,8 +106,9 @@ def NavComponent(oauth, req=None, sess=None):
         # ✅ LOGGED IN: Use AuthDropdown component
 
         # Extract user data from session (populated by auth_service.py)
+        user_id = sess.get("user_id")
         user_data = {
-            "user_id": sess.get("user_id"),
+            "user_id": user_id,
             "user_name": sess.get("user_name"),
             "user_given_name": sess.get("user_given_name"),
             "user_email": sess.get("user_email"),
@@ -115,8 +117,15 @@ def NavComponent(oauth, req=None, sess=None):
         # Get avatar URL from session (set by auth_service.py)
         avatar_url = sess.get("avatar_url")
 
-        # is_admin is cached in session at login — no DB call here
-        is_admin = bool(sess.get("is_admin"))
+        # Check admin status — try session cache first (fast), then DB (fresh)
+        is_admin = bool(sess.get("is_admin"))  # Cached at login
+        if not is_admin and user_id:
+            # Fallback: check DB directly (in case they were just granted access)
+            try:
+                is_admin = _is_admin(user_id)
+            except Exception as e:
+                logging.warning(f"Failed to check admin status: {e}")
+                is_admin = False
 
         # Use the dropdown component with OAuth-aware login URL for consistency
         auth_section = AuthDropdown(

@@ -25,7 +25,28 @@ logger = logging.getLogger(__name__)
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
 
-# -- Auth ---------------------------------------------------------------------
+# -- Auth helpers ─────────────────────────────────────────────────────────────
+
+
+def _is_admin(user_id: str | None) -> bool:
+    """
+    Check if a user_id exists in the admin_users table.
+    Used by NavComponent to determine if admin link should be shown.
+    """
+    if not user_id or not supabase_client:
+        return False
+    try:
+        resp = (
+            supabase_client.table("admin_users")
+            .select("id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(resp.data)
+    except Exception as e:
+        logger.warning("[Admin] Error checking admin status for %s: %s", user_id, e)
+        return False
 
 
 def _is_authorised(req, sess) -> bool:
