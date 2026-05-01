@@ -8,7 +8,7 @@ import logging
 from fasthtml.common import *
 from monsterui.all import *
 
-from .auth_dropdown import AuthDropdown  # ✅ Import the dropdown
+from .auth_dropdown import AuthDropdown
 
 
 def _nav_link_cls(req, path):
@@ -58,6 +58,7 @@ def NavComponent(oauth, req=None, sess=None):
 
     When logged in:
     - Shows avatar dropdown with My Dashboards, Settings, Logout, Revoke
+    - If user is admin: Shows Admin Dashboard link in dropdown
 
     When logged out:
     - Primary CTA "Explore Creators" (no friction, goes straight to product)
@@ -114,8 +115,16 @@ def NavComponent(oauth, req=None, sess=None):
         # Get avatar URL from session (set by auth_service.py)
         avatar_url = sess.get("avatar_url")
 
-        # ✅ Use the dropdown component with OAuth-aware login URL for consistency
-        auth_section = AuthDropdown(user=user_data, avatar_url=avatar_url, login_href=login_href)
+        # is_admin is cached in session at login — no DB call here
+        is_admin = bool(sess.get("is_admin"))
+
+        # Use the dropdown component with OAuth-aware login URL for consistency
+        auth_section = AuthDropdown(
+            user=user_data,
+            avatar_url=avatar_url,
+            login_href=login_href,
+            is_admin=is_admin,
+        )
 
     else:
         # ❌ LOGGED OUT: Single conversion action — Sign in.

@@ -12,6 +12,8 @@ import requests
 from fasthtml.common import RedirectResponse
 from fasthtml.oauth import GoogleAppClient, OAuth
 
+from db import is_admin as _db_is_admin
+
 logger = logging.getLogger(__name__)
 
 
@@ -223,6 +225,7 @@ class ViralVibesAuth(OAuth):
             session["user_name"] = name
             session["user_given_name"] = given_name
             session["avatar_url"] = picture_url  # ✅ Store Google avatar URL for navbar
+            session["is_admin"] = _db_is_admin(user_id)  # cached once at login
 
             # ⚠️ Security: Do NOT store OAuth tokens in session/cookies
             # Tokens are stored securely in auth_providers table
@@ -275,6 +278,7 @@ class ViralVibesAuth(OAuth):
             "user_given_name",
             "user_has_avatar",
             "last_login_at",
+            "is_admin",
         ]
 
         for key in session_keys_to_clear:

@@ -138,6 +138,7 @@ from routes.lists import (
     lists_more_languages_route,
     lists_route,
 )
+from routes.admin import admin_get, admin_jobs_fragment
 from views.lists import _unslugify
 
 # Get logger instance
@@ -1667,6 +1668,23 @@ def privacy(req, sess):
             cls=ContainerT.xl,
         ),
     )
+
+
+# ============================================================================
+# Admin Dashboard
+# ============================================================================
+
+
+@rt("/admin")
+def admin(req, sess):
+    """Admin dashboard — protected by OAuth user ID or ADMIN_TOKEN."""
+    return admin_get(req, sess)
+
+
+@rt("/admin/jobs")
+def admin_jobs(req, sess):
+    """Admin jobs fragment — HTMX endpoint for job table refresh."""
+    return admin_jobs_fragment(req, sess)
 
 
 # ============================================================================
