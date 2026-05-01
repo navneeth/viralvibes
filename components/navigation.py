@@ -8,8 +8,7 @@ import logging
 from fasthtml.common import *
 from monsterui.all import *
 
-from .auth_dropdown import AuthDropdown  # ✅ Import the dropdown
-from routes.admin import _is_admin  # ✅ Import admin check
+from .auth_dropdown import AuthDropdown
 
 
 def _nav_link_cls(req, path):
@@ -50,7 +49,7 @@ def TopAlertBar():
     )
 
 
-def NavComponent(oauth, req=None, sess=None, supabase_client=None):
+def NavComponent(oauth, req=None, sess=None):
     """
     Reusable navigation component with auth-aware rendering.
 
@@ -69,7 +68,6 @@ def NavComponent(oauth, req=None, sess=None, supabase_client=None):
         oauth: OAuth instance for login link generation
         req: Request object (needed for login link generation and active state)
         sess: Session dict (contains auth status and user info)
-        supabase_client: Supabase client for admin status check
 
     Returns:
         NavBar component with appropriate links based on auth status
@@ -117,16 +115,10 @@ def NavComponent(oauth, req=None, sess=None, supabase_client=None):
         # Get avatar URL from session (set by auth_service.py)
         avatar_url = sess.get("avatar_url")
 
-        # Compute admin status (default to False if no supabase_client)
-        user_id = sess.get("user_id")
-        is_admin = False
-        if user_id and supabase_client:
-            try:
-                is_admin = _is_admin(user_id, supabase_client)
-            except Exception as e:
-                logging.warning(f"Failed to check admin status for {user_id}: {e}")
+        # is_admin is cached in session at login — no DB call here
+        is_admin = bool(sess.get("is_admin"))
 
-        # ✅ Use the dropdown component with OAuth-aware login URL for consistency
+        # Use the dropdown component with OAuth-aware login URL for consistency
         auth_section = AuthDropdown(
             user=user_data,
             avatar_url=avatar_url,

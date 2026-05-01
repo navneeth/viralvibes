@@ -3280,6 +3280,29 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         }
 
 
+# ============================================================================
+# 🔐 Admin Access
+# ============================================================================
+
+
+def is_admin(user_id: str | None) -> bool:
+    """Return True if user_id exists in the admin_users table."""
+    if not user_id or not supabase_client:
+        return False
+    try:
+        resp = (
+            supabase_client.table("admin_users")
+            .select("id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(resp.data)
+    except Exception as e:
+        logger.exception("[Admin] Error checking admin status for %s: %s", user_id, e)
+        return False
+
+
 def get_creator_hero_stats() -> dict:
     """
     Fetch global aggregate creator stats from DB via RPC (zero row transfer).

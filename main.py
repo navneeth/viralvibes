@@ -340,7 +340,7 @@ def index(req, sess):
         "ViralVibes",
         Container(
             TopAlertBar(),
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             Container(
                 *sections,
                 cls=f"{ContainerT.xl} uk-container-expand",
@@ -625,7 +625,7 @@ def dashboard_page(dashboard_id: str, req, sess, sort_by: str = "Views", order: 
     return Titled(
         f"{playlist_name} - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             render_full_dashboard(
                 df=df,
                 summary_stats=summary_stats,
@@ -1134,7 +1134,7 @@ def analysis(req, sess):
     return Titled(
         "Analyze a Playlist - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             analysis_page_content(user_id=user_id),
             cls=ContainerT.xl,
         ),
@@ -1160,7 +1160,7 @@ def creators(req, sess):
     return Titled(
         "Top Creators - YouTube",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1189,7 +1189,7 @@ def lists(req, sess):
     return Titled(
         "Creator Lists - YouTube",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1220,7 +1220,7 @@ def lists_country_detail(req, sess, country_code: str):
     return Titled(
         f"{country_code} Creators - YouTube",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1241,7 +1241,7 @@ def lists_categories_explorer(req, sess):
     return Titled(
         "Category Explorer - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1254,7 +1254,7 @@ def lists_countries_explorer(req, sess):
     return Titled(
         "Country Explorer - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1267,7 +1267,7 @@ def lists_languages_explorer(req, sess):
     return Titled(
         "Language Explorer - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1281,7 +1281,7 @@ def lists_category_detail(req, sess, category_slug: str):
     return Titled(
         f"{display_name} Creators - YouTube",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1302,7 +1302,7 @@ def lists_language_detail(req, sess, language_code: str):
     return Titled(
         f"{language_name} Creators - YouTube",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1329,7 +1329,7 @@ def creator_profile(req, sess, creator_id: str):
     return Titled(
         f"{channel_name} - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1374,7 +1374,7 @@ def creator_blueprint(req, sess, creator_id: str):
     return Titled(
         f"{channel_name} — Growth Blueprint — ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1388,7 +1388,7 @@ def compare_creators(req, sess):
     return Titled(
         "Creator Comparison — ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             page_content,
         ),
     )
@@ -1505,7 +1505,7 @@ def my_dashboards(
     return Titled(
         f"{user_name}'s Dashboards - YouTube",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             render_my_dashboards_page(
                 dashboards=page_items,
                 user_name=user_name,
@@ -1582,7 +1582,7 @@ def me_favourites(req, sess):
     return Titled(
         "Saved Creators - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             render_favourites_page(creators=creators, user_name=user_name),
         ),
     )
@@ -1609,7 +1609,7 @@ def billing_success(req, sess, session_id: str = ""):
     return Titled(
         "Subscription Active — ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             content,
             cls=ContainerT.xl,
         ),
@@ -1636,7 +1636,7 @@ def pricing(req, sess):
     return Titled(
         "Pricing - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             pricing_page_content(error=error, is_authenticated=is_authenticated),
             footer(),
             cls=ContainerT.xl,
@@ -1650,7 +1650,7 @@ def terms(req, sess):
     return Titled(
         "Terms of Service - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             terms_page_content(),
             cls=ContainerT.xl,
         ),
@@ -1663,7 +1663,7 @@ def privacy(req, sess):
     return Titled(
         "Privacy Policy - ViralVibes",
         Container(
-            NavComponent(oauth, req, sess, supabase_client),
+            NavComponent(oauth, req, sess),
             privacy_page_content(),
             cls=ContainerT.xl,
         ),
@@ -1678,13 +1678,13 @@ def privacy(req, sess):
 @rt("/admin")
 def admin(req, sess):
     """Admin dashboard — protected by OAuth user ID or ADMIN_TOKEN."""
-    return admin_get(req, sess, supabase_client)
+    return admin_get(req, sess)
 
 
 @rt("/admin/jobs")
 def admin_jobs(req, sess):
     """Admin jobs fragment — HTMX endpoint for job table refresh."""
-    return admin_jobs_fragment(req, sess, supabase_client)
+    return admin_jobs_fragment(req, sess)
 
 
 # ============================================================================
