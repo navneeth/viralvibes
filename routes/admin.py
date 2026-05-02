@@ -179,15 +179,9 @@ def _fetch_admin_data() -> tuple[dict, dict, dict, list[dict]]:
 
 
 def admin_get(req, sess) -> Response | FT:
-    """GET /admin -- full admin dashboard."""
+    """GET /admin -- full admin dashboard. Returns FT for main.py to wrap."""
     if not _is_authorised(req, sess):
         return _auth_response()
-
-    stats, breakdown, throughput, jobs = _fetch_admin_data()
-    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-    page = AdminPage(
-        stats=stats, breakdown=breakdown, throughput=throughput, jobs=jobs, refreshed_at=now
-    )
 
     # After token auth: set cookie then redirect to clean URL so the token
     # doesn't remain in browser history, logs, or Referrer headers.
@@ -196,8 +190,11 @@ def admin_get(req, sess) -> Response | FT:
         resp.set_cookie("admin_token", ADMIN_TOKEN, httponly=True, samesite="strict")
         return resp
 
-    resp = Response(content=str(page), media_type="text/html")
-    return resp
+    stats, breakdown, throughput, jobs = _fetch_admin_data()
+    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+    return AdminPage(
+        stats=stats, breakdown=breakdown, throughput=throughput, jobs=jobs, refreshed_at=now
+    )
 
 
 def admin_jobs_fragment(req, sess) -> Response | FT:
