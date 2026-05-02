@@ -123,9 +123,18 @@ def NavComponent(oauth, req=None, sess=None):
             # Fallback: check DB directly (in case they were just granted access)
             try:
                 is_admin = _is_admin(user_id)
+                if is_admin:
+                    logging.info(
+                        f"[NavComponent] ✅ Admin link will show for {sess.get('user_email')}"
+                    )
             except Exception as e:
-                logging.warning(f"Failed to check admin status: {e}")
+                logging.warning(f"[NavComponent] Failed to check admin status for {user_id}: {e}")
                 is_admin = False
+
+        if not is_admin:
+            logging.debug(
+                f"[NavComponent] No admin link for {sess.get('user_email')} (is_admin={is_admin})"
+            )
 
         # Use the dropdown component with OAuth-aware login URL for consistency
         auth_section = AuthDropdown(
