@@ -232,7 +232,7 @@ class ViralVibesAuth(OAuth):
             # When needed (e.g., /revoke), fetch from database using user_id
 
             logger.info(
-                f"✅ Stored session data for user {email} | user_id={user_id} | is_admin={session['is_admin']}"
+                f"✅ Stored session data for user {email} | user_id={user_id} | is_admin={session.get('is_admin')}"
             )
 
         # ✅ SMART REDIRECT LOGIC

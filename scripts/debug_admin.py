@@ -3,8 +3,9 @@
 Debug script to check admin setup and ID mapping.
 
 Usage:
-    python3 scripts/debug_admin.py <email>
-    python3 scripts/debug_admin.py --session  # Check current session
+    python3 scripts/debug_admin.py <email>    - Debug a specific user
+    python3 scripts/debug_admin.py --list     - List all admin users
+    python3 scripts/debug_admin.py --session  - Show all active sessions
 """
 
 import sys
@@ -116,14 +117,49 @@ def list_admins():
         print(f"❌ Error querying admin_users: {e}")
 
 
+def list_sessions():
+    """Show all active sessions from the sessions table (if it exists)."""
+    print("\n🔍 Active Sessions")
+    print("=" * 60)
+
+    try:
+        resp = sb.table("sessions").select("user_id, created_at, expires_at").execute()
+        if not resp.data:
+            print("No active sessions found (or sessions table does not exist).")
+            return
+
+        print(f"Found {len(resp.data)} session(s):\n")
+        for row in resp.data:
+            user_id = row.get("user_id", "unknown")
+            created_at = row.get("created_at", "—")
+            expires_at = row.get("expires_at", "—")
+            # Best-effort email lookup
+            email = "—"
+            try:
+                u = sb.table("users").select("email").eq("id", user_id).execute()
+                if u.data:
+                    email = u.data[0]["email"]
+            except Exception:
+                pass
+            print(f"  user_id={user_id}  email={email}")
+            print(f"    created={created_at}  expires={expires_at}\n")
+
+    except Exception as e:
+        print(f"❌ Error querying sessions: {e}")
+        print("   (The sessions table may not exist in your schema.)")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python3 scripts/debug_admin.py <email>     - Debug specific user")
-        print("  python3 scripts/debug_admin.py --list      - List all admins")
+        print("  python3 scripts/debug_admin.py <email>    - Debug specific user")
+        print("  python3 scripts/debug_admin.py --list     - List all admins")
+        print("  python3 scripts/debug_admin.py --session  - Show active sessions")
         sys.exit(1)
 
     if sys.argv[1] == "--list":
         list_admins()
+    elif sys.argv[1] == "--session":
+        list_sessions()
     else:
         debug_user(sys.argv[1])
