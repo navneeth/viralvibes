@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from fasthtml.common import *
 
-from db import supabase_client
+import db as _db
 from views.admin import AdminPage, _JobsSection
 
 logger = logging.getLogger(__name__)
@@ -33,16 +33,11 @@ def _is_admin(user_id: str | None) -> bool:
     Check if a user_id exists in the admin_users table.
     Used by NavComponent to determine if admin link should be shown.
     """
-    if not user_id or not supabase_client:
+    client = _db.supabase_client  # always read the live module-level client
+    if not user_id or not client:
         return False
     try:
-        resp = (
-            supabase_client.table("admin_users")
-            .select("id")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
+        resp = client.table("admin_users").select("id").eq("user_id", user_id).limit(1).execute()
         return bool(resp.data)
     except Exception as e:
         logger.warning("[Admin] Error checking admin status for %s: %s", user_id, e)
@@ -98,18 +93,18 @@ def _fetch_admin_data() -> tuple[dict, dict, dict, list[dict]]:
     }
     jobs: list[dict] = []
 
-    if not supabase_client:
+    if not _db.supabase_client:
         return stats, breakdown, throughput, jobs
 
     try:
         # Total creators
-        r = supabase_client.table("creators").select("id", count="exact").execute()
+        r = _db.supabase_client.table("creators").select("id", count="exact").execute()
         stats["total"] = r.count or 0
 
         # Breakdown by sync_status
         for status_key in ("synced", "pending", "failed", "invalid"):
             r = (
-                supabase_client.table("creators")
+                _db.supabase_client.table("creators")
                 .select("id", count="exact")
                 .eq("sync_status", status_key)
                 .execute()
@@ -119,7 +114,7 @@ def _fetch_admin_data() -> tuple[dict, dict, dict, list[dict]]:
         # Synced today (last 24h)
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         r = (
-            supabase_client.table("creators")
+            _db.supabase_client.table("creators")
             .select("id", count="exact")
             .gte("last_synced_at", cutoff)
             .execute()
@@ -130,7 +125,7 @@ def _fetch_admin_data() -> tuple[dict, dict, dict, list[dict]]:
 
         # Processing jobs count
         r = (
-            supabase_client.table("creator_sync_jobs")
+            _db.supabase_client.table("creator_sync_jobs")
             .select("id", count="exact")
             .eq("status", "processing")
             .execute()
@@ -139,7 +134,7 @@ def _fetch_admin_data() -> tuple[dict, dict, dict, list[dict]]:
 
         # Recent 50 jobs for the table
         r = (
-            supabase_client.table("creator_sync_jobs")
+            _db.supabase_client.table("creator_sync_jobs")
             .select("id, creator_id, status, retry_count, created_at, updated_at")
             .order("created_at", desc=True)
             .limit(50)
