@@ -115,24 +115,39 @@ def init_supabase() -> Optional[Client]:
     if supabase_client is not None:
         return supabase_client
 
-    url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+    url: str = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "") or os.environ.get("SUPABASE_URL", "")
 
-    # Prefer the service key (worker / Kaggle); fall back to the anon key
-    # (web app / CI).  Both are loaded into os.environ by secrets_loader.py.
-    key: str = os.environ.get("SUPABASE_SERVICE_KEY", "") or os.environ.get(
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY", ""
+    # Prefer the service key (worker / Kaggle / Vercel); fall back to the anon key
+    # (local dev / CI).  Check both naming conventions used across environments:
+    #   SUPABASE_SERVICE_KEY       — legacy name used by secrets_loader.py / Kaggle
+    #   SUPABASE_SERVICE_ROLE_KEY  — standard Supabase / Vercel name
+    key: str = (
+        os.environ.get("SUPABASE_SERVICE_KEY", "")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+        or os.environ.get("SUPABASE_ANON_KEY", "")
     )
     key_source = (
         "SUPABASE_SERVICE_KEY"
         if os.environ.get("SUPABASE_SERVICE_KEY")
-        else "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+        else (
+            "SUPABASE_SERVICE_ROLE_KEY"
+            if os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            else (
+                "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+                if os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+                else "SUPABASE_ANON_KEY"
+            )
+        )
     )
 
     if not url or not key:
         logger.warning(
-            "Missing Supabase environment variables "
-            "(NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_KEY or "
-            "NEXT_PUBLIC_SUPABASE_ANON_KEY) - running without Supabase"
+            "Missing Supabase environment variables. Need URL "
+            "(NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL) and key "
+            "(SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SERVICE_KEY, "
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY, or SUPABASE_ANON_KEY) "
+            "- running without Supabase"
         )
         return None
 

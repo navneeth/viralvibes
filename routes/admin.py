@@ -48,7 +48,15 @@ def _is_authorised(req, sess) -> bool:
     # Priority 1: is_admin cached in session at login (zero DB cost)
     if sess and sess.get("is_admin"):
         return True
-    # Priority 2: static token fallback
+    # Priority 2: live DB check — covers the case where the session was
+    # established before the admin row was added (or before is_admin was
+    # correctly populated at login). Updates the session cache for next time.
+    user_id = sess.get("user_id") if sess else None
+    if user_id and _is_admin(user_id):
+        if sess is not None:
+            sess["is_admin"] = True  # repair the cache
+        return True
+    # Priority 3: static token fallback
     if not ADMIN_TOKEN:
         return False
     qs_token = req.query_params.get("token", "")
