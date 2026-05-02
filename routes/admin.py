@@ -48,12 +48,22 @@ def _is_authorised(req, sess) -> bool:
     # Priority 1: is_admin cached in session at login (zero DB cost)
     if sess and sess.get("is_admin"):
         return True
-    # Priority 2: static token fallback
-    if not ADMIN_TOKEN:
-        return False
-    qs_token = req.query_params.get("token", "")
-    cookie_token = req.cookies.get("admin_token", "")
-    return bool(qs_token == ADMIN_TOKEN or cookie_token == ADMIN_TOKEN)
+    # Priority 2: static token — checked before the DB so programmatic / CI
+    # access via ?token= or admin_token cookie is never blocked by a DB call.
+    if ADMIN_TOKEN:
+        qs_token = req.query_params.get("token", "")
+        cookie_token = req.cookies.get("admin_token", "")
+        if qs_token == ADMIN_TOKEN or cookie_token == ADMIN_TOKEN:
+            return True
+    # Priority 3: live DB check — covers stale sessions (established before the
+    # admin row was added, or before is_admin was correctly cached at login).
+    # Self-heals the session cache so subsequent requests are free.
+    user_id = sess.get("user_id") if sess else None
+    if user_id and _is_admin(user_id):
+        if sess is not None:
+            sess["is_admin"] = True
+        return True
+    return False
 
 
 def _auth_response():
