@@ -14,13 +14,15 @@
 -- 1. Drop the recursive policy.
 -- 2. Create a SECURITY DEFINER helper function that reads admin_users as the
 --    table owner (bypasses RLS entirely), so the policy never re-enters itself.
--- 3. Recreate the SELECT policy using the helper function.
--- 4. Also add a service-role bypass policy so the backend supabase-py client
---    (which uses the service-role key) can always read the table without
---    triggering RLS at all.
+-- 3. Add a service-role bypass policy so the backend supabase-py client
+--    (which uses the service-role key) can always read the table.
 --
--- The backend db.py is_admin() call uses the service role key and will be
--- served by the service-role bypass policy — zero recursion risk.
+-- The backend db.py is_admin() call uses the service-role key which bypasses
+-- RLS by default in Supabase — the SECURITY DEFINER function is kept for
+-- future use but is NOT granted to the authenticated role.  This prevents
+-- authenticated users from directly calling public.is_admin_user(arbitrary_uuid)
+-- to probe the admin roster.  No authenticated SELECT policy is created
+-- because no current code path reads admin_users with a user-scoped key.
 
 -- ── Step 1: drop the broken policy ───────────────────────────────────────────
 DROP POLICY IF EXISTS "Admins can view all admin_users" ON public.admin_users;
@@ -39,23 +41,16 @@ AS $$
     );
 $$;
 
--- Only superuser / table owner should call this directly.
+-- Restrict direct invocation: only the service_role (used by the backend)
+-- and the function owner can call this.  authenticated users cannot call it
+-- directly, which prevents probing whether an arbitrary UUID is an admin.
 REVOKE ALL ON FUNCTION public.is_admin_user(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.is_admin_user(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_admin_user(uuid) TO service_role;
 
--- ── Step 3: non-recursive SELECT policy for authenticated users ───────────────
--- Uses the helper function — no direct reference to admin_users inside the
--- policy body, so there is no recursion.
-CREATE POLICY "Admins can view all admin_users"
-    ON public.admin_users
-    FOR SELECT
-    TO authenticated
-    USING (public.is_admin_user(auth.uid()));
-
--- ── Step 4: full-access bypass for the service role ──────────────────────────
+-- ── Step 3: full-access bypass for the service role ──────────────────────────
 -- The backend uses the Supabase service-role key (bypasses RLS by default in
 -- Supabase, but an explicit policy keeps things clear if that default changes).
+DROP POLICY IF EXISTS "Service role full access" ON public.admin_users;
 CREATE POLICY "Service role full access"
     ON public.admin_users
     FOR ALL

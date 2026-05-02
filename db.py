@@ -3013,9 +3013,21 @@ def get_creators(
             # - Replace underscores with spaces
             # - Collapse internal whitespace to single spaces
             normalized_category = normalize_category_name(category_filter)
-            # Guard against empty/whitespace-only values (avoid "%%" matching all).
+            # Guard against empty/whitespace-only category_filter to avoid ilike_pattern
+            # becoming "%%" and unintentionally matching all categories.
             if normalized_category:
-                query = query.ilike("primary_category", f"%{normalized_category}%")
+                # Preserve multi-word matching semantics: build a positional wildcard
+                # pattern so each word must appear in order but separators between
+                # them don't have to match exactly.
+                # e.g. "Howto & Style" → "%Howto%&%Style%" still matches the clean
+                # primary_category value "Howto & Style".
+                # Single-word terms fall through to a plain %term%.
+                # The pg_trgm GIN index (migration 028) services all ilike patterns.
+                words = normalized_category.split()
+                ilike_pattern = (
+                    "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
+                )
+                query = query.ilike("primary_category", ilike_pattern)
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
