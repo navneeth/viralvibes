@@ -1678,7 +1678,17 @@ def privacy(req, sess):
 @rt("/admin")
 def admin(req, sess):
     """Admin dashboard — protected by OAuth user ID or ADMIN_TOKEN."""
-    return admin_get(req, sess)
+    content = admin_get(req, sess)
+    # admin_get returns a Response (401) or FT content — only wrap FT in the layout
+    if isinstance(content, Response):
+        return content
+    return Titled(
+        "Admin — ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            content,
+        ),
+    )
 
 
 @rt("/admin/jobs")

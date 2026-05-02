@@ -213,11 +213,10 @@ def AdminPage(
     jobs: list[dict],
     refreshed_at: str = "",
 ) -> FT:
-    """Full admin page. Data passed in as plain dicts from route handler."""
+    """Admin page content. Caller wraps with Titled + NavComponent."""
     total = sum(breakdown.values()) or 1
 
-    return Titled(
-        "Admin — ViralVibes",
+    return Div(
         Div(
             Div(
                 Span("⚙️", cls="mr-2"),
