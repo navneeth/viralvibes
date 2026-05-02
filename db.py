@@ -3000,30 +3000,22 @@ def get_creators(
             if normalized_country:
                 query = query.ilike("country_code", normalized_country)
 
-        # Apply category filter — topic_categories stored as JSON array string.
-        # Clean the filter term to match how categories are normalized in
-        # get_top_categories_with_counts() (strip, normalize spaces, replace underscores).
-        # ⚠️ PERFORMANCE WARNING: Leading wildcard (%text%) prevents index usage.
-        # For large datasets, consider normalizing to separate table or JSONB array.
+        # Apply category filter using the primary_category column.
+        # primary_category is a clean, normalized, single-value text field
+        # (populated by the worker from topic_categories).  Filtering on it
+        # instead of the raw topic_categories JSON text column allows
+        # idx_creators_primary_category_trgm (pg_trgm GIN partial index,
+        # migration 028) to service the query as an index scan instead of a
+        # multi-MB sequential scan — eliminating the statement timeout.
         if category_filter and category_filter != "all":
             # Normalize filter term to match cleaned category names:
             # - Strip leading/trailing whitespace
             # - Replace underscores with spaces
             # - Collapse internal whitespace to single spaces
             normalized_category = normalize_category_name(category_filter)
-            # Guard against empty/whitespace-only category_filter to avoid ilike_pattern
-            # becoming "%%" and unintentionally matching all categories.
+            # Guard against empty/whitespace-only values (avoid "%%" matching all).
             if normalized_category:
-                # Build a multi-wildcard ILIKE pattern so word-order is preserved but
-                # separators (underscore, space, parens) don't have to match exactly.
-                # e.g. "lifestyle sociology" → "%lifestyle%sociology%" which matches
-                # the DB value "Lifestyle_(sociology)" even though the slug stripped
-                # the parentheses.  Single-word terms fall through to a plain %term%.
-                words = normalized_category.split()
-                ilike_pattern = (
-                    "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
-                )
-                query = query.ilike("topic_categories", ilike_pattern)
+                query = query.ilike("primary_category", f"%{normalized_category}%")
 
         # Apply sorting, limit, and offset (DB does the work for pagination)
         query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
