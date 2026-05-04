@@ -129,6 +129,9 @@ def _fetch_admin_data() -> dict:
         "queue_pending": 0,
         "queue_processing": 0,
         "queue_failed": 0,
+        "failed_quota": 0,
+        "failed_invalid": 0,
+        "failed_other": 0,
         "oldest_pending_secs": None,
         # Throughput
         "completed_24h": 0,
@@ -221,8 +224,7 @@ def _fetch_admin_data() -> dict:
             sc.table("creator_sync_jobs")
             .select("created_at")
             .eq("status", "pending")
-            .is_("next_retry_at", "null")
-            .order("created_at", desc=False)
+            .order("created_at", desc=False)  # absolute oldest, regardless of retry state
             .limit(1)
             .execute()
             .data
@@ -295,7 +297,9 @@ def _fetch_admin_data() -> dict:
                 "started_at, completed_at, created_at, error_message"
             )
             .neq("status", "pending")  # exclude 500k+ pending rows; show activity
-            .order("completed_at", desc=True)
+            .order(
+                "created_at", desc=True
+            )  # completed_at is NULL on failed rows; created_at is always set
             .limit(20)
             .execute()
             .data
@@ -303,6 +307,27 @@ def _fetch_admin_data() -> dict:
         )
     except Exception:
         logger.exception("[Admin] Recent jobs query failed")
+
+    # ── Failed job breakdown (quota vs invalid vs other) ───────────────────────
+    try:
+        failed_rows = (
+            sc.table("creator_sync_jobs")
+            .select("error_message")
+            .eq("status", "failed")
+            .execute()
+            .data
+            or []
+        )
+        for row in failed_rows:
+            msg = (row.get("error_message") or "").lower()
+            if "quota" in msg:
+                data["failed_quota"] += 1
+            elif "zero" in msg or "invalid" in msg or "suspicious" in msg:
+                data["failed_invalid"] += 1
+            else:
+                data["failed_other"] += 1
+    except Exception:
+        logger.exception("[Admin] Failed job breakdown query failed")
 
     return data
 
@@ -322,7 +347,7 @@ def _fetch_recent_jobs() -> list[dict]:
                 "started_at, completed_at, created_at, error_message"
             )
             .neq("status", "pending")
-            .order("completed_at", desc=True)
+            .order("created_at", desc=True)  # completed_at is NULL on failed rows
             .limit(20)
             .execute()
             .data
@@ -355,3 +380,43 @@ def admin_jobs_fragment(req, sess) -> Response | FT:
     if not _is_authorised(req, sess):
         return _auth_response()
     return _JobsSection(_fetch_recent_jobs())
+
+
+def admin_rescue_quota_jobs(req, sess) -> Response | FT:
+    """POST /admin/rescue-quota-jobs — reset quota-failed jobs back to pending."""
+    if not _is_authorised(req, sess):
+        return _auth_response()
+
+    sc = _db.supabase_client
+    if not sc:
+        return Response("DB unavailable", status_code=503)
+
+    try:
+        # Single filter-based update — no ID fetch needed, avoids URL length limits
+        # with 952 IDs. The ilike filter matches "YouTube quota exceeded" rows exactly.
+        result = (
+            sc.table("creator_sync_jobs")
+            .update(
+                {
+                    "status": "pending",
+                    "retry_count": 0,
+                    "retry_at": None,
+                    "error_message": None,
+                }
+            )
+            .eq("status", "failed")
+            .ilike("error_message", "%quota%")
+            .execute()
+        )
+        rescued = len(result.data) if result.data else 0
+        if rescued == 0:
+            return P("No quota-failed jobs found.", cls="text-sm text-muted-foreground")
+
+        logger.info("[Admin] Rescued %d quota-failed jobs", rescued)
+        return P(
+            f"✅ Reset {rescued:,} quota-failed jobs to pending.",
+            cls="text-sm text-green-600 font-medium",
+        )
+    except Exception:
+        logger.exception("[Admin] rescue_quota_jobs failed")
+        return P("❌ Rescue failed — check server logs.", cls="text-sm text-red-600")

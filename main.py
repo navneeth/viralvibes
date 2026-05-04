@@ -138,7 +138,7 @@ from routes.lists import (
     lists_more_languages_route,
     lists_route,
 )
-from routes.admin import admin_get, admin_jobs_fragment
+from routes.admin import admin_get, admin_jobs_fragment, admin_rescue_quota_jobs
 from views.lists import _unslugify
 
 # Get logger instance
@@ -1695,6 +1695,12 @@ def admin(req, sess):
 def admin_jobs(req, sess):
     """Admin jobs fragment — HTMX endpoint for job table refresh."""
     return admin_jobs_fragment(req, sess)
+
+
+@rt("/admin/rescue-quota-jobs", methods=["POST"])
+def admin_rescue_quota(req, sess):
+    """Reset all quota-failed jobs back to pending."""
+    return admin_rescue_quota_jobs(req, sess)
 
 
 # ============================================================================

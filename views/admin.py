@@ -158,6 +158,9 @@ def _JobRow(job: dict) -> Tr:
         dur = (c_dt - s_dt).total_seconds()
         if dur >= 0:
             duration = _fmt_dur(dur)
+    elif s_dt and not c_dt:
+        # Job was picked up by the worker but never completed (failed mid-run)
+        duration = Span("started", cls="text-xs text-orange-400 italic")
 
     # Age of last update
     age_ts = job.get("completed_at") or job.get("created_at")
@@ -208,6 +211,39 @@ def _QueueSection(data: dict) -> Div:
     warn_pending = pending > 100_000
     warn_failed = data["queue_failed"] > 0
 
+    failed_quota = data.get("failed_quota", 0)
+    failed_invalid = data.get("failed_invalid", 0)
+    failed_other = data.get("failed_other", 0)
+
+    failed_detail = Card(
+        H3(
+            "Failed Jobs",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _KVRow("Quota exceeded", f"{failed_quota:,}", warn=failed_quota > 0),
+        _KVRow("Invalid channel", f"{failed_invalid:,}"),
+        _KVRow("Other", f"{failed_other:,}"),
+        Div(
+            (
+                Button(
+                    f"Rescue {failed_quota:,} quota jobs",
+                    cls="text-xs px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white font-medium mt-3",
+                    **{
+                        "hx-post": "/admin/rescue-quota-jobs",
+                        "hx-target": "#rescue-result",
+                        "hx-swap": "innerHTML",
+                        "hx-confirm": f"Reset {failed_quota:,} quota-failed jobs to pending?",
+                    },
+                )
+                if failed_quota > 0
+                else None
+            ),
+            Div(id="rescue-result", cls="mt-2"),
+        ),
+        body_cls="p-5",
+        cls="border-l-4 border-red-400" if warn_failed else "",
+    )
+
     return Div(
         H3(
             "Job Queue",
@@ -224,6 +260,7 @@ def _QueueSection(data: dict) -> Div:
             cols_md=3,
             gap=4,
         ),
+        (failed_detail if warn_failed else None),
         cls="mb-6",
     )
 
