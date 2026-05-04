@@ -4,6 +4,8 @@ Modernized with Tailwind-inspired design and MonsterUI components.
 Includes Google OAuth with token revocation support.
 """
 
+import csv
+import io
 import json
 import logging
 import mimetypes
@@ -20,7 +22,7 @@ from fasthtml.common import *
 from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
 from monsterui.all import *
-from starlette.responses import StreamingResponse
+from starlette.responses import Response as StarletteResponse, StreamingResponse
 
 from auth.auth_service import (
     AUTH_SKIP_ROUTE_PATTERNS,
@@ -1554,6 +1556,67 @@ def toggle_favourite_list(req, sess, list_key: str = "", list_label: str = "", l
         new_fav = ok  # False if validation failed
 
     return _list_heart_btn(list_key, list_label, list_url, new_fav, authenticated=True)
+
+
+@rt("/me/favourites/export.csv")
+def me_favourites_export(req, sess):
+    """Export the user's saved creators as a CSV file."""
+    user_id = sess.get("user_id") if sess else None
+    if not user_id:
+        return RedirectResponse("/login", status_code=303)
+
+    creators = get_user_favourite_creators(user_id)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "channel_name",
+            "channel_id",
+            "channel_url",
+            "custom_url",
+            "current_subscribers",
+            "current_view_count",
+            "current_video_count",
+            "primary_category",
+            "country_code",
+            "language",
+            "quality_grade",
+            "engagement_score",
+            "sub_growth_30d",
+            "view_growth_30d",
+            "last_synced_at",
+        ]
+    )
+    for c in creators:
+        channel_url = c.get("channel_url") or (
+            f"https://www.youtube.com/channel/{c.get('channel_id', '')}"
+        )
+        writer.writerow(
+            [
+                c.get("channel_name") or "",
+                c.get("channel_id") or "",
+                channel_url,
+                c.get("custom_url") or "",
+                c.get("current_subscribers") or 0,
+                c.get("current_view_count") or 0,
+                c.get("current_video_count") or 0,
+                c.get("primary_category") or "",
+                c.get("country_code") or "",
+                c.get("language") or "",
+                c.get("quality_grade") or "",
+                c.get("engagement_score") or "",
+                c.get("sub_growth_30d") or "",
+                c.get("view_growth_30d") or "",
+                c.get("last_synced_at") or "",
+            ]
+        )
+
+    return StarletteResponse(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="saved-creators.csv"'},
+    )
 
 
 @rt("/me/favourites")
