@@ -1391,6 +1391,8 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
         if retry_count >= CREATOR_WORKER_MAX_RETRIES:
             status = "failed"
             next_retry = None
+            # Rewrite the error message to make clear no more retries are scheduled
+            error = f"{error} (permanent — max retries reached)"
             logger.warning(f"Creator sync job {job_id} exhausted retries")
         else:
             status = "pending"

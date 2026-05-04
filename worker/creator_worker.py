@@ -466,42 +466,27 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
     now_iso = datetime.now(timezone.utc).isoformat()
 
     try:
-        # Jobs with no retry_at scheduled (fresh or first attempt)
-        fresh_resp = (
+        # Single query: fresh jobs (retry_at IS NULL) OR overdue retry jobs
+        # (retry_at IS NOT NULL AND retry_at <= now()), ordered by created_at FIFO.
+        #
+        # The previous two-query approach had a critical flaw: with batch_size=1,
+        # the retry branch was dead code — `if len(fresh_jobs) < 1` is always False
+        # when any fresh job exists, so retry-overdue jobs would wait until all
+        # ~547k fresh jobs were exhausted (~154 days).
+        resp = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id,creator_id,source,retry_count,job_type,input_query")
+            .select("id,creator_id,source,retry_count,job_type")
             .eq("status", JobStatus.PENDING.value)
-            .is_("retry_at", "null")
+            .or_(f"retry_at.is.null,retry_at.lte.{now_iso}")
             .order("created_at", desc=False)
             .limit(batch_size)
             .execute()
         )
 
-        fresh_jobs = fresh_resp.data or []
-
-        # Jobs where retry_at has passed (backoff window expired)
-        if len(fresh_jobs) < batch_size:
-            retry_resp = (
-                supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-                .select("id,creator_id,source,retry_count,job_type,input_query")
-                .eq("status", JobStatus.PENDING.value)
-                .not_.is_("retry_at", "null")
-                .lte("retry_at", now_iso)
-                .order("retry_at", desc=False)
-                .limit(batch_size - len(fresh_jobs))
-                .execute()
-            )
-            retry_jobs = retry_resp.data or []
-        else:
-            retry_jobs = []
-
-        all_jobs = fresh_jobs + retry_jobs
+        all_jobs = resp.data or []
 
         if all_jobs:
-            logger.info(
-                f"  Pending jobs ready: {len(all_jobs)} total "
-                f"({len(fresh_jobs)} fresh, {len(retry_jobs)} retry-ready)"
-            )
+            logger.info(f"  Pending jobs ready: {len(all_jobs)}")
         else:
             logger.debug("  No pending jobs ready for processing right now")
 
