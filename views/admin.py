@@ -12,6 +12,17 @@ from datetime import datetime, timezone
 from fasthtml.common import *
 from monsterui.all import *
 
+
+def _parse_iso_utc(s: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp (with or without trailing Z) to a UTC-aware datetime."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
 # ── Colour maps ───────────────────────────────────────────────────────────────
 
 _COLOR = {
@@ -141,32 +152,20 @@ def _JobRow(job: dict) -> Tr:
 
     # Per-job duration
     duration = "—"
-    s_ts, c_ts = job.get("started_at"), job.get("completed_at")
-    if s_ts and c_ts:
-        try:
-            dur = (
-                datetime.fromisoformat(c_ts.replace("Z", "+00:00"))
-                - datetime.fromisoformat(s_ts.replace("Z", "+00:00"))
-            ).total_seconds()
-            if dur >= 0:
-                duration = _fmt_dur(dur)
-        except Exception:
-            pass
+    s_dt = _parse_iso_utc(job.get("started_at"))
+    c_dt = _parse_iso_utc(job.get("completed_at"))
+    if s_dt and c_dt:
+        dur = (c_dt - s_dt).total_seconds()
+        if dur >= 0:
+            duration = _fmt_dur(dur)
 
     # Age of last update
     age_ts = job.get("completed_at") or job.get("created_at")
     age = "—"
-    if age_ts:
-        try:
-            secs = int(
-                (
-                    datetime.now(timezone.utc)
-                    - datetime.fromisoformat(age_ts.replace("Z", "+00:00"))
-                ).total_seconds()
-            )
-            age = _fmt_ago(secs)
-        except Exception:
-            pass
+    age_dt = _parse_iso_utc(age_ts)
+    if age_dt:
+        secs = int((datetime.now(timezone.utc) - age_dt).total_seconds())
+        age = _fmt_ago(secs)
 
     error = job.get("error_message") or ""
     error_cell = Td(
@@ -315,7 +314,7 @@ def _WorkerSection(data: dict) -> Div:
 
 
 def _BreakdownSection(data: dict) -> Div:
-    total = data["total_creators"] or 1
+    total = data["total_creators"]
     breakdown = {
         "synced": data["synced"],
         "pending": data["pending_creators"],

@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
 
+def _parse_iso_utc(s: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp (with or without trailing Z) to a UTC-aware datetime."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
 # -- Auth helpers ─────────────────────────────────────────────────────────────
 
 
@@ -218,8 +228,9 @@ def _fetch_admin_data() -> dict:
             .data
         )
         if oldest:
-            dt = datetime.fromisoformat(oldest[0]["created_at"].replace("Z", "+00:00"))
-            data["oldest_pending_secs"] = int((now - dt).total_seconds())
+            dt = _parse_iso_utc(oldest[0]["created_at"])
+            if dt:
+                data["oldest_pending_secs"] = int((now - dt).total_seconds())
     except Exception:
         logger.exception("[Admin] Job queue queries failed")
 
@@ -260,24 +271,18 @@ def _fetch_admin_data() -> dict:
         )
         durations = []
         for row in rows:
-            s, c = row.get("started_at"), row.get("completed_at")
-            if s and c:
-                try:
-                    dur = (
-                        datetime.fromisoformat(c.replace("Z", "+00:00"))
-                        - datetime.fromisoformat(s.replace("Z", "+00:00"))
-                    ).total_seconds()
-                    if 0 < dur < 300:
-                        durations.append(dur)
-                except Exception:
-                    pass
+            s_dt = _parse_iso_utc(row.get("started_at"))
+            c_dt = _parse_iso_utc(row.get("completed_at"))
+            if s_dt and c_dt:
+                dur = (c_dt - s_dt).total_seconds()
+                if 0 < dur < 300:
+                    durations.append(dur)
         if durations:
             data["avg_job_secs"] = round(sum(durations) / len(durations), 1)
         if rows:
-            last_ts = rows[0].get("completed_at")
-            if last_ts:
-                dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
-                data["last_completed_secs"] = int((now - dt).total_seconds())
+            last_dt = _parse_iso_utc(rows[0].get("completed_at"))
+            if last_dt:
+                data["last_completed_secs"] = int((now - last_dt).total_seconds())
     except Exception:
         logger.exception("[Admin] Duration/heartbeat queries failed")
 
@@ -305,6 +310,29 @@ def _fetch_admin_data() -> dict:
 # -- Route handlers -----------------------------------------------------------
 
 
+def _fetch_recent_jobs() -> list[dict]:
+    """Lightweight fetch for the HTMX jobs-panel fragment (30s poll)."""
+    if not _db.supabase_client:
+        return []
+    try:
+        return (
+            _db.supabase_client.table("creator_sync_jobs")
+            .select(
+                "id, creator_id, job_type, source, status, retry_count, "
+                "started_at, completed_at, created_at, error_message"
+            )
+            .neq("status", "pending")
+            .order("completed_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        logger.exception("[Admin] Recent jobs fragment query failed")
+        return []
+
+
 def admin_get(req, sess) -> Response | FT:
     """GET /admin -- full admin dashboard. Returns FT for main.py to wrap."""
     if not _is_authorised(req, sess):
@@ -323,9 +351,7 @@ def admin_get(req, sess) -> Response | FT:
 
 
 def admin_jobs_fragment(req, sess) -> Response | FT:
-    """GET /admin/jobs -- HTMX fragment: jobs panel only."""
+    """GET /admin/jobs — HTMX fragment; refreshes only the recent-jobs panel."""
     if not _is_authorised(req, sess):
-        return Response("Unauthorised", status_code=401)
-
-    data = _fetch_admin_data()
-    return _JobsSection(data["recent_jobs"])
+        return _auth_response()
+    return _JobsSection(_fetch_recent_jobs())
