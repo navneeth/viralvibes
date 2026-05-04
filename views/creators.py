@@ -774,8 +774,6 @@ def render_creators_page(
             filtered_count=total_count,
             has_filters=has_active_filters,
         ),
-        # Add creator section — only visible to authenticated users
-        (render_add_creator_section() if is_authenticated else None),
         # Filter controls (sticky bar)
         _render_filter_bar(
             search=search,
@@ -814,7 +812,7 @@ def render_creators_page(
                 ),
             )
             if creators
-            else _render_empty_state(search, grade_filter, has_active_filters)
+            else _render_empty_state(search, grade_filter, has_active_filters, is_authenticated)
         ),
         cls=ContainerT.xl,
     )
@@ -2321,86 +2319,163 @@ def _render_pagination(
     )
 
 
-def _render_empty_state(search: str, grade_filter: str, has_active_filters: bool) -> Div:
-    """Empty state when no creators found."""
+def _render_empty_state(
+    search: str,
+    grade_filter: str,
+    has_active_filters: bool,
+    is_authenticated: bool = False,
+) -> Div:
+    """Empty state when no creators found.
 
-    # Special handling for handle searches that weren't found
+    Three progressive-disclosure flows:
+    1. @handle typed → one-click "Add to ViralVibes" CTA (handle pre-filled)
+    2. Name search / filters, no results → inline handle submit form
+    3. Truly empty DB → encourage playlist analysis
+    """
+
+    # ── shared submit result target (HTMX drops response here) ──────────────
+    result_slot = Div(id="creator-add-result", cls="mt-3")
+
+    # ── shared "back to all" link ────────────────────────────────────────────
+    back_link = A(
+        "← Browse all creators",
+        href="/creators",
+        cls="text-sm text-muted-foreground hover:underline",
+    )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 1 — @handle typed, no match in DB
+    # Known handle → pre-fill the form so user needs only one click
+    # ────────────────────────────────────────────────────────────────────────
     if search and search.startswith("@"):
+        if is_authenticated:
+            add_cta = Form(
+                Input(type="hidden", name="q", value=search),
+                Button(
+                    UkIcon("plus-circle", cls="size-4 mr-1.5"),
+                    f"Add {search} to ViralVibes",
+                    type="submit",
+                    cls="flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
+                    "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
+                ),
+                result_slot,
+                hx_post="/creators/request",
+                hx_target="#creator-add-result",
+                hx_swap="innerHTML",
+                cls="flex flex-col items-center gap-0",
+            )
+        else:
+            add_cta = A(
+                UkIcon("log-in", cls="size-4 mr-1.5"),
+                "Log in to add this creator",
+                href=f"/login",
+                cls="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
+                "border border-border hover:bg-accent transition-colors",
+            )
+
         return Card(
             Div(
-                Span("🔍", cls="text-6xl block text-center mb-4"),
+                Span("👀", cls="text-5xl block text-center mb-3"),
                 H2(
-                    f"Handle {search} not found",
-                    cls="text-center text-2xl font-bold mb-2",
+                    f"{search} isn't in our database yet",
+                    cls="text-center text-xl font-bold mb-1",
                 ),
                 P(
-                    "This creator might not exist on YouTube or has a different handle.",
-                    cls="text-center text-muted-foreground mb-2",
+                    "We'll sync their stats automatically once added.",
+                    cls="text-center text-sm text-muted-foreground mb-5",
                 ),
+                Div(add_cta, cls="flex justify-center"),
+                Div(back_link, cls="flex justify-center mt-5"),
+                cls="p-10 space-y-0",
+            ),
+            cls="bg-background border border-border max-w-sm mx-auto",
+        )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 2 — name/filter search, no results
+    # Surface the submit form inline — no need to scroll anywhere
+    # ────────────────────────────────────────────────────────────────────────
+    if has_active_filters:
+        label = f'No creators match "{search}"' if search else "No creators match these filters"
+        if is_authenticated:
+            submit_area = Form(
+                Div(
+                    Input(
+                        type="text",
+                        name="q",
+                        placeholder="@handle or channel ID…",
+                        autocomplete="off",
+                        cls="flex-1 px-3 py-2 text-sm rounded-lg border border-border "
+                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
+                    ),
+                    Button(
+                        "Submit",
+                        type="submit",
+                        cls="px-4 py-2 text-sm font-semibold rounded-lg "
+                        "bg-primary text-primary-foreground hover:bg-primary/90 "
+                        "transition-colors shrink-0",
+                    ),
+                    cls="flex gap-2",
+                ),
+                result_slot,
+                hx_post="/creators/request",
+                hx_target="#creator-add-result",
+                hx_swap="innerHTML",
+            )
+        else:
+            submit_area = P(
+                A("Log in", href="/login", cls="text-primary hover:underline font-medium"),
+                " to submit a creator by @handle.",
+                cls="text-sm text-muted-foreground",
+            )
+
+        return Card(
+            Div(
+                Span("🔍", cls="text-5xl block text-center mb-3"),
+                H2(label, cls="text-center text-xl font-bold mb-1"),
                 P(
-                    "💡 Try searching without the @ symbol or verify the handle on YouTube first.",
-                    cls="text-center text-sm text-muted-foreground mb-6",
+                    "Know their @handle? Submit it and they'll be added automatically.",
+                    cls="text-center text-sm text-muted-foreground mb-5",
                 ),
+                submit_area,
                 Div(
                     A(
-                        Button("← Back to All Creators", cls=ButtonT.secondary),
+                        "Clear filters",
                         href="/creators",
+                        cls="text-sm text-muted-foreground hover:underline",
                     ),
-                    cls="flex justify-center",
+                    cls="flex justify-center mt-4",
                 ),
-                cls="space-y-4 p-12",
+                cls="p-10 space-y-3",
             ),
             cls="bg-accent max-w-md mx-auto",
         )
 
-    if has_active_filters:
-        return Card(
-            Div(
-                Span("🔍", cls="text-6xl block text-center mb-4"),
-                H2("No creators found", cls="text-center text-2xl font-bold mb-2"),
-                P(
-                    "Try adjusting your filters or search terms",
-                    cls="text-center text-muted-foreground mb-2",
-                ),
-                P(
-                    "💡 Tip: Search by handle like @MrBeast to add creators directly from YouTube",
-                    cls="text-center text-sm text-blue-600 mb-6",
-                ),
-                Div(
-                    A(Button("Clear Filters", cls=ButtonT.secondary), href="/creators"),
-                    cls="flex justify-center",
-                ),
-                cls="space-y-4 p-12",
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 3 — truly empty DB
+    # ────────────────────────────────────────────────────────────────────────
+    return Card(
+        Div(
+            Span("🚀", cls="text-6xl block text-center mb-4"),
+            H2(
+                "No creators discovered yet",
+                cls="text-center text-2xl font-bold mb-2",
             ),
-            cls="bg-accent max-w-md mx-auto",
-        )
-    else:
-        return Card(
-            Div(
-                Span("🚀", cls="text-6xl block text-center mb-4"),
-                H2(
-                    "No creators discovered yet",
-                    cls="text-center text-2xl font-bold mb-2",
-                ),
-                P(
-                    "Analyze YouTube playlists to automatically discover and track creators.",
-                    cls="text-center text-muted-foreground mb-2",
-                ),
-                P(
-                    "💡 Or search by handle like @MrBeast to add them directly!",
-                    cls="text-center text-sm text-blue-600 mb-6",
-                ),
-                Div(
-                    A(
-                        Button("📊 Analyze Your First Playlist", cls=ButtonT.primary),
-                        href="/#analyze-section",
-                    ),
-                    cls="flex justify-center",
-                ),
-                cls="space-y-4 p-12",
+            P(
+                "Analyze YouTube playlists to automatically discover and track creators.",
+                cls="text-center text-muted-foreground mb-2",
             ),
-            cls="bg-background max-w-md mx-auto border border-border",
-        )
+            Div(
+                A(
+                    Button("📊 Analyze Your First Playlist", cls=ButtonT.primary),
+                    href="/#analyze-section",
+                ),
+                cls="flex justify-center",
+            ),
+            cls="space-y-4 p-12",
+        ),
+        cls="bg-background max-w-md mx-auto border border-border",
+    )
 
 
 # ============================================================================
