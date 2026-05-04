@@ -1589,13 +1589,14 @@ def me_favourites_export(req, sess):
         ]
     )
     for c in creators:
+        channel_id = c.get("channel_id") or ""
         channel_url = c.get("channel_url") or (
-            f"https://www.youtube.com/channel/{c.get('channel_id', '')}"
+            f"https://www.youtube.com/channel/{channel_id}" if channel_id else ""
         )
         writer.writerow(
             [
                 c.get("channel_name") or "",
-                c.get("channel_id") or "",
+                channel_id,
                 channel_url,
                 c.get("custom_url") or "",
                 c.get("current_subscribers") or 0,
@@ -1614,7 +1615,7 @@ def me_favourites_export(req, sess):
 
     return StarletteResponse(
         content=buf.getvalue(),
-        media_type="text/csv",
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="saved-creators.csv"'},
     )
 
