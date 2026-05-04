@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
 
 
+def _parse_iso_utc(s: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp (with or without trailing Z) to a UTC-aware datetime."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
 # -- Auth helpers ─────────────────────────────────────────────────────────────
 
 
@@ -90,92 +100,237 @@ def _auth_response():
 # -- Data fetching ------------------------------------------------------------
 
 
-def _fetch_admin_data() -> tuple[dict, dict, dict, list[dict]]:
-    """Fetch all data needed for the admin page from Supabase."""
-    stats = {"total": 0, "synced_today": 0, "pending": 0, "failed": 0, "processing": 0}
-    breakdown = {"synced": 0, "pending": 0, "failed": 0, "invalid": 0}
-    throughput = {
-        "jobs_per_hour": "--",
-        "avg_duration": "--",
-        "last_job_ago": "--",
-        "quota_used": 0,
-        "quota_total": 10000,
+def _fetch_admin_data() -> dict:
+    """
+    Fetch all data for the admin dashboard. Returns a flat dict; every key has
+    a safe default so the view never crashes on a missing value.
+
+    Queries are grouped into independent try/except blocks so a single failing
+    query (e.g. missing column) degrades that section only, not the whole page.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff_24h = (now - timedelta(hours=24)).isoformat()
+    cutoff_1h = (now - timedelta(hours=1)).isoformat()
+    cutoff_7d = (now - timedelta(days=7)).isoformat()
+    cutoff_30d = (now - timedelta(days=30)).isoformat()
+
+    data: dict = {
+        # Creator inventory
+        "total_creators": 0,
+        "synced": 0,
+        "pending_creators": 0,
+        "failed_creators": 0,
+        "invalid_creators": 0,
+        "visible": 0,
+        "fresh_7d": 0,
+        "stale_30d": 0,
+        "never_synced": 0,
+        # Job queue
+        "queue_pending": 0,
+        "queue_processing": 0,
+        "queue_failed": 0,
+        "oldest_pending_secs": None,
+        # Throughput
+        "completed_24h": 0,
+        "completed_1h": 0,
+        "avg_job_secs": None,
+        "last_completed_secs": None,
+        # Recent jobs table
+        "recent_jobs": [],
     }
-    jobs: list[dict] = []
 
     if not _db.supabase_client:
-        return stats, breakdown, throughput, jobs
+        return data
 
+    sc = _db.supabase_client
+
+    # ── Creator inventory ──────────────────────────────────────────────────────
     try:
-        # Total creators
-        r = _db.supabase_client.table("creators").select("id", count="exact").execute()
-        stats["total"] = r.count or 0
-
-        # Breakdown by sync_status
-        for status_key in ("synced", "pending", "failed", "invalid"):
-            r = (
-                _db.supabase_client.table("creators")
+        data["total_creators"] = (
+            sc.table("creators").select("id", count="exact").execute().count or 0
+        )
+        for col, status in [
+            ("synced", "synced"),
+            ("pending_creators", "pending"),
+            ("failed_creators", "failed"),
+            ("invalid_creators", "invalid"),
+        ]:
+            data[col] = (
+                sc.table("creators")
                 .select("id", count="exact")
-                .eq("sync_status", status_key)
+                .eq("sync_status", status)
                 .execute()
+                .count
+                or 0
             )
-            breakdown[status_key] = r.count or 0
-
-        # Synced today (last 24h)
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        r = (
-            _db.supabase_client.table("creators")
+        data["visible"] = (
+            sc.table("creators")
             .select("id", count="exact")
-            .gte("last_synced_at", cutoff)
+            .eq("sync_status", "synced")
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
             .execute()
+            .count
+            or 0
         )
-        stats["synced_today"] = r.count or 0
-        stats["pending"] = breakdown["pending"]
-        stats["failed"] = breakdown["failed"]
-
-        # Processing jobs count
-        r = (
-            _db.supabase_client.table("creator_sync_jobs")
+        data["fresh_7d"] = (
+            sc.table("creators")
             .select("id", count="exact")
-            .eq("status", "processing")
+            .eq("sync_status", "synced")
+            .gte("last_synced_at", cutoff_7d)
             .execute()
+            .count
+            or 0
         )
-        stats["processing"] = r.count or 0
+        data["stale_30d"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .lt("last_synced_at", cutoff_30d)
+            .execute()
+            .count
+            or 0
+        )
+        data["never_synced"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .is_("last_synced_at", "null")
+            .execute()
+            .count
+            or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Creator inventory queries failed")
 
-        # Recent 50 jobs for the table
-        r = (
-            _db.supabase_client.table("creator_sync_jobs")
-            .select("id, creator_id, status, retry_count, created_at, updated_at")
-            .order("created_at", desc=True)
+    # ── Job queue ──────────────────────────────────────────────────────────────
+    try:
+        for col, status in [
+            ("queue_pending", "pending"),
+            ("queue_processing", "processing"),
+            ("queue_failed", "failed"),
+        ]:
+            data[col] = (
+                sc.table("creator_sync_jobs")
+                .select("id", count="exact")
+                .eq("status", status)
+                .execute()
+                .count
+                or 0
+            )
+        oldest = (
+            sc.table("creator_sync_jobs")
+            .select("created_at")
+            .eq("status", "pending")
+            .is_("next_retry_at", "null")
+            .order("created_at", desc=False)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if oldest:
+            dt = _parse_iso_utc(oldest[0]["created_at"])
+            if dt:
+                data["oldest_pending_secs"] = int((now - dt).total_seconds())
+    except Exception:
+        logger.exception("[Admin] Job queue queries failed")
+
+    # ── Throughput counts ──────────────────────────────────────────────────────
+    try:
+        data["completed_24h"] = (
+            sc.table("creator_sync_jobs")
+            .select("id", count="exact")
+            .eq("status", "completed")
+            .gte("completed_at", cutoff_24h)
+            .execute()
+            .count
+            or 0
+        )
+        data["completed_1h"] = (
+            sc.table("creator_sync_jobs")
+            .select("id", count="exact")
+            .eq("status", "completed")
+            .gte("completed_at", cutoff_1h)
+            .execute()
+            .count
+            or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Throughput count queries failed")
+
+    # ── Avg duration + last heartbeat (from recent completed jobs) ─────────────
+    try:
+        rows = (
+            sc.table("creator_sync_jobs")
+            .select("started_at, completed_at")
+            .eq("status", "completed")
+            .order("completed_at", desc=True)
             .limit(50)
             .execute()
+            .data
+            or []
         )
-        jobs = r.data or []
+        durations = []
+        for row in rows:
+            s_dt = _parse_iso_utc(row.get("started_at"))
+            c_dt = _parse_iso_utc(row.get("completed_at"))
+            if s_dt and c_dt:
+                dur = (c_dt - s_dt).total_seconds()
+                if 0 < dur < 300:
+                    durations.append(dur)
+        if durations:
+            data["avg_job_secs"] = round(sum(durations) / len(durations), 1)
+        if rows:
+            last_dt = _parse_iso_utc(rows[0].get("completed_at"))
+            if last_dt:
+                data["last_completed_secs"] = int((now - last_dt).total_seconds())
+    except Exception:
+        logger.exception("[Admin] Duration/heartbeat queries failed")
 
-        # Throughput: last job time
-        if jobs:
-            last_ts = jobs[0].get("updated_at") or jobs[0].get("created_at")
-            if last_ts:
-                try:
-                    last_dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
-                    diff = datetime.now(timezone.utc) - last_dt
-                    secs = int(diff.total_seconds())
-                    if secs < 60:
-                        throughput["last_job_ago"] = f"{secs}s ago"
-                    elif secs < 3600:
-                        throughput["last_job_ago"] = f"{secs // 60}m ago"
-                    else:
-                        throughput["last_job_ago"] = f"{secs // 3600}h ago"
-                except Exception:
-                    pass
+    # ── Recent jobs table ──────────────────────────────────────────────────────
+    try:
+        data["recent_jobs"] = (
+            sc.table("creator_sync_jobs")
+            .select(
+                "id, creator_id, job_type, source, status, retry_count, "
+                "started_at, completed_at, created_at, error_message"
+            )
+            .neq("status", "pending")  # exclude 500k+ pending rows; show activity
+            .order("completed_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        logger.exception("[Admin] Recent jobs query failed")
 
-    except Exception as e:
-        logger.exception("[Admin] Error fetching admin data: %s", e)
-
-    return stats, breakdown, throughput, jobs
+    return data
 
 
 # -- Route handlers -----------------------------------------------------------
+
+
+def _fetch_recent_jobs() -> list[dict]:
+    """Lightweight fetch for the HTMX jobs-panel fragment (30s poll)."""
+    if not _db.supabase_client:
+        return []
+    try:
+        return (
+            _db.supabase_client.table("creator_sync_jobs")
+            .select(
+                "id, creator_id, job_type, source, status, retry_count, "
+                "started_at, completed_at, created_at, error_message"
+            )
+            .neq("status", "pending")
+            .order("completed_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        logger.exception("[Admin] Recent jobs fragment query failed")
+        return []
 
 
 def admin_get(req, sess) -> Response | FT:
@@ -190,17 +345,13 @@ def admin_get(req, sess) -> Response | FT:
         resp.set_cookie("admin_token", ADMIN_TOKEN, httponly=True, samesite="strict")
         return resp
 
-    stats, breakdown, throughput, jobs = _fetch_admin_data()
+    data = _fetch_admin_data()
     now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-    return AdminPage(
-        stats=stats, breakdown=breakdown, throughput=throughput, jobs=jobs, refreshed_at=now
-    )
+    return AdminPage(data=data, refreshed_at=now)
 
 
 def admin_jobs_fragment(req, sess) -> Response | FT:
-    """GET /admin/jobs -- HTMX fragment: jobs panel only."""
+    """GET /admin/jobs — HTMX fragment; refreshes only the recent-jobs panel."""
     if not _is_authorised(req, sess):
-        return Response("Unauthorised", status_code=401)
-
-    _, _, _, jobs = _fetch_admin_data()
-    return _JobsSection(jobs)
+        return _auth_response()
+    return _JobsSection(_fetch_recent_jobs())
