@@ -46,6 +46,8 @@ from views.creators import (
     render_creator_profile_page,
     render_creators_page,
 )
+from utils.blueprint import signals_from_row, score_all_actions
+from views.blueprint import render_blueprint_page
 
 logger = logging.getLogger(__name__)
 
@@ -491,9 +493,6 @@ def blueprint_route(request, creator_id: str):
 
     Returns a Div (page fragment) — wrapped in a full Titled page by main.py.
     """
-    from utils.blueprint import signals_from_row, score_all_actions
-    from views.blueprint import render_blueprint_page
-
     creator = get_creator_stats(creator_id)
     if not creator:
         logger.warning("[Blueprint] Creator not found: %s", creator_id)

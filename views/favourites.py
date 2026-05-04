@@ -153,11 +153,26 @@ def render_favourites_page(creators: list[dict], user_name: str) -> Div:
                 ),
                 cls="",
             ),
-            A(
-                UkIcon("search", cls="w-4 h-4 mr-2"),
-                "Browse Creators",
-                href="/creators",
-                cls="inline-flex items-center px-4 py-2 bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold rounded-lg no-underline transition-colors",
+            Div(
+                *(
+                    [
+                        A(
+                            UkIcon("download", cls="w-4 h-4 mr-2"),
+                            "Export CSV",
+                            href="/me/favourites/export.csv",
+                            cls="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg no-underline transition-colors mr-2",
+                        )
+                    ]
+                    if count
+                    else []
+                ),
+                A(
+                    UkIcon("search", cls="w-4 h-4 mr-2"),
+                    "Browse Creators",
+                    href="/creators",
+                    cls="inline-flex items-center px-4 py-2 bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                cls="flex items-center",
             ),
             cls="flex items-start justify-between mt-8 mb-6",
         ),
