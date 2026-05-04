@@ -310,22 +310,28 @@ def _fetch_admin_data() -> dict:
 
     # ── Failed job breakdown (quota vs invalid vs other) ───────────────────────
     try:
-        failed_rows = (
+        data["failed_quota"] = (
             sc.table("creator_sync_jobs")
-            .select("error_message")
+            .select("id", count="exact")
             .eq("status", "failed")
+            .ilike("error_message", "%quota%")
             .execute()
-            .data
-            or []
+            .count
+            or 0
         )
-        for row in failed_rows:
-            msg = (row.get("error_message") or "").lower()
-            if "quota" in msg:
-                data["failed_quota"] += 1
-            elif "zero" in msg or "invalid" in msg or "suspicious" in msg:
-                data["failed_invalid"] += 1
-            else:
-                data["failed_other"] += 1
+        data["failed_invalid"] = (
+            sc.table("creator_sync_jobs")
+            .select("id", count="exact")
+            .eq("status", "failed")
+            .or_("error_message.ilike.%zero%,error_message.ilike.%suspicious%")
+            .execute()
+            .count
+            or 0
+        )
+        # Other = total failed minus the two classified buckets
+        data["failed_other"] = max(
+            0, data["queue_failed"] - data["failed_quota"] - data["failed_invalid"]
+        )
     except Exception:
         logger.exception("[Admin] Failed job breakdown query failed")
 
@@ -406,9 +412,9 @@ def admin_rescue_quota_jobs(req, sess) -> Response | FT:
             )
             .eq("status", "failed")
             .ilike("error_message", "%quota%")
-            .execute()
+            .execute(count="exact")
         )
-        rescued = len(result.data) if result.data else 0
+        rescued = result.count or 0
         if rescued == 0:
             return P("No quota-failed jobs found.", cls="text-sm text-muted-foreground")
 
