@@ -43,7 +43,62 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+# Kaggle/Jupyter optional imports for visual reporting
+try:
+    import pandas as pd
+    from IPython.display import display, Markdown
+
+    _KAGGLE_MODE = True
+except ImportError:
+    _KAGGLE_MODE = False
+
 logger = logging.getLogger("kaggle_worker")
+
+
+# =============================================================================
+# Kaggle Jupyter Display Functions
+# =============================================================================
+
+
+def _display_final_report(jobs_processed: int, elapsed: float, key_pool, metrics) -> None:
+    """
+    Renders a clean visual summary in Jupyter cell output (Kaggle only).
+    Falls back to logging in non-Kaggle environments.
+    """
+    if not _KAGGLE_MODE:
+        return  # Silent fallback to logging
+
+    try:
+        duration_min = elapsed / 60
+        success_rate = (metrics.syncs_processed / jobs_processed * 100) if jobs_processed > 0 else 0
+
+        report = f"""
+### 📊 Worker Execution Summary
+| Metric | Value |
+| :--- | :--- |
+| **Total Jobs Processed** | {jobs_processed} |
+| **Success Rate** | {success_rate:.1f}% ({metrics.syncs_processed} / {jobs_processed}) |
+| **Uptime** | {duration_min:.2f} minutes |
+| **Quota Used** | {metrics.youtube_credits_used} / {YOUTUBE_DAILY_QUOTA} ({metrics.quota_percentage():.2f}%) |
+| **API Errors** | {metrics.api_errors} |
+| **Failed Jobs** | {metrics.syncs_failed} |
+"""
+        display(Markdown(report))
+
+        # Create a DataFrame for the key pool for better visibility
+        pool_data = [
+            {
+                "Slot": i,
+                "Status": s.status,
+                "Jobs": s.jobs_processed,
+                "Active": "✅" if i == key_pool._index else "",
+            }
+            for i, s in enumerate(key_pool.slots)
+        ]
+        display(pd.DataFrame(pool_data).set_index("Slot"))
+    except Exception as e:
+        logger.warning("[Display] Failed to render visual report: %s", e)
+
 
 # ── Module constants ──────────────────────────────────────────────────────────
 # Centralized list of YouTube API key environment variable names for round-robin
@@ -51,6 +106,7 @@ YOUTUBE_API_KEY_NAMES = [
     "YOUTUBE_API_KEY",
     "YOUTUBE_API_KEY_2",
     "YOUTUBE_API_KEY_3",
+    "YOUTUBE_API_KEY_4",
 ]
 
 # ── Step 1: fetch secrets once, before any worker import ─────────────────────
@@ -400,41 +456,46 @@ async def run(
     # ── Final summary + refresh hero stats ───────────────────────────────────
     elapsed = time.time() - start_time
 
-    # Refresh hero stats after all jobs processed
-    if jobs_processed > 0:
-        try:
-            from db import refresh_hero_stats_cache
+    try:
+        # Refresh hero stats after all jobs processed
+        if jobs_processed > 0:
+            try:
+                from db import refresh_hero_stats_cache
 
-            logger.info("[Hero Stats Cache] Refreshing after %d jobs...", jobs_processed)
-            result = refresh_hero_stats_cache()
-            if result.get("success"):
-                logger.info(
-                    "[Hero Stats Cache] ✅ Refreshed: %s",
-                    result.get("materialized_views"),
-                )
-            else:
-                logger.warning(
-                    "[Hero Stats Cache] ⚠️  Refresh failed: %s",
-                    result.get("error"),
-                )
-        except Exception as e:
-            logger.warning("[Hero Stats Cache] ⚠️  Refresh exception: %s", e)
+                logger.info("[Hero Stats Cache] Refreshing after %d jobs...", jobs_processed)
+                result = refresh_hero_stats_cache()
+                if result.get("success"):
+                    logger.info(
+                        "[Hero Stats Cache] ✅ Refreshed: %s",
+                        result.get("materialized_views"),
+                    )
+                else:
+                    logger.warning(
+                        "[Hero Stats Cache] ⚠️  Refresh failed: %s",
+                        result.get("error"),
+                    )
+            except Exception as e:
+                logger.warning("[Hero Stats Cache] ⚠️  Refresh exception: %s", e)
 
-    logger.info("=" * 60)
-    logger.info("Kaggle worker finished")
-    logger.info("  Jobs processed : %d", jobs_processed)
-    logger.info("  Uptime         : %.0fs (%.1f min)", elapsed, elapsed / 60)
-    logger.info("  Succeeded      : %d", metrics.syncs_processed)
-    logger.info("  Failed         : %d", metrics.syncs_failed)
-    logger.info("  API errors     : %d", metrics.api_errors)
-    logger.info(
-        "  YT Quota used  : %d / %d (%.2f%%)",
-        metrics.youtube_credits_used,
-        YOUTUBE_DAILY_QUOTA,
-        metrics.quota_percentage(),
-    )
-    logger.info("Key pool summary:\n%s", key_pool.summary())
-    logger.info("=" * 60)
+        # Log text summary
+        logger.info("=" * 60)
+        logger.info("Kaggle worker finished")
+        logger.info("  Jobs processed : %d", jobs_processed)
+        logger.info("  Uptime         : %.0fs (%.1f min)", elapsed, elapsed / 60)
+        logger.info("  Succeeded      : %d", metrics.syncs_processed)
+        logger.info("  Failed         : %d", metrics.syncs_failed)
+        logger.info("  API errors     : %d", metrics.api_errors)
+        logger.info(
+            "  YT Quota used  : %d / %d (%.2f%%)",
+            metrics.youtube_credits_used,
+            YOUTUBE_DAILY_QUOTA,
+            metrics.quota_percentage(),
+        )
+        logger.info("Key pool summary:\n%s", key_pool.summary())
+        logger.info("=" * 60)
+    finally:
+        # Always display visual report if in Kaggle, even if logging failed
+        _display_final_report(jobs_processed, elapsed, key_pool, metrics)
 
 
 # ── Notebook convenience: run directly with %run kaggle_worker.py ─────────────
