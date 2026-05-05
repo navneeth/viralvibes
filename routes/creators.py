@@ -64,6 +64,11 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # ═══════════════════════════════════════════════════════════════
     # HANDLE SEARCH MODE (@username)
     # ═══════════════════════════════════════════════════════════════
+    # Set when user searched a @handle that isn't in the DB — passed to the
+    # view so it can show the "add this creator" banner even when other
+    # creators appear in search results.
+    handle_not_found: bool = False
+
     if search.strip().startswith("@"):
         handle = search.strip()
         logger.info(f"[HandleSearch] Detected handle search: {handle}")
@@ -78,8 +83,9 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             )
             # Fall through to normal search (will match by custom_url)
         else:
-            # Creator not in DB - fetch from YouTube and show preview
-            logger.info(f"[HandleSearch] Creator not found, fetching from YouTube...")
+            # Creator not in DB — flag it so the view shows the add CTA
+            handle_not_found = True
+            logger.info(f"[HandleSearch] Creator not found in DB: {handle}")
 
             try:
                 youtube_api = None  # YouTubeBackendAPI()
@@ -92,10 +98,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                         channel_info=channel_info,
                         search=search,
                     )
-                else:
-                    # Handle not found on YouTube
-                    logger.warning(f"[HandleSearch] Handle not found on YouTube: {handle}")
-                    # Fall through to show empty results with helpful message
+                # else: fall through to normal search with banner
 
             except Exception as e:
                 logger.exception(f"[HandleSearch] Error fetching handle {handle}: {e}")
@@ -238,6 +241,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         total_pages=total_pages,
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
+        handle_not_found=handle_not_found,
     )
 
 
