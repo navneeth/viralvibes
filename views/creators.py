@@ -1384,21 +1384,23 @@ def _render_filter_bar(
 
     # ═══════════════════════════════════════════════════════════════
     # 10. BUILD FLOATING FILTER BUTTON
+    #
+    # IMPORTANT: this element must NOT be a descendant of any element
+    # with backdrop-filter/backdrop-blur. Chromium and Safari create a
+    # new containing block for position:fixed children of such elements,
+    # causing the FAB to be anchored to the sticky bar instead of the
+    # viewport. It is rendered as a sibling of the sticky bar (see §12).
     # ═══════════════════════════════════════════════════════════════
     filter_button = A(
-        # Icon and text
-        Div(
-            # Filter icon (using emoji for consistency)
-            Span("🔍", cls="text-xl md:text-2xl", aria_hidden="true"),
-            # Keep label available to screen readers on small screens, visible from sm and up
-            Span("Filters", cls="text-xs md:text-sm font-semibold sr-only sm:not-sr-only"),
-            cls="flex items-center gap-2",
-        ),
-        # Active count badge (only show if filters are active)
+        # Sliders icon — semantically "filter", not search (🔍 is wrong here)
+        UkIcon("sliders-horizontal", cls="size-5 shrink-0"),
+        # Label: hidden on mobile (icon-only circle), visible on sm+
+        Span("Filters", cls="hidden sm:inline text-sm font-semibold leading-none"),
+        # Active count badge
         (
             Span(
                 str(active_filters),
-                cls="absolute -top-1 -right-1 md:-top-1.5 md:-right-1.5 bg-red-500 text-white text-[10px] md:text-xs font-bold w-4 h-4 md:w-5 md:h-5 rounded-full flex items-center justify-center",
+                cls="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold min-w-[1.1rem] h-[1.1rem] px-0.5 rounded-full flex items-center justify-center leading-none",
                 aria_label=f"{active_filters} active filters",
             )
             if active_filters > 0
@@ -1406,8 +1408,15 @@ def _render_filter_bar(
         ),
         href="#filter-modal",
         uk_toggle=True,
-        aria_label="Open filters menu",
-        cls="fixed bottom-4 right-4 md:bottom-6 md:right-6 lg:bottom-8 lg:right-8 z-[999] bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white rounded-full px-4 py-3 md:px-5 md:py-3.5 shadow-2xl hover:shadow-purple-500/50 transition-all hover:scale-105 active:scale-95 no-underline",
+        aria_label=(
+            f"Open filters ({active_filters} active)" if active_filters else "Open filters"
+        ),
+        # position:fixed ONLY works correctly when outside a backdrop-filter ancestor
+        cls="fixed bottom-6 right-6 z-[999] relative flex items-center gap-2 "
+        "bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white "
+        "p-3.5 sm:px-5 sm:py-3 rounded-full "
+        "shadow-xl hover:shadow-violet-500/40 "
+        "transition-all duration-150 hover:scale-105 active:scale-95 no-underline",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -1518,18 +1527,27 @@ def _render_filter_bar(
 
     # ═══════════════════════════════════════════════════════════════
     # 12. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
+    #
+    # Structural note: filter_button and filter_modal are siblings of
+    # the sticky bar, NOT children of it. The sticky bar uses
+    # backdrop-blur-sm (backdrop-filter) which in Chromium/Safari
+    # creates a containing block that breaks position:fixed on
+    # descendants. Rendering them outside that element restores correct
+    # viewport-anchored behaviour.
     # ═══════════════════════════════════════════════════════════════
     return Div(
+        # ── Sticky search + sort bar ──────────────────────────────
         Div(
-            search_bar,
-            sort_chips,
-            cls="flex flex-col gap-2.5",
+            Div(
+                search_bar,
+                sort_chips,
+                cls="flex flex-col gap-2.5",
+            ),
+            cls="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-sm z-30",
         ),
-        # Floating filter button (fixed position)
+        # ── FAB + modal: outside backdrop-blur ancestor ───────────
         filter_button,
-        # Filter modal (hidden until toggled)
         filter_modal,
-        cls="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-sm z-30",
     )
 
 
