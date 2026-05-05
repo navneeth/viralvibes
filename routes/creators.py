@@ -67,7 +67,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # Set when user searched a @handle that isn't in the DB — passed to the
     # view so it can show the "add this creator" banner even when other
     # creators appear in search results.
-    handle_not_found_in_db: bool = False
+    handle_not_found: bool = False
 
     if search.strip().startswith("@"):
         handle = search.strip()
@@ -84,7 +84,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             # Fall through to normal search (will match by custom_url)
         else:
             # Creator not in DB — flag it so the view shows the add CTA
-            handle_not_found_in_db = True
+            handle_not_found = True
             logger.info(f"[HandleSearch] Creator not found in DB: {handle}")
 
             try:
@@ -241,7 +241,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         total_pages=total_pages,
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
-        handle_not_found=handle_not_found_in_db,
+        handle_not_found=handle_not_found,
     )
 
 

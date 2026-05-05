@@ -792,9 +792,14 @@ def render_creators_page(
             total_count=total_count,
             per_page=per_page,
         ),
-        # "@handle not in DB" banner — shown above results even when other
-        # creators appear, so the add-creator CTA is never lost.
-        (_render_handle_not_found_banner(search, is_authenticated) if handle_not_found else None),
+        # "@handle not in DB" banner — only shown alongside a real results grid.
+        # When creators is empty, _render_empty_state Flow 1 handles the CTA,
+        # avoiding duplicate id="creator-add-result" in the same page.
+        (
+            _render_handle_not_found_banner(search, is_authenticated)
+            if handle_not_found and creators
+            else None
+        ),
         # Creators grid or empty state
         (
             Div(
