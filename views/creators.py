@@ -721,6 +721,7 @@ def render_creators_page(
     total_pages: int = 1,
     is_authenticated: bool = False,
     favourite_ids: set[str] | None = None,
+    handle_not_found: bool = False,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -791,6 +792,9 @@ def render_creators_page(
             total_count=total_count,
             per_page=per_page,
         ),
+        # "@handle not in DB" banner — shown above results even when other
+        # creators appear, so the add-creator CTA is never lost.
+        (_render_handle_not_found_banner(search, is_authenticated) if handle_not_found else None),
         # Creators grid or empty state
         (
             Div(
@@ -2316,6 +2320,58 @@ def _render_pagination(
             cls="flex items-center justify-center gap-4 flex-wrap",
         ),
         cls="py-8",
+    )
+
+
+def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
+    """
+    Compact banner shown above the results grid when a @handle search
+    returned no exact DB match — even if related creators are shown below.
+    Reuses the same HTMX endpoint as the empty-state Flow 1.
+    """
+    result_slot = Div(id="creator-add-result", cls="mt-2")
+
+    if is_authenticated:
+        action = Form(
+            Input(type="hidden", name="q", value=search),
+            Button(
+                UkIcon("plus-circle", cls="size-4 mr-1.5"),
+                f"Add {search}",
+                type="submit",
+                cls="flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
+                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0",
+            ),
+            result_slot,
+            hx_post="/creators/request",
+            hx_target="#creator-add-result",
+            hx_swap="innerHTML",
+            cls="flex flex-col items-start gap-0",
+        )
+    else:
+        action = A(
+            UkIcon("log-in", cls="size-4 mr-1.5"),
+            "Log in to add",
+            href="/login",
+            cls="inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
+            "border border-border hover:bg-accent transition-colors shrink-0",
+        )
+
+    return Div(
+        Div(
+            Div(
+                UkIcon("info", cls="size-4 text-blue-500 shrink-0 mt-0.5"),
+                P(
+                    Span(search, cls="font-semibold"),
+                    " isn't in our database yet. " "Related results are shown below.",
+                    cls="text-sm text-foreground",
+                ),
+                cls="flex items-start gap-2 flex-1",
+            ),
+            action,
+            cls="flex items-start justify-between gap-4 flex-wrap",
+        ),
+        cls="mb-4 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 "
+        "dark:bg-blue-950/30 dark:border-blue-800",
     )
 
 
