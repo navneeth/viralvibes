@@ -555,33 +555,35 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         raise
 
 
-_EMPTY_ENGAGEMENT: dict = {
-    "engagement_score": 0.0,
-    "avg_views_10": None,
-    "avg_likes_10": None,
-    "avg_comments_10": None,
-    "avg_days_between_uploads": None,
-}
+def _empty_engagement() -> dict:
+    """Return a fresh empty engagement payload to prevent shared-mutation bugs."""
+    return {
+        "engagement_score": 0.0,
+        "avg_views_10": None,
+        "avg_likes_10": None,
+        "avg_comments_10": None,
+        "avg_days_between_uploads": None,
+    }
 
 
-async def _calculate_engagement_score(channel_id: str) -> dict:
+async def _fetch_recent_performance_stats(channel_id: str) -> dict:
     """
     Fetch recent video stats and derive engagement + performance metrics.
 
-    Returns a dict (never raises) — all keys are always present:
+    Returns a fresh dict on every call (never raises) — all keys always present:
       engagement_score          float   — avg (likes + comments) / views * 100
       avg_views_10              int     — mean view count across last ≤10 videos
       avg_likes_10              int     — mean like count
       avg_comments_10           int     — mean comment count
       avg_days_between_uploads  float   — mean gap in days between uploads (None < 2 videos)
 
-    Zero additional quota cost versus the previous implementation:
+    Zero additional quota cost versus the previous single-float implementation:
       - playlistItems.list already fetched contentDetails (videoPublishedAt is included)
       - videos.list statistics batch is unchanged
     """
     try:
         if not youtube_resolver:
-            return _EMPTY_ENGAGEMENT
+            return _empty_engagement()
 
         # Thread-safety is handled internally by YouTubeResolver._execute_async
         youtube = youtube_resolver._get_youtube_client()
@@ -609,11 +611,11 @@ async def _calculate_engagement_score(channel_id: str) -> dict:
             )
         except Exception as e:
             logger.debug(f"  Could not fetch uploads playlist for {channel_id}: {e}")
-            return _EMPTY_ENGAGEMENT
+            return _empty_engagement()
 
         items = playlist_response.get("items", [])
         if not items:
-            return _EMPTY_ENGAGEMENT
+            return _empty_engagement()
 
         video_ids = [item["contentDetails"]["videoId"] for item in items]
 
@@ -640,7 +642,7 @@ async def _calculate_engagement_score(channel_id: str) -> dict:
             )
         except Exception as e:
             logger.debug(f"  Could not fetch video stats for {channel_id}: {e}")
-            return _EMPTY_ENGAGEMENT
+            return _empty_engagement()
 
         # Accumulate per-video stats
         engagement_scores: list[float] = []
@@ -663,7 +665,7 @@ async def _calculate_engagement_score(channel_id: str) -> dict:
                 engagement_scores.append(rate)
 
         if not engagement_scores:
-            return _EMPTY_ENGAGEMENT
+            return _empty_engagement()
 
         avg_engagement = sum(engagement_scores) / len(engagement_scores)
 
@@ -696,7 +698,7 @@ async def _calculate_engagement_score(channel_id: str) -> dict:
     except Exception as e:
         # Silently return defaults — engagement is optional
         logger.debug(f"Engagement calculation failed for {channel_id}: {e}")
-        return _EMPTY_ENGAGEMENT
+        return _empty_engagement()
 
 
 async def _fetch_recent_upload(channel_id: str) -> dict | None:
@@ -1182,7 +1184,7 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
-        engagement_data = await _calculate_engagement_score(channel_id)
+        engagement_data = await _fetch_recent_performance_stats(channel_id)
         engagement = engagement_data["engagement_score"]
         if should_fetch_categories:
             cat_data = await _fetch_channel_category_distribution(channel_id)
