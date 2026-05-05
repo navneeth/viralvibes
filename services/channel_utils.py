@@ -315,7 +315,7 @@ class YouTubeResolver:
 
         try:
             request = youtube.channels().list(
-                part="id,snippet,statistics,brandingSettings,topicDetails",
+                part="id,snippet,statistics,brandingSettings,topicDetails,status",
                 id=channel_id,
             )
             response = await self._execute_async(request)
@@ -492,6 +492,7 @@ class YouTubeResolver:
         """
         snippet = item.get("snippet", {})
         statistics = item.get("statistics", {})
+        status = item.get("status", {})
         branding = item.get("brandingSettings", {})
         channel_branding = branding.get("channel", {})
         topic_details = item.get("topicDetails", {})
@@ -579,6 +580,11 @@ class YouTubeResolver:
                 int(statistics.get("videoCount", 0) or 0),
                 snippet.get("publishedAt"),
             ),  # NEW: Estimated videos/month
+            # ═══════════════════════════════════════════════════════════
+            # BRAND SAFETY (from channels.list status part)
+            # ═══════════════════════════════════════════════════════════
+            "is_made_for_kids": status.get("madeForKids", False),
+            "has_long_upload_status": status.get("longUploadsStatus") == "longUploadsEnabled",
         }
 
 
