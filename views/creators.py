@@ -1063,16 +1063,48 @@ def _render_filter_bar(
     """
 
     # ═══════════════════════════════════════════════════════════════
-    # 1. SEARCH FORM
+    # 1. SEARCH BAR — full-width pill, icon inside, inline clear button
     # ═══════════════════════════════════════════════════════════════
-    search_form = Form(
-        Input(
-            type="search",
-            name="search",
-            placeholder="Search creators by name or @handle...",
-            value=search,
-            cls="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100",
-            autofocus=bool(search),
+    _clear_url = _build_filter_url(
+        sort=sort,
+        search="",
+        grade=grade_filter,
+        language=language_filter,
+        activity=activity_filter,
+        age=age_filter,
+        country=country_filter,
+        category=category_filter,
+    )
+    search_bar = Form(
+        Div(
+            Div(
+                UkIcon("search", cls="size-4 text-muted-foreground"),
+                cls="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none",
+            ),
+            Input(
+                type="search",
+                name="search",
+                placeholder="Search by name or @handle…",
+                value=search,
+                cls="w-full h-11 pl-10 pr-9 rounded-full border border-border bg-background "
+                "text-foreground text-sm placeholder:text-muted-foreground/70 "
+                "focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary "
+                "transition-shadow",
+                autofocus=bool(search),
+            ),
+            (
+                A(
+                    "×",
+                    href=_clear_url,
+                    cls="absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center "
+                    "justify-center rounded-full bg-muted-foreground/20 "
+                    "hover:bg-muted-foreground/35 text-foreground text-sm font-bold "
+                    "leading-none no-underline transition-colors",
+                )
+                if search
+                else None
+            ),
+            cls="relative",
         ),
         Input(type="hidden", name="sort", value=sort),
         Input(type="hidden", name="grade", value=grade_filter),
@@ -1083,43 +1115,53 @@ def _render_filter_bar(
         Input(type="hidden", name="category", value=category_filter),
         method="GET",
         action="/creators",
-        cls="flex-1",
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 2. SORT DROPDOWN
+    # 2. SORT CHIPS — <a> links, horizontally scrollable, zero JS
+    #    Replaces onchange form submit (unreliable) with plain href navigation,
+    #    consistent with how all other filter pills work.
     # ═══════════════════════════════════════════════════════════════
-    sort_options = [
-        ("subscribers", "📊 Most Subscribers"),
-        ("views", "👀 Most Views"),
-        ("engagement", "🔥 Best Engagement"),
-        ("quality", "⭐ Quality Score"),
-        ("recent", "🆕 Recently Updated"),
-        ("consistency", "📈 Most Consistent"),
-        ("newest_channel", "🎉 Newest Channels"),
-        ("oldest_channel", "👑 Oldest Channels"),
+    _sort_opts = [
+        ("subscribers", "📊", "Subscribers"),
+        ("views", "👁", "Views"),
+        ("engagement", "🔥", "Engagement"),
+        ("quality", "⭐", "Quality"),
+        ("recent", "🕐", "Recent"),
+        ("consistency", "📈", "Consistent"),
+        ("newest_channel", "🎉", "Newest"),
+        ("oldest_channel", "👑", "Oldest"),
     ]
-
-    sort_form = Form(
-        Div(
-            Label("Sort:", cls="text-sm font-semibold text-foreground whitespace-nowrap"),
-            Select(
-                *[Option(label, value=val, selected=(sort == val)) for val, label in sort_options],
-                name="sort",
-                cls="h-10 px-3 rounded-lg border border-border font-medium",
-                onchange="this.form.submit()",
-            ),
-            cls="flex gap-2 items-center flex-1",
-        ),
-        Input(type="hidden", name="search", value=search),
-        Input(type="hidden", name="grade", value=grade_filter),
-        Input(type="hidden", name="language", value=language_filter),
-        Input(type="hidden", name="activity", value=activity_filter),
-        Input(type="hidden", name="age", value=age_filter),
-        Input(type="hidden", name="country", value=country_filter),
-        Input(type="hidden", name="category", value=category_filter),
-        method="GET",
-        action="/creators",
+    _SORT_CHIP_BASE = (
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full "
+        "no-underline transition-all shrink-0 "
+    )
+    _SORT_CHIP_ACTIVE = "bg-foreground text-background font-semibold border border-foreground"
+    _SORT_CHIP_INACTIVE = (
+        "bg-background border border-border text-muted-foreground "
+        "hover:text-foreground hover:border-foreground/40"
+    )
+    sort_chips = Div(
+        *[
+            A(
+                Span(emoji, cls="text-sm leading-none"),
+                Span(label, cls="text-xs font-medium leading-none"),
+                href=_build_filter_url(
+                    sort=val,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                    category=category_filter,
+                ),
+                cls=_SORT_CHIP_BASE + (_SORT_CHIP_ACTIVE if sort == val else _SORT_CHIP_INACTIVE),
+            )
+            for val, emoji, label in _sort_opts
+        ],
+        cls="flex gap-2 overflow-x-auto py-0.5",
+        style="-ms-overflow-style:none;scrollbar-width:none;",
     )
 
     # ═══════════════════════════════════════════════════════════════
@@ -1476,17 +1518,16 @@ def _render_filter_bar(
     # 12. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
     # ═══════════════════════════════════════════════════════════════
     return Div(
-        # Compact top bar: Search + Sort only
         Div(
-            search_form,
-            sort_form,
-            cls="flex gap-3",
+            search_bar,
+            sort_chips,
+            cls="flex flex-col gap-2.5",
         ),
         # Floating filter button (fixed position)
         filter_button,
         # Filter modal (hidden until toggled)
         filter_modal,
-        cls="sticky top-0 bg-background border-b border-border p-4 shadow-sm z-30",
+        cls="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-sm z-30",
     )
 
 
