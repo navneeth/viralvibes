@@ -1096,6 +1096,8 @@ def _render_filter_bar(
                 A(
                     "×",
                     href=_clear_url,
+                    aria_label="Clear search",
+                    title="Clear search",
                     cls="absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center "
                     "justify-center rounded-full bg-muted-foreground/20 "
                     "hover:bg-muted-foreground/35 text-foreground text-sm font-bold "
