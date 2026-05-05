@@ -1392,8 +1392,8 @@ def _render_filter_bar(
     # viewport. It is rendered as a sibling of the sticky bar (see §12).
     # ═══════════════════════════════════════════════════════════════
     filter_button = A(
-        # Sliders icon — semantically "filter", not search (🔍 is wrong here)
-        UkIcon("sliders-horizontal", cls="size-5 shrink-0"),
+        # Decorative — aria_label on the <a> already describes the action
+        UkIcon("sliders-horizontal", cls="size-5 shrink-0", aria_hidden="true"),
         # Label: hidden on mobile (icon-only circle), visible on sm+
         Span("Filters", cls="hidden sm:inline text-sm font-semibold leading-none"),
         # Active count badge
@@ -1411,8 +1411,8 @@ def _render_filter_bar(
         aria_label=(
             f"Open filters ({active_filters} active)" if active_filters else "Open filters"
         ),
-        # position:fixed ONLY works correctly when outside a backdrop-filter ancestor
-        cls="fixed bottom-6 right-6 z-[999] relative flex items-center gap-2 "
+        # Must stay outside any backdrop-filter ancestor (see §12 return block)
+        cls="fixed bottom-6 right-6 z-[999] flex items-center gap-2 "
         "bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white "
         "p-3.5 sm:px-5 sm:py-3 rounded-full "
         "shadow-xl hover:shadow-violet-500/40 "
@@ -1528,12 +1528,12 @@ def _render_filter_bar(
     # ═══════════════════════════════════════════════════════════════
     # 12. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
     #
-    # Structural note: filter_button and filter_modal are siblings of
-    # the sticky bar, NOT children of it. The sticky bar uses
-    # backdrop-blur-sm (backdrop-filter) which in Chromium/Safari
-    # creates a containing block that breaks position:fixed on
-    # descendants. Rendering them outside that element restores correct
-    # viewport-anchored behaviour.
+    # ═══════════════════════════════════════════════════════════════
+    # 12. RETURN: sticky bar + FAB + modal
+    #
+    # FAB and modal are siblings of the sticky bar, NOT children.
+    # backdrop-blur-sm (backdrop-filter) creates a containing block in
+    # Chromium/Safari that breaks position:fixed on descendants.
     # ═══════════════════════════════════════════════════════════════
     return Div(
         # ── Sticky search + sort bar ──────────────────────────────
@@ -1545,7 +1545,7 @@ def _render_filter_bar(
             ),
             cls="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-sm z-30",
         ),
-        # ── FAB + modal: outside backdrop-blur ancestor ───────────
+        # ── FAB + modal: must be outside the backdrop-blur div above
         filter_button,
         filter_modal,
     )
