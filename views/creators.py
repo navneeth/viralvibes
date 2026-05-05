@@ -2047,6 +2047,124 @@ def _build_info_strip(
     )
 
 
+def _build_recent_performance(
+    avg_views_10: int | None,
+    current_subs: int,
+    avg_days_between_uploads: float | None,
+    is_made_for_kids: bool,
+    has_long_upload_status: bool,
+) -> Div | None:
+    """
+    Tier 1 — "Recent Performance" microcard section (Tufte / Economist style).
+
+    Shows a reach microbar (avg views of last 10 videos as % of subscribers)
+    and upload cadence pill.  Brand safety badges only shown when relevant.
+
+    Hidden entirely when avg_views_10 is not yet populated (pre-migration data).
+    """
+    if avg_views_10 is None:
+        return None
+
+    # ── Reach % bar ──────────────────────────────────────────────────────────
+    # Reach = avg_views_10 / current_subscribers.  Reference ceiling = 10% of subs.
+    # Below 2% → red (ghost channel); 2–7% → amber; ≥7% → green (highly engaged).
+    reach_pct: float = (avg_views_10 / current_subs * 100) if current_subs > 0 else 0.0
+    bar_pct = min(reach_pct / 10 * 100, 100)  # scale to a 10%-of-subs ceiling
+
+    if reach_pct >= 7:
+        bar_fill = "bg-emerald-500"
+        reach_color = "text-emerald-600 dark:text-emerald-400"
+        reach_label_cls = "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+    elif reach_pct >= 2:
+        bar_fill = "bg-amber-400"
+        reach_color = "text-amber-600 dark:text-amber-400"
+        reach_label_cls = "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+    else:
+        bar_fill = "bg-red-400"
+        reach_color = "text-red-500 dark:text-red-400"
+        reach_label_cls = "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800"
+
+    reach_row = Div(
+        # Label + value — left column
+        Div(
+            Span(
+                "REACH",
+                cls="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide",
+            ),
+            Span(
+                f"{reach_pct:.1f}% of subs",
+                cls=f"text-xs font-bold {reach_color}",
+            ),
+            cls="flex flex-col gap-0.5 min-w-[90px]",
+        ),
+        # Microbar — right column, Tufte-style: one thin rule, no grid
+        Div(
+            Div(
+                cls=f"h-[5px] rounded-sm {bar_fill} transition-all",
+                style=f"width:{bar_pct:.1f}%",
+            ),
+            cls="flex-1 h-[5px] bg-border rounded-sm overflow-hidden self-center",
+            title=f"{format_number(avg_views_10)} avg views on last 10 videos",
+        ),
+        # Avg views absolute — right label
+        Span(
+            format_number(avg_views_10),
+            cls="text-xs font-semibold text-muted-foreground text-right min-w-[44px]",
+        ),
+        cls="flex items-center gap-2",
+    )
+
+    # ── Cadence pill + brand-safety badges ───────────────────────────────────
+    badges: list = []
+
+    if avg_days_between_uploads is not None:
+        if avg_days_between_uploads < 1:
+            cadence_str = "multiple/day"
+        elif avg_days_between_uploads < 7:
+            cadence_str = f"every {avg_days_between_uploads:.0f}d"
+        else:
+            weeks = avg_days_between_uploads / 7
+            cadence_str = f"every {weeks:.1f}w"
+        badges.append(
+            Span(
+                f"⏱ {cadence_str}",
+                cls="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700",
+                title="Average days between uploads (last 10 videos)",
+            )
+        )
+
+    if is_made_for_kids:
+        badges.append(
+            Span(
+                "🧸 Kids",
+                cls="text-[10px] font-medium px-2 py-0.5 rounded-full bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-700",
+                title="This channel is made for children (COPPA)",
+            )
+        )
+
+    if has_long_upload_status:
+        badges.append(
+            Span(
+                "⬆ Long video",
+                cls="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700",
+                title="Eligible to upload videos longer than 15 minutes",
+            )
+        )
+
+    badge_row = Div(*badges, cls="flex flex-wrap gap-1.5") if badges else None
+
+    return Div(
+        # Section label — Tufte-style: flush left, text only, no borders
+        P(
+            "RECENT · last 10",
+            cls="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2",
+        ),
+        reach_row,
+        badge_row,
+        cls="px-3 py-2.5 rounded-lg bg-accent/50 border border-border/60",
+    )
+
+
 def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     """
     Creator card - clean, data-driven design.
@@ -2057,6 +2175,8 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     SUBSCRIBERS | VIEWS (large 2-col metrics)
     ────────────────────────────────────
     AVG/VID | VIDEOS | ENGAGEMENT | REVENUE (small 4-col metrics)
+    ────────────────────────────────────
+    RECENT · last 10  (reach microbar + cadence + brand safety)
     ────────────────────────────────────
     30-Day Trend bar
     ────────────────────────────────────
@@ -2110,6 +2230,14 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     country_code = safe_get_value(creator, "country_code", "")
     primary_category = safe_get_value(creator, "primary_category", "general") or "general"
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
+
+    # Tier 1 recent performance fields
+    avg_views_10_raw = safe_get_value(creator, "avg_views_10", None)
+    avg_views_10 = int(avg_views_10_raw) if avg_views_10_raw is not None else None
+    avg_days_raw = safe_get_value(creator, "avg_days_between_uploads", None)
+    avg_days_between_uploads = float(avg_days_raw) if avg_days_raw is not None else None
+    is_made_for_kids = bool(safe_get_value(creator, "is_made_for_kids", False))
+    has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status", False))
 
     # v4 revenue model — uses country + niche for accurate CPM, Shorts split, sponsorships
     _rev = estimate_monthly_revenue_v4(
@@ -2172,6 +2300,14 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
         # Performance metrics grid: avg views/video, total videos, views/sub, est. revenue
         _build_performance_metrics(
             avg_views_per_video, current_videos, estimated_revenue, views_per_sub
+        ),
+        # Tier 1 — Recent Performance microcard (reach bar, cadence, brand safety)
+        _build_recent_performance(
+            avg_views_10=avg_views_10,
+            current_subs=current_subs,
+            avg_days_between_uploads=avg_days_between_uploads,
+            is_made_for_kids=is_made_for_kids,
+            has_long_upload_status=has_long_upload_status,
         ),
         # Growth trend (pass subs_change to determine if tracking is initializing)
         _build_growth_trend(growth_rate, growth_label, growth_style, subs_change),

@@ -555,24 +555,33 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
         raise
 
 
-async def _calculate_engagement_score(channel_id: str) -> float:
+_EMPTY_ENGAGEMENT: dict = {
+    "engagement_score": 0.0,
+    "avg_views_10": None,
+    "avg_likes_10": None,
+    "avg_comments_10": None,
+    "avg_days_between_uploads": None,
+}
+
+
+async def _calculate_engagement_score(channel_id: str) -> dict:
     """
-    Calculate engagement score from recent videos (optional).
+    Fetch recent video stats and derive engagement + performance metrics.
 
-    Returns 0.0 gracefully on any error - engagement is informational only.
-    Doesn't fail the sync if engagement can't be calculated.
+    Returns a dict (never raises) — all keys are always present:
+      engagement_score          float   — avg (likes + comments) / views * 100
+      avg_views_10              int     — mean view count across last ≤10 videos
+      avg_likes_10              int     — mean like count
+      avg_comments_10           int     — mean comment count
+      avg_days_between_uploads  float   — mean gap in days between uploads (None < 2 videos)
 
-    Uses lock to serialize YouTube API calls (googleapiclient is not thread-safe).
-
-    Args:
-        channel_id: YouTube channel ID
-
-    Returns:
-        Engagement percentage (0-100+), or 0.0 on error
+    Zero additional quota cost versus the previous implementation:
+      - playlistItems.list already fetched contentDetails (videoPublishedAt is included)
+      - videos.list statistics batch is unchanged
     """
     try:
         if not youtube_resolver:
-            return 0.0
+            return _EMPTY_ENGAGEMENT
 
         # Thread-safety is handled internally by YouTubeResolver._execute_async
         youtube = youtube_resolver._get_youtube_client()
@@ -581,7 +590,7 @@ async def _calculate_engagement_score(channel_id: str) -> float:
 
         logger.debug(f"Calculating engagement for {channel_id}")
 
-        # Fetch last 10 videos
+        # Fetch last 10 videos — contentDetails includes videoPublishedAt
         try:
             playlist_response = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(
@@ -600,13 +609,23 @@ async def _calculate_engagement_score(channel_id: str) -> float:
             )
         except Exception as e:
             logger.debug(f"  Could not fetch uploads playlist for {channel_id}: {e}")
-            return 0.0
+            return _EMPTY_ENGAGEMENT
 
         items = playlist_response.get("items", [])
         if not items:
-            return 0.0
+            return _EMPTY_ENGAGEMENT
 
         video_ids = [item["contentDetails"]["videoId"] for item in items]
+
+        # Collect publish dates for cadence calculation (already in contentDetails)
+        published_dates: list[datetime] = []
+        for item in items:
+            raw_date = item.get("contentDetails", {}).get("videoPublishedAt")
+            if raw_date:
+                try:
+                    published_dates.append(datetime.fromisoformat(raw_date.replace("Z", "+00:00")))
+                except ValueError:
+                    pass
 
         # Fetch video stats
         try:
@@ -621,35 +640,63 @@ async def _calculate_engagement_score(channel_id: str) -> float:
             )
         except Exception as e:
             logger.debug(f"  Could not fetch video stats for {channel_id}: {e}")
-            return 0.0
+            return _EMPTY_ENGAGEMENT
 
-        # Calculate engagement
-        engagement_scores = []
+        # Accumulate per-video stats
+        engagement_scores: list[float] = []
+        all_views: list[int] = []
+        all_likes: list[int] = []
+        all_comments: list[int] = []
+
         for video in stats_response.get("items", []):
             stats = video.get("statistics", {})
             views = int(stats.get("viewCount", 0) or 0)
             likes = int(stats.get("likeCount", 0) or 0)
             comments = int(stats.get("commentCount", 0) or 0)
 
+            all_views.append(views)
+            all_likes.append(likes)
+            all_comments.append(comments)
+
             if views > 0:
                 rate = (likes + comments) / views * 100
                 engagement_scores.append(rate)
 
         if not engagement_scores:
-            return 0.0
+            return _EMPTY_ENGAGEMENT
 
         avg_engagement = sum(engagement_scores) / len(engagement_scores)
+
+        # Compute average days between uploads from publish dates (most-recent first)
+        avg_days: float | None = None
+        if len(published_dates) >= 2:
+            sorted_dates = sorted(published_dates, reverse=True)
+            gaps = [
+                (sorted_dates[i] - sorted_dates[i + 1]).total_seconds() / 86400
+                for i in range(len(sorted_dates) - 1)
+            ]
+            avg_days = round(sum(gaps) / len(gaps), 2)
+
+        n = len(all_views)
+        result = {
+            "engagement_score": avg_engagement,
+            "avg_views_10": round(sum(all_views) / n) if n else None,
+            "avg_likes_10": round(sum(all_likes) / n) if n else None,
+            "avg_comments_10": round(sum(all_comments) / n) if n else None,
+            "avg_days_between_uploads": avg_days,
+        }
         logger.debug(
             f"[Engagement] {channel_id}: {avg_engagement:.2f}% "
+            f"avg_views={result['avg_views_10']:,} "
+            f"cadence={avg_days}d "
             f"(from {len(engagement_scores)} videos)"
         )
-
-        return avg_engagement
+        return result
 
     except Exception as e:
-        # Silently return 0 - engagement is optional
+        # Silently return defaults — engagement is optional
         logger.debug(f"Engagement calculation failed for {channel_id}: {e}")
-        return 0.0
+        return _EMPTY_ENGAGEMENT
 
 
 async def _fetch_recent_upload(channel_id: str) -> dict | None:
@@ -1135,7 +1182,8 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
-        engagement = await _calculate_engagement_score(channel_id)
+        engagement_data = await _calculate_engagement_score(channel_id)
+        engagement = engagement_data["engagement_score"]
         if should_fetch_categories:
             cat_data = await _fetch_channel_category_distribution(channel_id)
         else:
@@ -1163,7 +1211,9 @@ async def handle_sync_job(
 
         logger.info(
             f"{job_tag} Stats: subs={subs:,}, views={views:,}, videos={videos:,}, "
-            f"engagement={engagement:.2f}%, quality={quality}"
+            f"engagement={engagement:.2f}%, quality={quality}, "
+            f"avg_views_10={engagement_data['avg_views_10']}, "
+            f"cadence={engagement_data['avg_days_between_uploads']}d"
         )
         if primary_category and category_distribution:
             dist_str = ", ".join(
@@ -1336,6 +1386,14 @@ async def handle_sync_job(
                 "engagement_score": round(engagement, 4),
                 # ── Recent upload (latest video snapshot) ─────────────────
                 "recent_upload": recent_upload,
+                # ── Tier 1 recent performance ─────────────────────────────
+                "avg_views_10": engagement_data["avg_views_10"],
+                "avg_likes_10": engagement_data["avg_likes_10"],
+                "avg_comments_10": engagement_data["avg_comments_10"],
+                "avg_days_between_uploads": engagement_data["avg_days_between_uploads"],
+                # ── Tier 1 brand safety (from channels.list status part) ───
+                "is_made_for_kids": channel_data.get("is_made_for_kids", False),
+                "has_long_upload_status": channel_data.get("has_long_upload_status", False),
                 # ──────────────────────────────────────────────────────────
                 "sync_status": sync_status,
                 "sync_error_message": sync_error,
