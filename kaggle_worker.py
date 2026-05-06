@@ -171,7 +171,7 @@ def _bootstrap_kaggle_secrets() -> None:
     # when creator_worker.py is imported — the env is already populated.
     import secrets_loader
 
-    secrets_loader._secrets_loaded = True
+    secrets_loader.mark_secrets_loaded()
 
 
 # Run immediately at import — before worker module is imported below

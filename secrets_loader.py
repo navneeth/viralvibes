@@ -202,3 +202,13 @@ def load_secrets() -> str:
 
     _secrets_loaded = True
     return loader_used
+
+
+def mark_secrets_loaded() -> None:
+    """Mark that secrets have already been loaded (idempotency flag).
+
+    Used by alternative secret-loading entry points (e.g., kaggle_worker.py)
+    to signal that secrets are already in os.environ and don't need reloading.
+    """
+    global _secrets_loaded
+    _secrets_loaded = True
