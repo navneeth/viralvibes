@@ -167,6 +167,12 @@ def _bootstrap_kaggle_secrets() -> None:
     keys_found = [k for k in YOUTUBE_API_KEY_NAMES if os.environ.get(k)]
     logger.info("✅ Secrets loaded. YouTube API keys available: %d", len(keys_found))
 
+    # Prevent secrets_loader from calling UserSecretsClient a second time
+    # when creator_worker.py is imported — the env is already populated.
+    import secrets_loader
+
+    secrets_loader._secrets_loaded = True
+
 
 # Run immediately at import — before worker module is imported below
 logging.basicConfig(
