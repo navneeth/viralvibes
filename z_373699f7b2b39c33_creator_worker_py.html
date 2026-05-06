@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_373699f7b2b39c33_jobs_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-05-06 04:36 +0000
+            created at 2026-05-06 07:16 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -550,8 +550,8 @@
     <p class="mis show_mis"><span class="n"><a id="t466" href="#t466">466</a></span><span class="t">    <span class="nam">now_iso</span> <span class="op">=</span> <span class="nam">datetime</span><span class="op">.</span><span class="nam">now</span><span class="op">(</span><span class="nam">timezone</span><span class="op">.</span><span class="nam">utc</span><span class="op">)</span><span class="op">.</span><span class="nam">isoformat</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t467" href="#t467">467</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t468" href="#t468">468</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t469" href="#t469">469</a></span><span class="t">        <span class="com"># Single query: fresh jobs (retry_at IS NULL) OR overdue retry jobs</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t470" href="#t470">470</a></span><span class="t">        <span class="com"># (retry_at IS NOT NULL AND retry_at &lt;= now()), ordered by created_at FIFO.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t469" href="#t469">469</a></span><span class="t">        <span class="com"># Single query: fresh jobs (next_retry_at IS NULL) OR overdue retry jobs</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t470" href="#t470">470</a></span><span class="t">        <span class="com"># (next_retry_at IS NOT NULL AND next_retry_at &lt;= now()), ordered by created_at FIFO.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t471" href="#t471">471</a></span><span class="t">        <span class="com">#</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t472" href="#t472">472</a></span><span class="t">        <span class="com"># The previous two-query approach had a critical flaw: with batch_size=1,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t473" href="#t473">473</a></span><span class="t">        <span class="com"># the retry branch was dead code &#8212; `if len(fresh_jobs) &lt; 1` is always False</span>&nbsp;</span><span class="r"></span></p>
@@ -561,7 +561,7 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t477" href="#t477">477</a></span><span class="t">            <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CREATOR_SYNC_JOBS_TABLE</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t478" href="#t478">478</a></span><span class="t">            <span class="op">.</span><span class="nam">select</span><span class="op">(</span><span class="str">"id,creator_id,source,retry_count,job_type"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t479" href="#t479">479</a></span><span class="t">            <span class="op">.</span><span class="nam">eq</span><span class="op">(</span><span class="str">"status"</span><span class="op">,</span> <span class="nam">JobStatus</span><span class="op">.</span><span class="nam">PENDING</span><span class="op">.</span><span class="nam">value</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t480" href="#t480">480</a></span><span class="t">            <span class="op">.</span><span class="nam">or_</span><span class="op">(</span><span class="fst">f"</span><span class="fst">retry_at.is.null,retry_at.lte.</span><span class="op">{</span><span class="nam">now_iso</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t480" href="#t480">480</a></span><span class="t">            <span class="op">.</span><span class="nam">or_</span><span class="op">(</span><span class="fst">f"</span><span class="fst">next_retry_at.is.null,next_retry_at.lte.</span><span class="op">{</span><span class="nam">now_iso</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t481" href="#t481">481</a></span><span class="t">            <span class="op">.</span><span class="nam">order</span><span class="op">(</span><span class="str">"created_at"</span><span class="op">,</span> <span class="nam">desc</span><span class="op">=</span><span class="key">False</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t482" href="#t482">482</a></span><span class="t">            <span class="op">.</span><span class="nam">limit</span><span class="op">(</span><span class="nam">batch_size</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t483" href="#t483">483</a></span><span class="t">            <span class="op">.</span><span class="nam">execute</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -2091,7 +2091,7 @@
             <a class="nav" href="z_373699f7b2b39c33_jobs_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-05-06 04:36 +0000
+            created at 2026-05-06 07:16 +0000
         </p>
     </div>
 </footer>
