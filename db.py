@@ -78,7 +78,7 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
-_db_execute_with_retry = retry(
+_with_disconnect_retry = retry(
     retry=retry_if_exception(_is_transient_disconnect),
     stop=stop_after_attempt(2),  # 1 original + 1 retry
     wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
@@ -88,14 +88,15 @@ _db_execute_with_retry = retry(
 
 
 def _db_execute(fn):
-    """Call a zero-arg callable that executes a postgrest-py query, retrying
-    once on transient HTTP/2 server-disconnect errors.
+    """Invoke a zero-arg callable that runs a postgrest-py query, retrying
+    once on transient HTTP/2 server-disconnect errors.  Always returns the
+    query result directly — never a callable.
 
     Usage::
 
         _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
     """
-    return _db_execute_with_retry(fn)
+    return _with_disconnect_retry(fn)()
 
 
 # ==============================================================
