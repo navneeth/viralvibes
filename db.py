@@ -3015,21 +3015,26 @@ def get_creators(
             )
             search_pattern = f"%{escaped_search}%"
 
-            # Multi-column lexical search: name, handle, description, category,
-            # topic_categories, keywords, and country_code.
+            # Multi-column lexical search across indexed columns only.
             # PostgREST OR syntax: col.op.val,col.op.val,...
-            # pg_trgm GIN indexes on channel_name (migration 028) and ilike on the
-            # others still use seq-scan fallback until tsvector is added; acceptable
-            # at current creator count (see Layer 2 roadmap: search_vector tsvector).
+            #
+            # Safe columns (indexed, no timeout risk):
+            #   channel_name    — short text
+            #   custom_url      — short text
+            #   keywords        — medium text
+            #   primary_category — has idx_creators_primary_category_trgm (migration 028)
+            #
+            # NOT included until migration 032 adds pg_trgm indexes:
+            #   channel_description  — long text, seq scan → timeout (same issue as migration 028)
+            #   topic_categories     — GIN index is jsonb_path_ops (only helps @> containment, not ilike)
+            #   country_code         — stores "JP" not "japan", so substring match is broken anyway;
+            #                          use the country_filter param for country-based filtering instead
             or_filter = ",".join(
                 [
                     f"channel_name.ilike.{search_pattern}",
                     f"custom_url.ilike.{search_pattern}",
                     f"keywords.ilike.{search_pattern}",
-                    f"channel_description.ilike.{search_pattern}",
                     f"primary_category.ilike.{search_pattern}",
-                    f"topic_categories.ilike.{search_pattern}",
-                    f"country_code.ilike.{search_pattern}",
                 ]
             )
             query = query.or_(or_filter)
