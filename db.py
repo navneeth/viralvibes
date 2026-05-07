@@ -3015,28 +3015,21 @@ def get_creators(
             )
             search_pattern = f"%{escaped_search}%"
 
-            # Multi-column lexical search across indexed columns only.
-            # PostgREST OR syntax: col.op.val,col.op.val,...
+            # Multi-column ILIKE search — only columns with pg_trgm GIN indexes are safe;
+            # unindexed ILIKE on long text causes full seq scans and 57014 stmt timeouts.
+            # To add a column: create a GIN index with gin_trgm_ops first (see migrations 028, 033).
             #
-            # Safe columns (indexed, no timeout risk):
-            #   channel_name    — short text
-            #   custom_url      — short text
-            #   keywords        — medium text
-            #   primary_category — has idx_creators_primary_category_trgm (migration 028)
-            #
-            # NOT included until migration 032 adds pg_trgm indexes:
-            #   channel_description  — long text, seq scan → timeout (same issue as migration 028)
-            #   topic_categories     — GIN index is jsonb_path_ops (only helps @> containment, not ilike)
-            #   country_code         — stores "JP" not "japan", so substring match is broken anyway;
-            #                          use the country_filter param for country-based filtering instead
-            or_filter = ",".join(
-                [
-                    f"channel_name.ilike.{search_pattern}",
-                    f"custom_url.ilike.{search_pattern}",
-                    f"keywords.ilike.{search_pattern}",
-                    f"primary_category.ilike.{search_pattern}",
-                ]
-            )
+            # Excluded columns:
+            #   topic_categories — GIN is jsonb_path_ops (containment only, not text search)
+            #   country_code     — stores "JP" not "japan"; use country_filter param instead
+            _search_cols = [
+                "channel_name",  # short text
+                "custom_url",  # short text
+                "keywords",  # medium text
+                "primary_category",  # idx_creators_primary_category_trgm (migration 028)
+                "channel_description",  # idx_creators_channel_description_trgm (migration 033)
+            ]
+            or_filter = ",".join(f"{col}.ilike.{search_pattern}" for col in _search_cols)
             query = query.or_(or_filter)
 
         # Apply grade filter
