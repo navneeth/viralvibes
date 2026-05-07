@@ -17,8 +17,8 @@ BASE_URL = "https://viralvibes.fyi"
 # (path, changefreq, priority)
 STATIC_ROUTES: list[tuple[str, str, str]] = [
     ("/", "daily", "1.0"),
-    ("/analyze", "weekly", "0.8"),
-    ("/creators", "daily", "0.8"),
+    ("/analysis", "weekly", "0.8"),
+    ("/creators", "daily", "0.9"),
     ("/lists", "weekly", "0.7"),
     ("/lists/categories", "weekly", "0.6"),
     ("/lists/countries", "weekly", "0.6"),

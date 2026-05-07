@@ -124,7 +124,11 @@ from routes.stripe_checkout import (
     billing_portal,
 )
 from services.plan_gate import gate_plan
-from services.sitemap import build_sitemap_xml as _sitemap_build_xml
+from services.sitemap import (
+    build_sitemap_xml as _sitemap_build_xml,
+    STATIC_ROUTES as _SITEMAP_STATIC_ROUTES,
+    BASE_URL as _SITEMAP_BASE_URL,
+)
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1769,24 +1773,12 @@ def admin_rescue_quota(req, sess):
 
 # ============================================================================
 # Sitemap — live route with 24-hour in-process cache
+# Static routes are imported from services.sitemap (single source of truth shared
+# with scripts/generate_sitemap.py and verified by scripts/verify_sitemap.py).
 # ============================================================================
 
-_SITEMAP_BASE_URL = "https://viralvibes.fyi"
 _SITEMAP_CACHE: dict = {"xml": None, "generated_at": None}
 _SITEMAP_CACHE_TTL = 86_400  # 24 hours
-
-_SITEMAP_STATIC_ROUTES = [
-    ("/", "daily", "1.0"),
-    ("/analyze", "weekly", "0.8"),
-    ("/creators", "daily", "0.8"),
-    ("/lists", "weekly", "0.7"),
-    ("/lists/categories", "weekly", "0.6"),
-    ("/lists/countries", "weekly", "0.6"),
-    ("/lists/languages", "weekly", "0.6"),
-    ("/pricing", "monthly", "0.5"),
-    ("/terms", "monthly", "0.3"),
-    ("/privacy", "monthly", "0.3"),
-]
 
 
 def _build_sitemap_xml() -> str:
