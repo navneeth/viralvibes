@@ -2880,7 +2880,8 @@ def get_creators(
     This is the ONLY function frontend routes should use for creator listing.
 
     Args:
-        search: Filter by channel name or @custom_url (case-insensitive)
+        search: Search across channel name, @handle, description, category, topic
+            categories, keywords, and country code (case-insensitive substring match)
         sort: Sort criteria
             - subscribers: Most subscribers (default)
             - views: Most total views
@@ -2955,7 +2956,7 @@ def get_creators(
         # otherwise appear as blank cards and skew pagination counts.
         query = query.eq("sync_status", "synced")
 
-        # Apply search filter (also search custom_url and keywords)
+        # Apply search filter
         if search:
             # ✅ SECURITY: Escape wildcards in search input
             escaped_search = (
@@ -2965,15 +2966,21 @@ def get_creators(
             )
             search_pattern = f"%{escaped_search}%"
 
-            # Use ilike on channel_name OR custom_url OR keywords
-            # Build filter string in proper PostgREST format: col1.op.val,col2.op.val,...
-            # Note: The % and \ characters in search_pattern are literal and should not be URL-encoded
-            # as postgrest-py handles encoding internally
+            # Multi-column lexical search: name, handle, description, category,
+            # topic_categories, keywords, and country_code.
+            # PostgREST OR syntax: col.op.val,col.op.val,...
+            # pg_trgm GIN indexes on channel_name (migration 028) and ilike on the
+            # others still use seq-scan fallback until tsvector is added; acceptable
+            # at current creator count (see Layer 2 roadmap: search_vector tsvector).
             or_filter = ",".join(
                 [
                     f"channel_name.ilike.{search_pattern}",
                     f"custom_url.ilike.{search_pattern}",
                     f"keywords.ilike.{search_pattern}",
+                    f"channel_description.ilike.{search_pattern}",
+                    f"primary_category.ilike.{search_pattern}",
+                    f"topic_categories.ilike.{search_pattern}",
+                    f"country_code.ilike.{search_pattern}",
                 ]
             )
             query = query.or_(or_filter)

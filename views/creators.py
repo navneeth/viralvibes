@@ -1084,7 +1084,7 @@ def _render_filter_bar(
             Input(
                 type="search",
                 name="search",
-                placeholder="Search by name or @handle…",
+                placeholder="Search creators, niches, countries, categories…",
                 value=search,
                 cls="w-full h-11 pl-10 pr-9 rounded-full border border-border bg-background "
                 "text-foreground text-sm placeholder:text-muted-foreground/70 "
