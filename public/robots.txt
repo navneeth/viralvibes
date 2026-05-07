@@ -1,27 +1,31 @@
 # Allow all crawlers
 User-agent: *
 Allow: /
-Allow: /analyze
-Allow: /fetch-content
 
-# Disallow endpoints
+# Crawlable content — explicit for clarity
+Allow: /creators
+Allow: /creator/
+Allow: /lists
+Allow: /analysis
+Allow: /pricing
+Allow: /terms
+Allow: /privacy
+
+# Disallow app endpoints that should not be indexed
+Disallow: /admin/
+Disallow: /api/
 Disallow: /validate
 Disallow: /newsletter
 Disallow: /update-steps
+Disallow: /submit-job
+Disallow: /check-job-status
+Disallow: /job-progress
 Disallow: /static/
-
-# Disallow admin and API endpoints
-Disallow: /admin/
-Disallow: /api/
-Disallow: /private/
-
-# Disallow temporary files and logs
-Disallow: /*.tmp$
-Disallow: /*.log$
-Disallow: /*.json$
-
-# Crawl delay to prevent server overload
-Crawl-delay: 10
+Disallow: /me/
+Disallow: /billing/
+Disallow: /webhook
+Disallow: /login
+Disallow: /logout
 
 # Sitemap location
 Sitemap: https://viralvibes.fyi/sitemap.xml
