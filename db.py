@@ -66,10 +66,16 @@ logger = logging.getLogger("vv_db")
 
 
 def _is_transient_disconnect(exc: BaseException) -> bool:
-    """Return True for HTTP/2 server-disconnect errors worth retrying."""
-    name = type(exc).__name__
-    # httpx wraps httpcore; both can surface depending on vendoring
-    return name in ("RemoteProtocolError",) or "Server disconnected" in str(exc)
+    """Return True for HTTP/2 server-disconnect errors worth retrying.
+
+    Checks the exception and its direct __cause__ — the real transport error
+    is always one level deep in the httpx/httpcore chain.
+    """
+
+    def _matches(e: BaseException) -> bool:
+        return type(e).__name__ == "RemoteProtocolError" or "Server disconnected" in str(e)
+
+    return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
 _db_execute_with_retry = retry(
@@ -81,15 +87,15 @@ _db_execute_with_retry = retry(
 )
 
 
-def _db_execute(request):
-    """Execute a postgrest-py query builder with one automatic retry on
-    transient HTTP/2 server-disconnect errors."""
+def _db_execute(fn):
+    """Call a zero-arg callable that executes a postgrest-py query, retrying
+    once on transient HTTP/2 server-disconnect errors.
 
-    @_db_execute_with_retry
-    def _run():
-        return request.execute()
+    Usage::
 
-    return _run()
+        _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
+    """
+    return _db_execute_with_retry(fn)
 
 
 # ==============================================================
@@ -3389,7 +3395,7 @@ def get_creator_hero_stats() -> dict:
     if not supabase_client:
         return {}
     try:
-        resp = _db_execute(supabase_client.rpc("get_creator_hero_stats"))
+        resp = _db_execute(lambda: supabase_client.rpc("get_creator_hero_stats").execute())
         if not resp.data:
             logger.warning("get_creator_hero_stats RPC returned no data")
             return {}
@@ -3400,7 +3406,7 @@ def get_creator_hero_stats() -> dict:
         # Fetch them from get_lists_meta() rather than hoping they appear here.
         lists_meta: dict = {}
         try:
-            meta_resp = _db_execute(supabase_client.rpc("get_lists_meta"))
+            meta_resp = _db_execute(lambda: supabase_client.rpc("get_lists_meta").execute())
             if meta_resp.data:
                 meta_row = meta_resp.data[0] if isinstance(meta_resp.data, list) else meta_resp.data
                 lists_meta = meta_row or {}
@@ -3451,10 +3457,11 @@ def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         resp = _db_execute(
-            supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
+            lambda: supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
             .select("stats_json")
             .eq("category", category)
             .limit(1)
+            .execute()
         )
         # .single() raises PGRST116 on 0 rows; use .limit(1) + list check instead.
         if not resp.data:
