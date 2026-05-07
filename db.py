@@ -51,6 +51,48 @@ logger = logging.getLogger("vv_db")
 
 
 # ==============================================================
+# 🔄 Transient-error retry helper
+# ==============================================================
+# Supabase uses HTTP/2 keep-alive connections.  Under load the server-side
+# idle timeout can fire between the client sending a request and receiving
+# the response headers, causing httpx / httpcore to raise:
+#   httpx.RemoteProtocolError: Server disconnected
+# This is a transient transport error — the request never reached the DB.
+# A single immediate retry resolves it in practice.
+#
+# We only retry on RemoteProtocolError (and its httpcore base).  All other
+# exceptions (PostgREST errors, auth failures, etc.) are NOT retried so we
+# don't mask genuine application bugs.
+
+
+def _is_transient_disconnect(exc: BaseException) -> bool:
+    """Return True for HTTP/2 server-disconnect errors worth retrying."""
+    name = type(exc).__name__
+    # httpx wraps httpcore; both can surface depending on vendoring
+    return name in ("RemoteProtocolError",) or "Server disconnected" in str(exc)
+
+
+_db_execute_with_retry = retry(
+    retry=retry_if_exception(_is_transient_disconnect),
+    stop=stop_after_attempt(2),  # 1 original + 1 retry
+    wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+
+
+def _db_execute(request):
+    """Execute a postgrest-py query builder with one automatic retry on
+    transient HTTP/2 server-disconnect errors."""
+
+    @_db_execute_with_retry
+    def _run():
+        return request.execute()
+
+    return _run()
+
+
+# ==============================================================
 # 🧩 Protocol-based Dependency Injection
 # ==============================================================
 
@@ -3347,7 +3389,7 @@ def get_creator_hero_stats() -> dict:
     if not supabase_client:
         return {}
     try:
-        resp = supabase_client.rpc("get_creator_hero_stats").execute()
+        resp = _db_execute(supabase_client.rpc("get_creator_hero_stats"))
         if not resp.data:
             logger.warning("get_creator_hero_stats RPC returned no data")
             return {}
@@ -3358,7 +3400,7 @@ def get_creator_hero_stats() -> dict:
         # Fetch them from get_lists_meta() rather than hoping they appear here.
         lists_meta: dict = {}
         try:
-            meta_resp = supabase_client.rpc("get_lists_meta").execute()
+            meta_resp = _db_execute(supabase_client.rpc("get_lists_meta"))
             if meta_resp.data:
                 meta_row = meta_resp.data[0] if isinstance(meta_resp.data, list) else meta_resp.data
                 lists_meta = meta_row or {}
@@ -3408,12 +3450,11 @@ def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
     if not supabase_client or not category:
         return None
     try:
-        resp = (
+        resp = _db_execute(
             supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
             .select("stats_json")
             .eq("category", category)
             .limit(1)
-            .execute()
         )
         # .single() raises PGRST116 on 0 rows; use .limit(1) + list check instead.
         if not resp.data:
