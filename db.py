@@ -95,7 +95,7 @@ def _db_execute(fn):
 
         _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
     """
-    return _db_execute_with_retry(fn)
+    return _db_execute_with_retry(fn)()
 
 
 # ==============================================================
