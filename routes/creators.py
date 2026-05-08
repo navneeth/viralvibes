@@ -4,6 +4,7 @@ Creators routes - browse and filter discovered YouTube creators.
 
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 
@@ -56,6 +57,58 @@ from views.blueprint import render_blueprint_page
 from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Natural-language country extraction
+# ---------------------------------------------------------------------------
+# Matches phrases like:
+#   "MKBHD from Germany"     → search="MKBHD",  country="DE"
+#   "gaming creators in Japan" → search="gaming creators", country="JP"
+#   "DJ based in Brazil"     → search="DJ",    country="BR"
+#
+# The pattern is intentionally conservative:
+#   - Only triggers on explicit prepositions (from / in / based in)
+#   - Requires pycountry to confirm the candidate is a real country name
+#   - Does nothing when the user has already set a country_filter explicitly
+# ---------------------------------------------------------------------------
+_COUNTRY_PREP_RE = re.compile(
+    r"\b(?:from|in|based\s+in)\s+([a-z][a-z ]{1,40}?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _extract_country(raw_search: str) -> tuple[str, str]:
+    """
+    Parse a country reference from the end of a free-text search string.
+
+    Examples::
+
+        _extract_country("mkbhd from germany")   → ("mkbhd", "DE")
+        _extract_country("gaming in Japan")       → ("gaming", "JP")
+        _extract_country("creators based in US") → ("creators", "US")
+        _extract_country("music")                 → ("music", "all")
+        _extract_country("gaming Brazil")         → ("gaming Brazil", "all")
+
+    Returns:
+        (cleaned_search, alpha_2_code_or_"all")
+    """
+    m = _COUNTRY_PREP_RE.search(raw_search)
+    if not m:
+        return raw_search, "all"
+
+    candidate = m.group(1).strip()
+    try:
+        country = pycountry.countries.lookup(candidate)
+    except LookupError:
+        # pycountry raises LookupError when it can't match the candidate
+        return raw_search, "all"
+
+    # Strip the matched country phrase and any trailing whitespace/punctuation
+    cleaned = raw_search[: m.start()].rstrip(", ").strip()
+    # cleaned may be "" (e.g. bare "in Japan") — that's fine; empty search
+    # means "all creators" and the country_filter does the scoping.
+    return cleaned, country.alpha_2
+
 
 # Whether the app is running under the test suite (set by GitHub Actions / pytest)
 _IS_TESTING = os.getenv("TESTING") == "1"
@@ -192,6 +245,22 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     category_filter = request.query_params.get(
         "category", "all"
     )  # all, or specific category e.g. "Music"
+
+    # ── Natural-language country extraction ──────────────────────────────────
+    # Detects patterns like "MKBHD from Germany" or "gaming creators in Japan"
+    # and splits them into a name search + a country_filter, but only when the
+    # user has NOT already explicitly set a country filter via the pill UI.
+    if search and country_filter == "all":
+        parsed_search, inferred_country = _extract_country(search)
+        if inferred_country != "all":
+            search = parsed_search
+            country_filter = inferred_country
+            logger.info(
+                "[CountryExtract] '%s' → search=%r country=%s",
+                request.query_params.get("search", ""),
+                search,
+                country_filter,
+            )
 
     # Pagination parameters
     # NOTE: max(1, ...) clamps page to >= 1, so page < 1 is impossible.
