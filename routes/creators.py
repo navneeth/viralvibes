@@ -7,6 +7,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 
+import pycountry
+
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 from monsterui.all import *
@@ -73,8 +75,6 @@ def creators_suggest_route(request):
     Each link navigates to /creators with the selected filter applied while
     keeping all other active filters intact — same as clicking a pill.
     """
-    import pycountry
-
     q = request.query_params.get("q", "").strip().lower()
     dim = request.query_params.get("dim", "")
 
@@ -107,7 +107,7 @@ def creators_suggest_route(request):
                     break
 
     elif dim == "language":
-        for code, count in get_top_languages_with_counts(limit=200):
+        for code, count in get_top_languages_with_counts(limit=300):
             name = get_language_name(code)
             if q in code.lower() or q in name.lower():
                 emoji = get_language_emoji(code) or "🌐"

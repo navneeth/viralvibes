@@ -756,14 +756,7 @@ def render_filter_suggestions(
 def _render_typeahead_section(
     dim: str,
     placeholder: str,
-    sort: str,
-    search: str,
-    grade_filter: str,
-    language_filter: str,
-    activity_filter: str,
-    age_filter: str,
-    country_filter: str,
-    category_filter: str,
+    filters: dict,
 ) -> Div:
     """
     Debounced search input for the filter modal.
@@ -772,6 +765,12 @@ def _render_typeahead_section(
     300ms via HTMX) and swaps the result list in-place.  All current filter
     state is bundled via hx-include="closest form" so suggestion links build
     correct URLs that preserve existing active filters.
+
+    Args:
+        dim:      "country" | "language" | "category"
+        placeholder: Input placeholder text.
+        filters:  Current filter state dict with keys: sort, search, grade,
+                  language, activity, age, country, category.
     """
     result_id = f"suggest-{dim}-results"
     return Form(
@@ -798,14 +797,14 @@ def _render_typeahead_section(
         ),
         # Hidden inputs — picked up by hx-include="closest form" on the Input above
         Input(type="hidden", name="dim", value=dim),
-        Input(type="hidden", name="sort", value=sort),
-        Input(type="hidden", name="search", value=search),
-        Input(type="hidden", name="grade", value=grade_filter),
-        Input(type="hidden", name="language", value=language_filter),
-        Input(type="hidden", name="activity", value=activity_filter),
-        Input(type="hidden", name="age", value=age_filter),
-        Input(type="hidden", name="country", value=country_filter),
-        Input(type="hidden", name="category", value=category_filter),
+        Input(type="hidden", name="sort", value=filters["sort"]),
+        Input(type="hidden", name="search", value=filters["search"]),
+        Input(type="hidden", name="grade", value=filters["grade"]),
+        Input(type="hidden", name="language", value=filters["language"]),
+        Input(type="hidden", name="activity", value=filters["activity"]),
+        Input(type="hidden", name="age", value=filters["age"]),
+        Input(type="hidden", name="country", value=filters["country"]),
+        Input(type="hidden", name="category", value=filters["category"]),
         # Results injected here by HTMX
         Div(id=result_id),
         onsubmit="return false;",
@@ -1577,6 +1576,19 @@ def _render_filter_bar(
     _top_lang_codes = {code for code, _ in _lang_source[:7]}
     _top_cat_names = {cat for cat, _ in (top_categories or [])[:9] if cat}
 
+    # Single dict passed into _render_typeahead_section and render_filter_suggestions
+    # so filter state is never threaded as positional args.
+    _current_filters = {
+        "sort": sort,
+        "search": search,
+        "grade": grade_filter,
+        "language": language_filter,
+        "activity": activity_filter,
+        "age": age_filter,
+        "country": country_filter,
+        "category": category_filter,
+    }
+
     filter_modal = Div(
         Div(
             Div(
@@ -1648,14 +1660,7 @@ def _render_filter_bar(
                             _render_typeahead_section(
                                 "category",
                                 "Search categories\u2026",
-                                sort,
-                                search,
-                                grade_filter,
-                                language_filter,
-                                activity_filter,
-                                age_filter,
-                                country_filter,
-                                category_filter,
+                                _current_filters,
                             ),
                         ),
                         open=(category_filter != "all"),
@@ -1687,14 +1692,7 @@ def _render_filter_bar(
                             _render_typeahead_section(
                                 "language",
                                 "Search languages\u2026",
-                                sort,
-                                search,
-                                grade_filter,
-                                language_filter,
-                                activity_filter,
-                                age_filter,
-                                country_filter,
-                                category_filter,
+                                _current_filters,
                             ),
                         ),
                         open=(language_filter != "all"),
@@ -1726,14 +1724,7 @@ def _render_filter_bar(
                             _render_typeahead_section(
                                 "country",
                                 "Search countries\u2026",
-                                sort,
-                                search,
-                                grade_filter,
-                                language_filter,
-                                activity_filter,
-                                age_filter,
-                                country_filter,
-                                category_filter,
+                                _current_filters,
                             ),
                         ),
                         open=(country_filter != "all"),
