@@ -72,8 +72,17 @@ logger = logging.getLogger(__name__)
 #   - Does nothing when the user has already set a country_filter explicitly
 # ---------------------------------------------------------------------------
 _COUNTRY_PREP_RE = re.compile(
-    r"\b(?:from|in|based\s+in)\s+([a-z][a-z ]{1,40}?)\s*$",
-    re.IGNORECASE,
+    # Capture country name at end of string, after a locating preposition.
+    # Character class covers:
+    #   a-z A-Z           — ASCII letters
+    #   \u00C0-\u017E     — Latin Extended (accented: é, ô, ü, ñ, è, etc.)
+    #   ' \u2019 . -      — apostrophes, dots, hyphens (Côte d'Ivoire, Guinea-Bissau, U.S.)
+    #   space             — multi-word names (South Korea, New Zealand)
+    # Trailing punctuation (!?.,) after the country name is stripped before lookup.
+    "(?i)"
+    r"\b(?:from|in|based\s+in)\s+"
+    "([a-zA-Z\u00C0-\u017E'.\\-][a-zA-Z\u00C0-\u017E\u2019'.\\- ]{0,40}?)"
+    r"\s*[!?.,]*\s*$"
 )
 
 
@@ -255,10 +264,8 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         if inferred_country != "all":
             search = parsed_search
             country_filter = inferred_country
-            logger.info(
-                "[CountryExtract] '%s' → search=%r country=%s",
-                request.query_params.get("search", ""),
-                search,
+            logger.debug(
+                "[CountryExtract] inferred country=%s from query",
                 country_filter,
             )
 
