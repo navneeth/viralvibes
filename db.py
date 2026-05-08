@@ -2196,7 +2196,13 @@ def resolve_playlist_url_from_dashboard_id(
         return None
 
 
-def get_user_dashboards(user_id: str, search: str = "", sort: str = "recent") -> list[dict]:
+def get_user_dashboards(
+    user_id: str,
+    search: str = "",
+    sort: str = "recent",
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> list[dict]:
     """
     Get all dashboards owned by a user with optional filtering and sorting.
 
@@ -2204,6 +2210,8 @@ def get_user_dashboards(user_id: str, search: str = "", sort: str = "recent") ->
         user_id: User ID from session
         search: Optional search query for title/channel (sanitized)
         sort: Sort option ('recent', 'views', 'videos', 'title')
+        limit: Optional maximum number of rows to return
+        offset: Optional number of rows to skip when paginating
 
     Returns:
         List of dashboard metadata dicts sorted according to sort parameter
@@ -2246,6 +2254,9 @@ def get_user_dashboards(user_id: str, search: str = "", sort: str = "recent") ->
             query = query.order("title", desc=False)
         else:  # recent
             query = query.order("processed_on", desc=True)
+
+        if limit is not None:
+            query = query.limit(limit).offset(max(offset, 0))
 
         # Execute query
         response = query.execute()

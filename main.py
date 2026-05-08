@@ -235,30 +235,31 @@ hdrs = Theme.red.headers(apex_charts=True)
 # Add custom CSS and JS to headers
 hdrs += (
     Link(rel="stylesheet", href="/css/main.css"),
-    Script(src="/js/index.js"),
-    Script(src="/js/reveal.js"),
+    Script(src="/js/index.js", defer=True),
+    Script(src="/js/reveal.js", defer=True),
 )
 
-# Add Vercel Web Analytics
-# Script initializes the analytics queue before the main script loads
-hdrs += (
-    Script(
-        "window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"
-    ),
-    Script(src="https://cdn.vercel-insights.com/v1/script.js", defer=True),
-)
+if os.getenv("VERCEL") == "1" or os.getenv("ENABLE_VERCEL_INSIGHTS") == "1":
+    # Add Vercel Web Analytics
+    # Script initializes the analytics queue before the main script loads.
+    hdrs += (
+        Script(
+            "window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };"
+        ),
+        Script(src="https://cdn.vercel-insights.com/v1/script.js", defer=True),
+    )
 
-# Add Vercel Speed Insights
-# Using ES module to inject Speed Insights tracking
-hdrs += (
-    Script(
-        """
-        import { injectSpeedInsights } from 'https://cdn.jsdelivr.net/npm/@vercel/speed-insights@1/+esm';
-        injectSpeedInsights();
-        """,
-        type="module",
-    ),
-)
+    # Add Vercel Speed Insights
+    # Using ES module to inject Speed Insights tracking.
+    hdrs += (
+        Script(
+            """
+            import { injectSpeedInsights } from 'https://cdn.jsdelivr.net/npm/@vercel/speed-insights@1/+esm';
+            injectSpeedInsights();
+            """,
+            type="module",
+        ),
+    )
 
 # Auth beforeware — canonical FastHTML pattern (adv_app.py, quickstart docs).
 # skip uses re.search(), so regex patterns like r'/static/.*' cover all children.
@@ -1501,10 +1502,16 @@ def my_dashboards(
         return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
 
     # Fetch all matching dashboards (search/sort applied in DB), paginate in Python
-    all_dashboards = get_user_dashboards(user_id, search=search, sort=sort)
     offset = (page - 1) * _PAGE_SIZE
-    page_items = all_dashboards[offset : offset + _PAGE_SIZE]
-    has_more = len(all_dashboards) > offset + _PAGE_SIZE
+    dashboards_page = get_user_dashboards(
+        user_id,
+        search=search,
+        sort=sort,
+        limit=_PAGE_SIZE + 1,
+        offset=offset,
+    )
+    page_items = dashboards_page[:_PAGE_SIZE]
+    has_more = len(dashboards_page) > _PAGE_SIZE
 
     # HTMX load-more: return only new rows + OOB button replacement
     if htmx and page > 1:
