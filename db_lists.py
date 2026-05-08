@@ -25,6 +25,12 @@ _LISTS_META_TTL_SECONDS = 60
 _lists_meta_cache: tuple[float, dict[str, int]] | None = None
 
 
+def clear_lists_meta_cache() -> None:
+    """Clear this process's short-lived lists metadata cache."""
+    global _lists_meta_cache
+    _lists_meta_cache = None
+
+
 def _get_supabase_client():
     """Access the Supabase client (initialized at app startup via db.init_supabase())."""
     from db import supabase_client
@@ -836,6 +842,10 @@ def get_lists_meta() -> dict:
     everything in a single server-side pass with zero row transfer.  Falls
     back to a combined client-side scan (approximate) if the RPC is
     unavailable.
+
+    The 60-second cache is intentionally process-local. It avoids duplicate
+    requests during a single page render and is cleared by local metadata
+    refresh helpers; other workers may briefly diverge until their TTL expires.
 
     Note: if the DB RPC predates the ``total_languages`` column (migration
     003), the key defaults to 0 gracefully via ``row.get(...) or 0``.

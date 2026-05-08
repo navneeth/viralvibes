@@ -2255,8 +2255,10 @@ def get_user_dashboards(
         else:  # recent
             query = query.order("processed_on", desc=True)
 
+        if offset:
+            query = query.offset(max(offset, 0))
         if limit is not None:
-            query = query.limit(limit).offset(max(offset, 0))
+            query = query.limit(limit)
 
         # Execute query
         response = query.execute()
@@ -3547,6 +3549,14 @@ def refresh_total_categories() -> int:
             data = data[0] if data else 0
         count = int(data or 0)
         logger.info("refresh_total_categories: %d distinct categories", count)
+        try:
+            from db_lists import clear_lists_meta_cache
+
+            clear_lists_meta_cache()
+        except Exception:
+            logger.debug(
+                "refresh_total_categories: failed to clear lists meta cache", exc_info=True
+            )
         return count
     except Exception:
         logger.exception("refresh_total_categories: RPC failed")
@@ -3620,6 +3630,16 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                 )
             else:
                 logger.warning("[Hero Stats Cache] ⚠️ %s RPC returned no rows", view_label)
+            if view_label == "mv_lists_meta":
+                try:
+                    from db_lists import clear_lists_meta_cache
+
+                    clear_lists_meta_cache()
+                except Exception:
+                    logger.debug(
+                        "[Hero Stats Cache] failed to clear lists meta cache",
+                        exc_info=True,
+                    )
         except Exception as e:
             logger.error("[Hero Stats Cache] ❌ %s failed: %s", view_label, e)
             errors.append({"view": view_label, "error": str(e)})
