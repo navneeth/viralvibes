@@ -730,6 +730,7 @@ def _fetch_top_counts(
             rpc_name,
             _MAX_FALLBACK_FETCH,
             e,
+            exc_info=True,
         )
         return fallback(limit)
 
