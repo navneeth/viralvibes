@@ -700,6 +700,133 @@ def render_favourite_button(creator_id: str, is_favourited: bool = False) -> Div
 
 
 # ============================================================================
+# FILTER SUGGESTION PARTIAL (HTMX typeahead response)
+# ============================================================================
+
+
+def render_filter_suggestions(
+    dim: str,
+    suggestions: list[tuple[str, str, int]],  # (value, display_label, count)
+    current: dict,
+) -> Div:
+    """
+    HTMX partial returned by GET /creators/suggest.
+
+    Renders a clickable list that applies the selected filter value while
+    preserving all other active filters.  Returns an empty Div (which clears
+    the results container) when *suggestions* is empty.
+
+    Args:
+        dim:         "country" | "language" | "category"
+        suggestions: List of (value, display_label, creator_count) tuples.
+        current:     Dict of current filter state (sort, search, grade, …).
+    """
+    if not suggestions:
+        return Div()
+
+    def _url(val: str) -> str:
+        kwargs = {
+            "sort": current["sort"],
+            "search": current["search"],
+            "grade": current["grade"],
+            "language": current["language"],
+            "activity": current["activity"],
+            "age": current["age"],
+            "country": current["country"],
+            "category": current["category"],
+            dim: val,  # Override just this dimension
+        }
+        return _build_filter_url(**kwargs)
+
+    return Div(
+        *[
+            A(
+                Span(label, cls="flex-1 truncate"),
+                Span(f"{count:,}", cls="text-muted-foreground text-xs shrink-0 tabular-nums"),
+                href=_url(val),
+                cls="flex items-center gap-2 px-3 py-2 text-sm no-underline "
+                "hover:bg-accent rounded-md transition-colors",
+            )
+            for val, label, count in suggestions
+        ],
+        cls="flex flex-col border border-border rounded-lg overflow-hidden bg-background shadow-sm",
+    )
+
+
+def _render_typeahead_section(
+    dim: str,
+    placeholder: str,
+    filters: dict,
+) -> Div:
+    """
+    Debounced search input for the filter modal.
+
+    Fires GET /creators/suggest?dim=…&q=… on every keystroke (debounced
+    300ms via HTMX) and swaps the result list in-place.  All current filter
+    state is bundled via hx-include="closest form" so suggestion links build
+    correct URLs that preserve existing active filters.
+
+    Args:
+        dim:      "country" | "language" | "category"
+        placeholder: Input placeholder text.
+        filters:  Current filter state dict with keys: sort, search, grade,
+                  language, activity, age, country, category.
+    """
+    result_id = f"suggest-{dim}-results"
+    return Form(
+        Div(
+            UkIcon(
+                "search",
+                cls="size-3.5 text-muted-foreground absolute left-2.5 top-1/2 "
+                "-translate-y-1/2 pointer-events-none",
+            ),
+            Input(
+                type="search",
+                name="q",
+                placeholder=placeholder,
+                autocomplete="off",
+                hx_get="/creators/suggest",
+                hx_target=f"#{result_id}",
+                hx_trigger="input changed delay:300ms",
+                hx_include="closest form",
+                cls="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-border "
+                "bg-background focus:outline-none focus:ring-1 focus:ring-primary/40 "
+                "placeholder:text-muted-foreground/60",
+            ),
+            cls="relative",
+        ),
+        # Hidden inputs — picked up by hx-include="closest form" on the Input above
+        Input(type="hidden", name="dim", value=dim),
+        Input(type="hidden", name="sort", value=filters["sort"]),
+        Input(type="hidden", name="search", value=filters["search"]),
+        Input(type="hidden", name="grade", value=filters["grade"]),
+        Input(type="hidden", name="language", value=filters["language"]),
+        Input(type="hidden", name="activity", value=filters["activity"]),
+        Input(type="hidden", name="age", value=filters["age"]),
+        Input(type="hidden", name="country", value=filters["country"]),
+        Input(type="hidden", name="category", value=filters["category"]),
+        # Results injected here by HTMX
+        Div(id=result_id),
+        onsubmit="return false;",
+        cls="mt-3",
+    )
+
+
+def _active_filter_pill(label: str, clear_url: str) -> A:
+    """
+    Pill shown when the active filter value is outside the top-N quick-pick
+    pill row.  Clicking it clears that filter dimension.
+    """
+    return A(
+        label,
+        Span(" ×", cls="opacity-70"),
+        href=clear_url,
+        title="Clear this filter",
+        cls=_PILL_BASE + "bg-primary text-primary-foreground mb-2 inline-flex items-center",
+    )
+
+
+# ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
 
@@ -1443,6 +1570,25 @@ def _render_filter_bar(
         else None
     )
 
+    # Track which filter values are explicitly shown as pills — to detect when the
+    # active filter is outside the top-N set and needs an "active selection" pill.
+    _top_country_codes = {str(code).upper() for code, _ in (top_countries or [])[:8]}
+    _top_lang_codes = {code for code, _ in _lang_source[:7]}
+    _top_cat_names = {cat for cat, _ in (top_categories or [])[:9] if cat}
+
+    # Single dict passed into _render_typeahead_section and render_filter_suggestions
+    # so filter state is never threaded as positional args.
+    _current_filters = {
+        "sort": sort,
+        "search": search,
+        "grade": grade_filter,
+        "language": language_filter,
+        "activity": activity_filter,
+        "age": age_filter,
+        "country": country_filter,
+        "category": category_filter,
+    }
+
     filter_modal = Div(
         Div(
             Div(
@@ -1489,17 +1635,98 @@ def _render_filter_bar(
                     ),
                     AccordionItem(
                         "Category",
-                        category_pills,
+                        Div(
+                            # Active-selection pill when the active value isn't a top-N pill
+                            (
+                                _active_filter_pill(
+                                    f"{get_topic_category_emoji(category_filter)} "
+                                    f"{category_filter.split('/')[-1].strip() or category_filter}",
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade=grade_filter,
+                                        language=language_filter,
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country=country_filter,
+                                        category="all",
+                                    ),
+                                )
+                                if category_filter != "all"
+                                and category_filter not in _top_cat_names
+                                else None
+                            ),
+                            category_pills,
+                            _render_typeahead_section(
+                                "category",
+                                "Search categories\u2026",
+                                _current_filters,
+                            ),
+                        ),
                         open=(category_filter != "all"),
                     ),
                     AccordionItem(
                         "Language",
-                        language_pills,
+                        Div(
+                            (
+                                _active_filter_pill(
+                                    (get_language_emoji(language_filter) or "\U0001f310")
+                                    + " "
+                                    + get_language_name(language_filter),
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade=grade_filter,
+                                        language="all",
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country=country_filter,
+                                        category=category_filter,
+                                    ),
+                                )
+                                if language_filter != "all"
+                                and language_filter not in _top_lang_codes
+                                else None
+                            ),
+                            language_pills,
+                            _render_typeahead_section(
+                                "language",
+                                "Search languages\u2026",
+                                _current_filters,
+                            ),
+                        ),
                         open=(language_filter != "all"),
                     ),
                     AccordionItem(
                         "Country",
-                        country_pills,
+                        Div(
+                            (
+                                _active_filter_pill(
+                                    (get_country_flag(country_filter) or "\U0001f3f4")
+                                    + " "
+                                    + country_filter.upper(),
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade=grade_filter,
+                                        language=language_filter,
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country="all",
+                                        category=category_filter,
+                                    ),
+                                )
+                                if country_filter != "all"
+                                and country_filter.upper() not in _top_country_codes
+                                else None
+                            ),
+                            country_pills,
+                            _render_typeahead_section(
+                                "country",
+                                "Search countries\u2026",
+                                _current_filters,
+                            ),
+                        ),
                         open=(country_filter != "all"),
                     ),
                     AccordionItem(
