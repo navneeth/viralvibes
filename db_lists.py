@@ -5,6 +5,7 @@ Specialized functions for the /lists page tab content.
 
 import json
 import logging
+import time
 from typing import Callable
 
 from utils import normalize_category_name, safe_get_value
@@ -19,6 +20,15 @@ _MAX_FALLBACK_FETCH = 1_000
 
 # Channels created within this many days are considered "new".
 NEW_CHANNEL_MAX_AGE_DAYS = 365
+
+_LISTS_META_TTL_SECONDS = 60
+_lists_meta_cache: tuple[float, dict[str, int]] | None = None
+
+
+def clear_lists_meta_cache() -> None:
+    """Clear this process's short-lived lists metadata cache."""
+    global _lists_meta_cache
+    _lists_meta_cache = None
 
 
 def _get_supabase_client():
@@ -833,6 +843,10 @@ def get_lists_meta() -> dict:
     back to a combined client-side scan (approximate) if the RPC is
     unavailable.
 
+    The 60-second cache is intentionally process-local. It avoids duplicate
+    requests during a single page render and is cleared by local metadata
+    refresh helpers; other workers may briefly diverge until their TTL expires.
+
     Note: if the DB RPC predates the ``total_languages`` column (migration
     003), the key defaults to 0 gracefully via ``row.get(...) or 0``.
     """
@@ -840,17 +854,26 @@ def get_lists_meta() -> dict:
     if not supabase_client:
         return _EMPTY_META.copy()
 
+    global _lists_meta_cache
+    if _lists_meta_cache:
+        expires_at, cached_meta = _lists_meta_cache
+        if expires_at > time.monotonic():
+            return cached_meta.copy()
+        _lists_meta_cache = None
+
     try:
         resp = supabase_client.rpc("get_lists_meta").execute()
         if resp.data:
             row = resp.data[0]
-            return {
+            meta = {
                 "total_creators": int(row.get("total_creators") or 0),
                 "total_countries": int(row.get("total_countries") or 0),
                 "total_categories": int(row.get("total_categories") or 0),
                 # total_languages added in migration 003; defaults to 0 on older DBs
                 "total_languages": int(row.get("total_languages") or 0),
             }
+            _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
+            return meta.copy()
         logger.warning("[Lists] get_lists_meta RPC returned no data")
         return _EMPTY_META.copy()
 
