@@ -934,6 +934,45 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     )
 
 
+def suggest_primary_categories(q: str, limit: int = 8) -> list[tuple[str, int]]:
+    """
+    Case-insensitive ILIKE search on primary_category for the filter typeahead.
+
+    Uses idx_creators_primary_category_trgm (migration 028) so the query is
+    an index scan rather than a seq scan — typically <10ms per keystroke.
+    Fetches up to 500 matching rows and counts in Python to approximate
+    creator counts per category (GROUP BY is not available via PostgREST).
+
+    Returns:
+        List of (category_name, creator_count) sorted by count descending,
+        capped at *limit*.  Empty list when *q* is blank or on error.
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client or not q.strip():
+        return []
+    try:
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        resp = (
+            supabase_client.table("creators")
+            .select("primary_category")
+            .eq("sync_status", "synced")
+            .not_.is_("primary_category", "null")
+            .gt("current_subscribers", 0)
+            .ilike("primary_category", f"%{escaped}%")
+            .limit(500)
+            .execute()
+        )
+        counts: dict[str, int] = {}
+        for row in resp.data or []:
+            cat = row.get("primary_category")
+            if cat:
+                counts[cat] = counts.get(cat, 0) + 1
+        return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    except Exception as e:
+        logger.exception("suggest_primary_categories error for %r: %s", q, e)
+        return []
+
+
 def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
     """
     Client-side fallback for get_top_categories_with_counts (RPC unavailable).

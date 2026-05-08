@@ -34,6 +34,7 @@ from db_lists import (
     get_top_categories_with_counts,
     get_top_countries_with_counts,
     get_top_languages_with_counts,
+    suggest_primary_categories,
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
@@ -45,14 +46,82 @@ from views.creators import (
     render_creator_preview,
     render_creator_profile_page,
     render_creators_page,
+    render_filter_suggestions,
+    get_topic_category_emoji,
 )
 from utils.blueprint import signals_from_row, score_all_actions
 from views.blueprint import render_blueprint_page
+from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
 
 # Whether the app is running under the test suite (set by GitHub Actions / pytest)
 _IS_TESTING = os.getenv("TESTING") == "1"
+
+
+def creators_suggest_route(request):
+    """
+    GET /creators/suggest — HTMX typeahead for country/language/category filters.
+
+    Query params (all sent automatically via hx-include="closest form"):
+        dim      — "country" | "language" | "category"
+        q        — user's search text (debounced 300ms by the Input element)
+        sort, search, grade, language, activity, age, country, category
+                 — current filter state, preserved in suggestion links
+
+    Returns an HTMX partial (Div with clickable links, or empty Div).
+    Each link navigates to /creators with the selected filter applied while
+    keeping all other active filters intact — same as clicking a pill.
+    """
+    import pycountry
+
+    q = request.query_params.get("q", "").strip().lower()
+    dim = request.query_params.get("dim", "")
+
+    if not q or dim not in ("country", "language", "category"):
+        return Div()
+
+    # Current filter state for building correct result URLs
+    current = {
+        "sort": request.query_params.get("sort", "subscribers"),
+        "search": request.query_params.get("search", ""),
+        "grade": request.query_params.get("grade", "all"),
+        "language": request.query_params.get("language", "all"),
+        "activity": request.query_params.get("activity", "all"),
+        "age": request.query_params.get("age", "all"),
+        "country": request.query_params.get("country", "all"),
+        "category": request.query_params.get("category", "all"),
+    }
+
+    suggestions = []  # list of (value, display_label, count)
+
+    if dim == "country":
+        for code, count in get_top_countries_with_counts(limit=200):
+            country_obj = pycountry.countries.get(alpha_2=code.upper())
+            country_name = country_obj.name.lower() if country_obj else ""
+            if q in code.lower() or q in country_name:
+                flag = get_country_flag(code) or "🏴"
+                name = country_obj.name if country_obj else code.upper()
+                suggestions.append((code, f"{flag} {name}", count))
+                if len(suggestions) >= 8:
+                    break
+
+    elif dim == "language":
+        for code, count in get_top_languages_with_counts(limit=200):
+            name = get_language_name(code)
+            if q in code.lower() or q in name.lower():
+                emoji = get_language_emoji(code) or "🌐"
+                suggestions.append((code, f"{emoji} {name}", count))
+                if len(suggestions) >= 8:
+                    break
+
+    elif dim == "category":
+        for cat_name, count in suggest_primary_categories(q, limit=8):
+            emoji = get_topic_category_emoji(cat_name)
+            short = cat_name.split("/")[-1].strip() or cat_name
+            suggestions.append((cat_name, f"{emoji} {short}", count))
+
+    return render_filter_suggestions(dim=dim, suggestions=suggestions, current=current)
 
 
 def creators_route(request, is_authenticated: bool = False, user_id: str | None = None):

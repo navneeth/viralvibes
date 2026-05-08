@@ -112,6 +112,7 @@ from routes.creators import (
     creator_profile_route,
     creator_request_route,
     creators_route,
+    creators_suggest_route,
     toggle_favourite_route,
 )
 from routes.legal import privacy_page_content, terms_page_content
@@ -1182,6 +1183,12 @@ async def creators_request(req, sess):
 async def creators_add_status(req, sess):
     """GET /creators/add-status — HTMX polling endpoint for creator add job status."""
     return await creator_add_status_route(req, sess)
+
+
+@rt("/creators/suggest")
+def creators_suggest(req):
+    """GET /creators/suggest — HTMX typeahead for country/language/category filters."""
+    return creators_suggest_route(req)
 
 
 @rt("/lists")
