@@ -3148,22 +3148,22 @@ def get_creators(
         return CreatorsResult([], 0) if return_count else []
 
 
-def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> dict:
+def calculate_creator_stats(creators: list[dict]) -> dict:
     """
-    Calculate aggregate statistics from creators list for hero section.
+    Calculate aggregate statistics from a page of creators for the hero section.
 
-    Marketing-focused metrics:
-    - Total creators (inventory size)
-    - Average engagement rate (quality indicator)
-    - Growth momentum (trending creators count)
-    - Quality distribution (A+/A grade percentage)
+    Computes per-page distributions (grade_counts, top_countries, top_languages,
+    top_categories) from the current page's rows.  Global scalar totals
+    (total_creators, avg_engagement, growing_creators, premium_creators,
+    total_countries, total_languages) are always overridden by the caller with
+    results from get_creator_hero_stats() — a zero-row-transfer DB RPC — so
+    those values here are page-level approximations only.
 
     Args:
-        creators: List of creator dicts (filtered or all)
-        include_all: If True, fetch ALL creators from DB for accurate totals
+        creators: List of creator dicts for the current page.
 
     Returns:
-        Dict with marketing-relevant metrics
+        Dict with marketing-relevant metrics.
     """
     if not creators:
         return {
@@ -3176,57 +3176,8 @@ def calculate_creator_stats(creators: list[dict], include_all: bool = False) -> 
         }
 
     try:
-
-        # If include_all=True, use database aggregation instead of loading all rows into Python
-        if include_all and supabase_client:
-            try:
-                # TODO: Push full aggregation to database via RPC or materialized view for zero data transfer
-                # Current approach fetches minimal fields but still transfers O(n) rows on every page load
-                logger.debug("Calculating stats from all creators using DB aggregation")
-
-                # Get total count (fast, no data transfer)
-                count_response = (
-                    supabase_client.table(CREATOR_TABLE)
-                    .select("id", count="exact")
-                    .eq("sync_status", "synced")
-                    .limit(1)
-                    .execute()
-                )
-                total_creators = count_response.count if hasattr(count_response, "count") else 0
-
-                # Safety valve: If creator count exceeds threshold, fall back to page-level stats
-                # This prevents unbounded query cost as dataset grows beyond 5000 creators
-                MAX_CREATORS_FOR_FULL_STATS = 5000
-                if total_creators > MAX_CREATORS_FOR_FULL_STATS:
-                    logger.warning(
-                        f"Creator count ({total_creators}) exceeds limit ({MAX_CREATORS_FOR_FULL_STATS}). "
-                        f"Falling back to page-level stats. Consider implementing database-side aggregation."
-                    )
-                    stats_source = creators
-                    total_creators = len(creators)
-                else:
-                    # For other aggregates, fetch only necessary fields (not full creator objects)
-                    # Still in-memory aggregation but lighter than full rows
-                    agg_response = (
-                        supabase_client.table(CREATOR_TABLE)
-                        .select(
-                            "engagement_score,subscribers_change_30d,quality_grade,"
-                            "current_subscribers,current_video_count,"
-                            "country_code,default_language,topic_categories,"
-                            "official,monthly_uploads"
-                        )
-                        .eq("sync_status", "synced")
-                        .execute()
-                    )
-                    stats_source = agg_response.data if agg_response.data else []
-
-            except Exception as e:
-                logger.warning(f"Failed to fetch aggregated stats from DB: {e}")
-                stats_source = creators
-                total_creators = len(creators)
-        else:
-            stats_source = creators
-            total_creators = len(creators)
+        stats_source = creators
+        total_creators = len(creators)
 
         # Calculate average engagement (walrus operator := stores value and uses it in condition)
         # This avoids calling safe_get_value twice per creator (once for check, once for list)

@@ -11,8 +11,11 @@ from utils import normalize_category_name, safe_get_value
 
 logger = logging.getLogger(__name__)
 
-# Maximum rows fetched in client-side fallback scans (when RPC is unavailable).
-_MAX_FALLBACK_FETCH = 50_000
+# Maximum rows fetched in client-side fallback scans (when an RPC is unavailable).
+# Deliberately small — fallbacks are emergency degraded-mode only, not a substitute
+# for working RPCs. If this fires in production, an RPC is broken and needs fixing.
+# (Previously 50_000 — caused full-table seq scans and statement timeouts when RPCs 500'd.)
+_MAX_FALLBACK_FETCH = 1_000
 
 # Channels created within this many days are considered "new".
 NEW_CHANNEL_MAX_AGE_DAYS = 365
@@ -718,7 +721,17 @@ def _fetch_top_counts(
         return []
 
     except Exception as e:
-        logger.exception("Error fetching %s via RPC: %s", rpc_name, e)
+        # Log at ERROR so fallback activation is visible in monitoring dashboards.
+        # Fallbacks scan up to _MAX_FALLBACK_FETCH rows — they are a safety net,
+        # not a primary path. If this fires repeatedly, the RPC needs fixing.
+        logger.error(
+            "[Lists] %s RPC failed — activating client-side fallback (capped at %d rows). "
+            "Fix the RPC to restore accurate counts. Error: %s",
+            rpc_name,
+            _MAX_FALLBACK_FETCH,
+            e,
+            exc_info=True,
+        )
         return fallback(limit)
 
 
