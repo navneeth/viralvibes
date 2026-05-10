@@ -35,7 +35,7 @@ try:
     import httpcore as _httpcore
 
     _HTTPCORE_ERRORS = (_httpcore.RemoteProtocolError,)
-except Exception:  # httpcore not guaranteed to be importable directly
+except ImportError:
     _HTTPCORE_ERRORS = ()
 
 try:
@@ -48,10 +48,16 @@ try:
         _httpx.ConnectError,
         _httpx.ReadError,
     )
-except Exception:
+except ImportError:
     _HTTPX_ERRORS = ()
 
 _RETRIABLE_TRANSPORT_ERRORS: tuple = _HTTPX_ERRORS + _HTTPCORE_ERRORS
+
+if not _RETRIABLE_TRANSPORT_ERRORS:
+    logger.warning(
+        "[Lists] httpx/httpcore not importable — _rpc_with_retry will not retry "
+        "transient transport errors; check that these packages are installed."
+    )
 
 
 def _rpc_with_retry(
@@ -73,9 +79,12 @@ def _rpc_with_retry(
 
     Args:
         max_attempts: Total attempts (default 3 = 1 original + 2 retries).
+                      Must be >= 1.
         base_delay_s: Initial backoff before retry 2 (seconds).
         max_delay_s:  Cap on any single sleep.
     """
+    if max_attempts < 1:
+        raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
     last_exc: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
