@@ -3030,17 +3030,20 @@ def get_creators(
 
             # Multi-column ILIKE search — only columns with pg_trgm GIN indexes are safe;
             # unindexed ILIKE on long text causes full seq scans and 57014 stmt timeouts.
-            # To add a column: create a GIN index with gin_trgm_ops first (see migrations 028, 033).
+            # To add a column: create a GIN index with gin_trgm_ops first (see migration 028).
             #
             # Excluded columns:
-            #   topic_categories — GIN is jsonb_path_ops (containment only, not text search)
-            #   country_code     — stores "JP" not "japan"; use country_filter param instead
+            #   topic_categories     — GIN is jsonb_path_ops (containment only, not text search)
+            #   country_code         — stores "JP" not "japan"; use country_filter param instead
+            #   channel_description  — high noise, low signal: bio mentions of a creator's name
+            #                          (e.g. shoutouts) drowned out exact name matches. Removed
+            #                          to improve precision; legit name matches are well covered
+            #                          by the four columns below.
             _search_cols = [
                 "channel_name",  # short text
                 "custom_url",  # short text
-                "keywords",  # medium text
                 "primary_category",  # idx_creators_primary_category_trgm (migration 028)
-                "channel_description",  # idx_creators_channel_description_trgm (migration 033)
+                "keywords",  # medium text
             ]
             or_filter = ",".join(f"{col}.ilike.{search_pattern}" for col in _search_cols)
             query = query.or_(or_filter)
