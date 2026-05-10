@@ -5,6 +5,7 @@ Specialized functions for the /lists page tab content.
 
 import json
 import logging
+import random
 import time
 from typing import Callable
 
@@ -17,6 +18,87 @@ logger = logging.getLogger(__name__)
 # for working RPCs. If this fires in production, an RPC is broken and needs fixing.
 # (Previously 50_000 — caused full-table seq scans and statement timeouts when RPCs 500'd.)
 _MAX_FALLBACK_FETCH = 1_000
+
+# ---------------------------------------------------------------------------
+# Transient-transport retry for Supabase RPC calls
+# ---------------------------------------------------------------------------
+# HTTP/2 "Server disconnected" errors are transient — the request never
+# reached PostgreSQL.  We retry a small number of times with exponential
+# backoff + jitter before activating the client-side fallback.
+#
+# This mirrors _is_transient_disconnect / _with_disconnect_retry in db.py
+# but is defined locally to avoid a circular import (db.py lazily imports
+# db_lists for cache-clearing, so a top-level import in the other direction
+# would create a cycle).
+# ---------------------------------------------------------------------------
+try:
+    import httpcore as _httpcore
+
+    _HTTPCORE_ERRORS = (_httpcore.RemoteProtocolError,)
+except Exception:  # httpcore not guaranteed to be importable directly
+    _HTTPCORE_ERRORS = ()
+
+try:
+    import httpx as _httpx
+
+    _HTTPX_ERRORS = (
+        _httpx.RemoteProtocolError,
+        _httpx.ReadTimeout,
+        _httpx.ConnectTimeout,
+        _httpx.ConnectError,
+        _httpx.ReadError,
+    )
+except Exception:
+    _HTTPX_ERRORS = ()
+
+_RETRIABLE_TRANSPORT_ERRORS: tuple = _HTTPX_ERRORS + _HTTPCORE_ERRORS
+
+
+def _rpc_with_retry(
+    supabase_client,
+    rpc_name: str,
+    params: dict,
+    *,
+    max_attempts: int = 3,
+    base_delay_s: float = 0.25,
+    max_delay_s: float = 3.0,
+):
+    """
+    Call ``supabase_client.rpc(rpc_name, params).execute()`` with retry logic
+    for transient HTTP/2 transport errors ("Server disconnected").
+
+    Only ``_RETRIABLE_TRANSPORT_ERRORS`` are retried.  PostgREST errors
+    (bad SQL, auth failures, etc.) are re-raised immediately so genuinely
+    broken RPCs don't spin through unnecessary retries.
+
+    Args:
+        max_attempts: Total attempts (default 3 = 1 original + 2 retries).
+        base_delay_s: Initial backoff before retry 2 (seconds).
+        max_delay_s:  Cap on any single sleep.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return supabase_client.rpc(rpc_name, params).execute()
+        except _RETRIABLE_TRANSPORT_ERRORS as exc:
+            last_exc = exc
+            if attempt == max_attempts:
+                break
+            delay = min(max_delay_s, base_delay_s * (2 ** (attempt - 1)))
+            delay *= 0.85 + random.random() * 0.30  # ±15 % jitter
+            logger.warning(
+                "[Lists] %s transient error (attempt %d/%d), retrying in %.2fs: %s",
+                rpc_name,
+                attempt,
+                max_attempts,
+                delay,
+                exc,
+            )
+            time.sleep(delay)
+        except Exception:
+            raise  # non-transport errors: propagate immediately
+    raise last_exc  # type: ignore[misc]
+
 
 # Channels created within this many days are considered "new".
 NEW_CHANNEL_MAX_AGE_DAYS = 365
@@ -724,7 +806,7 @@ def _fetch_top_counts(
         return []
 
     try:
-        resp = supabase_client.rpc(rpc_name, {"p_limit": limit}).execute()
+        resp = _rpc_with_retry(supabase_client, rpc_name, {"p_limit": limit})
         if resp.data:
             return [(row[key_name], row["creator_count"]) for row in resp.data]
         logger.warning("[Lists] %s RPC returned no data", rpc_name)
