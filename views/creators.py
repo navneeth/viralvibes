@@ -2790,8 +2790,12 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
             Div(
                 UkIcon("info", cls="size-4 text-blue-500 shrink-0 mt-0.5"),
                 P(
-                    Span(search, cls="font-semibold"),
-                    " isn't in our database yet. " "Related results are shown below.",
+                    "We don’t have ",
+                    Span(
+                        search if search.startswith("@") else f"@{search}",
+                        cls="font-semibold",
+                    ),
+                    " exactly. Closest matches below — or add it to the database.",
                     cls="text-sm text-foreground",
                 ),
                 cls="flex items-start gap-2 flex-1",
