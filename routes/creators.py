@@ -40,6 +40,10 @@ from db_lists import (
     suggest_primary_categories,
 )
 
+# Caching for filter suggestions
+from cachetools import TTLCache, cached
+
+
 # from services.youtube_backend_api import YouTubeBackendAPI
 from controllers.auth_routes import require_auth
 from views.compare import render_compare_page
@@ -59,6 +63,55 @@ from utils.creator_metrics import get_country_flag, get_language_emoji, get_lang
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Use cachetools for in-memory caching with TTL
+
+# 128 entries, 10 min TTL
+_stats_cache = TTLCache(maxsize=16, ttl=600)
+_top_countries_cache = TTLCache(maxsize=8, ttl=600)
+_top_languages_cache = TTLCache(maxsize=8, ttl=600)
+_top_categories_cache = TTLCache(maxsize=8, ttl=600)
+
+
+@cached(_stats_cache)
+def get_cached_hero_stats():
+    return get_creator_hero_stats()
+
+
+@cached(_top_countries_cache)
+def get_cached_top_countries(limit=8):
+    return get_top_countries_with_counts(limit=limit)
+
+
+@cached(_top_languages_cache)
+def get_cached_top_languages(limit=7):
+    return get_top_languages_with_counts(limit=limit)
+
+
+@cached(_top_categories_cache)
+def get_cached_top_categories(limit=9):
+    return get_top_categories_with_counts(limit=limit)
+
+
+_suggest_countries_cache = TTLCache(maxsize=4, ttl=600)
+_suggest_languages_cache = TTLCache(maxsize=4, ttl=600)
+_suggest_categories_cache = TTLCache(maxsize=16, ttl=600)
+
+
+@cached(_suggest_countries_cache)
+def cached_top_countries_with_counts(limit=200):
+    return get_top_countries_with_counts(limit=limit)
+
+
+@cached(_suggest_languages_cache)
+def cached_top_languages_with_counts(limit=300):
+    return get_top_languages_with_counts(limit=limit)
+
+
+@cached(_suggest_categories_cache)
+def cached_suggest_primary_categories(q, limit=8):
+    return suggest_primary_categories(q, limit=limit)
+
+
 # Natural-language country extraction
 # ---------------------------------------------------------------------------
 # Matches phrases like:
@@ -158,7 +211,7 @@ def creators_suggest_route(request):
     suggestions = []  # list of (value, display_label, count)
 
     if dim == "country":
-        for code, count in get_top_countries_with_counts(limit=200):
+        for code, count in cached_top_countries_with_counts(limit=200):
             country_obj = pycountry.countries.get(alpha_2=code.upper())
             country_name = country_obj.name.lower() if country_obj else ""
             if q in code.lower() or q in country_name:
@@ -169,7 +222,7 @@ def creators_suggest_route(request):
                     break
 
     elif dim == "language":
-        for code, count in get_top_languages_with_counts(limit=300):
+        for code, count in cached_top_languages_with_counts(limit=300):
             name = get_language_name(code)
             if q in code.lower() or q in name.lower():
                 emoji = get_language_emoji(code) or "🌐"
@@ -178,7 +231,7 @@ def creators_suggest_route(request):
                     break
 
     elif dim == "category":
-        for cat_name, count in suggest_primary_categories(q, limit=8):
+        for cat_name, count in cached_suggest_primary_categories(q, limit=8):
             emoji = get_topic_category_emoji(cat_name)
             short = cat_name.split("/")[-1].strip() or cat_name
             suggestions.append((cat_name, f"{emoji} {short}", count))
@@ -338,8 +391,9 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # counts from the RPC — same source of truth as the /lists page.
     # The three top_* lists are then replaced with full-DB RPC results so the
     # hero flags and filter dropdowns are consistent across both pages.
+
     page_stats = calculate_creator_stats(creators)
-    hero_stats = get_creator_hero_stats()
+    hero_stats = get_cached_hero_stats()
     stats = {**page_stats, **hero_stats}
 
     # Bug fix: calculate_creator_stats() sets total_creators = len(creators) = page
@@ -366,9 +420,9 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     )
     if not has_active_filters:
         stats["total_creators"] = total_count
-    stats["top_countries"] = get_top_countries_with_counts(limit=8)
-    stats["top_languages"] = get_top_languages_with_counts(limit=7)
-    stats["top_categories"] = get_top_categories_with_counts(limit=9)
+    stats["top_countries"] = get_cached_top_countries(limit=8)
+    stats["top_languages"] = get_cached_top_languages(limit=7)
+    stats["top_categories"] = get_cached_top_categories(limit=9)
     stats["total_categories"] = get_lists_meta().get("total_categories", 0)
 
     # Fetch the authenticated user's favourites so cards can show the heart state.
