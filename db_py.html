@@ -66,8 +66,8 @@
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a id="nextFileLink" class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-05-10 13:50 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.14.0">coverage.py v7.14.0</a>,
+            created at 2026-05-11 02:31 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -3100,7 +3100,7 @@
     <p class="pln"><span class="n"><a id="t3016" href="#t3016">3016</a></span><span class="t">        <span class="com"># Only show fully-synced creators &#8212; mirrors calculate_creator_stats() behaviour.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3017" href="#t3017">3017</a></span><span class="t">        <span class="com"># Excludes "pending" / "error" rows that have no real stats yet, which would</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3018" href="#t3018">3018</a></span><span class="t">        <span class="com"># otherwise appear as blank cards and skew pagination counts.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t3019" href="#t3019">3019</a></span><span class="t">        <span class="nam">query</span> <span class="op">=</span> <span class="nam">query</span><span class="op">.</span><span class="nam">eq</span><span class="op">(</span><span class="str">"sync_status"</span><span class="op">,</span> <span class="str">"synced"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t3019" href="#t3019">3019</a></span><span class="t">        <span class="nam">query</span> <span class="op">=</span> <span class="nam">query</span><span class="op">.</span><span class="nam">in_</span><span class="op">(</span><span class="str">"sync_status"</span><span class="op">,</span> <span class="op">[</span><span class="str">"synced"</span><span class="op">,</span> <span class="str">"pending"</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3020" href="#t3020">3020</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3021" href="#t3021">3021</a></span><span class="t">        <span class="com"># Apply search filter</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3022" href="#t3022">3022</a></span><span class="t">        <span class="key">if</span> <span class="nam">search</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -3762,8 +3762,8 @@
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.13.5">coverage.py v7.13.5</a>,
-            created at 2026-05-10 13:50 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.14.0">coverage.py v7.14.0</a>,
+            created at 2026-05-11 02:31 +0000
         </p>
     </div>
 </footer>
