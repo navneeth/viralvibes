@@ -3016,7 +3016,7 @@ def get_creators(
         # Only show fully-synced creators — mirrors calculate_creator_stats() behaviour.
         # Excludes "pending" / "error" rows that have no real stats yet, which would
         # otherwise appear as blank cards and skew pagination counts.
-        query = query.eq("sync_status", "synced")
+        query = query.in_("sync_status", ["synced", "pending"])
 
         # Apply search filter
         if search:
