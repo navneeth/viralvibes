@@ -2465,6 +2465,72 @@ def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dic
 
 
 # ============================================================================
+# 🤝  Creator Peers  (embedding-based similarity)
+# ============================================================================
+
+_CREATOR_PEERS_TABLE = "creator_peers"
+
+# Fields fetched for each peer creator — same subset used by the similar-rail tiles
+_PEER_CREATOR_FIELDS = (
+    "id, channel_name, channel_thumbnail_url, "
+    "current_subscribers, quality_grade, primary_category, country_code"
+)
+
+
+def get_embedding_peers(
+    creator_id: str,
+    peer_type: str = "embedding_v1",
+    limit: int = 20,
+) -> Optional[List[Dict[str, Any]]]:
+    """Return hydrated creator dicts for the embedding-based peer list.
+
+    Two-query pattern:
+      1. Fetch the peer_list (ordered UUID array) from creator_peers.
+      2. Fetch the matching creator rows, then re-order to match the ranked list.
+
+    Returns:
+        list[dict]  — peer creator rows in similarity order (best first)
+        None        — creator_id not present in creator_peers for this peer_type,
+                      so callers should suppress the "Similar creators" section.
+    """
+    if not supabase_client or not creator_id:
+        return None
+    try:
+        # Step 1: look up peer list
+        resp = (
+            supabase_client.table(_CREATOR_PEERS_TABLE)
+            .select("peer_list")
+            .eq("creator_id", creator_id)
+            .eq("peer_type", peer_type)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return None  # ← caller must hide the section
+
+        peer_ids: list[str] = (rows[0].get("peer_list") or [])[:limit]
+        if not peer_ids:
+            return None
+
+        # Step 2: hydrate creator rows for those IDs
+        creators_resp = (
+            supabase_client.table(CREATOR_TABLE)
+            .select(_PEER_CREATOR_FIELDS)
+            .in_("id", peer_ids)
+            .execute()
+        )
+        creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
+
+        # Re-order to preserve similarity ranking from peer_list
+        return [creators_by_id[pid] for pid in peer_ids if pid in creators_by_id]
+
+    except Exception as exc:
+        logger.exception("[EmbeddingPeers] get_embedding_peers failed for %s: %s", creator_id, exc)
+        return None
+
+
+# ============================================================================
 # 🔖  User Favourite Lists
 # ============================================================================
 

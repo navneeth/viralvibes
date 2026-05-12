@@ -2997,6 +2997,7 @@ def _render_similar_creators(
     category: str,
     country_code: str,
     current_creator_id: str = "",
+    title: str = "You may also like",
 ) -> Div | None:
     """
     Horizontal Apple-Music-style scroll rail of similar creators.
@@ -3004,6 +3005,10 @@ def _render_similar_creators(
     Each tile is a fixed-width card with a square avatar, channel name,
     subscriber count, and quality grade. The rail uses scroll-snap so
     swiping feels native on mobile.
+
+    ``title`` controls the section heading so the same component can serve
+    both the category-based "You may also like" and the embedding-based
+    "Similar creators" rails.
 
     Returns None when the list is empty so callers can safely omit it.
     """
@@ -3104,7 +3109,7 @@ def _render_similar_creators(
     rail_id = f"similar-rail-{current_creator_id or 'x'}"
     return Card(
         Div(
-            H2("You may also like", cls="text-base font-bold text-foreground"),
+            H2(title, cls="text-base font-bold text-foreground"),
             A(
                 see_all_label + " →",
                 href=see_all_href,
@@ -3137,6 +3142,7 @@ def render_creator_profile_page(
     peer_engagement_p75: float = 0.0,
     niche_leaderboard: list[dict] | None = None,
     recent_upload: dict | None = None,
+    embedding_peers: list[dict] | None = None,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
@@ -4200,6 +4206,23 @@ def render_creator_profile_page(
     )
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 4b — Embedding-based peers rail ("Similar creators")
+    # Only rendered when embedding_peers is a non-empty list.
+    # Passing None means the caller found no row in creator_peers → hide section.
+    # ═══════════════════════════════════════════════════════════════════════════
+    embedding_peers_section = (
+        _render_similar_creators(
+            embedding_peers,
+            primary_category,
+            country_code,
+            current_creator_id=creator_id,
+            title="Similar creators",
+        )
+        if embedding_peers  # None or [] → section is suppressed
+        else None
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 5 — Sync / freshness footer
     # ═══════════════════════════════════════════════════════════════════════════
     sync_colour = {
@@ -4242,6 +4265,7 @@ def render_creator_profile_page(
         stats_row,
         body_cols,
         similar_section,
+        embedding_peers_section,
         box_plot_section,
         footer_section,
         cls="max-w-5xl mx-auto px-4 pb-16 pt-6",

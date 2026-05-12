@@ -27,6 +27,7 @@ from db import (
     get_creator_rank,
     get_creator_stats,
     get_creators,
+    get_embedding_peers,
     get_user_favourite_creator_ids,
     is_creator_favourited,
     queue_creator_add_request,
@@ -527,6 +528,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     niche_leaderboard = get_category_leaderboard(creator.get("primary_category", ""), limit=5)
     is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
     similar_creators = _get_similar_creators(creator)
+    embedding_peers = get_embedding_peers(creator_id)
 
     return render_creator_profile_page(
         creator,
@@ -537,6 +539,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         niche_leaderboard=niche_leaderboard,
         is_favourited=is_fav,
         similar_creators=similar_creators,
+        embedding_peers=embedding_peers,
     )
 
 
