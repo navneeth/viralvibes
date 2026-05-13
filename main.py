@@ -115,6 +115,8 @@ from routes.creators import (
     creators_suggest_route,
     toggle_favourite_route,
 )
+from routes.about import about_page_content
+from routes.contact import contact_page_content, post_contact
 from routes.legal import privacy_page_content, terms_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
@@ -1747,6 +1749,36 @@ def privacy(req, sess):
         Container(
             NavComponent(oauth, req, sess),
             privacy_page_content(),
+            cls=ContainerT.xl,
+        ),
+    )
+
+
+@rt("/about")
+def about(req, sess):
+    """About page — public route."""
+    return Titled(
+        "About ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            about_page_content(),
+            cls=ContainerT.xl,
+        ),
+    )
+
+
+@rt("/contact", methods=["GET", "POST"])
+def contact(req, sess):
+    """Contact page — public route with form submission."""
+    if req.method == "POST":
+        # Handle form submission
+        return post_contact(req, sess)
+    # GET request — render the form
+    return Titled(
+        "Contact Us - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            contact_page_content(),
             cls=ContainerT.xl,
         ),
     )

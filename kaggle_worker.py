@@ -107,6 +107,7 @@ YOUTUBE_API_KEY_NAMES = [
     "YOUTUBE_API_KEY_2",
     "YOUTUBE_API_KEY_3",
     "YOUTUBE_API_KEY_4",
+    "YOUTUBE_API_KEY_5",
 ]
 
 # ── Step 1: fetch secrets once, before any worker import ─────────────────────
