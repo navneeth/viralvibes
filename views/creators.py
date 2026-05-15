@@ -30,6 +30,7 @@ from urllib.parse import urlencode, unquote, quote, quote_plus, urlparse
 from fasthtml.common import *
 from monsterui.all import *
 
+from utils import format_float, format_percentage
 from utils import format_date_relative, format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
@@ -54,6 +55,27 @@ from db import calculate_creator_stats, get_creator_hero_stats
 from components.category_stats import render_category_box_plots
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# DESIGN TOKENS — repeated Tailwind sequences extracted as module constants.
+# Changing one line here updates every usage site automatically.
+# ============================================================================
+
+# Typography
+_CLS_LABEL = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+_CLS_MUTED_XS = "text-xs text-muted-foreground"
+_CLS_MUTED_SM = "text-sm text-muted-foreground"
+_CLS_HEADING = "text-base font-bold text-foreground"
+_CLS_VALUE_SM = "text-sm font-medium text-foreground"
+
+# Layout
+_CLS_ROW_DIVIDED = "flex justify-between items-center py-2 border-b border-border last:border-0"
+_CLS_ROW_PY = "flex justify-between items-center py-1.5"
+_CLS_ICON_SM = "size-4 mr-1.5"
+
+# Separators / decoration
+_CLS_SEPARATOR = "text-border mx-1"  # mid-dot "·" between inline items
 
 
 # ============================================================================
@@ -481,7 +503,7 @@ def render_add_creator_section() -> Div:
                         "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
                     ),
                     Button(
-                        UkIcon("send", cls="size-4 mr-1.5"),
+                        UkIcon("send", cls=_CLS_ICON_SM),
                         "Submit",
                         type="submit",
                         cls="flex items-center px-4 py-2 text-sm font-medium rounded-lg "
@@ -494,7 +516,6 @@ def render_add_creator_section() -> Div:
                 Div(id="creator-add-result", cls="mt-3"),
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
-                hx_swap="innerHTML",
             ),
             cls="p-4 rounded-xl border border-border bg-background",
         ),
@@ -1605,7 +1626,7 @@ def _render_filter_bar(
                                 if total_count
                                 else f"{grade_counts.get('all', 0)} on this page"
                             ),
-                            cls="text-sm text-muted-foreground",
+                            cls=_CLS_MUTED_SM,
                         ),
                         cls="flex-1",
                     ),
@@ -1887,7 +1908,7 @@ def _build_primary_metrics(
         Div(
             P(
                 "SUBSCRIBERS",
-                cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
+                cls=_CLS_LABEL,
             ),
             H2(
                 format_number(current_subs),
@@ -1895,7 +1916,7 @@ def _build_primary_metrics(
             ),
             P(
                 (
-                    f"{'+' if subs_change > 0 else ''}{format_number(subs_change)} (30d)"
+                    f"{format_number(subs_change, signed=True)} (30d)"
                     if subs_change is not None
                     else "—"
                 ),
@@ -1907,7 +1928,7 @@ def _build_primary_metrics(
         Div(
             P(
                 "VIEWS",
-                cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
+                cls=_CLS_LABEL,
             ),
             H2(
                 format_number(current_views),
@@ -1915,7 +1936,7 @@ def _build_primary_metrics(
             ),
             P(
                 (
-                    f"{'+' if views_change > 0 else ''}{format_number(views_change)} (30d)"
+                    f"{format_number(views_change, signed=True)} (30d)"
                     if views_change is not None
                     else "—"
                 ),
@@ -1944,7 +1965,7 @@ def _build_performance_metrics(
                 format_number(avg_views_per_video),
                 cls="text-lg font-bold text-foreground mt-1",
             ),
-            P("per video", cls="text-xs text-muted-foreground"),
+            P("per video", cls=_CLS_MUTED_XS),
             cls="bg-accent rounded-lg p-3 text-center",
         ),
         Div(
@@ -1956,7 +1977,7 @@ def _build_performance_metrics(
                 format_number(current_videos),
                 cls="text-lg font-bold text-foreground mt-1",
             ),
-            P("published", cls="text-xs text-muted-foreground"),
+            P("published", cls=_CLS_MUTED_XS),
             cls="bg-accent rounded-lg p-3 text-center",
         ),
         Div(
@@ -1965,7 +1986,7 @@ def _build_performance_metrics(
                 cls="text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase",
             ),
             P(
-                f"{views_per_sub:.1f}x",
+                f"{format_float(views_per_sub, 1)}x",
                 cls="text-lg font-bold text-indigo-600 dark:text-indigo-400 mt-1",
             ),
             P("audience reach", cls="text-xs text-indigo-500 dark:text-indigo-400"),
@@ -2212,7 +2233,7 @@ def _build_card_footer(
             UkIcon("clock", cls="w-3 h-3 mr-1 opacity-50"),
             Span(
                 format_date_relative(last_updated),
-                cls="text-xs text-muted-foreground",
+                cls=_CLS_MUTED_XS,
             ),
             cls="flex items-center gap-0.5",
         ),
@@ -2337,7 +2358,7 @@ def _build_recent_performance(
                 cls="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide",
             ),
             Span(
-                f"{reach_pct:.1f}% of subs",
+                f"{format_percentage(reach_pct / 100)} of subs",
                 cls=f"text-xs font-bold {reach_color}",
             ),
             cls="flex flex-col gap-0.5 min-w-[90px]",
@@ -2737,7 +2758,7 @@ def _render_pagination(
         Div(
             P(
                 f"Showing {start_result:,}–{end_result:,} of {total_count:,} creators",
-                cls="text-sm text-muted-foreground",
+                cls=_CLS_MUTED_SM,
             ),
             cls="text-center mb-4",
         ),
@@ -2764,7 +2785,7 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
         action = Form(
             Input(type="hidden", name="q", value=search),
             Button(
-                UkIcon("plus-circle", cls="size-4 mr-1.5"),
+                UkIcon("plus-circle", cls=_CLS_ICON_SM),
                 f"Add {search}",
                 type="submit",
                 cls="flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
@@ -2773,12 +2794,11 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
             result_slot,
             hx_post="/creators/request",
             hx_target="#creator-add-result",
-            hx_swap="innerHTML",
             cls="flex flex-col items-start gap-0",
         )
     else:
         action = A(
-            UkIcon("log-in", cls="size-4 mr-1.5"),
+            UkIcon("log-in", cls=_CLS_ICON_SM),
             "Log in to add",
             href="/login",
             cls="inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
@@ -2841,7 +2861,7 @@ def _render_empty_state(
             add_cta = Form(
                 Input(type="hidden", name="q", value=search),
                 Button(
-                    UkIcon("plus-circle", cls="size-4 mr-1.5"),
+                    UkIcon("plus-circle", cls=_CLS_ICON_SM),
                     f"Add {search} to ViralVibes",
                     type="submit",
                     cls="flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
@@ -2850,12 +2870,11 @@ def _render_empty_state(
                 result_slot,
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
-                hx_swap="innerHTML",
                 cls="flex flex-col items-center gap-0",
             )
         else:
             add_cta = A(
-                UkIcon("log-in", cls="size-4 mr-1.5"),
+                UkIcon("log-in", cls=_CLS_ICON_SM),
                 "Log in to add this creator",
                 href=f"/login",
                 cls="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
@@ -2909,13 +2928,12 @@ def _render_empty_state(
                 result_slot,
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
-                hx_swap="innerHTML",
             )
         else:
             submit_area = P(
                 A("Log in", href="/login", cls="text-primary hover:underline font-medium"),
                 " to submit a creator by @handle.",
-                cls="text-sm text-muted-foreground",
+                cls=_CLS_MUTED_SM,
             )
 
         return Card(
@@ -3057,7 +3075,7 @@ def _render_similar_creators(
                         Div(
                             Span(
                                 format_number(subs),
-                                cls="text-xs text-muted-foreground",
+                                cls=_CLS_MUTED_XS,
                             ),
                             *(
                                 [
@@ -3109,7 +3127,7 @@ def _render_similar_creators(
     rail_id = f"similar-rail-{current_creator_id or 'x'}"
     return Card(
         Div(
-            H2(title, cls="text-base font-bold text-foreground"),
+            H2(title, cls=_CLS_HEADING),
             A(
                 see_all_label + " →",
                 href=see_all_href,
@@ -3264,11 +3282,10 @@ def render_creator_profile_page(
                 else "text-muted-foreground bg-accent"
             )
         )
-        sign = "+" if val > 0 else ""
-        text = f"{sign}{format_number(val)} 30d"
+        text = f"{format_number(val, signed=True)} 30d"
         if pct is not None and pct != 0:
             arrow = "↑" if pct > 0 else "↓"
-            text += f"  {arrow}{abs(pct):.1f}%"
+            text += f"  {arrow}{format_percentage(abs(pct) / 100)}"
         return Span(
             text,
             cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {colour} ml-1.5",
@@ -3287,9 +3304,9 @@ def render_creator_profile_page(
 
     def _perf_row(label: str, value: str, value_cls: str = "text-foreground"):
         return Div(
-            Span(label, cls="text-sm text-muted-foreground"),
+            Span(label, cls=_CLS_MUTED_SM),
             Span(value, cls=f"text-sm font-semibold {value_cls}"),
-            cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+            cls=_CLS_ROW_DIVIDED,
         )
 
     def _rank_chip(text: str, href: str, title: str):
@@ -3458,17 +3475,13 @@ def render_creator_profile_page(
                 (
                     Span(
                         f"{country_flag} {country_code.upper()}",
-                        cls="text-sm text-muted-foreground",
+                        cls=_CLS_MUTED_SM,
                         title=country_code.upper(),
                     )
                     if country_code
                     else None
                 ),
-                (
-                    Span(f"{lang_emoji} {lang_name}", cls="text-sm text-muted-foreground")
-                    if language
-                    else None
-                ),
+                (Span(f"{lang_emoji} {lang_name}", cls=_CLS_MUTED_SM) if language else None),
                 (
                     Span(
                         f"📅 {format_channel_age(channel_age_days)}",
@@ -3509,14 +3522,14 @@ def render_creator_profile_page(
                 Span(f"#{country_rank}", cls="text-xs font-bold text-blue-500 dark:text-blue-400"),
                 Span(
                     f" in {country_flag} {country_code.upper()}",
-                    cls="text-xs text-muted-foreground",
+                    cls=_CLS_MUTED_XS,
                 ),
                 cls="mt-2",
             )
         elif category_rank is not None and primary_category:
             _subs_rank_line = Div(
                 Span(f"#{category_rank}", cls="text-xs font-bold text-blue-500 dark:text-blue-400"),
-                Span(f" in {primary_category}", cls="text-xs text-muted-foreground"),
+                Span(f" in {primary_category}", cls=_CLS_MUTED_XS),
                 cls="mt-2",
             )
 
@@ -3614,7 +3627,7 @@ def render_creator_profile_page(
         _info_row(
             "upload",
             "Upload Rate",
-            f"{monthly_uploads:.1f} videos/month" if monthly_uploads else "—",
+            f"{format_float(monthly_uploads, 1)} videos/month" if monthly_uploads else "—",
         ),
         (_info_row("eye-off", "Subscriber Count", "Hidden on YouTube") if hidden_subs else None),
     ]
@@ -3648,7 +3661,7 @@ def render_creator_profile_page(
         recent_upload_card = Card(
             Div(
                 UkIcon("play-circle", cls="w-4 h-4 text-red-500 mr-2"),
-                H2("Latest Upload", cls="text-base font-bold text-foreground"),
+                H2("Latest Upload", cls=_CLS_HEADING),
                 *(
                     [
                         Span(
@@ -3689,20 +3702,20 @@ def render_creator_profile_page(
             Div(
                 Span(
                     f"{format_number(ru_views)} views",
-                    cls="text-xs text-muted-foreground",
+                    cls=_CLS_MUTED_XS,
                 ),
                 *(
                     [
-                        Span("·", cls="text-border mx-1"),
-                        Span(ru_dur_str, cls="text-xs text-muted-foreground"),
+                        Span("·", cls=_CLS_SEPARATOR),
+                        Span(ru_dur_str, cls=_CLS_MUTED_XS),
                     ]
                     if ru_dur_str
                     else []
                 ),
                 *(
                     [
-                        Span("·", cls="text-border mx-1"),
-                        Span(format_date_relative(ru_pub), cls="text-xs text-muted-foreground"),
+                        Span("·", cls=_CLS_SEPARATOR),
+                        Span(format_date_relative(ru_pub), cls=_CLS_MUTED_XS),
                     ]
                     if ru_pub
                     else []
@@ -3716,7 +3729,7 @@ def render_creator_profile_page(
     left_col = Div(
         about_card,
         channel_info_card,
-        *(recent_upload_card and [recent_upload_card] or []),
+        *([recent_upload_card] if recent_upload_card else []),
         cls="flex flex-col gap-4",
     )
 
@@ -3725,7 +3738,7 @@ def render_creator_profile_page(
         social_card = Card(
             Div(
                 UkIcon("share-2", cls="w-4 h-4 text-muted-foreground mr-2"),
-                H2("Connect", cls="text-base font-bold text-foreground"),
+                H2("Connect", cls=_CLS_HEADING),
                 cls="flex items-center mb-4",
             ),
             Div(
@@ -3752,7 +3765,7 @@ def render_creator_profile_page(
             about_card,
             channel_info_card,
             social_card,
-            *(recent_upload_card and [recent_upload_card] or []),
+            *([recent_upload_card] if recent_upload_card else []),
             cls="flex flex-col gap-4",
         )
 
@@ -3761,7 +3774,7 @@ def render_creator_profile_page(
         featured_card = Card(
             Div(
                 UkIcon("users", cls="w-4 h-4 text-muted-foreground mr-2"),
-                H2("Featured Channels", cls="text-base font-bold text-foreground"),
+                H2("Featured Channels", cls=_CLS_HEADING),
                 cls="flex items-center mb-4",
             ),
             Div(
@@ -3786,9 +3799,9 @@ def render_creator_profile_page(
         left_col = Div(
             about_card,
             channel_info_card,
-            *(social_links and [social_card] or []),
+            *([social_card] if social_links else []),
             featured_card,
-            *(recent_upload_card and [recent_upload_card] or []),
+            *([recent_upload_card] if recent_upload_card else []),
             cls="flex flex-col gap-4",
         )
 
@@ -3798,10 +3811,10 @@ def render_creator_profile_page(
     if peer_engagement_p75 > 0 and engagement_score > 0:
         eng_ratio = engagement_score / peer_engagement_p75
         if eng_ratio >= 1.1:
-            eng_vs = f"{eng_ratio:.1f}× category avg"
+            eng_vs = f"{format_float(eng_ratio, 1)}× category avg"
             eng_vs_cls = "text-emerald-600 dark:text-emerald-400"
         elif eng_ratio <= 0.75:
-            eng_vs = f"{eng_ratio:.1f}× category avg"
+            eng_vs = f"{format_float(eng_ratio, 1)}× category avg"
             eng_vs_cls = "text-red-500"
         else:
             eng_vs = "≈ category avg"
@@ -3812,42 +3825,45 @@ def render_creator_profile_page(
 
     secondary_metrics = Div(
         _perf_row("Avg Views / Video", format_number(avg_views)),
-        _perf_row("Views / Subscriber", f"{views_per_sub:.2f}x"),
+        _perf_row("Views / Subscriber", f"{format_float(views_per_sub, 2)}x"),
         _perf_row(
             "Upload Rate",
-            f"{monthly_uploads:.1f} / month" if monthly_uploads else "—",
+            f"{format_float(monthly_uploads, 1)} / month" if monthly_uploads else "—",
         ),
         Div(
             Div(
                 Span(
                     "Engagement Score",
-                    cls="text-sm text-muted-foreground",
+                    cls=_CLS_MUTED_SM,
                 ),
                 Div(
                     Span(
-                        f"{engagement_score:.2f} / 10",
+                        f"{format_float(engagement_score)} / 10",
                         cls="text-sm font-semibold "
                         + ("text-blue-600" if engagement_score >= 7 else "text-foreground"),
                     ),
                     *([Span(eng_vs, cls=f"text-xs ml-2 {eng_vs_cls}")] if eng_vs else []),
                     cls="flex items-center gap-1",
                 ),
-                cls="flex justify-between items-center py-1.5",
+                cls=_CLS_ROW_PY,
             ),
         ),
         *(
             [
                 Div(
-                    Span("Momentum", cls="text-sm text-muted-foreground"),
+                    Span("Momentum", cls=_CLS_MUTED_SM),
                     Div(
-                        Span(f"{momentum_score:.0f}", cls="text-sm font-bold text-foreground"),
+                        Span(
+                            format_float(momentum_score, 0),
+                            cls="text-sm font-bold text-foreground",
+                        ),
                         Span(
                             momentum_label,
                             cls=f"text-xs font-semibold px-2 py-0.5 rounded-full border ml-2 {momentum_style}",
                         ),
                         cls="flex items-center",
                     ),
-                    cls="flex justify-between items-center py-1.5",
+                    cls=_CLS_ROW_PY,
                 )
             ]
             if momentum_label
@@ -3867,7 +3883,7 @@ def render_creator_profile_page(
             DivFullySpaced(
                 P(
                     "30-Day Growth",
-                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
+                    cls=_CLS_LABEL,
                 ),
                 Div(
                     Span(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"),
@@ -3892,7 +3908,7 @@ def render_creator_profile_page(
             UkIcon("bar-chart-2", cls="w-6 h-6 text-muted-foreground mb-1"),
             P(
                 "Growth tracking initializing",
-                cls="text-sm font-medium text-foreground",
+                cls=_CLS_VALUE_SM,
             ),
             P("Check back in 7+ days", cls="text-xs text-muted-foreground mt-0.5"),
             cls="flex flex-col items-center text-center bg-accent rounded-xl p-4 mt-4",
@@ -3909,7 +3925,7 @@ def render_creator_profile_page(
                     UkIcon("circle-dollar-sign", cls="w-4 h-4 text-emerald-500 mr-1.5"),
                     Span(
                         "Est. Monthly Revenue",
-                        cls="text-xs font-semibold text-muted-foreground uppercase tracking-wide",
+                        cls=_CLS_LABEL,
                     ),
                     cls="flex items-center",
                 ),
@@ -3952,7 +3968,7 @@ def render_creator_profile_page(
             Div(
                 Span(
                     f"{country_flag} {country_code.upper()}",
-                    cls="text-sm text-muted-foreground",
+                    cls=_CLS_MUTED_SM,
                 ),
                 Div(
                     A(
@@ -3964,13 +3980,13 @@ def render_creator_profile_page(
                     Span("in country", cls="text-xs text-muted-foreground ml-1"),
                     cls="flex items-center",
                 ),
-                cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+                cls=_CLS_ROW_DIVIDED,
             )
         )
     if language_rank is not None and language:
         ranking_rows.append(
             Div(
-                Span(f"{lang_emoji} {lang_name}", cls="text-sm text-muted-foreground"),
+                Span(f"{lang_emoji} {lang_name}", cls=_CLS_MUTED_SM),
                 Div(
                     A(
                         f"#{language_rank}",
@@ -3981,7 +3997,7 @@ def render_creator_profile_page(
                     Span("in language", cls="text-xs text-muted-foreground ml-1"),
                     cls="flex items-center",
                 ),
-                cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+                cls=_CLS_ROW_DIVIDED,
             )
         )
     if category_rank is not None and primary_category:
@@ -3989,7 +4005,7 @@ def render_creator_profile_page(
             Div(
                 Span(
                     f"{get_topic_category_emoji(primary_category)} {primary_category}",
-                    cls="text-sm text-muted-foreground",
+                    cls=_CLS_MUTED_SM,
                 ),
                 Div(
                     A(
@@ -4001,7 +4017,7 @@ def render_creator_profile_page(
                     Span("in category", cls="text-xs text-muted-foreground ml-1"),
                     cls="flex items-center",
                 ),
-                cls="flex justify-between items-center py-2 border-b border-border last:border-0",
+                cls=_CLS_ROW_DIVIDED,
             )
         )
 
@@ -4009,7 +4025,7 @@ def render_creator_profile_page(
         Card(
             Div(
                 UkIcon("trophy", cls="w-4 h-4 text-amber-500 mr-2"),
-                H2("Rankings", cls="text-base font-bold text-foreground"),
+                H2("Rankings", cls=_CLS_HEADING),
                 cls="flex items-center mb-3",
             ),
             Div(*ranking_rows),
@@ -4150,12 +4166,12 @@ def render_creator_profile_page(
                         ),
                         Span(
                             format_number(peer_subs),
-                            cls="text-xs text-muted-foreground",
+                            cls=_CLS_MUTED_XS,
                         ),
                         cls="flex-1 min-w-0",
                     ),
                     Span(
-                        f"{peer_eng:.2f}",
+                        format_float(peer_eng),
                         cls="text-xs font-bold text-blue-600 shrink-0",
                         title="Engagement score",
                     ),
@@ -4167,7 +4183,7 @@ def render_creator_profile_page(
                 UkIcon("flame", cls="w-4 h-4 text-orange-500 mr-2"),
                 H2(
                     f"Top {primary_category}",
-                    cls="text-base font-bold text-foreground",
+                    cls=_CLS_HEADING,
                 ),
                 Span(
                     "by engagement",
@@ -4187,7 +4203,7 @@ def render_creator_profile_page(
     right_col = Div(
         performance_card,
         rankings_card,
-        *(leaderboard_card and [leaderboard_card] or []),
+        *([leaderboard_card] if leaderboard_card else []),
         topic_pill_section,
         cat_dist_card,
         cls="flex flex-col gap-4",
@@ -4236,17 +4252,17 @@ def render_creator_profile_page(
     footer_section = Div(
         UkIcon(sync_uk_icon, cls=f"w-3.5 h-3.5 {sync_colour}"),
         Span(sync_status.title(), cls=f"text-xs font-semibold {sync_colour}"),
-        Span("·", cls="text-border mx-1"),
+        Span("·", cls=_CLS_SEPARATOR),
         Span(
             f"Updated {format_date_relative(last_updated)}",
-            cls="text-xs text-muted-foreground",
+            cls=_CLS_MUTED_XS,
         ),
-        Span("·", cls="text-border mx-1"),
+        Span("·", cls=_CLS_SEPARATOR),
         Span(
             f"Synced {format_date_relative(last_synced)}",
-            cls="text-xs text-muted-foreground",
+            cls=_CLS_MUTED_XS,
         ),
-        Span("·", cls="text-border mx-1"),
+        Span("·", cls=_CLS_SEPARATOR),
         Span(
             f"ID {creator_id[:8]}…",
             cls="text-xs text-muted-foreground font-mono",
