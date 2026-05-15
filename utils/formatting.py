@@ -23,15 +23,20 @@ def format_number(num: float, signed: bool = False) -> str:
     """
     if not num:
         return "0"
-    if num >= 1_000_000_000:
-        result = f"{num / 1_000_000_000:.1f}B"
-    elif num >= 1_000_000:
-        result = f"{num / 1_000_000:.1f}M"
-    elif num >= 1_000:
-        result = f"{num / 1_000:.1f}K"
+    abs_num = abs(num)
+    if abs_num >= 1_000_000_000:
+        result = f"{abs_num / 1_000_000_000:.1f}B"
+    elif abs_num >= 1_000_000:
+        result = f"{abs_num / 1_000_000:.1f}M"
+    elif abs_num >= 1_000:
+        result = f"{abs_num / 1_000:.1f}K"
     else:
-        result = f"{num:,.0f}"
-    return f"+{result}" if (signed and num > 0) else result
+        result = f"{abs_num:,.0f}"
+    if num < 0:
+        result = f"-{result}"
+    elif signed and num > 0:
+        result = f"+{result}"
+    return result
 
 
 def parse_number(val: str) -> int:
@@ -86,7 +91,17 @@ def format_percentage(x: float, decimals: int = 1) -> str:
         format_percentage(0.5)       → "50.0%"
     """
     pct = float(x) * 100
-    return f"{pct:.{decimals}f}%"
+    if decimals <= 0:
+        formatted = f"{pct:.0f}"
+    else:
+        formatted = f"{pct:.{decimals}f}"
+        if "." in formatted:
+            integer_part, frac_part = formatted.split(".", 1)
+            trimmed_frac = frac_part.rstrip("0")
+            if not trimmed_frac:
+                trimmed_frac = "0"
+            formatted = f"{integer_part}.{trimmed_frac}"
+    return f"{formatted}%"
 
 
 def format_float(value: float, decimals: int = 2) -> str:

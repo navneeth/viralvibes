@@ -3854,7 +3854,7 @@ def render_creator_profile_page(
                     Span("Momentum", cls=_CLS_MUTED_SM),
                     Div(
                         Span(
-                            f"{format_float(momentum_score, 0):.0f}",
+                            format_float(momentum_score, 0),
                             cls="text-sm font-bold text-foreground",
                         ),
                         Span(
