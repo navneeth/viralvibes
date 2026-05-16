@@ -3029,7 +3029,7 @@ def _find_creator_by_normalized_handle(
                 return resp.data[0]
         except Exception:
             logger.exception("Fallback handle lookup failed for %s", candidate)
-            return None
+            continue
 
     return None
 
@@ -3057,8 +3057,9 @@ def _get_ranked_creator_search(
     Use the ranked search RPC for unfiltered text search when available.
 
     Returns ``(True, result)`` when the RPC was attempted successfully,
-    including empty result sets. Returns ``(False, [])`` when the DB does not
-    have the RPC yet or it fails, so callers can fall back to the legacy query.
+    including empty result sets. Returns ``(False, [])`` when ``return_count`` is
+    ``False`` or ``(False, CreatorsResult([], 0))`` when ``return_count`` is
+    ``True``, allowing callers to fall back to the legacy query.
     """
     if not supabase_client or not hasattr(supabase_client, "rpc"):
         return False, CreatorsResult([], 0) if return_count else []

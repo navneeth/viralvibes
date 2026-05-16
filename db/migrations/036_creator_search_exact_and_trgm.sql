@@ -13,29 +13,33 @@
 -- The app also normalizes handles to "mrbeast", while production custom_url
 -- values are mostly stored as "@MrBeast" / "@mrbeast".
 --
--- Notes for Supabase
--- ------------------
--- CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
--- If applying manually in Supabase SQL Editor, run this file's CREATE INDEX
--- statements as standalone statements.
+-- Trade-off: Transactional Migration
+-- ------------------------------------
+-- This migration runs inside a transaction (required by Supabase and many
+-- migration runners). Transactional DDL requires removing CONCURRENTLY from
+-- index creation, which means the `creators` table will be briefly locked
+-- (read-write) during each index build. For the 810K-row creators table,
+-- each GIN index build takes roughly 2-10 seconds. This is acceptable during
+-- off-peak deployment; for high-availability environments, run indexes outside
+-- business hours or use a separate non-transactional migration tool if available.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Exact-handle lookup used by public.find_creator_by_normalized_handle().
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_custom_url_normalized_expr
+CREATE INDEX IF NOT EXISTS idx_creators_custom_url_normalized_expr
 ON public.creators (LOWER(LTRIM(custom_url, '@')))
 WHERE custom_url IS NOT NULL
   AND custom_url <> '';
 
 -- Broad /creators search indexes. The partial WHERE mirrors db.get_creators()
 -- base filters so Postgres can use these indexes for the current query shape.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_channel_name_search_trgm
+CREATE INDEX IF NOT EXISTS idx_creators_channel_name_search_trgm
 ON public.creators USING GIN (channel_name gin_trgm_ops)
 WHERE sync_status IN ('synced', 'pending')
   AND channel_name IS NOT NULL
   AND current_subscribers > 0;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_custom_url_search_trgm
+CREATE INDEX IF NOT EXISTS idx_creators_custom_url_search_trgm
 ON public.creators USING GIN (custom_url gin_trgm_ops)
 WHERE sync_status IN ('synced', 'pending')
   AND channel_name IS NOT NULL
@@ -43,7 +47,7 @@ WHERE sync_status IN ('synced', 'pending')
   AND custom_url IS NOT NULL
   AND custom_url <> '';
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_primary_category_search_trgm
+CREATE INDEX IF NOT EXISTS idx_creators_primary_category_search_trgm
 ON public.creators USING GIN (primary_category gin_trgm_ops)
 WHERE sync_status IN ('synced', 'pending')
   AND channel_name IS NOT NULL
@@ -51,7 +55,7 @@ WHERE sync_status IN ('synced', 'pending')
   AND primary_category IS NOT NULL
   AND primary_category <> '';
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_keywords_search_trgm
+CREATE INDEX IF NOT EXISTS idx_creators_keywords_search_trgm
 ON public.creators USING GIN (keywords gin_trgm_ops)
 WHERE sync_status IN ('synced', 'pending')
   AND channel_name IS NOT NULL
