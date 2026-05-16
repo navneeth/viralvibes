@@ -1058,19 +1058,14 @@ def queue_creator_add_request(
                 .limit(1)
                 .execute()
             )
+            if existing.data:
+                creator_id = existing.data[0]["id"]
+                return False, "This creator is already in the database.", creator_id
         else:
-            handle_slug = normalised.lstrip("@")
-            existing = (
-                supabase_client.table(CREATOR_TABLE)
-                .select("id")
-                .ilike("custom_url", handle_slug)
-                .limit(1)
-                .execute()
-            )
-
-        if existing.data:
-            creator_id = existing.data[0]["id"]
-            return False, "This creator is already in the database.", creator_id
+            existing_creator = _find_creator_by_normalized_handle(normalised, select="id")
+            if existing_creator:
+                creator_id = existing_creator["id"]
+                return False, "This creator is already in the database.", creator_id
 
         # ── 3. Duplicate pending resolve_and_add? ────────────────────────────
         dup = (
@@ -1160,8 +1155,8 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
         return None
 
     try:
-        resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+        resp = _db_execute(
+            lambda: supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("status,creator_id")
             .eq("input_query", normalised)
             .order("created_at", desc=True)
@@ -1185,6 +1180,12 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
         return {"status": "processing", "creator_id": None}
 
     except Exception as e:
+        if _is_transient_disconnect(e):
+            logger.warning(
+                "get_creator_add_request_status transient disconnect for %s; keeping poll alive",
+                normalised,
+            )
+            return {"status": "processing", "creator_id": None}
         logger.exception("get_creator_add_request_status error for %s: %s", normalised, e)
         return {"status": "failed", "creator_id": None}
 
@@ -2848,7 +2849,8 @@ def find_creator_by_handle(handle: str) -> Optional[Dict[str, Any]]:
     """
     Find creator by YouTube handle (@username) or custom_url.
 
-    Searches custom_url field (case-insensitive) which stores the handle without @.
+    Uses the normalized-handle RPC when available so both historical storage
+    shapes (``mrbeast`` and ``@MrBeast``) resolve to the same creator.
 
     Args:
         handle: YouTube handle (e.g., "@MrBeast" or "MrBeast")
@@ -2860,29 +2862,13 @@ def find_creator_by_handle(handle: str) -> Optional[Dict[str, Any]]:
         logger.warning("Supabase client not available for handle search")
         return None
 
-    try:
-        # Normalize handle (remove @ if present, lowercase)
-        normalized_handle = handle.lstrip("@").lower()
+    creator = _find_creator_by_normalized_handle(handle)
+    if creator:
+        logger.info(f"Found creator by handle: {handle}")
+        return creator
 
-        # Search by custom_url (case-insensitive)
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("*")
-            .ilike("custom_url", normalized_handle)
-            .limit(1)
-            .execute()
-        )
-
-        if response.data:
-            logger.info(f"Found creator by handle: {handle}")
-            return response.data[0]
-
-        logger.debug(f"No creator found with handle: {handle}")
-        return None
-
-    except Exception as e:
-        logger.exception(f"Error finding creator by handle {handle}: {e}")
-        return None
+    logger.debug(f"No creator found with handle: {handle}")
+    return None
 
 
 def add_creator_by_handle(
@@ -2988,6 +2974,128 @@ class CreatorsResult(NamedTuple):
     total_count: int
 
 
+def _normalize_creator_handle(handle: str) -> str:
+    """Normalize a YouTube handle for exact DB lookup."""
+    return (handle or "").strip().lstrip("@").lower()
+
+
+def _find_creator_by_normalized_handle(
+    handle: str,
+    *,
+    select: str = "*",
+) -> Optional[Dict[str, Any]]:
+    """
+    Find a creator by exact normalized handle.
+
+    Primary path uses the Supabase RPC backed by the normalized expression
+    index. The fallback handles older local/test DBs that do not have the RPC
+    yet and also covers both historical storage shapes: ``mrbeast`` and
+    ``@mrbeast``.
+    """
+    if not supabase_client:
+        return None
+
+    normalized_handle = _normalize_creator_handle(handle)
+    if not normalized_handle:
+        return None
+
+    if hasattr(supabase_client, "rpc"):
+        try:
+            resp = _db_execute(
+                lambda: supabase_client.rpc(
+                    "find_creator_by_normalized_handle",
+                    {"p_handle": normalized_handle},
+                ).execute()
+            )
+            if resp.data:
+                return resp.data[0]
+            return None
+        except Exception:
+            logger.warning(
+                "find_creator_by_normalized_handle RPC failed; falling back to custom_url lookup",
+                exc_info=True,
+            )
+
+    for candidate in (normalized_handle, f"@{normalized_handle}"):
+        try:
+            resp = (
+                supabase_client.table(CREATOR_TABLE)
+                .select(select)
+                .ilike("custom_url", candidate)
+                .limit(1)
+                .execute()
+            )
+            if resp.data:
+                return resp.data[0]
+        except Exception:
+            logger.exception("Fallback handle lookup failed for %s", candidate)
+            return None
+
+    return None
+
+
+def _is_statement_timeout_error(exc: Exception) -> bool:
+    """Return True when Postgres canceled a query with statement timeout."""
+    text = str(exc).lower()
+    return "57014" in text or "statement timeout" in text
+
+
+def _is_handle_like_search(search: str) -> bool:
+    """Return True for single-token searches that look like YouTube handles."""
+    return bool(_HANDLE_RE.match(f"@{_normalize_creator_handle(search)}"))
+
+
+def _get_ranked_creator_search(
+    *,
+    search: str,
+    sort: str,
+    limit: int,
+    offset: int,
+    return_count: bool,
+) -> tuple[bool, list[dict] | CreatorsResult]:
+    """
+    Use the ranked search RPC for unfiltered text search when available.
+
+    Returns ``(True, result)`` when the RPC was attempted successfully,
+    including empty result sets. Returns ``(False, [])`` when the DB does not
+    have the RPC yet or it fails, so callers can fall back to the legacy query.
+    """
+    if not supabase_client or not hasattr(supabase_client, "rpc"):
+        return False, CreatorsResult([], 0) if return_count else []
+
+    try:
+        resp = _db_execute(
+            lambda: supabase_client.rpc(
+                "search_creators_ranked",
+                {
+                    "p_search": search,
+                    "p_sort": sort,
+                    "p_limit": limit,
+                    "p_offset": offset,
+                },
+            ).execute()
+        )
+    except Exception:
+        logger.warning("search_creators_ranked RPC failed; falling back", exc_info=True)
+        return False, CreatorsResult([], 0) if return_count else []
+
+    rows = resp.data or []
+    creators: list[dict] = []
+    total_count = 0
+    for idx, row in enumerate(rows, 1):
+        creator = row.get("creator") or {}
+        if not isinstance(creator, dict):
+            continue
+        creator["_rank"] = offset + idx
+        creators.append(creator)
+        if not total_count:
+            total_count = int(row.get("total_count") or 0)
+
+    if return_count:
+        return True, CreatorsResult(creators, total_count)
+    return True, creators
+
+
 def get_creators(
     search: str = "",
     sort: str = "subscribers",
@@ -3069,6 +3177,25 @@ def get_creators(
             "oldest_channel": ("published_at", False),
         }
         sort_field, descending = sort_map.get(sort, ("current_subscribers", True))
+
+        no_extra_filters = (
+            grade_filter == "all"
+            and language_filter == "all"
+            and activity_filter == "all"
+            and age_filter == "all"
+            and country_filter == "all"
+            and category_filter == "all"
+        )
+        if search and no_extra_filters:
+            used_ranked_rpc, ranked_result = _get_ranked_creator_search(
+                search=search,
+                sort=sort,
+                limit=limit,
+                offset=offset,
+                return_count=return_count,
+            )
+            if used_ranked_rpc:
+                return ranked_result
 
         # Start query - must call .select() to get a builder with filter methods
         query = supabase_client.table(CREATOR_TABLE).select(
@@ -3182,6 +3309,27 @@ def get_creators(
         try:
             response = query.execute()
         except Exception as e:
+            if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
+                exact_creator = _find_creator_by_normalized_handle(search)
+                if exact_creator:
+                    exact_creator["_rank"] = 1
+                    logger.warning(
+                        "Creator broad search timed out for %r; returned exact handle fallback",
+                        search,
+                    )
+                    if return_count:
+                        return CreatorsResult([exact_creator], 1)
+                    return [exact_creator]
+                if _is_handle_like_search(search):
+                    logger.warning(
+                        "Creator broad search timed out for handle-like query %r; "
+                        "returning empty exact-search result",
+                        search,
+                    )
+                    if return_count:
+                        return CreatorsResult([], 0)
+                    return []
+
             logger.error(
                 f"Query execution failed: {type(e).__name__}: {str(e)}\n"
                 f"Sort: {sort}, Search: {search!r}, Filters: "

@@ -247,7 +247,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # name/URL columns. Stripping it surfaces real matches (mrbeast2,
     # mrbeastgaming) and drops the keyword-spam noise.
     # The original @handle is preserved in the banner via `handle_not_found`.
-    if search.startswith("@"):
+    if search.startswith("@") and not handle_not_found:
         search = search.lstrip("@").strip()
     sort = request.query_params.get("sort", "subscribers")
     grade_filter = request.query_params.get("grade", "all")
@@ -292,24 +292,31 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     except (TypeError, ValueError):
         per_page = 50
 
-    # Fetch creators (db.py handles all logic)
-    # Using pagination to keep page load performant as creator count grows
-    result = get_creators(
-        search=search,
-        sort=sort,
-        grade_filter=grade_filter,
-        language_filter=language_filter,
-        activity_filter=activity_filter,
-        age_filter=age_filter,
-        country_filter=country_filter,
-        category_filter=category_filter,
-        limit=per_page,
-        offset=(page - 1) * per_page,
-        return_count=True,
-    )
-
-    creators = result.creators
-    total_count = result.total_count
+    if handle_not_found:
+        # Exact @handle intent already missed the normalized-handle lookup.
+        # Do not fall through to the broad OR-ILIKE discovery query: it is more
+        # expensive, lower precision, and can time out for long-tail handles.
+        # The view has a dedicated @handle empty state with an add-creator CTA.
+        creators = []
+        total_count = 0
+    else:
+        # Fetch creators (db.py handles all logic)
+        # Using pagination to keep page load performant as creator count grows
+        result = get_creators(
+            search=search,
+            sort=sort,
+            grade_filter=grade_filter,
+            language_filter=language_filter,
+            activity_filter=activity_filter,
+            age_filter=age_filter,
+            country_filter=country_filter,
+            category_filter=category_filter,
+            limit=per_page,
+            offset=(page - 1) * per_page,
+            return_count=True,
+        )
+        creators = result.creators
+        total_count = result.total_count
 
     # Calculate total pages
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1

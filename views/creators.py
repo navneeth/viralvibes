@@ -469,6 +469,11 @@ def _build_filter_url(
 # ============================================================================
 
 
+def _creator_add_loading() -> Span:
+    """Small MonsterUI HTMX indicator used by creator-add forms."""
+    return Loading((LoadingT.spinner, LoadingT.sm), htmx_indicator=True)
+
+
 def render_add_creator_section() -> Div:
     """
     HTMX form that lets authenticated users submit a creator by @handle or
@@ -510,12 +515,14 @@ def render_add_creator_section() -> Div:
                         "bg-primary text-primary-foreground hover:bg-primary/90 "
                         "transition-colors shrink-0",
                     ),
-                    cls="flex gap-2 mt-3",
+                    _creator_add_loading(),
+                    cls="flex items-center gap-2 mt-3",
                 ),
                 # Response target injected below the form
                 Div(id="creator-add-result", cls="mt-3"),
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
+                hx_indicator="find .htmx-indicator",
             ),
             cls="p-4 rounded-xl border border-border bg-background",
         ),
@@ -654,9 +661,7 @@ def render_add_creator_status_result(
         hx_swap="outerHTML",
     )
     return Div(
-        Div(
-            cls="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0"
-        ),
+        Div(Loading((LoadingT.spinner, LoadingT.sm)), cls="text-primary shrink-0"),
         P(
             "Processing… this usually takes under a minute.",
             cls="text-sm text-muted-foreground flex-1",
@@ -2791,9 +2796,11 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
                 cls="flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
                 "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0",
             ),
+            _creator_add_loading(),
             result_slot,
             hx_post="/creators/request",
             hx_target="#creator-add-result",
+            hx_indicator="find .htmx-indicator",
             cls="flex flex-col items-start gap-0",
         )
     else:
@@ -2867,9 +2874,11 @@ def _render_empty_state(
                     cls="flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
                     "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
                 ),
+                _creator_add_loading(),
                 result_slot,
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
+                hx_indicator="find .htmx-indicator",
                 cls="flex flex-col items-center gap-0",
             )
         else:
@@ -2923,11 +2932,13 @@ def _render_empty_state(
                         "bg-primary text-primary-foreground hover:bg-primary/90 "
                         "transition-colors shrink-0",
                     ),
+                    _creator_add_loading(),
                     cls="flex gap-2",
                 ),
                 result_slot,
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
+                hx_indicator="find .htmx-indicator",
             )
         else:
             submit_area = P(
