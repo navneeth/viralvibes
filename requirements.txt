@@ -8,7 +8,7 @@ starlette>=0.40.0,<1.0.0  # Required for FastHTML 0.12.42+ (fixes Vercel vendori
 MonsterUI>=0.3.0
 
 # Database & storage
-#sqlite_minutils==4.0.3
+#sqlite_minutils>=4.0.3
 supabase>=2.0.0
 
 # Server & async
