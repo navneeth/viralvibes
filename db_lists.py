@@ -966,10 +966,64 @@ def get_lists_meta() -> dict:
             _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
             return meta.copy()
         logger.warning("[Lists] get_lists_meta RPC returned no data")
-        return _EMPTY_META.copy()
+        return _get_lists_meta_cached_tables()
 
     except Exception as e:
         logger.exception(f"Error fetching lists meta via RPC: {e}")
+        return _get_lists_meta_cached_tables()
+
+
+def _get_lists_meta_cached_tables() -> dict:
+    """
+    Read list metadata from the small cached tables used by the fast RPC.
+
+    This is the first fallback when ``get_lists_meta`` times out. It avoids the
+    old emergency scan over creators and keeps /creators and /lists usable even
+    when the RPC definition in Supabase has regressed to live aggregation.
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        return _EMPTY_META.copy()
+
+    try:
+        meta_resp = (
+            supabase_client.table("mv_lists_meta")
+            .select("total_creators,total_countries,total_languages")
+            .limit(1)
+            .execute()
+        )
+        if not meta_resp.data:
+            logger.warning("[Lists] mv_lists_meta fallback returned no data")
+            return _get_lists_meta_fallback()
+
+        meta_row = meta_resp.data[0]
+        categories = 0
+        try:
+            stats_resp = (
+                supabase_client.table("app_stats")
+                .select("value")
+                .eq("key", "total_categories")
+                .limit(1)
+                .execute()
+            )
+            if stats_resp.data:
+                categories = int(stats_resp.data[0].get("value") or 0)
+        except Exception:
+            logger.warning("[Lists] app_stats total_categories fallback failed", exc_info=True)
+
+        meta = {
+            "total_creators": int(meta_row.get("total_creators") or 0),
+            "total_countries": int(meta_row.get("total_countries") or 0),
+            "total_categories": categories,
+            "total_languages": int(meta_row.get("total_languages") or 0),
+        }
+
+        global _lists_meta_cache
+        _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
+        return meta.copy()
+
+    except Exception:
+        logger.exception("[Lists] cached-table metadata fallback failed")
         return _get_lists_meta_fallback()
 
 
