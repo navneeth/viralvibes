@@ -10,7 +10,8 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from components.tables import Badge
-from utils import format_date_relative, format_date_simple, format_number
+from utils.dates import format_date_relative
+from utils import format_date_simple, format_number
 
 logger = logging.getLogger(__name__)
 

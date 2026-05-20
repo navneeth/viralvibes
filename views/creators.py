@@ -31,7 +31,8 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from utils import format_float, format_percentage
-from utils import format_date_relative, format_number, safe_get_value, slugify
+from utils.dates import format_date_relative
+from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
@@ -469,11 +470,6 @@ def _build_filter_url(
 # ============================================================================
 
 
-def _creator_add_loading() -> Span:
-    """Small MonsterUI HTMX indicator used by creator-add forms."""
-    return Loading((LoadingT.spinner, LoadingT.sm), htmx_indicator=True)
-
-
 def render_add_creator_section() -> Div:
     """
     HTMX form that lets authenticated users submit a creator by @handle or
@@ -515,14 +511,12 @@ def render_add_creator_section() -> Div:
                         "bg-primary text-primary-foreground hover:bg-primary/90 "
                         "transition-colors shrink-0",
                     ),
-                    _creator_add_loading(),
-                    cls="flex items-center gap-2 mt-3",
+                    cls="flex gap-2 mt-3",
                 ),
                 # Response target injected below the form
                 Div(id="creator-add-result", cls="mt-3"),
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
-                hx_indicator="find .htmx-indicator",
             ),
             cls="p-4 rounded-xl border border-border bg-background",
         ),
@@ -661,7 +655,9 @@ def render_add_creator_status_result(
         hx_swap="outerHTML",
     )
     return Div(
-        Div(Loading((LoadingT.spinner, LoadingT.sm)), cls="text-primary shrink-0"),
+        Div(
+            cls="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0"
+        ),
         P(
             "Processing… this usually takes under a minute.",
             cls="text-sm text-muted-foreground flex-1",
@@ -2013,58 +2009,11 @@ def _build_performance_metrics(
     )
 
 
-def _freshness_dot(last_updated: str) -> Span:
-    """Return a coloured dot encoding data freshness.
-
-    Replaces the clock icon in the footer so staleness is scannable at a
-    glance without reading the timestamp text.
-
-    Thresholds (mirrors the daily-refresh cadence):
-      green  — < 2 days  (fresh, within one worker cycle)
-      amber  — 2–7 days  (aging, due for a refresh)
-      gray   — > 7 days  (stale)
-    """
-    from utils.dates import format_date_relative as _fdr  # local to avoid circular at module level
-
-    try:
-        from datetime import datetime, timezone
-
-        clean = (last_updated or "").replace("Z", "+00:00")
-        dt = datetime.fromisoformat(clean)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        age_days = (datetime.now(timezone.utc) - dt).days
-    except Exception:
-        age_days = 999  # unknown → stale
-
-    if age_days < 2:
-        color = "#10b981"  # emerald-500
-        title = "Fresh data"
-    elif age_days < 7:
-        color = "#f59e0b"  # amber-400
-        title = "Data aging — refresh due soon"
-    else:
-        color = "#9ca3af"  # gray-400
-        title = "Stale data — pending worker refresh"
-
-    return Span(
-        style=(
-            f"display:inline-block;width:7px;height:7px;"
-            f"border-radius:50%;background:{color};margin-right:4px;"
-            f"flex-shrink:0;"
-        ),
-        title=title,
-        aria_label=title,
-    )
-
-
 def _build_growth_trend(
     growth_rate: float,
     growth_label: str,
     growth_style: str,
     subs_change: int | None = None,
-    views_change: int | None = None,
-    current_subs: int = 0,
 ) -> Div:
     """
     Build growth trend indicator section.
@@ -2076,18 +2025,6 @@ def _build_growth_trend(
     """
     # Check if growth data is available (not None/NULL from DB)
     has_growth_data = subs_change is not None
-
-    # Momentum badge — computed from both sub + view velocity (0–100 composite)
-    momentum_score = calculate_momentum_score(views_change, subs_change, current_subs)
-    if momentum_score is not None:
-        mom_label, mom_cls = get_momentum_label(momentum_score)
-        momentum_badge = Span(
-            f"{mom_label} · {format_float(momentum_score, 0)}",
-            cls=f"px-2 py-0.5 text-xs font-semibold rounded-full border {mom_cls}",
-            title=f"Momentum score {format_float(momentum_score, 0)}/100 — combines subscriber and view velocity over 30 days",
-        )
-    else:
-        momentum_badge = None
 
     if not has_growth_data:
         return Div(
@@ -2120,19 +2057,18 @@ def _build_growth_trend(
                 "30-DAY TREND",
                 cls="text-xs font-semibold text-muted-foreground",
             ),
-            *([momentum_badge] if momentum_badge else []),
+            Div(
+                P(
+                    f"{growth_rate:+.1f}%",
+                    cls="text-sm font-bold text-foreground",
+                ),
+                Span(
+                    growth_label,
+                    cls=f"px-2 py-1 text-xs font-semibold rounded-full border {growth_style}",
+                ),
+                cls="flex items-center gap-2",
+            ),
             cls="flex justify-between items-center mb-3",
-        ),
-        Div(
-            P(
-                f"{growth_rate:+.1f}%",
-                cls="text-sm font-bold text-foreground",
-            ),
-            Span(
-                growth_label,
-                cls=f"px-2 py-1 text-xs font-semibold rounded-full border {growth_style}",
-            ),
-            cls="flex items-center gap-2",
         ),
         # Growth bar
         Div(
@@ -2295,7 +2231,7 @@ def _build_card_footer(
 
     return Div(
         Div(
-            _freshness_dot(last_updated),
+            UkIcon("clock", cls="w-3 h-3 mr-1 opacity-50"),
             Span(
                 format_date_relative(last_updated),
                 cls=_CLS_MUTED_XS,
@@ -2641,14 +2577,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
             has_long_upload_status=has_long_upload_status,
         ),
         # Growth trend (pass subs_change to determine if tracking is initializing)
-        _build_growth_trend(
-            growth_rate,
-            growth_label,
-            growth_style,
-            subs_change,
-            views_change=views_change,
-            current_subs=current_subs,
-        ),
+        _build_growth_trend(growth_rate, growth_label, growth_style, subs_change),
         # Keywords if available, rendered as a single line of small italic text (not a full tag cloud)
         (
             P(
@@ -2863,11 +2792,9 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
                 cls="flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
                 "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0",
             ),
-            _creator_add_loading(),
             result_slot,
             hx_post="/creators/request",
             hx_target="#creator-add-result",
-            hx_indicator="find .htmx-indicator",
             cls="flex flex-col items-start gap-0",
         )
     else:
@@ -2941,11 +2868,9 @@ def _render_empty_state(
                     cls="flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
                     "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
                 ),
-                _creator_add_loading(),
                 result_slot,
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
-                hx_indicator="find .htmx-indicator",
                 cls="flex flex-col items-center gap-0",
             )
         else:
@@ -2999,13 +2924,11 @@ def _render_empty_state(
                         "bg-primary text-primary-foreground hover:bg-primary/90 "
                         "transition-colors shrink-0",
                     ),
-                    _creator_add_loading(),
                     cls="flex gap-2",
                 ),
                 result_slot,
                 hx_post="/creators/request",
                 hx_target="#creator-add-result",
-                hx_indicator="find .htmx-indicator",
             )
         else:
             submit_area = P(

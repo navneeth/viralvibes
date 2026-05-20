@@ -8,7 +8,8 @@ from monsterui.all import *
 
 from constants import FLEX_COL
 from utils import find_extreme_indices, get_columns, has_column
-from utils import format_duration, format_number
+from utils.dates import format_duration
+from utils import format_number
 
 logger = logging.getLogger(__name__)
 

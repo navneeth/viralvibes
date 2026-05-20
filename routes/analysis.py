@@ -21,7 +21,8 @@ from components.buttons import FeaturePill
 from components.cards import AnalysisFormCard
 from constants import KNOWN_PLAYLISTS
 from db import get_user_dashboards
-from utils import format_date_relative, format_number
+from utils.dates import format_date_relative
+from utils import format_number
 
 
 # ---------------------------------------------------------------------------

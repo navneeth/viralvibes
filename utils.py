@@ -63,21 +63,6 @@ def format_seconds(seconds: int) -> str:
     return f"{m}m {s}s" if m else f"{s}s"
 
 
-# Helper: convert ISO8601 to "HH:MM:SS"
-def parse_iso_duration(duration: str) -> str:
-
-    try:
-        td = isodate.parse_duration(duration)
-        total_seconds = int(td.total_seconds())
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return (
-            f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
-        )
-    except Exception:
-        return duration
-
-
 def safe_cell(value):
     return value if value is not None else "N/A"
 
@@ -244,60 +229,6 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
 # =============================================================================
 # Date formatting utilities
 # =============================================================================
-
-
-def format_date_relative(date_str: str | None) -> str:
-    """
-    Format ISO datetime to relative time or simple date.
-
-    Returns relative time for recent dates (e.g., "2h ago", "Yesterday"),
-    otherwise returns simple date format.
-
-    Args:
-        date_str: ISO datetime string
-
-    Returns:
-        Relative time string or simple date
-
-    Examples:
-        >>> format_date_relative("2026-02-04T12:00:00Z")  # 2 hours ago
-        "2h ago"
-        >>> format_date_relative("2026-02-03T12:00:00Z")  # Yesterday
-        "Yesterday"
-        >>> format_date_relative("2026-01-20T12:00:00Z")  # 2 weeks ago
-        "Jan 20, 2026"
-        >>> format_date_relative(None)
-        "Never updated"
-    """
-    if not date_str:
-        return "Never updated"
-
-    try:
-        # Parse datetime
-        clean_date = date_str.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(clean_date)
-        now = datetime.now(timezone.utc)
-
-        # Calculate difference
-        diff = now - dt.replace(tzinfo=None)
-
-        # Format based on age
-        if diff.days == 0:
-            hours = diff.seconds // 3600
-            if hours == 0:
-                minutes = diff.seconds // 60
-                return f"{minutes}m ago" if minutes > 0 else "Just now"
-            return f"{hours}h ago"
-        elif diff.days == 1:
-            return "Yesterday"
-        elif diff.days < 7:
-            return f"{diff.days}d ago"
-        else:
-            # Fall back to simple date for older dates
-            return dt.strftime("%b %d, %Y")
-
-    except Exception:
-        return "Unknown"
 
 
 # =============================================================================

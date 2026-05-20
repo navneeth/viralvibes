@@ -11,7 +11,8 @@ from typing import Any, Dict, Tuple
 import polars as pl
 
 from services.youtube_utils import get_category_emoji
-from utils import format_duration, format_number, parse_iso_duration
+from utils.dates import format_duration, parse_iso_duration
+from utils import format_number
 
 logger = logging.getLogger(__name__)
 
