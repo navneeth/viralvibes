@@ -863,6 +863,20 @@ def _format_categories(topic_categories: list) -> list[str]:
     return sorted(names)
 
 
+# Heuristic mapping of topic category keywords to official YouTube categories.
+# Used by _map_topic_to_official_category to find sensible fallback when
+# video-level category fetching fails. Order matters — matches greedily on first hit.
+_TOPIC_TO_OFFICIAL_CATEGORY_MAP = {
+    "Music": ["music", "song", "audio", "jazz", "electronic", "hip hop", "rock", "pop"],
+    "Gaming": ["gaming", "game", "esports", "streamer"],
+    "Education": ["education", "learning", "science", "technology", "course"],
+    "Sports": ["sports", "soccer", "basketball", "football", "hockey"],
+    "Entertainment": ["entertainment", "film", "movie", "comedy", "talk show"],
+    "Pets & Animals": ["pet", "animal", "dog", "cat"],
+    "Travel & Events": ["travel", "event", "vlog", "lifestyle"],
+}
+
+
 def _map_topic_to_official_category(topic_categories: list[str]) -> Optional[str]:
     """
     Map topic_categories to official YouTube categoryIds.
@@ -882,22 +896,10 @@ def _map_topic_to_official_category(topic_categories: list[str]) -> Optional[str
     if not topic_categories:
         return None
 
-    # Heuristic mapping: topic category keywords → official YouTube category
-    # Matches greedily on first keyword hit; order matters (most specific first)
-    keyword_map = {
-        "Music": ["music", "song", "audio", "jazz", "electronic", "hip hop", "rock", "pop"],
-        "Gaming": ["gaming", "game", "esports", "streamer"],
-        "Education": ["education", "learning", "science", "technology", "course"],
-        "Sports": ["sports", "soccer", "basketball", "football", "hockey"],
-        "Entertainment": ["entertainment", "film", "movie", "comedy", "talk show"],
-        "Pets & Animals": ["pet", "animal", "dog", "cat"],
-        "Travel & Events": ["travel", "event", "vlog", "lifestyle"],
-    }
-
     topic_str = " ".join(topic_categories).lower()
 
-    # Find first matching official category
-    for official_category, keywords in keyword_map.items():
+    # Find first matching official category using pre-computed mapping
+    for official_category, keywords in _TOPIC_TO_OFFICIAL_CATEGORY_MAP.items():
         for keyword in keywords:
             if keyword in topic_str:
                 return official_category

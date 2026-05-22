@@ -3199,8 +3199,10 @@ def render_creator_profile_page(
     )
     thumbnail_url = safe_get_value(creator, "channel_thumbnail_url") or "/static/favicon.jpeg"
     banner_url = safe_get_value(creator, "banner_image_url", "")
-    bio = safe_get_value(creator, "channel_description") or safe_get_value(
-        creator, "description", ""
+    bio = (
+        safe_get_value(creator, "channel_description")
+        or safe_get_value(creator, "description", "")
+        or safe_get_value(creator, "bio", "")
     )
     keywords = safe_get_value(creator, "keywords", "")
     country_code = safe_get_value(creator, "country_code", "")
@@ -4253,7 +4255,6 @@ def render_creator_profile_page(
         "not_found": "text-muted-foreground",
     }.get(sync_status, "text-muted-foreground")
 
-    sync_icon_map = {"synced": "check-circle", "pending": "clock", "error": "x-circle"}
     sync_icon_map = {
         "synced": "check-circle",
         "synced_partial": "check-circle-2",
