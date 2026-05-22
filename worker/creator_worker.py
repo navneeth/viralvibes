@@ -863,6 +863,51 @@ def _format_categories(topic_categories: list) -> list[str]:
     return sorted(names)
 
 
+# Heuristic mapping of topic category keywords to official YouTube categories.
+# Used by _map_topic_to_official_category to find sensible fallback when
+# video-level category fetching fails. Order matters — matches greedily on first hit.
+_TOPIC_TO_OFFICIAL_CATEGORY_MAP = {
+    "Music": ["music", "song", "audio", "jazz", "electronic", "hip hop", "rock", "pop"],
+    "Gaming": ["gaming", "game", "esports", "streamer"],
+    "Education": ["education", "learning", "science", "technology", "course"],
+    "Sports": ["sports", "soccer", "basketball", "football", "hockey"],
+    "Entertainment": ["entertainment", "film", "movie", "comedy", "talk show"],
+    "Pets & Animals": ["pet", "animal", "dog", "cat"],
+    "Travel & Events": ["travel", "event", "vlog", "lifestyle"],
+}
+
+
+def _map_topic_to_official_category(topic_categories: list[str]) -> Optional[str]:
+    """
+    Map topic_categories to official YouTube categoryIds.
+
+    Topic categories like "Music", "Gaming", "Education" are derived from
+    YouTube's topicDetails and don't map 1:1 to video-level categoryIds.
+    This function uses heuristic keyword matching to find the best official
+    category match, ensuring primary_category stays queryable even when
+    video-level category sampling fails.
+
+    Args:
+        topic_categories: List of category names like ["Electronic music", "Music"]
+
+    Returns:
+        Official YouTube category name (e.g., "Music", "Gaming") or None if no match
+    """
+    if not topic_categories:
+        return None
+
+    topic_str = " ".join(topic_categories).lower()
+
+    # Find first matching official category using pre-computed mapping
+    for official_category, keywords in _TOPIC_TO_OFFICIAL_CATEGORY_MAP.items():
+        for keyword in keywords:
+            if keyword in topic_str:
+                return official_category
+
+    # No match found
+    return None
+
+
 def _needs_category_fetch(existing_primary_category: Optional[str]) -> bool:
     """
     Decide whether to spend 2 quota units fetching the category distribution.
@@ -1210,6 +1255,19 @@ async def handle_sync_job(
         primary_category = cat_data.get("primary_category")
         primary_category_id = cat_data.get("primary_category_id")
         category_distribution = cat_data.get("category_distribution", {})
+
+        # Fallback: if video-level category fetch failed, try to map topic categories
+        # to official YouTube categories. Topic categories like "Music", "Gaming", "Education"
+        # map to official YouTube categoryIds (10, 20, 27, etc.).
+        # This ensures primary_category is populated even when the video-level fetch
+        # times out or fails, providing a sensible category for stats aggregation.
+        if not primary_category and topic_categories:
+            primary_category = _map_topic_to_official_category(topic_categories)
+            if primary_category:
+                logger.debug(
+                    f"{job_tag} Video-level category unavailable; "
+                    f"mapped topic categories to official category: {primary_category}"
+                )
 
         logger.info(
             f"{job_tag} Stats: subs={subs:,}, views={views:,}, videos={videos:,}, "
