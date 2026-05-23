@@ -147,6 +147,7 @@ from routes.lists import (
     lists_more_languages_route,
     lists_route,
 )
+from routes.outreach import outreach_export_route, outreach_route
 from routes.admin import admin_get, admin_jobs_fragment, admin_rescue_quota_jobs
 from views.lists import _unslugify
 
@@ -1668,6 +1669,33 @@ def me_favourites(req, sess):
         Container(
             NavComponent(oauth, req, sess),
             render_favourites_page(creators=creators, user_name=user_name),
+        ),
+    )
+
+
+@rt("/me/outreach/export.csv")
+def me_outreach_export(req, sess):
+    """Export saved creators with public emails for external outreach tools."""
+    return outreach_export_route(req, sess)
+
+
+@rt("/me/outreach/export")
+def me_outreach_export_plain(req, sess):
+    """Export saved creators with public emails for external outreach tools."""
+    return outreach_export_route(req, sess)
+
+
+@rt("/me/outreach")
+def me_outreach(req, sess):
+    """Saved creator outreach workspace."""
+    page_content = outreach_route(req, sess)
+    if isinstance(page_content, RedirectResponse):
+        return page_content
+    return Titled(
+        "Outreach - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
         ),
     )
 

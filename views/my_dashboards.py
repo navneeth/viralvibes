@@ -185,7 +185,7 @@ def render_my_dashboards_page(
       2. Creators / Watchlist Pulse  — saved creators ranked by growth (Pro/Agency)
       3. Playlist Analysis  — the core job-to-be-done, search + grid
       4. Lists  — discovery shortcuts to public lists
-      5. Campaigns  — stub, coming soon
+      5. Outreach  — CSV export for saved creators
     """
     _plan_info = plan_info or {
         "plan": "free",
@@ -206,7 +206,7 @@ def render_my_dashboards_page(
         _section_analysis(dashboards, search, sort, has_more=has_more, page=page),
         # ── 4. Lists ───────────────────────────────────────────────────────
         _section_lists(_fav_lists),
-        # ── 5. Campaigns ───────────────────────────────────────────────────
+        # ── 5. Outreach ────────────────────────────────────────────────────
         _section_campaigns(plan),
         cls=ContainerT.xl,
     )
@@ -380,47 +380,29 @@ def _section_lists(fav_lists: list[dict] | None = None) -> Div:
 
 
 def _section_campaigns(plan: str) -> Div:
-    """Campaigns stub — gated behind agency plan, coming soon for others."""
-    is_agency = plan == "agency"
-
-    if is_agency:
-        body = Div(
-            P(
-                "Manage outreach campaigns across your saved creators.",
-                cls="text-sm text-gray-500 mb-3",
+    """Outreach entry point for saved creator exports."""
+    body = Div(
+        P(
+            "Export saved creators with public emails into your outreach tool.",
+            cls="text-sm text-gray-500 mb-3 max-w-lg",
+        ),
+        A(
+            UkIcon("send", cls="w-4 h-4 mr-2"),
+            "Open Outreach",
+            href="/me/outreach",
+            cls=(
+                "inline-flex items-center px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 "
+                "text-white text-sm font-semibold no-underline transition-colors"
             ),
-            A(
-                Button("+ New Campaign", cls=ButtonT.primary),
-                href="/campaigns/new",
-            ),
-            cls="py-2",
-        )
-    else:
-        body = Div(
-            P(
-                "Run outreach campaigns across your saved creators — schedule, track, and report in one place.",
-                cls="text-sm text-gray-500 mb-3 max-w-lg",
-            ),
-            Div(
-                Span(
-                    "Coming soon · Agency plan",
-                    cls="text-xs font-semibold text-purple-700 bg-purple-100 px-3 py-1 rounded-full",
-                ),
-                A(
-                    "Learn more →",
-                    href="/pricing",
-                    cls="text-xs text-red-500 hover:underline font-medium ml-4",
-                ),
-                cls="flex items-center gap-2 flex-wrap",
-            ),
-            cls="py-2",
-        )
+        ),
+        cls="py-2",
+    )
 
     return Div(
-        _section_label("📣", "Campaigns"),
+        _section_label("📣", "Outreach"),
         Div(
             body,
-            cls="p-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/60",
+            cls="p-4 rounded-xl border border-border bg-white",
         ),
         cls="mb-10",
     )
