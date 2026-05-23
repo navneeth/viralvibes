@@ -3225,25 +3225,61 @@ def render_creator_profile_page(
     current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
     current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
+    # Treat 0 as None — the DB DEFAULT is 0 and the worker writes NULL when the
+    # baseline hasn't matured yet (< 7 days).  A "+0 30d" badge is misleading
+    # noise: if change is genuinely 0 the stat cards already show that.
     subs_change_raw = safe_get_value(creator, "subscribers_change_30d", None)
-    subs_change = int(subs_change_raw) if subs_change_raw is not None else None
+    subs_change = (int(subs_change_raw) or None) if subs_change_raw is not None else None
     views_change_raw = safe_get_value(creator, "views_change_30d", None)
-    views_change = int(views_change_raw) if views_change_raw is not None else None
+    views_change = (int(views_change_raw) or None) if views_change_raw is not None else None
     videos_change_raw = safe_get_value(creator, "videos_change_30d", None)
-    videos_change = int(videos_change_raw) if videos_change_raw is not None else None
+    videos_change = (int(videos_change_raw) or None) if videos_change_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
+
+    # ── per-video stats (last 10 uploads — better signal than lifetime avg) ───
+    # Populated by worker._fetch_recent_performance_stats on every sync.
+    # Treat 0 as None — the schema has no DEFAULT so 0 means "not yet computed",
+    # not "genuinely zero views/likes".  Using 0 would replace a valid lifetime
+    # average with a trust-destroying zero on the profile.
+    avg_views_10_raw = safe_get_value(creator, "avg_views_10")
+    avg_views_10 = int(avg_views_10_raw) if avg_views_10_raw else None
+    avg_likes_10_raw = safe_get_value(creator, "avg_likes_10")
+    avg_likes_10 = int(avg_likes_10_raw) if avg_likes_10_raw else None
+    avg_comments_10_raw = safe_get_value(creator, "avg_comments_10")
+    avg_comments_10 = int(avg_comments_10_raw) if avg_comments_10_raw else None
+    avg_days_raw = safe_get_value(creator, "avg_days_between_uploads")
+    avg_days_between_uploads = float(avg_days_raw) if avg_days_raw else None
+
+    # ── content flags (brand safety + format) ────────────────────────────────
+    # Written by worker from channels.list status.madeForKids / longUploadsStatus
+    is_made_for_kids = bool(safe_get_value(creator, "is_made_for_kids") or False)
+    has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status") or False)
 
     # ── derived ───────────────────────────────────────────────────────────────
     grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
     growth_rate = calculate_growth_rate(subs_change, current_subs)
     growth_label, growth_style = get_growth_signal(growth_rate)
-    avg_views = calculate_avg_views_per_video(current_views, current_videos)
+    # Prefer last-10-video average (recent performance) over lifetime average.
+    # Fall back to lifetime calc when per-video data isn't populated yet.
+    if avg_views_10 is not None:
+        avg_views = avg_views_10
+        avg_views_label = "Avg Views / Video (last 10)"
+    else:
+        avg_views = calculate_avg_views_per_video(current_views, current_videos)
+        avg_views_label = "Avg Views / Video"
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
     momentum_score = calculate_momentum_score(views_change, subs_change, current_subs)
     if momentum_score is not None:
         momentum_label, momentum_style = get_momentum_label(momentum_score)
     else:
         momentum_label, momentum_style = None, ""
+    # Upload cadence as human-readable "every X days" string
+    if avg_days_between_uploads and avg_days_between_uploads > 0:
+        upload_cadence = f"every {format_float(avg_days_between_uploads, 1)} days"
+    elif monthly_uploads and monthly_uploads > 0:
+        upload_cadence = f"every {format_float(30.0 / monthly_uploads, 1)} days"
+    else:
+        upload_cadence = None
     # v4 revenue model — country + niche-aware, Shorts-split, sponsorships included
     _rev = estimate_monthly_revenue_v4(
         total_subs=current_subs,
@@ -3427,6 +3463,15 @@ def render_creator_profile_page(
                         cls="inline-flex items-center text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full shrink-0",
                     )
                     if official
+                    else None
+                ),
+                (
+                    Span(
+                        "🧒 Made for Kids",
+                        title="This channel is designated as content made for children. AdSense rates are significantly lower and brand deals are not available.",
+                        cls="inline-flex items-center text-xs font-semibold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 px-2 py-0.5 rounded-full shrink-0",
+                    )
+                    if is_made_for_kids
                     else None
                 ),
                 cls="flex items-center gap-2 flex-wrap",
@@ -3632,7 +3677,29 @@ def render_creator_profile_page(
         _info_row(
             "upload",
             "Upload Rate",
-            f"{format_float(monthly_uploads, 1)} videos/month" if monthly_uploads else "—",
+            (
+                (
+                    f"{format_float(monthly_uploads, 1)} videos/month"
+                    + (f" ({upload_cadence})" if upload_cadence else "")
+                )
+                if monthly_uploads
+                else "—"
+            ),
+        ),
+        # Content format signals — useful for brand safety and deal type
+        (
+            _info_row("film", "Content Format", "Long-form uploads eligible")
+            if has_long_upload_status
+            else None
+        ),
+        (
+            _info_row(
+                "alert-triangle",
+                "Audience",
+                "Made for Kids — lower AdSense, no brand deals",
+            )
+            if is_made_for_kids
+            else None
         ),
         (_info_row("eye-off", "Subscriber Count", "Hidden on YouTube") if hidden_subs else None),
     ]
@@ -3829,11 +3896,35 @@ def render_creator_profile_page(
         eng_vs_cls = ""
 
     secondary_metrics = Div(
-        _perf_row("Avg Views / Video", format_number(avg_views)),
+        _perf_row(avg_views_label, format_number(avg_views)),
+        # Per-video engagement detail — only shown when last-10 data is available
+        *(
+            [
+                _perf_row(
+                    "Avg Likes / Video (last 10)",
+                    format_number(avg_likes_10),
+                    "text-pink-600 dark:text-pink-400",
+                ),
+                _perf_row(
+                    "Avg Comments / Video (last 10)",
+                    format_number(avg_comments_10),
+                    "text-violet-600 dark:text-violet-400",
+                ),
+            ]
+            if avg_likes_10 is not None and avg_comments_10 is not None
+            else []
+        ),
         _perf_row("Views / Subscriber", f"{format_float(views_per_sub, 2)}x"),
         _perf_row(
             "Upload Rate",
-            f"{format_float(monthly_uploads, 1)} / month" if monthly_uploads else "—",
+            (
+                (
+                    f"{format_float(monthly_uploads, 1)} / month"
+                    + (f" ({upload_cadence})" if upload_cadence else "")
+                )
+                if monthly_uploads
+                else "—"
+            ),
         ),
         Div(
             Div(
@@ -3875,6 +3966,55 @@ def render_creator_profile_page(
             else []
         ),
     )
+
+    # ── Creator insight callout — "what does this mean for me?" ───────────────
+    # Surfaces one high-signal, actionable sentence below the metrics table.
+    _insight_text = None
+    _insight_cls = "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+    _insight_icon = "lightbulb"
+    _insight_icon_cls = "w-4 h-4 text-blue-500 shrink-0 mt-0.5"
+
+    if avg_views_10 is not None and avg_views_10 > 0:
+        if avg_views_10 >= 1_000_000:
+            _insight_text = (
+                f"Your last 10 videos averaged {format_number(avg_views_10)} views — "
+                "a strong signal for premium brand partnership pitches."
+            )
+            _insight_cls = (
+                "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+            )
+            _insight_icon_cls = "w-4 h-4 text-emerald-500 shrink-0 mt-0.5"
+        elif avg_views_10 >= 100_000:
+            _insight_text = (
+                f"Your last 10 videos averaged {format_number(avg_views_10)} views — "
+                "mid-tier reach. Consistency here unlocks higher CPM advertisers."
+            )
+        else:
+            _insight_text = (
+                f"Your recent videos average {format_number(avg_views_10)} views. "
+                "Growing this number is the fastest path to higher ad and deal revenue."
+            )
+    elif engagement_score > 0 and eng_vs:
+        _insight_text = f"Engagement is {eng_vs}. Brands pay a premium for channels whose audiences actually interact."
+
+    if is_made_for_kids and _insight_text is None:
+        _insight_text = (
+            "This channel is designated Made for Kids. "
+            "AdSense CPM is ~90% lower than standard content and brand sponsorships are unavailable."
+        )
+        _insight_cls = "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
+        _insight_icon = "alert-triangle"
+        _insight_icon_cls = "w-4 h-4 text-yellow-500 shrink-0 mt-0.5"
+
+    creator_insight = (
+        Div(
+            UkIcon(_insight_icon, cls=_insight_icon_cls),
+            P(_insight_text, cls="text-xs text-foreground leading-relaxed"),
+            cls=f"flex items-start gap-2 p-3 rounded-lg border {_insight_cls} mt-3",
+        )
+        if _insight_text
+        else None
+    )
     has_growth_data = subs_change is not None
     if has_growth_data:
         bar_width = min(100, max(2, abs(growth_rate) * 5))
@@ -3915,13 +4055,17 @@ def render_creator_profile_page(
                 "Growth tracking initializing",
                 cls=_CLS_VALUE_SM,
             ),
-            P("Check back in 7+ days", cls="text-xs text-muted-foreground mt-0.5"),
+            P(
+                "A baseline was just set — come back in 7+ days to see your 30-day growth rate.",
+                cls="text-xs text-muted-foreground mt-0.5",
+            ),
             cls="flex flex-col items-center text-center bg-accent rounded-xl p-4 mt-4",
         )
 
     performance_card = Card(
         H2("Performance", cls="text-base font-bold text-foreground mb-1"),
         secondary_metrics,
+        *([creator_insight] if creator_insight else []),
         trend_section,
         # ── Revenue breakdown (v4 model) ─────────────────────────────────────
         Div(
@@ -3960,6 +4104,23 @@ def render_creator_profile_page(
                     "Assumed Shorts mix",
                     assumed_shorts_pct,
                 ),
+            ),
+            # Kids content warning — AdSense CPM drops ~90%; brand deals unavailable
+            *(
+                [
+                    Div(
+                        UkIcon("alert-triangle", cls="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-0.5"),
+                        P(
+                            "Made for Kids content earns ~90% less via AdSense and "
+                            "is ineligible for brand sponsorships. These estimates assume standard rates.",
+                            cls="text-xs text-yellow-800 dark:text-yellow-300 leading-relaxed",
+                        ),
+                        cls="flex items-start gap-2 mt-2 p-2.5 rounded-lg "
+                        "bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800",
+                    )
+                ]
+                if is_made_for_kids
+                else []
             ),
             cls="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 mt-4",
         ),
