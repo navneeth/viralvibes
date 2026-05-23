@@ -3238,14 +3238,17 @@ def render_creator_profile_page(
 
     # ── per-video stats (last 10 uploads — better signal than lifetime avg) ───
     # Populated by worker._fetch_recent_performance_stats on every sync.
+    # Treat 0 as None — the schema has no DEFAULT so 0 means "not yet computed",
+    # not "genuinely zero views/likes".  Using 0 would replace a valid lifetime
+    # average with a trust-destroying zero on the profile.
     avg_views_10_raw = safe_get_value(creator, "avg_views_10")
-    avg_views_10 = int(avg_views_10_raw) if avg_views_10_raw is not None else None
+    avg_views_10 = int(avg_views_10_raw) if avg_views_10_raw else None
     avg_likes_10_raw = safe_get_value(creator, "avg_likes_10")
-    avg_likes_10 = int(avg_likes_10_raw) if avg_likes_10_raw is not None else None
+    avg_likes_10 = int(avg_likes_10_raw) if avg_likes_10_raw else None
     avg_comments_10_raw = safe_get_value(creator, "avg_comments_10")
-    avg_comments_10 = int(avg_comments_10_raw) if avg_comments_10_raw is not None else None
+    avg_comments_10 = int(avg_comments_10_raw) if avg_comments_10_raw else None
     avg_days_raw = safe_get_value(creator, "avg_days_between_uploads")
-    avg_days_between_uploads = float(avg_days_raw) if avg_days_raw is not None else None
+    avg_days_between_uploads = float(avg_days_raw) if avg_days_raw else None
 
     # ── content flags (brand safety + format) ────────────────────────────────
     # Written by worker from channels.list status.madeForKids / longUploadsStatus
