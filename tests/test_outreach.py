@@ -32,7 +32,10 @@ CREATOR_WITH_EMAIL = {
     "views_change_30d": 250000,
     "channel_description": (
         "Business: hello@readycreator.com. Website https://readycreator.com "
-        "Instagram https://instagram.com/readycreator"
+        "Instagram https://instagram.com/readycreator "
+        "X https://x.com/readycreator "
+        "TikTok https://tiktok.com/@readycreator "
+        "LinkedIn https://linkedin.com/in/readycreator"
     ),
 }
 
@@ -80,6 +83,12 @@ def test_creator_to_outreach_row_extracts_email_and_links():
     assert rows[0]["Company"] == "Ready Creator"
     assert rows[0]["Website"] == "https://readycreator.com"
     assert rows[0]["Instagram URL"] == "https://instagram.com/readycreator"
+    # Reviewer suggested "Twitter URL" / https://twitter.com — the header is "X URL"
+    # and the code normalises all x.com/twitter.com handles to https://x.com/<handle>
+    assert rows[0]["X URL"] == "https://x.com/readycreator"
+    assert rows[0]["TikTok URL"] == "https://tiktok.com/@readycreator"
+    # Code emits https://linkedin.com/... (no www); match the actual output
+    assert rows[0]["LinkedIn URL"] == "https://linkedin.com/in/readycreator"
     assert rows[0]["ViralVibes Profile URL"] == (
         "https://viralvibes.test/creator/cccccccc-cccc-cccc-cccc-cccccccccccc"
     )

@@ -105,11 +105,25 @@ def _first_social_url(text: str, key: str) -> str:
     return ""
 
 
+def _is_skipped_website_domain(domain: str) -> bool:
+    """Return True if *domain* is a known non-website platform domain.
+
+    Matches the domain exactly or as a subdomain of a skip entry, but never
+    as an arbitrary substring — so ``myyoutube.com`` is not skipped while
+    ``www.youtube.com`` still is.
+    """
+    domain = domain.lower()
+    for skip in _SKIP_WEBSITE_DOMAINS:
+        if domain == skip or domain.endswith(f".{skip}"):
+            return True
+    return False
+
+
 def _first_website(text: str) -> str:
     for match in _URL_RE.findall(text or ""):
         url = match.rstrip(".,;")
         domain = url.lower().split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
-        if any(skip in domain for skip in _SKIP_WEBSITE_DOMAINS):
+        if _is_skipped_website_domain(domain):
             continue
         return url
     return ""
