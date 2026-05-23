@@ -99,6 +99,14 @@ def AuthDropdown(
                 cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
             )
         ),
+        Li(
+            A(
+                UkIcon("send", width=16, height=16),
+                Span("Outreach", cls="ml-2"),
+                href="/me/outreach",
+                cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
+            )
+        ),
         # Admin Dashboard (conditional)
         *(
             [
