@@ -5,6 +5,8 @@ Legal pages: Terms of Service and Privacy Policy.
 from fasthtml.common import *
 from monsterui.all import *
 
+from constants import CONTACT_EMAIL
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -123,8 +125,7 @@ def terms_page_content() -> Div:
         ),
         _section(
             "9. Contact",
-            "For questions about these Terms of Service, please contact us at "
-            "legal@viralvibes.app.",
+            "For questions about these Terms of Service, please contact us at " f"{CONTACT_EMAIL}.",
         ),
     )
 
@@ -219,7 +220,7 @@ def privacy_page_content() -> Div:
         ),
         _section(
             "",
-            "To exercise any of these rights, please contact us at privacy@viralvibes.app. "
+            f"To exercise any of these rights, please contact us at {CONTACT_EMAIL}. "
             "We will respond within 30 days.",
         ),
         _section(
@@ -242,7 +243,6 @@ def privacy_page_content() -> Div:
         ),
         _section(
             "11. Contact",
-            "For privacy-related questions or requests, please contact us at "
-            "privacy@viralvibes.app.",
+            "For privacy-related questions or requests, please contact us at " f"{CONTACT_EMAIL}.",
         ),
     )

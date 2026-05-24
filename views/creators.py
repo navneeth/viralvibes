@@ -3359,6 +3359,19 @@ def render_creator_profile_page(
             cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
         )
 
+    def _safe_for_kids_badge():
+        """Badge backed by the worker-collected YouTube status.madeForKids field."""
+        return Span(
+            UkIcon("shield-check", cls="w-3.5 h-3.5 mr-1 inline"),
+            "Safe for Kids",
+            title="YouTube marks this channel as Made for Kids. This signal comes from the worker sync.",
+            cls=(
+                "inline-flex items-center text-xs font-semibold "
+                "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 "
+                "px-2 py-0.5 rounded-full shrink-0"
+            ),
+        )
+
     def _stat_card(label, value, delta_val, number_cls, bg_cls, *, delta_pct=None, rank_line=None):
         return Card(
             Div(
@@ -3465,15 +3478,7 @@ def render_creator_profile_page(
                     if official
                     else None
                 ),
-                (
-                    Span(
-                        "🧒 Made for Kids",
-                        title="This channel is designated as content made for children. AdSense rates are significantly lower and brand deals are not available.",
-                        cls="inline-flex items-center text-xs font-semibold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300 px-2 py-0.5 rounded-full shrink-0",
-                    )
-                    if is_made_for_kids
-                    else None
-                ),
+                (_safe_for_kids_badge() if is_made_for_kids else None),
                 cls="flex items-center gap-2 flex-wrap",
             ),
             # Rank chips — grade + subscriber rank badges, links to list pages

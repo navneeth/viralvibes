@@ -336,6 +336,8 @@ FAQS = [
 # =============================================================================
 # DATABASE TABLE CONSTANTS
 # =============================================================================
+CONTACT_EMAIL = "viralvibes.fyi@proton.me"
+
 PLAYLIST_STATS_TABLE = "playlist_stats"
 PLAYLIST_JOBS_TABLE = "playlist_jobs"
 SIGNUPS_TABLE = "signups"
