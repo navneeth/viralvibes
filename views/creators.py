@@ -53,6 +53,7 @@ from utils.creator_metrics import (
     get_sync_status_badge,
 )
 from db import calculate_creator_stats, get_creator_hero_stats
+from services.contact_extractor import extract_social_links
 from components.category_stats import render_category_box_plots
 
 logger = logging.getLogger(__name__)
@@ -79,139 +80,6 @@ _CLS_ICON_SM = "size-4 mr-1.5"
 _CLS_SEPARATOR = "text-border mx-1"  # mid-dot "·" between inline items
 
 
-# ============================================================================
-# SOCIAL LINK EXTRACTION HELPERS
-# ============================================================================
-# FrankenUI uses Lucide icons directly — UkIcon("name") maps 1-to-1 to Lucide.
-# Lucide stopped accepting new brand icons in 2022, so only these social
-# platforms have native icons:
-#   instagram  twitter  facebook  linkedin  github  youtube  mail
-# Semantic fallbacks for platforms without a Lucide brand icon:
-#   TikTok → "music"   Twitch → "monitor-play"
-#   Discord → "message-circle"   Patreon → "heart"   Linktree → "link"
-
-# Each entry: (compiled_regex, lucide_icon, display_label, url_template)
-_SOCIAL_PATTERNS = [
-    # ── Native Lucide brand icons ─────────────────────────────────────────────
-    (
-        _re.compile(r"instagram\.com/(?!(?:p|reel|stories|explore)/)([\w.]+)", _re.I),
-        "instagram",
-        "Instagram",
-        "https://instagram.com/{}",
-    ),
-    (
-        _re.compile(r"(?:instagram|ig)[:\s]+@?([\w.]+)", _re.I),
-        "instagram",
-        "Instagram",
-        "https://instagram.com/{}",
-    ),
-    (
-        _re.compile(r"(?:twitter|x)\.com/([\w]+)", _re.I),
-        "twitter",
-        "X / Twitter",
-        "https://x.com/{}",
-    ),
-    (
-        _re.compile(r"twitter[:\s]+@?([\w]+)", _re.I),
-        "twitter",
-        "X / Twitter",
-        "https://x.com/{}",
-    ),
-    (
-        _re.compile(r"facebook\.com/([\w.]+)", _re.I),
-        "facebook",
-        "Facebook",
-        "https://facebook.com/{}",
-    ),
-    (
-        _re.compile(r"linkedin\.com/(?:in|company)/([\w-]+)", _re.I),
-        "linkedin",
-        "LinkedIn",
-        "https://linkedin.com/in/{}",
-    ),
-    (
-        _re.compile(r"github\.com/([\w-]+)", _re.I),
-        "github",
-        "GitHub",
-        "https://github.com/{}",
-    ),
-    # ── Semantic fallbacks (no Lucide brand icon exists) ──────────────────────
-    (
-        _re.compile(r"tiktok\.com/@([\w.]+)", _re.I),
-        "music",
-        "TikTok",
-        "https://tiktok.com/@{}",
-    ),
-    (
-        _re.compile(r"(?:tiktok|tt)[:\s]+@?([\w.]+)", _re.I),
-        "music",
-        "TikTok",
-        "https://tiktok.com/@{}",
-    ),
-    (
-        _re.compile(r"twitch\.tv/([\w]+)", _re.I),
-        "monitor-play",
-        "Twitch",
-        "https://twitch.tv/{}",
-    ),
-    (
-        _re.compile(r"discord\.gg/([\w-]+)", _re.I),
-        "message-circle",
-        "Discord",
-        "https://discord.gg/{}",
-    ),
-    (
-        _re.compile(r"patreon\.com/([\w-]+)", _re.I),
-        "heart",
-        "Patreon",
-        "https://patreon.com/{}",
-    ),
-    (
-        _re.compile(r"linktr\.ee/([\w-]+)", _re.I),
-        "link",
-        "Linktree",
-        "https://linktr.ee/{}",
-    ),
-    # ── Generic website catch-all (must be last) ──────────────────────────────
-    # group(1) = full URL (used as href); group(2) = bare domain (used for _SKIP_DOMAINS check)
-    (
-        _re.compile(
-            r"(https?://(?:www\.)?([\w.-]+\.[a-z]{2,})(?:/[^\s]*)?)",
-            _re.I,
-        ),
-        "globe",
-        "Website",
-        "{}",
-    ),
-]
-
-_EMAIL_RE = _re.compile(r"\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
-
-# Domains to skip in the catch-all so social platforms don't appear twice
-_SKIP_DOMAINS = frozenset(
-    {
-        "youtube.com",
-        "youtu.be",
-        "instagram.com",
-        "twitter.com",
-        "x.com",
-        "tiktok.com",
-        "facebook.com",
-        "twitch.tv",
-        "github.com",
-        "patreon.com",
-        "discord.gg",
-        "linkedin.com",
-        "linktr.ee",
-        "t.co",
-        "bit.ly",
-        "google.com",
-        "wikipedia.org",
-        "goo.gl",
-        "amzn.to",
-    }
-)
-
 # Brand-accurate colours keyed by Lucide icon name
 _SOCIAL_COLOURS = {
     "instagram": "text-pink-500 hover:text-pink-600",
@@ -231,46 +99,8 @@ _SOCIAL_COLOURS = {
 
 
 def _extract_socials(bio: str, keywords: str) -> list[tuple[str, str, str]]:
-    """
-    Parse social links and emails from bio + keywords text.
-
-    Returns a deduplicated list of (lucide_icon, label, href) tuples,
-    capped at 8 entries.
-    """
-    text = f"{bio or ''} {keywords or ''}".strip()
-    if not text:
-        return []
-
-    found: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-
-    # Emails first — highest-value contact signal
-    for email in _EMAIL_RE.findall(text):
-        href = f"mailto:{email}"
-        if href not in seen:
-            found.append(("mail", email, href))
-            seen.add(href)
-
-    # Social patterns in priority order (specific before generic)
-    for pattern, icon, label, url_tpl in _SOCIAL_PATTERNS:
-        for m in pattern.finditer(text):
-            if icon == "globe":
-                # group(1) = full URL, group(2) = bare domain
-                full_url = m.group(1)
-                domain = m.group(2).lower()
-                if any(skip in domain for skip in _SKIP_DOMAINS):
-                    continue
-                href = full_url
-            else:
-                handle = m.group(1).strip("/ .")
-                if not handle or len(handle) < 2:
-                    continue
-                href = url_tpl.format(handle)
-            if href not in seen:
-                found.append((icon, label, href))
-                seen.add(href)
-
-    return found[:8]
+    """Backwards-compatible wrapper for the shared contact parser."""
+    return extract_social_links(bio, keywords)
 
 
 # Matches youtube.com (with or without www) and the youtu.be short-link domain.

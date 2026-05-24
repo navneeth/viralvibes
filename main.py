@@ -147,7 +147,7 @@ from routes.lists import (
     lists_more_languages_route,
     lists_route,
 )
-from routes.outreach import outreach_export_route, outreach_route
+from routes.outreach import outreach_export_route, outreach_import_list_route, outreach_route
 from routes.admin import admin_get, admin_jobs_fragment, admin_rescue_quota_jobs
 from views.lists import _unslugify
 
@@ -1683,6 +1683,12 @@ def me_outreach_export(req, sess):
 def me_outreach_export_plain(req, sess):
     """Export saved creators with public emails for external outreach tools."""
     return outreach_export_route(req, sess)
+
+
+@rt("/me/outreach/import-list", methods=["POST"])
+def me_outreach_import_list(req, sess, list_key: str = "", limit: int = 25):
+    """Bulk-save creators from a saved curated list into the outreach pool."""
+    return outreach_import_list_route(req, sess, list_key=list_key, limit=limit)
 
 
 @rt("/me/outreach")

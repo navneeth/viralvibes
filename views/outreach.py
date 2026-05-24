@@ -8,6 +8,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from services.outreach import filter_email_ready_rows
+from services.outreach_lists import IMPORT_LIMIT_DEFAULT, is_importable_list_key
 from utils import format_number
 
 
@@ -84,7 +85,82 @@ def _empty_state() -> Div:
     )
 
 
-def render_outreach_page(rows: list[dict[str, str]], user_name: str = "") -> Div:
+def _saved_lists_panel(saved_lists: list[dict] | None = None) -> Div | None:
+    lists = saved_lists or []
+    if not lists:
+        return None
+
+    def _list_row(item: dict) -> Div:
+        list_key = item.get("list_key") or ""
+        list_label = item.get("list_label") or list_key
+        list_url = item.get("list_url") or "/lists"
+        importable = is_importable_list_key(list_key)
+
+        action = (
+            Form(
+                Input(type="hidden", name="list_key", value=list_key),
+                Input(type="hidden", name="limit", value=str(IMPORT_LIMIT_DEFAULT)),
+                Button(
+                    UkIcon("plus", cls="w-3.5 h-3.5 mr-1"),
+                    f"Add top {IMPORT_LIMIT_DEFAULT}",
+                    type="submit",
+                    cls=(
+                        "inline-flex items-center px-3 py-1.5 rounded-md bg-red-500 "
+                        "hover:bg-red-600 text-white text-xs font-semibold transition-colors"
+                    ),
+                ),
+                hx_post="/me/outreach/import-list",
+                hx_target="#outreach-import-status",
+                hx_swap="innerHTML",
+                cls="m-0",
+            )
+            if importable
+            else Span(
+                "Explorer tab",
+                cls="text-xs font-semibold text-muted-foreground bg-accent px-2 py-1 rounded-md",
+            )
+        )
+
+        return Div(
+            Div(
+                A(
+                    list_label,
+                    href=list_url,
+                    cls="text-sm font-semibold text-foreground hover:text-red-600 no-underline",
+                ),
+                P(list_key, cls="text-xs text-muted-foreground font-mono"),
+            ),
+            action,
+            cls="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0",
+        )
+
+    return Div(
+        Div(
+            Div(
+                H2("Saved Lists", cls="text-base font-bold text-foreground"),
+                P(
+                    "Bulk-save creators from your bookmarked lists into outreach.",
+                    cls="text-xs text-muted-foreground",
+                ),
+            ),
+            A(
+                "Browse lists",
+                href="/lists",
+                cls="text-xs text-red-600 hover:underline font-medium",
+            ),
+            cls="flex items-start justify-between gap-3 mb-3",
+        ),
+        Div(*[_list_row(item) for item in lists], cls="divide-y divide-border"),
+        Div(id="outreach-import-status", cls="mt-3"),
+        cls="p-4 border border-border rounded-xl bg-background mb-6",
+    )
+
+
+def render_outreach_page(
+    rows: list[dict[str, str]],
+    saved_lists: list[dict] | None = None,
+    user_name: str = "",
+) -> Div:
     email_rows = filter_email_ready_rows(rows)
     social_rows = [
         r
@@ -141,6 +217,7 @@ def render_outreach_page(rows: list[dict[str, str]], user_name: str = "") -> Div
             if rows
             else None
         ),
+        _saved_lists_panel(saved_lists),
         (
             Div(
                 Table(

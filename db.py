@@ -2307,6 +2307,32 @@ def add_favourite_creator(user_id: str, creator_id: str) -> bool:
         return False
 
 
+def add_favourite_creators_bulk(user_id: str, creator_ids: list[str]) -> int:
+    """
+    Mark many creators as favourites for a user.
+
+    This powers the outreach harness: curated lists are bulk-saved into the
+    existing saved-creators pool, which the outreach export already understands.
+
+    Returns the number of unique creator IDs attempted. Upsert makes existing
+    favourites a no-op.
+    """
+    unique_ids = [cid for cid in dict.fromkeys(creator_ids) if cid]
+    if not supabase_client or not user_id or not unique_ids:
+        return 0
+    try:
+        payload = [{"user_id": user_id, "creator_id": creator_id} for creator_id in unique_ids]
+        supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE).upsert(
+            payload,
+            on_conflict="user_id,creator_id",
+        ).execute()
+        logger.info("[Favourites] Bulk-added %d creators for user %s", len(unique_ids), user_id)
+        return len(unique_ids)
+    except Exception as exc:
+        logger.exception("[Favourites] add_favourite_creators_bulk failed: %s", exc)
+        return 0
+
+
 def remove_favourite_creator(user_id: str, creator_id: str) -> bool:
     """
     Remove a creator from a user's favourites.
@@ -2539,7 +2565,7 @@ _USER_FAVOURITE_LISTS_TABLE = USER_FAVOURITE_LISTS_TABLE
 
 # Allowlist of valid list_key formats (checked on write)
 _LIST_KEY_RE = re.compile(
-    r"^(top-rated|most-active|rising|veterans|by-country|by-category|by-language"
+    r"^(top-rated|most-active|rising|veterans|new-channels|by-country|by-category|by-language"
     r"|country:[A-Z]{2}"
     r"|category:[^:]{1,80}"
     r"|language:[a-z]{2,10})$"
