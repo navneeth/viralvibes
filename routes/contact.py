@@ -5,6 +5,8 @@ Contact page — inquiry form, support channels, and FAQ.
 from fasthtml.common import *
 from monsterui.all import *
 
+from constants import CONTACT_EMAIL
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -131,6 +133,7 @@ def contact_form() -> Form:
 
 
 def contact_page_content() -> Div:
+    mailto = f"mailto:{CONTACT_EMAIL}"
     return _contact_page(
         "Get In Touch",
         _section(
@@ -142,19 +145,19 @@ def contact_page_content() -> Div:
                 "Sales & Pricing",
                 "Questions about plans, features, or pricing? Our sales team can help.",
                 "Contact Sales →",
-                "mailto:sales@viralvibes.app",
+                mailto,
             ),
             _contact_method(
                 "Support",
                 "Need help using ViralVibes? Have a bug to report? We're here to help.",
                 "Contact Support →",
-                "mailto:support@viralvibes.app",
+                mailto,
             ),
             _contact_method(
                 "Privacy & Legal",
                 "Questions about our privacy policy, data handling, or legal matters?",
                 "Contact Legal →",
-                "mailto:privacy@viralvibes.app",
+                mailto,
             ),
             cls="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8",
         ),
@@ -188,7 +191,7 @@ def contact_page_content() -> Div:
             Div(
                 H3("Can I schedule a demo?", cls="text-lg font-semibold text-foreground mb-2"),
                 P(
-                    "Yes! Contact our sales team at sales@viralvibes.app and mention 'DEMO REQUEST'. "
+                    f"Yes! Contact us at {CONTACT_EMAIL} and mention 'DEMO REQUEST'. "
                     "We offer custom walkthroughs for teams evaluating ViralVibes.",
                     cls="text-muted-foreground leading-relaxed",
                 ),
@@ -198,7 +201,7 @@ def contact_page_content() -> Div:
                 H3("What about partnerships?", cls="text-lg font-semibold text-foreground mb-2"),
                 P(
                     "We're always interested in partnership opportunities — integrations, reselling, or co-marketing. "
-                    "Email partnerships@viralvibes.app to discuss collaboration ideas.",
+                    f"Email {CONTACT_EMAIL} to discuss collaboration ideas.",
                     cls="text-muted-foreground leading-relaxed",
                 ),
                 cls="p-4 border border-border rounded-lg",

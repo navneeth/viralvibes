@@ -219,3 +219,10 @@ class TestCreatorProfile:
         self._patch_profile_db(monkeypatch)
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}?from=/creators%3Fsort%3Dengagement")
         assert r.status_code == 200
+
+    def test_profile_shows_safe_for_kids_badge(self, client, monkeypatch):
+        """Worker-collected is_made_for_kids should render a profile badge."""
+        self._patch_profile_db(monkeypatch, creator={**FAKE_CREATOR, "is_made_for_kids": True})
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+        assert r.status_code == 200
+        assert "Safe for Kids" in r.text
