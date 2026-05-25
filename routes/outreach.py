@@ -84,8 +84,6 @@ def outreach_import_list_route(req, sess, list_key: str = "", limit: int | str =
 
     limit_int = clamp_import_limit(limit)
     creators = get_creators_for_outreach_list(list_key, limit=limit_int)
-    creator_ids = [str(c.get("id") or "") for c in creators if c.get("id")]
-    saved_count = add_favourite_creators_bulk(user_id, creator_ids)
 
     if not creators:
         return Div(
@@ -95,6 +93,9 @@ def outreach_import_list_route(req, sess, list_key: str = "", limit: int | str =
             ),
             cls="p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800",
         )
+
+    creator_ids = [str(c.get("id") or "") for c in creators if c.get("id")]
+    saved_count = add_favourite_creators_bulk(user_id, creator_ids)
 
     return Div(
         P(

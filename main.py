@@ -1686,7 +1686,7 @@ def me_outreach_export_plain(req, sess):
 
 
 @rt("/me/outreach/import-list", methods=["POST"])
-def me_outreach_import_list(req, sess, list_key: str = "", limit: int = 25):
+def me_outreach_import_list(req, sess, list_key: str = "", limit: int | str = 25):
     """Bulk-save creators from a saved curated list into the outreach pool."""
     return outreach_import_list_route(req, sess, list_key=list_key, limit=limit)
 
