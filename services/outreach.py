@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import csv
 import io
-import re
 from typing import Any
+
+from services.contact_extractor import extract_contact_signals_from_creator
 
 
 EMAIL_EXPORT_HEADERS = [
@@ -39,94 +40,6 @@ EMAIL_EXPORT_HEADERS = [
     "Language",
     "ViralVibes Profile URL",
 ]
-
-_EMAIL_RE = re.compile(r"\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
-_URL_RE = re.compile(r"https?://[^\s<>)\"']+", re.I)
-
-_SOCIAL_PATTERNS = {
-    "instagram_url": re.compile(r"(?:https?://)?(?:www\.)?instagram\.com/([\w.]+)", re.I),
-    "x_url": re.compile(r"(?:https?://)?(?:www\.)?(?:x|twitter)\.com/([\w]+)", re.I),
-    "tiktok_url": re.compile(r"(?:https?://)?(?:www\.)?tiktok\.com/@([\w.]+)", re.I),
-    "linkedin_url": re.compile(
-        r"(?:https?://)?(?:www\.)?linkedin\.com/(?:in|company)/([\w-]+)", re.I
-    ),
-}
-
-_SKIP_WEBSITE_DOMAINS = (
-    "youtube.com",
-    "youtu.be",
-    "instagram.com",
-    "twitter.com",
-    "x.com",
-    "tiktok.com",
-    "facebook.com",
-    "linkedin.com",
-    "google.com",
-    "wikipedia.org",
-    "bit.ly",
-    "goo.gl",
-)
-
-
-def _text_for_contact_scan(creator: dict[str, Any]) -> str:
-    """Return the creator text fields likely to contain public contact info."""
-    parts = [
-        creator.get("channel_description"),
-        creator.get("description"),
-        creator.get("bio"),
-        creator.get("keywords"),
-    ]
-    return " ".join(str(p) for p in parts if p).strip()
-
-
-def _first_email(text: str) -> str:
-    emails = _EMAIL_RE.findall(text or "")
-    return emails[0] if emails else ""
-
-
-def _first_social_url(text: str, key: str) -> str:
-    pattern = _SOCIAL_PATTERNS[key]
-    match = pattern.search(text or "")
-    if not match:
-        return ""
-    handle = match.group(1).strip("/ .")
-    if not handle:
-        return ""
-    if key == "instagram_url":
-        return f"https://instagram.com/{handle}"
-    if key == "x_url":
-        return f"https://x.com/{handle}"
-    if key == "tiktok_url":
-        return f"https://tiktok.com/@{handle}"
-    if key == "linkedin_url":
-        raw = match.group(0)
-        kind = "company" if "/company/" in raw.lower() else "in"
-        return f"https://linkedin.com/{kind}/{handle}"
-    return ""
-
-
-def _is_skipped_website_domain(domain: str) -> bool:
-    """Return True if *domain* is a known non-website platform domain.
-
-    Matches the domain exactly or as a subdomain of a skip entry, but never
-    as an arbitrary substring — so ``myyoutube.com`` is not skipped while
-    ``www.youtube.com`` still is.
-    """
-    domain = domain.lower()
-    for skip in _SKIP_WEBSITE_DOMAINS:
-        if domain == skip or domain.endswith(f".{skip}"):
-            return True
-    return False
-
-
-def _first_website(text: str) -> str:
-    for match in _URL_RE.findall(text or ""):
-        url = match.rstrip(".,;")
-        domain = url.lower().split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
-        if _is_skipped_website_domain(domain):
-            continue
-        return url
-    return ""
 
 
 def _channel_url(creator: dict[str, Any]) -> str:
@@ -161,7 +74,7 @@ def creator_to_outreach_row(
     that require custom mapping should still auto-detect Email, Company,
     Website, Notes, and Tags cleanly.
     """
-    text = _text_for_contact_scan(creator)
+    contacts = extract_contact_signals_from_creator(creator)
     creator_id = str(creator.get("id") or "")
     category = creator.get("primary_category") or creator.get("category") or ""
     country = creator.get("country_code") or ""
@@ -170,16 +83,16 @@ def creator_to_outreach_row(
     tags = [tag for tag in ("viralvibes", "saved-creator", category, country) if tag]
 
     return {
-        "Email": _first_email(text),
+        "Email": contacts.email,
         "First Name": "",
         "Last Name": "",
         "Company": str(creator.get("channel_name") or ""),
-        "Website": _first_website(text),
+        "Website": contacts.website_url,
         "YouTube URL": _channel_url(creator),
-        "Instagram URL": _first_social_url(text, "instagram_url"),
-        "X URL": _first_social_url(text, "x_url"),
-        "TikTok URL": _first_social_url(text, "tiktok_url"),
-        "LinkedIn URL": _first_social_url(text, "linkedin_url"),
+        "Instagram URL": contacts.instagram_url,
+        "X URL": contacts.x_url,
+        "TikTok URL": contacts.tiktok_url,
+        "LinkedIn URL": contacts.linkedin_url,
         "Tags": ", ".join(tags),
         "Notes": outreach_angle(creator),
         "Subscribers": str(creator.get("current_subscribers") or 0),
