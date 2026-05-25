@@ -131,7 +131,10 @@ def test_contact_parser_skips_youtube_urls():
         (host == "youtube.com" or host.endswith(".youtube.com"))
         for host in ((urlparse(u).hostname or "").lower() for u in globe_urls)
     )
-    assert any("mysite.com" in u for u in globe_urls)
+    assert any(
+        (host == "mysite.com" or host.endswith(".mysite.com"))
+        for host in ((urlparse(u).hostname or "").lower() for u in globe_urls)
+    )
 
 
 def test_email_export_filters_rows_without_email():
