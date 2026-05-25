@@ -3109,6 +3109,7 @@ def get_creators(
     limit: int = 50,
     offset: int = 0,
     return_count: bool = False,
+    cursor_value: any = None,  # New: for keyset/cursor pagination
 ) -> list[dict] | CreatorsResult:
     """
     Fetch creators for frontend display with comprehensive filtering and sorting.
@@ -3303,8 +3304,17 @@ def get_creators(
                 )
                 query = query.ilike("primary_category", ilike_pattern)
 
-        # Apply sorting, limit, and offset (DB does the work for pagination)
-        query = query.order(sort_field, desc=descending).limit(limit).offset(offset)
+        # Keyset/cursor pagination optimization
+        if cursor_value is not None:
+            if descending:
+                query = query.lt(sort_field, cursor_value)
+            else:
+                query = query.gt(sort_field, cursor_value)
+            # Note: For compound keys (e.g., sort_field + id), extend this logic
+        query = query.order(sort_field, desc=descending).limit(limit)
+        # If cursor_value is not provided, fallback to offset for first page or legacy clients
+        if cursor_value is None and offset:
+            query = query.offset(offset)
 
         # Execute query (count already included in select if needed)
         try:

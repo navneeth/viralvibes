@@ -110,15 +110,29 @@ python cli.py run --poll-interval 10 --batch-size 3 --max-runtime 300
 
 ## Architecture
 
-The application follows a modern serverless architecture with three main layers:
 
-### Mental Model (Directory Structure)
-- **`components/`** → UI primitives (buttons, cards, tables, sections)
-- **`views/`** → Composed pages (dashboard views, layouts)
-- **`services/`** → YouTube + data logic (playlist processing, transforms)
-- **`worker/`** → Async jobs (background processing, job queue)
-- **`routes/`** → Entry points (partially used, mostly in main.py)
-- **`tests/`** → Solid coverage (unit and integration tests)
+## Architecture
+
+ViralVibes is a FastHTML/MonsterUI app with clear layers and responsibilities:
+
+- **main.py**: Central route registration and page wiring; composes the UI and connects all layers.
+- **routes/**: Route logic, partially extracted from main.py for modularity and clarity.
+- **views/**: Page rendering and composed UI; builds full pages from components and data.
+- **components/**: Reusable UI primitives and navigation (buttons, cards, tables, nav, etc.).
+- **db.py**: Supabase access helpers for all database operations.
+- **db/migrations/**: Database schema changes and migration scripts.
+- **tests/**: Route and DB helper tests, with solid coverage for core features.
+
+Other notable directories:
+- **services/**: YouTube and data logic (playlist processing, transforms, API integrations).
+- **worker/**: Async jobs, background processing, and job queue management.
+
+This structure enables a clean separation of concerns:
+- **Routing & Entry**: main.py, routes/
+- **UI Composition**: views/, components/
+- **Data & Logic**: services/, db.py, db/migrations/
+- **Async/Background**: worker/
+- **Testing**: tests/
 
 ### Frontend Layer
 - FastHTML for server-side rendering
