@@ -98,8 +98,8 @@ def outreach_import_list_route(req, sess, list_key: str = "", limit: int | str =
 
     return Div(
         P(
-            Span(f"Saved {saved_count} creators", cls="font-semibold"),
-            " to your outreach pool.",
+            Span(f"Added up to {saved_count} creators", cls="font-semibold"),
+            " to your outreach pool (already-saved creators were skipped).",
             cls="text-sm text-foreground",
         ),
         A("Refresh outreach", href="/me/outreach", cls="text-xs text-red-600 hover:underline"),

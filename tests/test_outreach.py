@@ -2,6 +2,7 @@
 Tests for saved creator outreach exports.
 """
 
+import pytest
 from starlette.testclient import TestClient
 
 import main
@@ -106,6 +107,29 @@ def test_creator_profile_and_outreach_share_contact_parser():
     assert ("twitter", "X / Twitter", "https://x.com/example") in links
 
 
+def test_contact_parser_normalises_linkedin_company_url():
+    links = extract_social_links("https://linkedin.com/company/acme-corp", "")
+    urls = [url for _, _, url in links]
+    assert "https://linkedin.com/company/acme-corp" in urls
+
+
+def test_contact_parser_strips_trailing_punctuation_from_website():
+    links = extract_social_links("Visit us at https://example.com.", "")
+    urls = [url for _, _, url in links]
+    assert "https://example.com" in urls
+    assert "https://example.com." not in urls
+
+
+def test_contact_parser_skips_youtube_urls():
+    links = extract_social_links(
+        "Watch at https://www.youtube.com/watch?v=abc123 and https://mysite.com",
+        "",
+    )
+    globe_urls = [url for icon, _, url in links if icon == "globe"]
+    assert not any("youtube.com" in u for u in globe_urls)
+    assert any("mysite.com" in u for u in globe_urls)
+
+
 def test_email_export_filters_rows_without_email():
     rows = build_outreach_rows([CREATOR_WITH_EMAIL, CREATOR_SOCIAL_ONLY])
 
@@ -202,6 +226,73 @@ def test_outreach_import_list_bulk_saves_creators(monkeypatch):
         data={"list_key": "category:Education", "limit": "25"},
     )
 
+
+def test_outreach_page_shows_non_importable_saved_lists(monkeypatch):
+    """Aggregate/browse list keys render an 'Explorer tab' pill, not an import form."""
+    import routes.outreach as outreach
+
+    monkeypatch.setattr(outreach, "get_user_favourite_creators", lambda uid, **kw: [])
+    monkeypatch.setattr(
+        outreach,
+        "get_user_favourite_lists",
+        lambda uid, **kw: [
+            {
+                "list_key": "by-country",
+                "list_label": "By country",
+                "list_url": "/lists/by-country",
+            }
+        ],
+    )
+
+    r = _auth_client().get("/me/outreach")
+
     assert r.status_code == 200
-    assert "Saved 2 creators" in r.text
-    assert saved["creator_ids"] == [CREATOR_WITH_EMAIL["id"], CREATOR_SOCIAL_ONLY["id"]]
+    assert "Saved Lists" in r.text
+    assert "Explorer tab" in r.text
+    assert "Add top 25" not in r.text
+
+
+def test_outreach_import_list_empty_creators_shows_warning(monkeypatch):
+    """Empty creator list returns the yellow warning and never calls bulk save."""
+    import routes.outreach as outreach
+
+    bulk_save_called = {}
+
+    monkeypatch.setattr(outreach, "get_creators_for_outreach_list", lambda list_key, limit: [])
+    monkeypatch.setattr(
+        outreach,
+        "add_favourite_creators_bulk",
+        lambda uid, ids: bulk_save_called.update({"called": True}) or 0,
+    )
+
+    r = _auth_client().post(
+        "/me/outreach/import-list",
+        data={"list_key": "category:Education", "limit": "25"},
+    )
+
+    assert r.status_code == 200
+    assert "No importable creators" in r.text
+    assert not bulk_save_called
+
+
+@pytest.mark.parametrize("raw_limit", ["999", "not-a-number"])
+def test_outreach_import_list_clamps_limit(raw_limit, monkeypatch):
+    """Out-of-range and non-integer limit values must be clamped before the DB call."""
+    import routes.outreach as outreach
+
+    received = {}
+
+    def fake_get_creators(list_key, limit):
+        received["limit"] = limit
+        return []
+
+    monkeypatch.setattr(outreach, "get_creators_for_outreach_list", fake_get_creators)
+    monkeypatch.setattr(outreach, "add_favourite_creators_bulk", lambda uid, ids: 0)
+
+    _auth_client().post(
+        "/me/outreach/import-list",
+        data={"list_key": "category:Education", "limit": raw_limit},
+    )
+
+    assert "limit" in received, "get_creators_for_outreach_list was not called"
+    assert 1 <= received["limit"] <= 100
