@@ -3,6 +3,7 @@ Tests for saved creator outreach exports.
 """
 
 import pytest
+from urllib.parse import urlparse
 from starlette.testclient import TestClient
 
 import main
@@ -126,7 +127,10 @@ def test_contact_parser_skips_youtube_urls():
         "",
     )
     globe_urls = [url for icon, _, url in links if icon == "globe"]
-    assert not any("youtube.com" in u for u in globe_urls)
+    assert not any(
+        (host == "youtube.com" or host.endswith(".youtube.com"))
+        for host in ((urlparse(u).hostname or "").lower() for u in globe_urls)
+    )
     assert any("mysite.com" in u for u in globe_urls)
 
 
