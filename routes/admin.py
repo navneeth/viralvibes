@@ -11,13 +11,17 @@ DB helpers (is_admin) live in db.py.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 
 from fasthtml.common import *
+from starlette.responses import Response as StarletteResponse
 
 import db as _db
+from services.contact_extractor import ContactExtractorService
 from views.admin import AdminPage, _JobsSection
 
 logger = logging.getLogger(__name__)
@@ -138,6 +142,11 @@ def _fetch_admin_data() -> dict:
         "completed_1h": 0,
         "avg_job_secs": None,
         "last_completed_secs": None,
+        # Contact signals / Outreach
+        "creators_with_contact": 0,
+        "creators_with_email": 0,
+        "creators_with_instagram": 0,
+        "last_contact_extracted_at": None,
         # Recent jobs table
         "recent_jobs": [],
     }
@@ -288,6 +297,48 @@ def _fetch_admin_data() -> dict:
     except Exception:
         logger.exception("[Admin] Duration/heartbeat queries failed")
 
+    # ── Contact signals / Outreach ────────────────────────────────────────────
+    try:
+        data["creators_with_contact"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("has_contact_info", True)
+            .execute()
+            .count
+            or 0
+        )
+        data["creators_with_email"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .not_.is_("extracted_email", "null")
+            .execute()
+            .count
+            or 0
+        )
+        data["creators_with_instagram"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .not_.is_("extracted_instagram", "null")
+            .execute()
+            .count
+            or 0
+        )
+        # Get most recent extraction timestamp
+        last_extracted = (
+            sc.table("creators")
+            .select("contact_signals_extracted_at")
+            .order("contact_signals_extracted_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if last_extracted and last_extracted[0].get("contact_signals_extracted_at"):
+            dt = _parse_iso_utc(last_extracted[0]["contact_signals_extracted_at"])
+            if dt:
+                data["last_contact_extracted_at"] = int((now - dt).total_seconds())
+    except Exception:
+        logger.exception("[Admin] Contact signals queries failed")
+
     # ── Recent jobs table ──────────────────────────────────────────────────────
     try:
         data["recent_jobs"] = (
@@ -426,3 +477,96 @@ def admin_rescue_quota_jobs(req, sess) -> Response | FT:
     except Exception:
         logger.exception("[Admin] rescue_quota_jobs failed")
         return P("❌ Rescue failed — check server logs.", cls="text-sm text-red-600")
+
+
+# -- Admin Outreach Export ---------------------------------------------------
+
+
+def admin_outreach_export_route(req, sess) -> Response:
+    """
+    GET /admin/outreach/export.csv — bulk export of all creators with contact info.
+
+    ADMIN-ONLY: Authorized via _is_authorised() (OAuth admin_users OR static token).
+
+    Returns CSV with columns:
+      Email, First Name, Last Name, Company, Website, YouTube URL,
+      Instagram URL, X URL, TikTok URL, LinkedIn URL, Tags, Notes, etc.
+
+    Filters to creators with:
+      - has_contact_info = TRUE (denormalized, indexed)
+      - sync_status = 'synced' (valid stats)
+      - Email present (keeps file size down per user requirement)
+    """
+    if not _is_authorised(req, sess):
+        return StarletteResponse(
+            "Unauthorized",
+            status_code=401,
+            media_type="text/plain",
+        )
+
+    sc = _db.supabase_client
+    if not sc:
+        return StarletteResponse("DB unavailable", status_code=503, media_type="text/plain")
+
+    try:
+        # Query creators with contact info, synced status only
+        creators = (
+            sc.table("creators")
+            .select("*")
+            .eq("has_contact_info", True)
+            .eq("sync_status", "synced")
+            .order("current_subscribers", desc=True)
+            .execute()
+            .data
+            or []
+        )
+
+        if not creators:
+            return StarletteResponse(
+                "No creators with contact information found.",
+                status_code=200,
+                media_type="text/plain",
+            )
+
+        logger.info(f"[Admin] Generating outreach export for {len(creators)} creators")
+
+        # Build rows using unified service
+        rows = [ContactExtractorService.build_creator_contact_row(c) for c in creators]
+
+        # Filter email-ready (keep file size down)
+        rows = ContactExtractorService.filter_email_ready_rows(rows)
+
+        if not rows:
+            return StarletteResponse(
+                "No creators with email addresses found.",
+                status_code=200,
+                media_type="text/plain",
+            )
+
+        logger.info(f"[Admin] Exporting {len(rows)} email-ready creators")
+
+        # Render CSV
+        buf = io.StringIO()
+        writer = csv.DictWriter(
+            buf,
+            fieldnames=ContactExtractorService.EMAIL_EXPORT_HEADERS,
+            extrasaction="ignore",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+        return StarletteResponse(
+            content=buf.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="viralvibes-creators-{datetime.now().strftime("%Y%m%d")}.csv"'
+            },
+        )
+
+    except Exception as e:
+        logger.exception("[Admin] Outreach export failed")
+        return StarletteResponse(
+            f"Export failed: {str(e)[:200]}",
+            status_code=500,
+            media_type="text/plain",
+        )

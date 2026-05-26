@@ -5,12 +5,14 @@ Saved creator outreach routes.
 from __future__ import annotations
 
 import os
+import csv
+import io
 
 from fasthtml.common import A, Div, P, RedirectResponse, Span
 from starlette.responses import Response as StarletteResponse
 
 from db import add_favourite_creators_bulk, get_user_favourite_creators, get_user_favourite_lists
-from services.outreach import build_outreach_rows, filter_email_ready_rows, render_outreach_csv
+from services.contact_extractor import ContactExtractorService
 from services.outreach_lists import clamp_import_limit, get_creators_for_outreach_list
 from views.outreach import render_outreach_page
 
@@ -39,7 +41,13 @@ def outreach_route(req, sess):
 
     creators = get_user_favourite_creators(user_id, limit=500)
     saved_lists = get_user_favourite_lists(user_id, limit=50)
-    rows = build_outreach_rows(creators, base_url=_base_url(req))
+
+    # Build rows using unified service
+    rows = [
+        ContactExtractorService.build_creator_contact_row(c, base_url=_base_url(req))
+        for c in creators
+    ]
+
     return render_outreach_page(rows, saved_lists=saved_lists, user_name=user_name)
 
 
@@ -56,10 +64,26 @@ def outreach_export_route(req, sess):
             return RedirectResponse("/login", status_code=303)
 
     creators = get_user_favourite_creators(user_id, limit=500)
-    rows = filter_email_ready_rows(build_outreach_rows(creators, base_url=_base_url(req)))
+
+    # Build rows using unified service
+    rows = [
+        ContactExtractorService.build_creator_contact_row(c, base_url=_base_url(req))
+        for c in creators
+    ]
+
+    # Filter email-ready to keep file size down
+    rows = ContactExtractorService.filter_email_ready_rows(rows)
+
+    # Render CSV
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf, fieldnames=ContactExtractorService.EMAIL_EXPORT_HEADERS, extrasaction="ignore"
+    )
+    writer.writeheader()
+    writer.writerows(rows)
 
     return StarletteResponse(
-        content=render_outreach_csv(rows),
+        content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="saved-creators-outreach.csv"'},
     )

@@ -148,7 +148,12 @@ from routes.lists import (
     lists_route,
 )
 from routes.outreach import outreach_export_route, outreach_import_list_route, outreach_route
-from routes.admin import admin_get, admin_jobs_fragment, admin_rescue_quota_jobs
+from routes.admin import (
+    admin_get,
+    admin_jobs_fragment,
+    admin_rescue_quota_jobs,
+    admin_outreach_export_route,
+)
 from views.lists import _unslugify
 
 # Get logger instance
@@ -1849,6 +1854,12 @@ def admin_jobs(req, sess):
 def admin_rescue_quota(req, sess):
     """Reset all quota-failed jobs back to pending."""
     return admin_rescue_quota_jobs(req, sess)
+
+
+@rt("/admin/outreach/export.csv")
+def admin_outreach_export(req, sess):
+    """Admin bulk export: all creators with contact info (email-only for file size)."""
+    return admin_outreach_export_route(req, sess)
 
 
 # ============================================================================
