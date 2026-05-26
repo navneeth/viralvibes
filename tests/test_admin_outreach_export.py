@@ -47,7 +47,7 @@ class TestContactExtractorService:
         assert (urlparse(signals.instagram_url).hostname or "").lower() in {"instagram.com", "www.instagram.com"}
         assert (urlparse(signals.x_url or "").hostname or "").lower() in {"twitter.com", "www.twitter.com", "x.com", "www.x.com"}
         assert "tiktok.com" in (signals.tiktok_url or "")
-        assert "mycreatorsite.com" in (signals.website_url or "")
+        assert (urlparse(signals.website_url or "").hostname or "").lower() in {"mycreatorsite.com", "www.mycreatorsite.com"}
 
     def test_extract_from_creator_channels(self):
         """Test extraction from creator dict with channel_description, bio, keywords."""
