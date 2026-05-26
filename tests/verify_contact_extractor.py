@@ -52,9 +52,13 @@ def test_extract_from_text_multiple():
         ".instagram.com"
     ), f"Instagram host mismatch: {signals.instagram_url}"
     # X/Twitter pattern converts twitter.com to x.com URLs
-    assert "x.com" in (signals.x_url or "") or "twitter.com" in (
-        signals.x_url or ""
-    ), f"X/Twitter not found: {signals.x_url}"
+    x_host = (urlparse(signals.x_url or "").hostname or "").lower()
+    assert (
+        x_host == "x.com"
+        or x_host.endswith(".x.com")
+        or x_host == "twitter.com"
+        or x_host.endswith(".twitter.com")
+    ), f"X/Twitter host mismatch: {signals.x_url}"
     print("   ✅ Multiple URL extraction works")
 
 
