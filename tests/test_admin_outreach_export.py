@@ -11,6 +11,7 @@ Tests cover:
 
 import pytest
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from services.contact_extractor import ContactExtractorService
 
 
@@ -42,7 +43,8 @@ class TestContactExtractorService:
         """
         signals = ContactExtractorService.extract_from_text(text)
         assert signals.email == "hello@creator.com"
-        assert "instagram.com" in (signals.instagram_url or "")
+        assert signals.instagram_url is not None
+        assert (urlparse(signals.instagram_url).hostname or "").lower() in {"instagram.com", "www.instagram.com"}
         assert "twitter.com" in (signals.x_url or "")
         assert "tiktok.com" in (signals.tiktok_url or "")
         assert "mycreatorsite.com" in (signals.website_url or "")
