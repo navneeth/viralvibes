@@ -46,7 +46,7 @@ class TestContactExtractorService:
         assert signals.instagram_url is not None
         assert (urlparse(signals.instagram_url).hostname or "").lower() in {"instagram.com", "www.instagram.com"}
         assert (urlparse(signals.x_url or "").hostname or "").lower() in {"twitter.com", "www.twitter.com", "x.com", "www.x.com"}
-        assert "tiktok.com" in (signals.tiktok_url or "")
+        assert (urlparse(signals.tiktok_url or "").hostname or "").lower() in {"tiktok.com", "www.tiktok.com"}
         assert (urlparse(signals.website_url or "").hostname or "").lower() in {"mycreatorsite.com", "www.mycreatorsite.com"}
 
     def test_extract_from_creator_channels(self):
