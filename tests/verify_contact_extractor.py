@@ -5,6 +5,7 @@ Run with: python tests/verify_contact_extractor.py
 
 import sys
 import os
+from urllib.parse import urlparse
 
 # Set up path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,9 +46,11 @@ def test_extract_from_text_multiple():
     """
     signals = ContactExtractorService.extract_from_text(text)
     assert signals.email == "hello@creator.com", f"Expected hello@creator.com, got {signals.email}"
-    assert "instagram.com" in (
-        signals.instagram_url or ""
-    ), f"Instagram not found: {signals.instagram_url}"
+    assert signals.instagram_url, f"Instagram not found: {signals.instagram_url}"
+    instagram_host = (urlparse(signals.instagram_url).hostname or "").lower()
+    assert instagram_host == "instagram.com" or instagram_host.endswith(
+        ".instagram.com"
+    ), f"Instagram host mismatch: {signals.instagram_url}"
     # X/Twitter pattern converts twitter.com to x.com URLs
     assert "x.com" in (signals.x_url or "") or "twitter.com" in (
         signals.x_url or ""
