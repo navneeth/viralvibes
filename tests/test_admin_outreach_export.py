@@ -60,7 +60,7 @@ class TestContactExtractorService:
         }
         signals = ContactExtractorService.extract_from_creator(creator)
         assert signals.email == "business@test.com"
-        assert "instagram.com" in (signals.instagram_url or "")
+        assert (urlparse(signals.instagram_url or "").hostname or "").lower() in {"instagram.com", "www.instagram.com"}
         assert "tiktok.com" in (signals.tiktok_url or "")
 
     def test_build_db_update_payload(self):
