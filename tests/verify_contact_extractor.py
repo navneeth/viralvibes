@@ -59,6 +59,10 @@ def test_extract_from_text_multiple():
         or x_host == "twitter.com"
         or x_host.endswith(".twitter.com")
     ), f"X/Twitter host mismatch: {signals.x_url}"
+        or x_host.endswith(".x.com")
+        or x_host == "twitter.com"
+        or x_host.endswith(".twitter.com")
+    ), f"X/Twitter host mismatch: {signals.x_url}"
     print("   ✅ Multiple URL extraction works")
 
 
