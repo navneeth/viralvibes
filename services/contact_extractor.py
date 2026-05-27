@@ -376,6 +376,17 @@ class ContactExtractorService:
             f"{grade_note}{growth}."
         )
 
+        def _num(key: str) -> str:
+            """Format a numeric field for CSV.
+
+            Missing key  -> "" (empty cell, consistent with text fields)
+            Real zero    -> "0" (preserve meaningful zero)
+            Other value  -> str(value)
+            """
+            if key not in creator or creator[key] is None:
+                return ""
+            return str(creator[key])
+
         return {
             "Email": signals.email,
             "First Name": "",
@@ -389,13 +400,13 @@ class ContactExtractorService:
             "LinkedIn URL": signals.linkedin_url,
             "Tags": ", ".join(tags),
             "Notes": notes,
-            "Subscribers": str(creator.get("current_subscribers") or 0),
-            "Views": str(creator.get("current_view_count") or 0),
-            "Videos": str(creator.get("current_video_count") or 0),
+            "Subscribers": _num("current_subscribers"),
+            "Views": _num("current_view_count"),
+            "Videos": _num("current_video_count"),
             "Quality Grade": grade,
-            "Engagement Score": str(creator.get("engagement_score") or ""),
-            "30 Day Subscriber Growth": str(creator.get("subscribers_change_30d") or ""),
-            "30 Day View Growth": str(creator.get("views_change_30d") or ""),
+            "Engagement Score": _num("engagement_score"),
+            "30 Day Subscriber Growth": _num("subscribers_change_30d"),
+            "30 Day View Growth": _num("views_change_30d"),
             "Category": str(category),
             "Country": str(country),
             "Language": str(language),
