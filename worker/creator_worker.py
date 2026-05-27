@@ -65,6 +65,7 @@ from services.channel_utils import ChannelIDValidator, YouTubeResolver
 from services.youtube_errors import is_quota_exhausted_error, QuotaExceededException
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
+from services.contact_extractor import ContactExtractorService
 
 # --- Load environment variables early ---
 # Auto-detects runtime: Kaggle → UserSecretsClient, local/CI → dotenv/.env
@@ -1461,6 +1462,21 @@ async def handle_sync_job(
                 "last_synced_at": datetime.now(timezone.utc).isoformat(),
             }
         )
+
+        # STAGE 4.5: Extract and persist contact signals
+        # Extract email, website, Instagram, X, TikTok, LinkedIn from channel_description/keywords
+        # This enables fast filtering for outreach exports without regex on request path
+        try:
+            contact_payload = ContactExtractorService.build_db_update_payload(full_payload)
+            full_payload.update(contact_payload)
+            logger.debug(
+                f"{job_tag} Contact signals extracted: "
+                f"email={bool(contact_payload.get('extracted_email'))}, "
+                f"has_contact={contact_payload.get('has_contact_info')}"
+            )
+        except Exception as e:
+            logger.warning(f"{job_tag} Contact extraction failed (non-critical): {e}")
+            # Continue without contact info - not a blocker
 
         # Filter to available schema columns
         update_payload, missing_fields = schema_detector.filter_payload(full_payload)

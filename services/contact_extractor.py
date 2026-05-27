@@ -213,3 +213,254 @@ def extract_contact_signals(text: str) -> ContactSignals:
 
 def extract_contact_signals_from_creator(creator: dict[str, Any]) -> ContactSignals:
     return extract_contact_signals(creator_contact_text(creator))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CENTRALIZED SERVICE FOR CONTACT EXTRACTION AND ROW BUILDING
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class ContactExtractorService:
+    """
+    Centralized service for extracting and formatting contact signals.
+
+    Consolidates extraction logic used by:
+    - Creator profile display
+    - User outreach export (/me/outreach/export)
+    - Admin bulk export (/admin/outreach/export)
+
+    Single source of truth for contact handling — easy to extend for
+    new contact types (WhatsApp, email variants, etc.).
+    """
+
+    # CSV export headers shared by both user and admin exports
+    EMAIL_EXPORT_HEADERS = [
+        "Email",
+        "First Name",
+        "Last Name",
+        "Company",
+        "Website",
+        "YouTube URL",
+        "Instagram URL",
+        "X URL",
+        "TikTok URL",
+        "LinkedIn URL",
+        "Tags",
+        "Notes",
+        "Subscribers",
+        "Views",
+        "Videos",
+        "Quality Grade",
+        "Engagement Score",
+        "30 Day Subscriber Growth",
+        "30 Day View Growth",
+        "Category",
+        "Country",
+        "Language",
+        "ViralVibes Profile URL",
+    ]
+
+    @staticmethod
+    def extract_from_text(text: str) -> ContactSignals:
+        """Extract contact signals from free-text bio/keywords.
+
+        Args:
+            text: Combined bio + keywords text to parse
+
+        Returns:
+            ContactSignals with first-contact info (email, socials)
+        """
+        return extract_contact_signals(text)
+
+    @staticmethod
+    def extract_from_creator(creator: dict[str, Any]) -> ContactSignals:
+        """Extract contact signals from a creator dict.
+
+        Combines channel_description, bio, keywords text and runs extraction.
+
+        Args:
+            creator: Creator dict from database or API
+
+        Returns:
+            ContactSignals with first-contact info
+        """
+        return extract_contact_signals_from_creator(creator)
+
+    @staticmethod
+    def build_db_update_payload(creator: dict[str, Any]) -> dict[str, Any]:
+        """Build database UPDATE payload for persisting contact signals.
+
+        Called by worker during sync to persist extracted contacts to DB.
+
+        Args:
+            creator: Creator dict with channel_description, bio, keywords
+
+        Returns:
+            Dict with columns: extracted_email, extracted_website, extracted_instagram,
+            extracted_x, extracted_tiktok, extracted_linkedin, extracted_whatsapp,
+            contact_signals_extracted_at, has_contact_info
+        """
+        from datetime import datetime, timezone
+
+        signals = ContactExtractorService.extract_from_creator(creator)
+
+        # Determine if any contact field is non-null
+        has_contact = any(
+            (
+                signals.email,
+                signals.website_url,
+                signals.instagram_url,
+                signals.x_url,
+                signals.tiktok_url,
+                signals.linkedin_url,
+            )
+        )
+
+        return {
+            "extracted_email": signals.email or None,
+            "extracted_website": signals.website_url or None,
+            "extracted_instagram": signals.instagram_url or None,
+            "extracted_x": signals.x_url or None,
+            "extracted_tiktok": signals.tiktok_url or None,
+            "extracted_linkedin": signals.linkedin_url or None,
+            "extracted_whatsapp": None,  # Reserved for future use
+            "contact_signals_extracted_at": datetime.now(timezone.utc).isoformat(),
+            "has_contact_info": has_contact,
+        }
+
+    @staticmethod
+    def build_creator_contact_row(
+        creator: dict[str, Any], *, base_url: str = "https://www.viralvibes.fyi"
+    ) -> dict[str, str]:
+        """Build a CSV export row from a creator dict.
+
+        Unified row builder used by both user outreach export and admin bulk export.
+        Consolidates the old creator_to_outreach_row() logic from services/outreach.py.
+
+        Args:
+            creator: Creator dict from database
+            base_url: Base URL for profile links (e.g., ViralVibes domain)
+
+        Returns:
+            Dict with keys matching EMAIL_EXPORT_HEADERS
+        """
+        # Extract contact signals
+        signals = ContactExtractorService.extract_from_creator(creator)
+
+        # Build channel URL
+        channel_id = creator.get("channel_id") or ""
+        channel_url = creator.get("channel_url") or (
+            f"https://www.youtube.com/channel/{channel_id}" if channel_id else ""
+        )
+
+        # Prepare metadata
+        creator_id = str(creator.get("id") or "")
+        channel_name = str(creator.get("channel_name") or "")
+        category = creator.get("primary_category") or creator.get("category") or ""
+        country = creator.get("country_code") or ""
+        language = creator.get("default_language") or creator.get("language") or ""
+
+        # Build tags
+        tags = [tag for tag in ("viralvibes", "saved-creator", category, country) if tag]
+
+        # Calculate 30-day growth for notes
+        subs_delta = creator.get("subscribers_change_30d")
+        growth = ""
+        if isinstance(subs_delta, int) and subs_delta > 0:
+            growth = f" and gained {subs_delta:,} subscribers in the last 30 days"
+
+        grade = creator.get("quality_grade") or ""
+        grade_note = f" with a {grade} quality grade" if grade else ""
+        notes = (
+            f"{channel_name or 'This creator'} is active in {category or 'their niche'}"
+            f"{grade_note}{growth}."
+        )
+
+        def _num(key: str) -> str:
+            """Format a numeric field for CSV.
+
+            Missing key  -> "" (empty cell, consistent with text fields)
+            Real zero    -> "0" (preserve meaningful zero)
+            Other value  -> str(value)
+            """
+            if key not in creator or creator[key] is None:
+                return ""
+            return str(creator[key])
+
+        return {
+            "Email": signals.email,
+            "First Name": "",
+            "Last Name": "",
+            "Company": channel_name,
+            "Website": signals.website_url,
+            "YouTube URL": channel_url,
+            "Instagram URL": signals.instagram_url,
+            "X URL": signals.x_url,
+            "TikTok URL": signals.tiktok_url,
+            "LinkedIn URL": signals.linkedin_url,
+            "Tags": ", ".join(tags),
+            "Notes": notes,
+            "Subscribers": _num("current_subscribers"),
+            "Views": _num("current_view_count"),
+            "Videos": _num("current_video_count"),
+            "Quality Grade": grade,
+            "Engagement Score": _num("engagement_score"),
+            "30 Day Subscriber Growth": _num("subscribers_change_30d"),
+            "30 Day View Growth": _num("views_change_30d"),
+            "Category": str(category),
+            "Country": str(country),
+            "Language": str(language),
+            "ViralVibes Profile URL": (
+                f"{base_url.rstrip('/')}/creator/{creator_id}" if creator_id else ""
+            ),
+        }
+
+    @staticmethod
+    def filter_email_ready_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Filter export rows to only those with email addresses.
+
+        Email-only filtering keeps file size down (v1). Future: extend to
+        include Instagram or other contact channels.
+
+        Args:
+            rows: List of export row dicts
+
+        Returns:
+            Filtered list of rows with non-empty Email field
+        """
+        return [row for row in rows if row.get("Email")]
+
+    @staticmethod
+    def filter_contactable_creators(creators: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Filter creators to those with at least one contact method.
+
+        Prefers the denormalized columns persisted by migration 040
+        (`has_contact_info`, `extracted_email`, `contact_signals_extracted_at`)
+        to avoid re-running regex extraction over potentially millions of bios
+        on every admin export. Falls back to live extraction for legacy rows
+        that pre-date the migration (where the sync timestamp is NULL and the
+        flag has never been set).
+
+        Args:
+            creators: List of creator dicts
+
+        Returns:
+            Filtered list of creators with extractable contact info
+        """
+        result: list[dict[str, Any]] = []
+        for c in creators:
+            # Fast path: worker has already extracted (migration 040 persisted columns).
+            if c.get("contact_signals_extracted_at") is not None:
+                if c.get("has_contact_info") or c.get("extracted_email"):
+                    result.append(c)
+                continue
+            # Even without a sync timestamp, trust an explicit True flag.
+            if c.get("has_contact_info") is True:
+                result.append(c)
+                continue
+            if c.get("has_contact_info") is False:
+                continue
+            # Legacy fallback: re-extract from bio fields.
+            if ContactExtractorService.extract_from_creator(c).has_email:
+                result.append(c)
+        return result

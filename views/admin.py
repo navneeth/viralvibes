@@ -350,6 +350,57 @@ def _WorkerSection(data: dict) -> Div:
     return Grid(throughput_card, drain_card, cols_md=2, gap=4, cls="mb-6")
 
 
+def _OutreachSection(data: dict) -> Div:
+    """
+    Contact signals & outreach stats.
+    Shows coverage of extracted contact info (email, Instagram, etc.)
+    and provides direct download link to admin export.
+    """
+    total = data.get("total_creators", 0)
+    with_contact = data.get("creators_with_contact", 0)
+    with_email = data.get("creators_with_email", 0)
+    with_instagram = data.get("creators_with_instagram", 0)
+    last_extracted_secs = data.get("last_contact_extracted_at")
+
+    contact_pct = (with_contact / total * 100) if total > 0 else 0
+    email_pct = (with_email / total * 100) if total > 0 else 0
+    instagram_pct = (with_instagram / total * 100) if total > 0 else 0
+
+    coverage_card = Card(
+        H3(
+            "Contact Signal Coverage",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _KVRow("Creators with any contact", f"{with_contact:,} ({contact_pct:.1f}%)"),
+        _KVRow("Creators with email", f"{with_email:,} ({email_pct:.1f}%)"),
+        _KVRow("Creators with Instagram", f"{with_instagram:,} ({instagram_pct:.1f}%)"),
+        _KVRow("Last extracted", _fmt_ago(last_extracted_secs) if last_extracted_secs else "—"),
+        body_cls="p-5",
+    )
+
+    export_card = Card(
+        H3(
+            "Bulk Outreach",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        Div(
+            P(
+                "Export all creators with email addresses for mass outreach campaigns.",
+                cls="text-sm text-muted-foreground mb-4",
+            ),
+            A(
+                "📥 Export All Creators (CSV)",
+                href="/admin/outreach/export",
+                cls="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 font-medium text-sm",
+            ),
+            cls="flex flex-col gap-3",
+        ),
+        body_cls="p-5",
+    )
+
+    return Grid(coverage_card, export_card, cols_md=2, gap=4, cls="mb-6")
+
+
 def _BreakdownSection(data: dict) -> Div:
     total = data["total_creators"]
     breakdown = {
@@ -434,6 +485,7 @@ def AdminPage(data: dict, refreshed_at: str = "") -> FT:
             _QueueSection(data),
             _InventorySection(data),
             _WorkerSection(data),
+            _OutreachSection(data),
             _BreakdownSection(data),
             _JobsSection(data["recent_jobs"]),
             cls="max-w-6xl mx-auto px-4 pb-16",
