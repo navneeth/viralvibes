@@ -57,6 +57,19 @@ from components.errors import (
     get_user_friendly_error,
 )
 
+# Static page layout primitives (about/contact/legal/privacy/terms)
+from components.page_layout import (
+    BulletSection,
+    Divider,
+    FAQCard,
+    FeatureGrid,
+    InfoCard,
+    LinkCard,
+    PageSection,
+    PullQuote,
+    StaticPage,
+)
+
 
 # Section Components
 from components.sections import (

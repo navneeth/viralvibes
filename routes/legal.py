@@ -5,44 +5,12 @@ Legal pages: Terms of Service and Privacy Policy.
 from fasthtml.common import *
 from monsterui.all import *
 
+from components.page_layout import (
+    BulletSection,
+    PageSection,
+    StaticPage,
+)
 from constants import CONTACT_EMAIL
-
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
-
-def _legal_page(title: str, last_updated: str, *sections) -> Div:
-    """Wraps a legal page in a consistent container with a header."""
-    return Div(
-        # Page header
-        Div(
-            H1(title, cls="text-3xl font-bold text-foreground mb-2"),
-            P(f"Last updated: {last_updated}", cls="text-sm text-muted-foreground"),
-            cls="mb-10 pb-8 border-b border-border",
-        ),
-        # Sections
-        Div(*sections, cls="space-y-10"),
-        cls="max-w-3xl mx-auto px-4 py-16",
-    )
-
-
-def _section(heading: str, *paragraphs) -> Div:
-    return Div(
-        *([H2(heading, cls="text-xl font-semibold text-foreground mb-3")] if heading else []),
-        *[P(text, cls="text-muted-foreground leading-relaxed mb-3") for text in paragraphs],
-    )
-
-
-def _bullet_section(heading: str, items: list[str]) -> Div:
-    return Div(
-        *([H2(heading, cls="text-xl font-semibold text-foreground mb-3")] if heading else []),
-        Ul(
-            *[Li(item, cls="text-muted-foreground leading-relaxed mb-2") for item in items],
-            cls="list-disc list-inside space-y-1",
-        ),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -51,31 +19,38 @@ def _bullet_section(heading: str, items: list[str]) -> Div:
 
 
 def terms_page_content() -> Div:
-    return _legal_page(
+    return StaticPage(
         "Terms of Service",
-        "April 8, 2026",
-        _section(
-            "1. Acceptance of Terms",
+        # Opening clauses — use the numbered variant so the section index
+        # becomes a large display element instead of a flat "1." prefix.
+        PageSection(
+            "Acceptance of Terms",
             'By accessing or using ViralVibes ("the Service"), you agree to be bound by these '
             "Terms of Service. If you do not agree to these terms, please do not use the Service.",
             "These terms apply to all visitors, users, and others who access the Service. "
             "ViralVibes reserves the right to update these terms at any time. Continued use of "
             "the Service after any changes constitutes acceptance of the new terms.",
+            variant="numbered",
+            number="01",
         ),
-        _section(
-            "2. Description of Service",
+        PageSection(
+            "Description of Service",
             "ViralVibes is a creator intelligence platform that provides data-driven insights "
             "about YouTube creators and their content. The Service includes creator discovery "
             "tools, engagement analytics, playlist analysis, and curated ranking lists.",
             "All data displayed is sourced from publicly available YouTube information. "
             "ViralVibes does not require access to any YouTube channel or account in order "
             "to analyse it.",
+            variant="split",
+            eyebrow="02",
         ),
-        _section(
-            "3. Permitted Use",
+        PageSection(
+            "Permitted Use",
             "You may use the Service for lawful purposes only. You agree not to:",
+            variant="numbered",
+            number="03",
         ),
-        _bullet_section(
+        BulletSection(
             "",
             [
                 "Scrape, crawl, or programmatically extract data from the Service without prior written consent.",
@@ -85,48 +60,63 @@ def terms_page_content() -> Div:
                 "Use the Service in any way that could damage, disable, or impair its operation.",
             ],
         ),
-        _section(
-            "4. Accounts and Authentication",
+        PageSection(
+            "Accounts and Authentication",
             "Certain features of the Service require you to create an account using Google OAuth. "
             "You are responsible for maintaining the confidentiality of your account credentials "
             "and for all activity that occurs under your account.",
             "We reserve the right to suspend or terminate accounts that violate these terms "
             "or that appear to be engaged in abusive or automated behaviour.",
+            variant="split",
+            eyebrow="04",
         ),
-        _section(
-            "5. Intellectual Property",
+        PageSection(
+            "Intellectual Property",
             "All content on the Service — including text, graphics, logos, and software — is the "
             "property of ViralVibes or its content suppliers and is protected by applicable "
             "intellectual property laws.",
             "YouTube data displayed through the Service remains subject to YouTube's own terms "
             "of service (https://www.youtube.com/t/terms). ViralVibes does not claim ownership "
             "of any third-party content.",
+            variant="numbered",
+            number="05",
         ),
-        _section(
-            "6. Disclaimer of Warranties",
+        PageSection(
+            "Disclaimer of Warranties",
             'The Service is provided on an "as is" and "as available" basis without warranties '
             "of any kind, either express or implied. ViralVibes does not warrant that the Service "
             "will be uninterrupted, error-free, or free of viruses or other harmful components.",
             "Creator rankings, engagement metrics, and estimated earnings are derived from "
             "publicly available data and algorithmic analysis. They are provided for informational "
             "purposes and should not be solely relied upon for commercial decisions.",
+            variant="accent",
+            eyebrow="06 — Important",
         ),
-        _section(
-            "7. Limitation of Liability",
+        PageSection(
+            "Limitation of Liability",
             "To the maximum extent permitted by applicable law, ViralVibes shall not be liable "
             "for any indirect, incidental, special, consequential, or punitive damages arising "
             "from your use of, or inability to use, the Service.",
+            variant="split",
+            eyebrow="07",
         ),
-        _section(
-            "8. Governing Law",
+        PageSection(
+            "Governing Law",
             "These terms shall be governed by and construed in accordance with applicable law. "
             "Any disputes relating to these terms shall be subject to the exclusive jurisdiction "
             "of the relevant courts.",
+            variant="numbered",
+            number="08",
         ),
-        _section(
-            "9. Contact",
-            "For questions about these Terms of Service, please contact us at " f"{CONTACT_EMAIL}.",
+        PageSection(
+            "Contact",
+            f"For questions about these Terms of Service, please contact us at {CONTACT_EMAIL}.",
+            variant="centered",
+            eyebrow="09",
         ),
+        last_updated="April 8, 2026",
+        eyebrow="Legal",
+        section_gap="space-y-12",
     )
 
 
@@ -136,22 +126,25 @@ def terms_page_content() -> Div:
 
 
 def privacy_page_content() -> Div:
-    return _legal_page(
+    return StaticPage(
         "Privacy Policy",
-        "April 8, 2026",
-        _section(
-            "1. Introduction",
+        PageSection(
+            "Introduction",
             'ViralVibes ("we", "us", or "our") is committed to protecting your personal data. '
             "This Privacy Policy explains what information we collect, how we use it, and your "
             "rights in relation to it.",
             "We process data in accordance with applicable privacy law, including the General "
             "Data Protection Regulation (GDPR) where applicable.",
+            variant="lead",
+            eyebrow="01 — Overview",
         ),
-        _section(
-            "2. Information We Collect",
+        PageSection(
+            "Information We Collect",
             "We collect the following categories of information:",
+            variant="numbered",
+            number="02",
         ),
-        _bullet_section(
+        BulletSection(
             "",
             [
                 "Account data: Your name and email address provided via Google OAuth when you sign in.",
@@ -160,11 +153,13 @@ def privacy_page_content() -> Div:
                 "Communications: Email addresses submitted via the newsletter signup form.",
             ],
         ),
-        _section(
-            "3. How We Use Your Data",
+        PageSection(
+            "How We Use Your Data",
             "We use the information we collect to:",
+            variant="split",
+            eyebrow="03",
         ),
-        _bullet_section(
+        BulletSection(
             "",
             [
                 "Provide, operate, and improve the Service.",
@@ -174,21 +169,25 @@ def privacy_page_content() -> Div:
                 "Understand how the Service is used in aggregate to guide product decisions.",
             ],
         ),
-        _section(
-            "4. Data Storage and Security",
+        PageSection(
+            "Data Storage and Security",
             "Account and dashboard data is stored in Supabase, a cloud database provider, "
             "with servers located in the European Union (AWS eu-west-2 / eu-central-1). "
             "Data is encrypted in transit (TLS) and at rest.",
             "We take reasonable technical and organisational measures to protect your data "
             "against unauthorised access, loss, or misuse. No method of transmission over the "
             "internet is 100% secure; we cannot guarantee absolute security.",
+            variant="numbered",
+            number="04",
         ),
-        _section(
-            "5. Third-Party Services",
+        PageSection(
+            "Third-Party Services",
             "The Service integrates with the following third-party services, each governed by "
             "their own privacy policies:",
+            variant="split",
+            eyebrow="05",
         ),
-        _bullet_section(
+        BulletSection(
             "",
             [
                 "Google OAuth — for authentication. Subject to Google's Privacy Policy.",
@@ -197,18 +196,22 @@ def privacy_page_content() -> Div:
                 "Vercel — for hosting and analytics. Subject to Vercel's Privacy Policy.",
             ],
         ),
-        _section(
-            "6. Cookies",
+        PageSection(
+            "Cookies",
             "ViralVibes uses only a single session cookie required for authentication. "
             "We do not use advertising cookies or third-party tracking cookies.",
             "Our analytics provider (Vercel Web Analytics) does not use cookies and does not "
             "track users across sites.",
+            variant="accent",
+            eyebrow="06 — Tracking",
         ),
-        _section(
-            "7. Your Rights",
+        PageSection(
+            "Your Rights",
             "Depending on your jurisdiction, you may have the right to:",
+            variant="numbered",
+            number="07",
         ),
-        _bullet_section(
+        BulletSection(
             "",
             [
                 "Access the personal data we hold about you.",
@@ -217,32 +220,44 @@ def privacy_page_content() -> Div:
                 "Object to or restrict certain processing.",
                 "Data portability — receive a copy of your data in a structured format.",
             ],
+            variant="accent",
         ),
-        _section(
+        PageSection(
             "",
             f"To exercise any of these rights, please contact us at {CONTACT_EMAIL}. "
             "We will respond within 30 days.",
         ),
-        _section(
-            "8. Data Retention",
+        PageSection(
+            "Data Retention",
             "We retain your account data for as long as your account is active. "
             "Newsletter subscribers are retained until you unsubscribe. "
             "You may request deletion of your data at any time.",
+            variant="split",
+            eyebrow="08",
         ),
-        _section(
-            "9. Children's Privacy",
+        PageSection(
+            "Children's Privacy",
             "The Service is not directed at children under the age of 16. We do not knowingly "
             "collect personal data from children. If you believe a child has provided us with "
             "personal data, please contact us so we can delete it.",
+            variant="numbered",
+            number="09",
         ),
-        _section(
-            "10. Changes to This Policy",
+        PageSection(
+            "Changes to This Policy",
             "We may update this Privacy Policy from time to time. Material changes will be "
             'communicated via the Service or by email. The "last updated" date at the top of '
             "this page reflects the most recent revision.",
+            variant="split",
+            eyebrow="10",
         ),
-        _section(
-            "11. Contact",
-            "For privacy-related questions or requests, please contact us at " f"{CONTACT_EMAIL}.",
+        PageSection(
+            "Contact",
+            f"For privacy-related questions or requests, please contact us at {CONTACT_EMAIL}.",
+            variant="centered",
+            eyebrow="11",
         ),
+        last_updated="April 8, 2026",
+        eyebrow="Legal",
+        section_gap="space-y-12",
     )
