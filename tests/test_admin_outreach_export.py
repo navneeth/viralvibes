@@ -376,7 +376,8 @@ def test_csv_export_format():
     writer.writerows(rows)
 
     csv_content = buf.getvalue()
-    lines = csv_content.strip().split("\n")
+    # csv.DictWriter emits \r\n line terminators per RFC 4180.
+    lines = csv_content.strip().splitlines()
 
     assert lines[0] == ",".join(ContactExtractorService.EMAIL_EXPORT_HEADERS)
     assert len(lines) == 3  # header + 2 data rows

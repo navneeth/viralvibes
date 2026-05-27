@@ -48,6 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_creators_contact_sync_status
   ON public.creators(has_contact_info, sync_status, id)
   WHERE has_contact_info = TRUE;
 
+-- Index on contact_signals_extracted_at for the admin dashboard freshness
+-- query: ORDER BY contact_signals_extracted_at DESC LIMIT 1 over ~500k+ rows
+-- would otherwise be a full table scan + sort.
+CREATE INDEX IF NOT EXISTS idx_creators_contact_signals_extracted_at
+  ON public.creators(contact_signals_extracted_at DESC)
+  WHERE contact_signals_extracted_at IS NOT NULL;
+
 -- ═════════════════════════════════════════════════════════════════════════════
 -- BACKFILL INITIALIZATION
 -- ═════════════════════════════════════════════════════════════════════════════
@@ -78,7 +85,12 @@ BEGIN
 
     SELECT COUNT(*) INTO indexes_created FROM pg_indexes
     WHERE tablename = 'creators'
-    AND indexname LIKE 'idx_creators_%contact%';
+    AND indexname IN (
+        'idx_creators_has_contact_info',
+        'idx_creators_extracted_email',
+        'idx_creators_contact_sync_status',
+        'idx_creators_contact_signals_extracted_at'
+    );
 
     RAISE NOTICE '✅ Migration 040 complete:';
     RAISE NOTICE '   - % creators present', total_creators;

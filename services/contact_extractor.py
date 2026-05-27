@@ -423,7 +423,12 @@ class ContactExtractorService:
     def filter_contactable_creators(creators: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter creators to those with at least one contact method.
 
-        Currently filters by has_email. Future: extend to include Instagram, etc.
+        Prefers the denormalized columns persisted by migration 040
+        (`has_contact_info`, `extracted_email`, `contact_signals_extracted_at`)
+        to avoid re-running regex extraction over potentially millions of bios
+        on every admin export. Falls back to live extraction for legacy rows
+        that pre-date the migration (where the sync timestamp is NULL and the
+        flag has never been set).
 
         Args:
             creators: List of creator dicts
@@ -431,4 +436,20 @@ class ContactExtractorService:
         Returns:
             Filtered list of creators with extractable contact info
         """
-        return [c for c in creators if ContactExtractorService.extract_from_creator(c).has_email]
+        result: list[dict[str, Any]] = []
+        for c in creators:
+            # Fast path: worker has already extracted (migration 040 persisted columns).
+            if c.get("contact_signals_extracted_at") is not None:
+                if c.get("has_contact_info") or c.get("extracted_email"):
+                    result.append(c)
+                continue
+            # Even without a sync timestamp, trust an explicit True flag.
+            if c.get("has_contact_info") is True:
+                result.append(c)
+                continue
+            if c.get("has_contact_info") is False:
+                continue
+            # Legacy fallback: re-extract from bio fields.
+            if ContactExtractorService.extract_from_creator(c).has_email:
+                result.append(c)
+        return result
