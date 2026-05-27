@@ -52,7 +52,7 @@ def outreach_route(req, sess):
 
 
 def outreach_export_route(req, sess):
-    """GET /me/outreach/export.csv — email-tool-friendly saved creator export."""
+    """GET /me/outreach/export — email-tool-friendly saved creator export."""
     user_id = sess.get("user_id") if sess else None
     auth = sess.get("auth") if sess else None
 

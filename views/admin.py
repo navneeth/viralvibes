@@ -390,7 +390,7 @@ def _OutreachSection(data: dict) -> Div:
             ),
             A(
                 "📥 Export All Creators (CSV)",
-                href="/admin/outreach/export.csv",
+                href="/admin/outreach/export",
                 cls="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 font-medium text-sm",
             ),
             cls="flex flex-col gap-3",

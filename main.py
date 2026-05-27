@@ -1678,15 +1678,16 @@ def me_favourites(req, sess):
     )
 
 
-@rt("/me/outreach/export.csv")
-def me_outreach_export(req, sess):
-    """Export saved creators with public emails for external outreach tools."""
-    return outreach_export_route(req, sess)
-
-
 @rt("/me/outreach/export")
-def me_outreach_export_plain(req, sess):
-    """Export saved creators with public emails for external outreach tools."""
+def me_outreach_export(req, sess):
+    """Export saved creators with public emails for external outreach tools.
+
+    NOTE: URL deliberately omits the `.csv` extension because FastHTML's
+    `fast_app(...)` auto-registers a catch-all static route
+    `/{fname:path}.{ext:static}` that captures any path ending in a known
+    static extension (including `csv`) BEFORE user routes. The handler still
+    sets `Content-Disposition: attachment; filename=...csv`.
+    """
     return outreach_export_route(req, sess)
 
 
@@ -1856,9 +1857,17 @@ def admin_rescue_quota(req, sess):
     return admin_rescue_quota_jobs(req, sess)
 
 
-@rt("/admin/outreach/export.csv")
+@rt("/admin/outreach/export")
 def admin_outreach_export(req, sess):
-    """Admin bulk export: all creators with contact info (email-only for file size)."""
+    """Admin bulk export: all creators with contact info (email-only for file size).
+
+    NOTE: URL deliberately omits the `.csv` extension because FastHTML's
+    `fast_app(...)` auto-registers a catch-all static route
+    `/{fname:path}.{ext:static}` that captures any path ending in a known
+    static extension (including `csv`) BEFORE user routes. The handler still
+    sets `Content-Disposition: attachment; filename=...csv` so the downloaded
+    file has the correct extension.
+    """
     return admin_outreach_export_route(req, sess)
 
 

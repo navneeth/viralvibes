@@ -484,7 +484,7 @@ def admin_rescue_quota_jobs(req, sess) -> Response | FT:
 
 def admin_outreach_export_route(req, sess) -> Response:
     """
-    GET /admin/outreach/export.csv — bulk export of all creators with contact info.
+    GET /admin/outreach/export — bulk export of all creators with contact info.
 
     ADMIN-ONLY: Authorized via _is_authorised() (OAuth admin_users OR static token).
 
@@ -566,7 +566,7 @@ def admin_outreach_export_route(req, sess) -> Response:
     except Exception as e:
         logger.exception("[Admin] Outreach export failed")
         return StarletteResponse(
-            "Export failed. The error has been logged; please try again or contact support.",
+            f"Export failed: {str(e)[:200]}",
             status_code=500,
             media_type="text/plain",
         )
