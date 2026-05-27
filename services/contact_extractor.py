@@ -261,16 +261,22 @@ class ContactExtractorService:
     ]
 
     @staticmethod
-    def extract_from_text(text: str) -> ContactSignals:
+    def extract_from_text(text: str | None) -> ContactSignals:
         """Extract contact signals from free-text bio/keywords.
 
+        ``None`` and non-string inputs are coerced to an empty string at the
+        service boundary so callers don't have to guard their inputs. Empty
+        input returns a ``ContactSignals`` with all fields set to the
+        dataclass default ``""`` (not ``None``).
+
         Args:
-            text: Combined bio + keywords text to parse
+            text: Combined bio + keywords text to parse. ``None`` is treated
+                as empty.
 
         Returns:
             ContactSignals with first-contact info (email, socials)
         """
-        return extract_contact_signals(text)
+        return extract_contact_signals(text if isinstance(text, str) else "")
 
     @staticmethod
     def extract_from_creator(creator: dict[str, Any]) -> ContactSignals:
@@ -376,6 +382,12 @@ class ContactExtractorService:
             f"{grade_note}{growth}."
         )
 
+        # Consistent CSV representation: missing numerics become empty cells
+        # (not the string ``"0"``) while real zeros are preserved.
+        def _num(key: str) -> str:
+            val = creator.get(key)
+            return "" if val is None else str(val)
+
         return {
             "Email": signals.email,
             "First Name": "",
@@ -389,13 +401,13 @@ class ContactExtractorService:
             "LinkedIn URL": signals.linkedin_url,
             "Tags": ", ".join(tags),
             "Notes": notes,
-            "Subscribers": str(creator.get("current_subscribers") or 0),
-            "Views": str(creator.get("current_view_count") or 0),
-            "Videos": str(creator.get("current_video_count") or 0),
+            "Subscribers": _num("current_subscribers"),
+            "Views": _num("current_view_count"),
+            "Videos": _num("current_video_count"),
             "Quality Grade": grade,
-            "Engagement Score": str(creator.get("engagement_score") or ""),
-            "30 Day Subscriber Growth": str(creator.get("subscribers_change_30d") or ""),
-            "30 Day View Growth": str(creator.get("views_change_30d") or ""),
+            "Engagement Score": _num("engagement_score"),
+            "30 Day Subscriber Growth": _num("subscribers_change_30d"),
+            "30 Day View Growth": _num("views_change_30d"),
             "Category": str(category),
             "Country": str(country),
             "Language": str(language),
@@ -423,7 +435,15 @@ class ContactExtractorService:
     def filter_contactable_creators(creators: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter creators to those with at least one contact method.
 
-        Currently filters by has_email. Future: extend to include Instagram, etc.
+        Prefers the persisted columns from migration 040
+        (``extracted_email`` / ``has_contact_info``) so we don't re-run regex
+        extraction over bio text on every request. Falls back to live
+        extraction only when neither column is populated (e.g., legacy rows
+        the worker has not yet processed).
+
+        For best performance, filter at the database level
+        (``WHERE has_contact_info = TRUE``) and only use this helper for
+        already-fetched lists.
 
         Args:
             creators: List of creator dicts
@@ -431,4 +451,21 @@ class ContactExtractorService:
         Returns:
             Filtered list of creators with extractable contact info
         """
-        return [c for c in creators if ContactExtractorService.extract_from_creator(c).has_email]
+
+        def _contactable(c: dict[str, Any]) -> bool:
+            # Persisted denormalized flag wins.
+            flag = c.get("has_contact_info")
+            if flag is True:
+                return True
+            if flag is False:
+                return False
+            # Persisted extracted columns next.
+            if c.get("extracted_email"):
+                return True
+            if "contact_signals_extracted_at" in c and c.get("contact_signals_extracted_at"):
+                # Worker has run; absence of email means no contact found.
+                return False
+            # Legacy / un-extracted rows: do the work.
+            return ContactExtractorService.extract_from_creator(c).has_email
+
+        return [c for c in creators if _contactable(c)]

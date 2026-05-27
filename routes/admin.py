@@ -566,7 +566,7 @@ def admin_outreach_export_route(req, sess) -> Response:
     except Exception as e:
         logger.exception("[Admin] Outreach export failed")
         return StarletteResponse(
-            f"Export failed: {str(e)[:200]}",
+            "Export failed. The error has been logged; please try again or contact support.",
             status_code=500,
             media_type="text/plain",
         )

@@ -1,22 +1,34 @@
 """
-tests/test_admin_outreach_export.py — Unit and integration tests for admin outreach export.
+tests/test_admin_outreach_export.py — unit tests for the contact extractor
+service and the admin outreach CSV export.
 
-Tests cover:
-1. ContactExtractorService contact extraction accuracy
-2. CSV row building with all 23 columns
-3. Email-only filtering for file size
-4. Admin route authorization
-5. CSV format and headers
+These tests target ``services.contact_extractor.ContactExtractorService`` and
+its CSV row builder. They are intentionally aligned with the **actual**
+runtime behavior of the service:
+
+* ``ContactSignals`` field default is ``""`` (an empty string), not ``None``.
+* The CSV row builder writes the channel name to the ``Company`` column.
+  ``First Name`` and ``Last Name`` are intentionally left blank — there is
+  no reliable way to split a channel name into a person's first/last name.
+* All numeric CSV cells are *strings* (``csv.DictWriter`` doesn't coerce
+  types). Missing numeric fields are written as empty strings; real zeros
+  are preserved as ``"0"``.
+* DB / API field names follow the schema: ``current_view_count``,
+  ``current_video_count``, ``subscribers_change_30d``, ``views_change_30d``,
+  ``country_code``.
 """
 
-import pytest
-from datetime import datetime, timezone
+import csv
+import io
 from urllib.parse import urlparse
+
+import pytest
+
 from services.contact_extractor import ContactExtractorService
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Unit Tests: ContactExtractorService
+# Unit Tests: ContactExtractorService extraction
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -24,15 +36,14 @@ class TestContactExtractorService:
     """Unit tests for contact extraction and CSV row building."""
 
     def test_extract_from_text_email_only(self):
-        """Test extraction of email from free-text bio."""
         text = "Filmmaker • contact@example.com • check out my stuff"
         signals = ContactExtractorService.extract_from_text(text)
         assert signals.email == "contact@example.com"
-        assert signals.website_url is None
-        assert signals.instagram_url is None
+        # Empty fields default to "" (dataclass default), not None.
+        assert signals.website_url == ""
+        assert signals.instagram_url == ""
 
     def test_extract_from_text_multiple_urls(self):
-        """Test extraction of multiple social URLs."""
         text = """
         🎬 Creator Hub
         📧 hello@creator.com
@@ -43,14 +54,27 @@ class TestContactExtractorService:
         """
         signals = ContactExtractorService.extract_from_text(text)
         assert signals.email == "hello@creator.com"
-        assert signals.instagram_url is not None
-        assert (urlparse(signals.instagram_url).hostname or "").lower() in {"instagram.com", "www.instagram.com"}
-        assert (urlparse(signals.x_url or "").hostname or "").lower() in {"twitter.com", "www.twitter.com", "x.com", "www.x.com"}
-        assert (urlparse(signals.tiktok_url or "").hostname or "").lower() in {"tiktok.com", "www.tiktok.com"}
-        assert (urlparse(signals.website_url or "").hostname or "").lower() in {"mycreatorsite.com", "www.mycreatorsite.com"}
+        assert (urlparse(signals.instagram_url).hostname or "").lower() in {
+            "instagram.com",
+            "www.instagram.com",
+        }
+        # The X/Twitter pattern produces an https://x.com/... URL.
+        assert (urlparse(signals.x_url).hostname or "").lower() in {
+            "x.com",
+            "www.x.com",
+            "twitter.com",
+            "www.twitter.com",
+        }
+        assert (urlparse(signals.tiktok_url).hostname or "").lower() in {
+            "tiktok.com",
+            "www.tiktok.com",
+        }
+        assert (urlparse(signals.website_url).hostname or "").lower() in {
+            "mycreatorsite.com",
+            "www.mycreatorsite.com",
+        }
 
     def test_extract_from_creator_channels(self):
-        """Test extraction from creator dict with channel_description, bio, keywords."""
         creator = {
             "id": "test-creator-1",
             "channel_name": "TestChannel",
@@ -60,38 +84,45 @@ class TestContactExtractorService:
         }
         signals = ContactExtractorService.extract_from_creator(creator)
         assert signals.email == "business@test.com"
-        assert (urlparse(signals.instagram_url or "").hostname or "").lower() in {"instagram.com", "www.instagram.com"}
-        assert (urlparse(signals.tiktok_url or "").hostname or "").lower() in {"tiktok.com", "www.tiktok.com"}
+        assert (urlparse(signals.instagram_url).hostname or "").lower() in {
+            "instagram.com",
+            "www.instagram.com",
+        }
+        assert (urlparse(signals.tiktok_url).hostname or "").lower() in {
+            "tiktok.com",
+            "www.tiktok.com",
+        }
 
     def test_build_db_update_payload(self):
-        """Test building payload for DB update with all 9 contact columns."""
         creator = {
             "id": "creator-1",
             "channel_name": "TestChannel",
-            "channel_description": "Email: test@example.com • Instagram: https://instagram.com/test",
+            "channel_description": (
+                "Email: test@example.com • Instagram: https://instagram.com/test"
+            ),
             "bio": None,
             "keywords": None,
         }
         payload = ContactExtractorService.build_db_update_payload(creator)
 
-        # All 9 columns should be present
-        assert "extracted_email" in payload
-        assert "extracted_website" in payload
-        assert "extracted_instagram" in payload
-        assert "extracted_x" in payload
-        assert "extracted_tiktok" in payload
-        assert "extracted_linkedin" in payload
-        assert "extracted_whatsapp" in payload
-        assert "contact_signals_extracted_at" in payload
-        assert "has_contact_info" in payload
+        # All 9 persisted columns are present.
+        for key in (
+            "extracted_email",
+            "extracted_website",
+            "extracted_instagram",
+            "extracted_x",
+            "extracted_tiktok",
+            "extracted_linkedin",
+            "extracted_whatsapp",
+            "contact_signals_extracted_at",
+            "has_contact_info",
+        ):
+            assert key in payload
 
-        # Email should be extracted
         assert payload["extracted_email"] == "test@example.com"
-        # has_contact_info should be True when any signal is present
         assert payload["has_contact_info"] is True
 
     def test_build_db_update_payload_no_contact(self):
-        """Test payload when no contact info is found."""
         creator = {
             "id": "creator-2",
             "channel_name": "SilentChannel",
@@ -106,7 +137,7 @@ class TestContactExtractorService:
         assert payload["has_contact_info"] is False
 
     def test_build_creator_contact_row_all_fields(self):
-        """Test CSV row building with all 23 columns."""
+        # Use the real DB schema field names.
         creator = {
             "id": "creator-1",
             "channel_name": "TestChannel",
@@ -114,58 +145,64 @@ class TestContactExtractorService:
             "bio": None,
             "keywords": None,
             "current_subscribers": 50000,
-            "current_views": 1000000,
-            "current_videos": 150,
+            "current_view_count": 1_000_000,
+            "current_video_count": 150,
             "quality_grade": "A",
             "engagement_score": 8.5,
-            "subs_delta_30d": 5000,
-            "views_delta_30d": 100000,
-            "category": "Tech",
-            "country": "US",
-            "language": "en",
+            "subscribers_change_30d": 5000,
+            "views_change_30d": 100_000,
+            "primary_category": "Tech",
+            "country_code": "US",
+            "default_language": "en",
             "channel_url": "https://www.youtube.com/channel/test123",
         }
         row = ContactExtractorService.build_creator_contact_row(creator)
 
-        # Verify all 23 headers are present
         for header in ContactExtractorService.EMAIL_EXPORT_HEADERS:
             assert header in row
 
-        # Verify key fields
+        # Channel name lands in Company; First/Last Name stay blank.
         assert row["Email"] == "test@example.com"
-        assert row["First Name"] == "TestChannel"
-        assert row["Subscribers"] == 50000
-        assert row["YouTube URL"] == "https://www.youtube.com/channel/test123"
-        assert row["30 Day Subscriber Growth"] == 5000
+        assert row["Company"] == "TestChannel"
+        assert row["First Name"] == ""
+        assert row["Last Name"] == ""
 
-    def test_build_creator_contact_row_with_growth_notes(self):
-        """Test that growth fields include human-readable notes."""
+        # All numeric cells are strings (csv.DictWriter doesn't coerce).
+        assert row["Subscribers"] == "50000"
+        assert row["Views"] == "1000000"
+        assert row["Videos"] == "150"
+        assert row["30 Day Subscriber Growth"] == "5000"
+        assert row["30 Day View Growth"] == "100000"
+        assert row["YouTube URL"] == "https://www.youtube.com/channel/test123"
+
+    def test_build_creator_contact_row_growth_in_notes(self):
         creator = {
             "id": "creator-1",
             "channel_name": "GrowingChannel",
             "channel_description": None,
             "bio": None,
             "keywords": None,
-            "current_subscribers": 100000,
-            "current_views": 5000000,
-            "current_videos": 200,
+            "current_subscribers": 100_000,
+            "current_view_count": 5_000_000,
+            "current_video_count": 200,
             "quality_grade": "B",
             "engagement_score": 6.0,
-            "subs_delta_30d": 10000,
-            "views_delta_30d": 500000,
-            "category": "Gaming",
-            "country": "CA",
-            "language": "en",
+            "subscribers_change_30d": 10_000,
+            "views_change_30d": 500_000,
+            "primary_category": "Gaming",
+            "country_code": "CA",
+            "default_language": "en",
             "channel_url": "https://www.youtube.com/channel/gaming123",
         }
         row = ContactExtractorService.build_creator_contact_row(creator)
 
-        # Growth notes should include ✓ or other indicators
-        growth_note = row.get("30 Day Subscriber Growth", "")
-        assert "10000" in str(growth_note) or "10,000" in str(growth_note)
+        # Growth lands in the human-readable Notes column, formatted with a
+        # thousands separator.
+        assert "10,000 subscribers" in row["Notes"]
+        # And in the dedicated numeric column.
+        assert row["30 Day Subscriber Growth"] == "10000"
 
     def test_filter_email_ready_rows(self):
-        """Test filtering rows to only those with email addresses."""
         rows = [
             {"Email": "user1@example.com", "Name": "User 1"},
             {"Email": None, "Name": "User 2"},
@@ -178,125 +215,157 @@ class TestContactExtractorService:
         assert filtered[0]["Email"] == "user1@example.com"
         assert filtered[1]["Email"] == "user4@example.com"
 
-    def test_filter_contactable_creators(self):
-        """Test filtering creators list to only those with contact info."""
+    def test_filter_contactable_creators_uses_persisted_flag(self):
+        """Prefers the denormalized has_contact_info column over re-extracting."""
         creators = [
-            {"id": "1", "has_email": True},
-            {"id": "2", "has_email": False},
-            {"id": "3", "has_email": True},
+            # Persisted flag wins even when bio text would yield nothing.
+            {"id": "1", "has_contact_info": True, "channel_description": ""},
+            {"id": "2", "has_contact_info": False, "channel_description": ""},
+            # Worker has run and persisted an email.
+            {
+                "id": "3",
+                "has_contact_info": True,
+                "extracted_email": "a@b.com",
+                "contact_signals_extracted_at": "2026-01-01T00:00:00Z",
+            },
+            # Worker has run and found no email.
+            {
+                "id": "4",
+                "has_contact_info": False,
+                "extracted_email": None,
+                "contact_signals_extracted_at": "2026-01-01T00:00:00Z",
+            },
         ]
         filtered = ContactExtractorService.filter_contactable_creators(creators)
+        assert [c["id"] for c in filtered] == ["1", "3"]
 
-        assert len(filtered) == 2
-        assert filtered[0]["id"] == "1"
-        assert filtered[1]["id"] == "3"
+    def test_filter_contactable_creators_legacy_fallback(self):
+        """When persisted columns are absent (legacy row), fall back to extraction."""
+        creators = [
+            {"id": "legacy-1", "channel_description": "Email: hi@x.com"},
+            {"id": "legacy-2", "channel_description": "no contact here"},
+        ]
+        filtered = ContactExtractorService.filter_contactable_creators(creators)
+        assert [c["id"] for c in filtered] == ["legacy-1"]
 
     def test_email_export_headers_count_and_order(self):
-        """Test that EMAIL_EXPORT_HEADERS has exactly 23 columns in correct order."""
         headers = ContactExtractorService.EMAIL_EXPORT_HEADERS
-
         assert len(headers) == 23
-        # First columns should be email and name fields
         assert headers[0] == "Email"
         assert headers[1] == "First Name"
-        # YouTube URL should be early
         assert "YouTube URL" in headers
-        # All should be strings
         assert all(isinstance(h, str) for h in headers)
 
 
-class TestContactExtractorEdgeCases:
-    """Test edge cases and robustness."""
+# ════════════════════════════════════════════════════════════════════════════
+# Edge cases
+# ════════════════════════════════════════════════════════════════════════════
 
+
+class TestContactExtractorEdgeCases:
     def test_extract_email_case_insensitive(self):
-        """Test that email extraction works regardless of case in text."""
         text = "Email: TEST@EXAMPLE.COM"
         signals = ContactExtractorService.extract_from_text(text)
-        # Email should be extracted (regex is case insensitive)
-        assert signals.email is not None
+        # Real email is extracted (regex matches uppercase too).
+        assert signals.email != ""
+        assert signals.email.lower() == "test@example.com"
 
-    def test_extract_handles_empty_text(self):
-        """Test extraction with empty/None text."""
-        signals_empty = ContactExtractorService.extract_from_text("")
-        assert signals_empty.email is None
+    def test_extract_from_text_empty_string(self):
+        signals = ContactExtractorService.extract_from_text("")
+        # Empty input → all fields are the dataclass default "".
+        assert signals.email == ""
+        assert signals.website_url == ""
+        assert signals.has_any_contact is False
 
-        signals_none = ContactExtractorService.extract_from_text(None)
-        assert signals_none.email is None
+    def test_extract_from_text_normalizes_none(self):
+        """``None`` is coerced to empty string at the service boundary.
+
+        This is a defensive contract documented on the public API so callers
+        don't have to guard their inputs.
+        """
+        signals = ContactExtractorService.extract_from_text(None)  # type: ignore[arg-type]
+        assert signals.email == ""
+        assert signals.has_any_contact is False
 
     def test_build_row_handles_missing_fields(self):
-        """Test row building when creator dict has missing fields."""
+        """Missing numeric fields render as empty CSV cells (consistent)."""
         creator = {
             "id": "creator-1",
             "channel_name": "MinimalChannel",
-            # Other fields missing
+            # Everything else missing.
         }
         row = ContactExtractorService.build_creator_contact_row(creator)
 
-        # Should not crash and should have all headers
         for header in ContactExtractorService.EMAIL_EXPORT_HEADERS:
             assert header in row
-        # Missing fields should be None or empty string
-        assert row.get("Subscribers") is None or row.get("Subscribers") == ""
+
+        # All-numeric columns: empty string when the source value is missing.
+        for col in (
+            "Subscribers",
+            "Views",
+            "Videos",
+            "Engagement Score",
+            "30 Day Subscriber Growth",
+            "30 Day View Growth",
+        ):
+            assert row[col] == "", f"{col!r} should be empty, got {row[col]!r}"
+
+        # Channel name still propagates to Company.
+        assert row["Company"] == "MinimalChannel"
+
+    def test_build_row_preserves_real_zero(self):
+        """Real zero values are kept (not coerced to empty)."""
+        creator = {
+            "id": "creator-zero",
+            "channel_name": "ZeroChannel",
+            "current_subscribers": 0,
+            "current_view_count": 0,
+            "current_video_count": 0,
+        }
+        row = ContactExtractorService.build_creator_contact_row(creator)
+        assert row["Subscribers"] == "0"
+        assert row["Views"] == "0"
+        assert row["Videos"] == "0"
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Test CSV Format
+# CSV format end-to-end
 # ════════════════════════════════════════════════════════════════════════════
+
+
+def _sample_creator(creator_id: str, name: str, email_local: str) -> dict:
+    return {
+        "id": creator_id,
+        "channel_name": name,
+        "channel_description": f"Email: {email_local}@example.com",
+        "bio": None,
+        "keywords": None,
+        "current_subscribers": 10_000,
+        "current_view_count": 100_000,
+        "current_video_count": 50,
+        "quality_grade": "A",
+        "engagement_score": 7.5,
+        "subscribers_change_30d": 1_000,
+        "views_change_30d": 10_000,
+        "primary_category": "Tech",
+        "country_code": "US",
+        "default_language": "en",
+        "channel_url": f"https://youtube.com/channel/{creator_id}",
+    }
 
 
 def test_csv_export_format():
-    """Test that CSV export produces valid CSV with proper headers."""
-    import csv
-    import io
-
-    # Create sample rows
+    """End-to-end: builder + filter + csv.DictWriter produces valid CSV."""
     rows = [
         ContactExtractorService.build_creator_contact_row(
-            {
-                "id": "1",
-                "channel_name": "Channel 1",
-                "channel_description": "Email: test1@example.com",
-                "bio": None,
-                "keywords": None,
-                "current_subscribers": 10000,
-                "current_views": 100000,
-                "current_videos": 50,
-                "quality_grade": "A",
-                "engagement_score": 7.5,
-                "subs_delta_30d": 1000,
-                "views_delta_30d": 10000,
-                "category": "Tech",
-                "country": "US",
-                "language": "en",
-                "channel_url": "https://youtube.com/channel/1",
-            }
+            _sample_creator("1", "Channel 1", "test1")
         ),
         ContactExtractorService.build_creator_contact_row(
-            {
-                "id": "2",
-                "channel_name": "Channel 2",
-                "channel_description": "Email: test2@example.com",
-                "bio": None,
-                "keywords": None,
-                "current_subscribers": 20000,
-                "current_views": 200000,
-                "current_videos": 100,
-                "quality_grade": "B",
-                "engagement_score": 6.5,
-                "subs_delta_30d": 2000,
-                "views_delta_30d": 20000,
-                "category": "Gaming",
-                "country": "CA",
-                "language": "en",
-                "channel_url": "https://youtube.com/channel/2",
-            }
+            _sample_creator("2", "Channel 2", "test2")
         ),
     ]
-
-    # Filter email-ready
     rows = ContactExtractorService.filter_email_ready_rows(rows)
 
-    # Build CSV
     buf = io.StringIO()
     writer = csv.DictWriter(
         buf,
@@ -309,26 +378,15 @@ def test_csv_export_format():
     csv_content = buf.getvalue()
     lines = csv_content.strip().split("\n")
 
-    # Verify headers are first line
-    header_line = lines[0]
-    expected_headers = ",".join(ContactExtractorService.EMAIL_EXPORT_HEADERS)
-    assert header_line == expected_headers
-
-    # Verify data rows exist
+    assert lines[0] == ",".join(ContactExtractorService.EMAIL_EXPORT_HEADERS)
     assert len(lines) == 3  # header + 2 data rows
 
-    # Parse back and verify structure
-    buf.seek(0)
     reader = csv.DictReader(io.StringIO(csv_content))
-    parsed_rows = list(reader)
-    assert len(parsed_rows) == 2
-    assert parsed_rows[0]["Email"] == "test1@example.com"
-    assert parsed_rows[1]["Email"] == "test2@example.com"
+    parsed = list(reader)
+    assert len(parsed) == 2
+    assert parsed[0]["Email"] == "test1@example.com"
+    assert parsed[1]["Email"] == "test2@example.com"
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# Run tests
-# ════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

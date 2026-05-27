@@ -78,7 +78,11 @@ BEGIN
 
     SELECT COUNT(*) INTO indexes_created FROM pg_indexes
     WHERE tablename = 'creators'
-    AND indexname LIKE 'idx_creators_%contact%';
+    AND indexname IN (
+        'idx_creators_has_contact_info',
+        'idx_creators_extracted_email',
+        'idx_creators_contact_sync_status'
+    );
 
     RAISE NOTICE '✅ Migration 040 complete:';
     RAISE NOTICE '   - % creators present', total_creators;
