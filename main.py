@@ -113,6 +113,7 @@ from routes.creators import (
     creator_request_route,
     creators_route,
     creators_suggest_route,
+    creators_top_route,
     toggle_favourite_route,
 )
 from routes.about import about_page_content
@@ -1198,6 +1199,56 @@ async def creators_add_status(req, sess):
 def creators_suggest(req):
     """GET /creators/suggest — HTMX typeahead for country/language/category filters."""
     return creators_suggest_route(req)
+
+
+# ---------------------------------------------------------------------------
+# A+ tier SEO landing pages
+# ---------------------------------------------------------------------------
+# `/creators/top` and `/creators/top/{slug}` render hand-picked subsets of the
+# A+ grade catalogue. SEO surface only — application filtering lives on /creators.
+
+
+def _render_creators_top(req, sess, category_slug: str | None):
+    """Shared body for the global and category-scoped A+ landing pages."""
+    from starlette.responses import Response as _Response
+
+    from routes.creators import CreatorsTopResult
+    from views.creators import creators_top_head, creators_top_page_title
+
+    result = creators_top_route(req, category_slug=category_slug)
+    if isinstance(result, _Response):
+        return result  # 404 for unknown slug or 302 redirect for out-of-range page
+    if not isinstance(result, CreatorsTopResult):
+        # Defensive: any future redirect/response shape passes through.
+        return result
+
+    head_tags = creators_top_head(
+        category_slug=result.category_slug,
+        category_label=result.category_label,
+        total_count=result.total_count,
+    )
+
+    return Titled(
+        creators_top_page_title(result.category_label),
+        Container(
+            NavComponent(oauth, req, sess),
+            result.body,
+            cls=ContainerT.xl,
+        ),
+        *head_tags,
+    )
+
+
+@rt("/creators/top")
+def creators_top(req, sess):
+    """GET /creators/top — A+ creators across every niche (public, indexed)."""
+    return _render_creators_top(req, sess, category_slug=None)
+
+
+@rt("/creators/top/{slug}")
+def creators_top_category(req, sess, slug: str):
+    """GET /creators/top/{slug} — A+ creators in a single category (public, indexed)."""
+    return _render_creators_top(req, sess, category_slug=slug)
 
 
 @rt("/lists")

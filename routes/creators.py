@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import pycountry
@@ -758,4 +759,101 @@ async def creator_add_status_route(request, sess):
         status=result["status"],
         creator_id=result.get("creator_id") or "",
         input_query=q,
+    )
+
+
+# ---------------------------------------------------------------------------
+# /creators/top — A+ tier SEO landing pages
+# ---------------------------------------------------------------------------
+# Hand-picked slug → primary_category mapping. The slug allowlist also acts as
+# the SEO surface — anything off-list returns 404 so we never index empty or
+# duplicate URLs.
+TOP_CATEGORY_SLUGS: dict[str, str] = {
+    "gaming": "Gaming",
+    "entertainment": "Entertainment",
+    "music": "Music",
+    "education": "Education",
+    "howto-style": "Howto & Style",
+}
+
+TOP_PAGE_SIZE = 50  # creators per page — one screen on a laptop
+
+
+@dataclass(frozen=True)
+class CreatorsTopResult:
+    """Bundles everything main.py needs to wrap the page in Titled() + <head>.
+
+    Returning structured metadata lets the SEO ``<head>`` tags know the real
+    ``total_count`` without main.py having to re-query the DB.
+    """
+
+    body: object  # FT tree from render_creators_top_page()
+    category_slug: str | None
+    category_label: str | None
+    total_count: int
+    page: int
+
+
+def creators_top_route(request, *, category_slug: str | None = None):
+    """GET /creators/top  and  GET /creators/top/{slug}
+
+    Editorial landing pages listing only A+ grade creators. Reuses
+    ``get_creators(grade_filter="A+", category_filter=...)`` so all heavy
+    lifting stays in the DB layer; this route adds SEO surface (canonical
+    URL, OG tags, JSON-LD ItemList) and an editorial intro.
+
+    Returns either a ``CreatorsTopResult``, a ``RedirectResponse`` (for
+    out-of-range ``page``), or a Starlette ``Response`` (404 for unknown slug).
+    """
+    from starlette.responses import RedirectResponse, Response
+
+    from views.creators import render_creators_top_page
+
+    category_label: str | None = None
+    if category_slug is not None:
+        category_label = TOP_CATEGORY_SLUGS.get(category_slug.lower())
+        if category_label is None:
+            return Response("Not found", status_code=404)
+
+    base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
+
+    try:
+        page = max(1, int(request.query_params.get("page", "1")))
+    except (TypeError, ValueError):
+        page = 1
+
+    offset = (page - 1) * TOP_PAGE_SIZE
+    result = get_creators(
+        sort="subscribers",
+        grade_filter="A+",
+        category_filter=category_label or "all",
+        limit=TOP_PAGE_SIZE,
+        offset=offset,
+        return_count=True,
+    )
+    creators = list(result.creators)
+    total_count = int(result.total_count or 0)
+    total_pages = max(1, (total_count + TOP_PAGE_SIZE - 1) // TOP_PAGE_SIZE)
+
+    # Clamp out-of-range pages by redirecting to canonical page 1. Prevents
+    # 200 responses on empty offsets (e.g. ?page=9999) from becoming
+    # indexable. 302 so a transiently-thin category can't permanently cache
+    # a redirect once it grows back. Page 1 is also safe when total_count=0.
+    if page > total_pages:
+        return RedirectResponse(base_path, status_code=302)
+
+    body = render_creators_top_page(
+        creators=creators,
+        category_slug=category_slug,
+        category_label=category_label,
+        total_count=total_count,
+        page=page,
+        page_size=TOP_PAGE_SIZE,
+    )
+    return CreatorsTopResult(
+        body=body,
+        category_slug=category_slug,
+        category_label=category_label,
+        total_count=total_count,
+        page=page,
     )
