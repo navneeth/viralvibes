@@ -338,6 +338,11 @@ FAQS = [
 # =============================================================================
 CONTACT_EMAIL = "viralvibes.fyi@proton.me"
 
+# Canonical site origin — used for sitemap URLs, canonical/OG tags, and any
+# absolute URL construction. Single source of truth so the sitemap and
+# canonical link headers can never drift.
+SITE_BASE_URL = "https://www.viralvibes.fyi"
+
 PLAYLIST_STATS_TABLE = "playlist_stats"
 PLAYLIST_JOBS_TABLE = "playlist_jobs"
 SIGNUPS_TABLE = "signups"

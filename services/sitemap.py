@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin
 from xml.dom import minidom
 
-BASE_URL = "https://viralvibes.fyi"
+from constants import SITE_BASE_URL
+
+BASE_URL = SITE_BASE_URL
 
 # (path, changefreq, priority)
 STATIC_ROUTES: list[tuple[str, str, str]] = [

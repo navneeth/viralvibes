@@ -4600,6 +4600,17 @@ def render_creators_top_page(
     )
 
 
+def creators_top_page_title(category_label: str | None) -> str:
+    """Single source for the ``<title>`` and visible chrome title.
+
+    Used by both ``creators_top_head`` (for ``<title>`` + OG) and ``main.py``
+    (for ``Titled(...)``) so the two can never drift.
+    """
+    if category_label is None:
+        return "Top YouTube Creators — ViralVibes"
+    return f"Top {category_label} YouTube Creators — ViralVibes"
+
+
 def creators_top_head(
     *,
     category_slug: str | None,
@@ -4611,11 +4622,11 @@ def creators_top_head(
     Returned as a tuple so main.py can splat them next to the existing
     NavComponent wrapping: ``Titled(title, Container(...), *head_tags)``.
     """
-    from components.seo import Canonical, ItemListJsonLd, MetaDescription, OgTags
+    from components.seo import Canonical, MetaDescription, OgTags
 
     base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
-    h1, _, meta_desc = _top_intro_copy(category_label, total_count)
-    page_title = f"{h1} — ViralVibes"
+    _, _, meta_desc = _top_intro_copy(category_label, total_count)
+    page_title = creators_top_page_title(category_label)
 
     tags: list = [
         Canonical(base_path),

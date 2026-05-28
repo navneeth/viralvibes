@@ -1213,11 +1213,11 @@ def _render_creators_top(req, sess, category_slug: str | None):
     from starlette.responses import Response as _Response
 
     from routes.creators import CreatorsTopResult
-    from views.creators import creators_top_head
+    from views.creators import creators_top_head, creators_top_page_title
 
     result = creators_top_route(req, category_slug=category_slug)
     if isinstance(result, _Response):
-        return result  # 404 for unknown slug
+        return result  # 404 for unknown slug or 302 redirect for out-of-range page
     if not isinstance(result, CreatorsTopResult):
         # Defensive: any future redirect/response shape passes through.
         return result
@@ -1227,12 +1227,9 @@ def _render_creators_top(req, sess, category_slug: str | None):
         category_label=result.category_label,
         total_count=result.total_count,
     )
-    title_prefix = (
-        "Top Creators" if result.category_label is None else f"Top {result.category_label} Creators"
-    )
 
     return Titled(
-        f"{title_prefix} — ViralVibes",
+        creators_top_page_title(result.category_label),
         Container(
             NavComponent(oauth, req, sess),
             result.body,

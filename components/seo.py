@@ -16,8 +16,17 @@ from typing import Any
 
 from fasthtml.common import Link, Meta, Script
 
-# Single source of truth — kept in sync with services/sitemap.py BASE_URL.
-SITE_BASE_URL = "https://www.viralvibes.fyi"
+from constants import SITE_BASE_URL
+
+__all__ = [
+    "SITE_BASE_URL",
+    "canonical_url",
+    "Canonical",
+    "OgTags",
+    "JsonLd",
+    "ItemListJsonLd",
+    "MetaDescription",
+]
 
 
 def canonical_url(path: str) -> str:

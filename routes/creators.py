@@ -802,9 +802,10 @@ def creators_top_route(request, *, category_slug: str | None = None):
     lifting stays in the DB layer; this route adds SEO surface (canonical
     URL, OG tags, JSON-LD ItemList) and an editorial intro.
 
-    Returns either a ``CreatorsTopResult`` or a Starlette ``Response`` (404).
+    Returns either a ``CreatorsTopResult``, a ``RedirectResponse`` (for
+    out-of-range ``page``), or a Starlette ``Response`` (404 for unknown slug).
     """
-    from starlette.responses import Response
+    from starlette.responses import RedirectResponse, Response
 
     from views.creators import render_creators_top_page
 
@@ -814,12 +815,14 @@ def creators_top_route(request, *, category_slug: str | None = None):
         if category_label is None:
             return Response("Not found", status_code=404)
 
+    base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
+
     try:
         page = max(1, int(request.query_params.get("page", "1")))
     except (TypeError, ValueError):
         page = 1
-    offset = (page - 1) * TOP_PAGE_SIZE
 
+    offset = (page - 1) * TOP_PAGE_SIZE
     result = get_creators(
         sort="subscribers",
         grade_filter="A+",
@@ -828,9 +831,16 @@ def creators_top_route(request, *, category_slug: str | None = None):
         offset=offset,
         return_count=True,
     )
-    # ``return_count=True`` returns CreatorsResult(creators, total_count)
     creators = list(result.creators)
     total_count = int(result.total_count or 0)
+    total_pages = max(1, (total_count + TOP_PAGE_SIZE - 1) // TOP_PAGE_SIZE)
+
+    # Clamp out-of-range pages by redirecting to canonical page 1. Prevents
+    # 200 responses on empty offsets (e.g. ?page=9999) from becoming
+    # indexable. 302 so a transiently-thin category can't permanently cache
+    # a redirect once it grows back. Page 1 is also safe when total_count=0.
+    if page > total_pages:
+        return RedirectResponse(base_path, status_code=302)
 
     body = render_creators_top_page(
         creators=creators,
