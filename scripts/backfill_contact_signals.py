@@ -187,8 +187,8 @@ def main() -> int:
                     logger.debug(
                         "[backfill] id=%s has_contact=%s email=%s",
                         creator_id,
-                        payload["has_contact_info"],
-                        bool(payload["extracted_email"]),
+                        payload.get("has_contact_info"),
+                        bool(payload.get("extracted_email")),
                     )
 
                 if not args.dry_run:
