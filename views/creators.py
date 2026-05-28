@@ -4436,3 +4436,190 @@ def render_creator_preview(handle: str, channel_info: dict, search: str = "") ->
         ),
         cls=ContainerT.xl,
     )
+
+
+# =============================================================================
+# /creators/top — A+ tier SEO landing pages
+# =============================================================================
+
+
+def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, str, str]:
+    """Return (h1, lede, meta_description) tuned for SEO + readability.
+
+    Editorial tone matches routes/about.py — lead paragraph, concrete numbers,
+    no marketing fluff. Used for both ``<title>``/``<meta description>`` and
+    on-page H1/intro.
+    """
+    if category_label is None:
+        h1 = "Top YouTube Creators"
+        lede = (
+            f"A hand-graded shortlist of {format_number(total_count)} A+ creators "
+            "ranked by engagement quality, not subscriber count. Every channel "
+            "below has cleared ViralVibes' top-tier threshold for viewer retention, "
+            "comment velocity, and like-to-view ratio."
+        )
+        desc = (
+            f"Browse {format_number(total_count)} A+ rated YouTube creators across "
+            "every niche. Ranked by engagement quality and audience signal — "
+            "updated daily."
+        )
+        return h1, lede, desc
+
+    h1 = f"Top {category_label} YouTube Creators"
+    lede = (
+        f"The {format_number(total_count)} A+ rated {category_label} channels on "
+        "YouTube — ranked by engagement quality. This is the shortlist agencies, "
+        "sponsors and researchers start with before drilling into individual "
+        "creator profiles."
+    )
+    desc = (
+        f"Discover {format_number(total_count)} top {category_label.lower()} "
+        "YouTube creators. A+ engagement grade only, ranked by reach — updated daily."
+    )
+    return h1, lede, desc
+
+
+def _render_top_pagination(
+    *,
+    page: int,
+    total_pages: int,
+    base_path: str,
+) -> Div | None:
+    """Minimal Prev / Next pagination for the landing pages."""
+    if total_pages <= 1:
+        return None
+
+    prev_page = page - 1 if page > 1 else None
+    next_page = page + 1 if page < total_pages else None
+
+    def _link(label: str, target_page: int | None) -> A:
+        if target_page is None:
+            return A(
+                label,
+                cls=(
+                    "px-4 py-2 rounded-md text-sm font-medium "
+                    "text-muted-foreground/50 cursor-not-allowed border border-border"
+                ),
+                aria_disabled="true",
+            )
+        href = base_path if target_page == 1 else f"{base_path}?page={target_page}"
+        return A(
+            label,
+            href=href,
+            cls=(
+                "px-4 py-2 rounded-md text-sm font-medium border border-border "
+                "hover:bg-accent transition-colors no-underline text-foreground"
+            ),
+        )
+
+    return Div(
+        _link("← Previous", prev_page),
+        Span(
+            f"Page {page} of {total_pages}",
+            cls="text-sm text-muted-foreground",
+        ),
+        _link("Next →", next_page),
+        cls="flex items-center justify-between gap-4 mt-12 max-w-2xl mx-auto",
+    )
+
+
+def render_creators_top_page(
+    *,
+    creators: list[dict],
+    category_slug: str | None,
+    category_label: str | None,
+    total_count: int,
+    page: int,
+    page_size: int,
+) -> Div:
+    """Editorial landing-page renderer for ``/creators/top`` and category variants.
+
+    Note: The outer Titled() / NavComponent wrapping is done by main.py so the
+    nav and footer stay consistent. SEO ``<head>`` tags (canonical, OG, JSON-LD)
+    are emitted via ``creators_top_head()`` which main.py inserts into hdrs.
+    """
+    base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
+    h1, lede, _ = _top_intro_copy(category_label, total_count)
+    total_pages = max(1, (total_count + page_size - 1) // page_size) if total_count else 1
+
+    # Hero: gradient H1 + mono eyebrow + lede — matches the StaticPage rhythm
+    # without dragging in the full helper (we need a grid below, not prose).
+    eyebrow = "A+ Tier" if category_label is None else f"A+ Tier · {category_label}"
+    hero = Div(
+        Div(
+            Span(
+                eyebrow.upper(),
+                cls=(
+                    "inline-block text-xs font-mono font-medium tracking-[0.18em] "
+                    "text-muted-foreground mb-4"
+                ),
+            ),
+            H1(
+                h1,
+                cls=(
+                    "text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight "
+                    "bg-gradient-to-r from-foreground to-foreground/70 "
+                    "bg-clip-text text-transparent mb-6"
+                ),
+            ),
+            P(
+                lede,
+                cls="text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-3xl",
+            ),
+            Div(cls="h-px w-24 bg-primary/40 mt-10"),
+            cls="max-w-4xl",
+        ),
+        cls="py-16 sm:py-20 lg:py-24",
+    )
+
+    if not creators:
+        body = Div(
+            P(
+                "No A+ creators in this slice yet. Check back as the catalogue grows.",
+                cls="text-muted-foreground text-center py-16",
+            ),
+            cls="max-w-2xl mx-auto",
+        )
+    else:
+        # Reuse the standard 3-up grid + creator card so this page stays
+        # visually consistent with /creators. No favourites context here —
+        # these pages render the same to authenticated and anonymous users.
+        body = Div(
+            _render_creators_grid(creators, favourite_ids=None),
+            _render_top_pagination(
+                page=page,
+                total_pages=total_pages,
+                base_path=base_path,
+            ),
+        )
+
+    return Container(
+        hero,
+        body,
+        cls=ContainerT.xl,
+    )
+
+
+def creators_top_head(
+    *,
+    category_slug: str | None,
+    category_label: str | None,
+    total_count: int,
+) -> tuple:
+    """Return ``<head>`` tags for the A+ landing page.
+
+    Returned as a tuple so main.py can splat them next to the existing
+    NavComponent wrapping: ``Titled(title, Container(...), *head_tags)``.
+    """
+    from components.seo import Canonical, ItemListJsonLd, MetaDescription, OgTags
+
+    base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
+    h1, _, meta_desc = _top_intro_copy(category_label, total_count)
+    page_title = f"{h1} — ViralVibes"
+
+    tags: list = [
+        Canonical(base_path),
+        MetaDescription(meta_desc),
+        *OgTags(title=page_title, description=meta_desc, path=base_path),
+    ]
+    return tuple(tags)
