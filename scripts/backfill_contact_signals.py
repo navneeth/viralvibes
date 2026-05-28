@@ -59,7 +59,9 @@ _PAGE_SIZE = 1000
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -103,11 +105,7 @@ def _fetch_page(
     Uses keyset pagination on ``id`` (UUID, indexed as PK) so we do not pay the
     OFFSET penalty on very deep pages.
     """
-    q = (
-        sc.table(CREATOR_TABLE)
-        .select(_SELECT_COLUMNS)
-        .eq("sync_status", "synced")
-    )
+    q = sc.table(CREATOR_TABLE).select(_SELECT_COLUMNS).eq("sync_status", "synced")
     if not force:
         q = q.is_("contact_signals_extracted_at", "null")
     if last_id is not None:
