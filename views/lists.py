@@ -3,6 +3,7 @@ Creator Lists view — curated, pre-filtered creator rankings.
 Each tab is a different lens on the creators database.
 """
 
+import logging
 import pycountry
 from fasthtml.common import *
 from monsterui.all import *
@@ -18,6 +19,28 @@ from utils.creator_metrics import (
     format_channel_age,
 )
 from views.creators import get_topic_category_emoji
+
+logger = logging.getLogger(__name__)
+
+
+def _render_lists_editors_rail() -> "Div":
+    """Mount point for EditorsShortlistRail on /lists.
+
+    Lazy-imported + defensively wrapped so a rail-side failure (or a slow
+    counts probe during a Supabase blip) can never take down the page.
+    """
+    try:
+        from components.editors_shortlist import EditorsShortlistRail
+        from routes.creators import get_aplus_category_counts
+
+        return EditorsShortlistRail(
+            counts=get_aplus_category_counts(),
+            headline="Start with the Shortlist",
+            subhead="Hand-graded A+ creators — the curated cut behind every list below.",
+        )
+    except Exception:  # pragma: no cover — never block /lists
+        logger.exception("Editors' Shortlist rail failed to render on /lists")
+        return Div()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1383,6 +1406,11 @@ def render_lists_page(
             ),
             cls="mb-6 pt-6",
         ),
+        # ── Editors' Shortlist rail ────────────────────────────────────────────
+        # Surfaces the A+ tier landing pages so curated lists remain one click
+        # away from the broader directory below. Lazy-imported + try/except so
+        # a rail-side failure can never take down /lists.
+        _render_lists_editors_rail(),
         # ── Tab bar (horizontally scrollable on mobile) ────────────────────────
         Div(
             TabContainer(

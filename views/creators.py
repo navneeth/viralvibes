@@ -754,6 +754,10 @@ def render_creators_page(
             filtered_count=total_count,
             has_filters=has_active_filters,
         ),
+        # Editors' Shortlist rail — curated entry points into /creators/top.
+        # Lazy-imported to keep this module's import surface lean and to avoid
+        # a circular components ⇄ routes graph when routes/creators imports views.
+        _render_editors_shortlist_rail(),
         # Filter controls (sticky bar)
         _render_filter_bar(
             search=search,
@@ -804,6 +808,23 @@ def render_creators_page(
         ),
         cls=ContainerT.xl,
     )
+
+
+def _render_editors_shortlist_rail() -> Div:
+    """Mount point for the EditorsShortlistRail on /creators.
+
+    Wrapped in a helper so the rail's import (and its associated 6-probe
+    DB call for live counts) stays out of the module-level scope. Failure
+    here must never break the page — falls back to a no-op div.
+    """
+    try:
+        from components.editors_shortlist import EditorsShortlistRail
+        from routes.creators import get_aplus_category_counts
+
+        return EditorsShortlistRail(counts=get_aplus_category_counts())
+    except Exception:  # pragma: no cover — never block /creators
+        logger.exception("Editors' Shortlist rail failed to render")
+        return Div()
 
 
 def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False) -> Div:
@@ -4591,12 +4612,61 @@ def render_creators_top_page(
                 total_pages=total_pages,
                 base_path=base_path,
             ),
+            _render_top_drill_in_cta(category_label=category_label),
         )
 
     return Container(
         hero,
         body,
         cls=ContainerT.xl,
+    )
+
+
+def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
+    """Reciprocal link back into the /creators research tool.
+
+    Closes the discovery → research loop: a user who's browsed the curated
+    A+ cut can drill into the full filter UI with the same constraints
+    pre-applied. Encoded with ``quote`` because ``A+`` contains a reserved
+    character.
+    """
+    from urllib.parse import urlencode
+
+    params = {"grade": "A+"}
+    if category_label is not None:
+        params["category"] = category_label
+    href = f"/creators?{urlencode(params)}"
+
+    label = (
+        "Open the full A+ filter on /creators"
+        if category_label is None
+        else f"Open all {category_label} A+ creators on /creators"
+    )
+
+    return Div(
+        Div(
+            Span(
+                "OR DIG DEEPER",
+                cls=(
+                    "block text-[10px] font-mono tracking-[0.22em] " "text-muted-foreground/70 mb-2"
+                ),
+            ),
+            P(
+                "Want to combine A+ with country, language, or growth filters? "
+                "Open the same set in the search tool — sortable, paginated, exportable.",
+                cls="text-sm text-muted-foreground leading-relaxed",
+            ),
+            A(
+                label + " →",
+                href=href,
+                cls=(
+                    "inline-flex items-center mt-4 text-sm font-medium "
+                    "text-primary hover:underline no-underline"
+                ),
+            ),
+            cls="max-w-2xl",
+        ),
+        cls="mt-16 pt-10 border-t border-border/60",
     )
 
 
