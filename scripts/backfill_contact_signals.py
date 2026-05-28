@@ -51,7 +51,9 @@ logger = logging.getLogger("backfill_contact_signals")
 
 # Columns required by ContactExtractorService.extract_from_creator() — fetched
 # in a single SELECT to avoid per-row round-trips. ``id`` is the PK for UPDATE.
-_SELECT_COLUMNS = "id,channel_description,description,bio,keywords"
+# Note: ``bio`` column does not exist in creators table, use only:
+# channel_description, description, keywords
+_SELECT_COLUMNS = "id,channel_description,description,keywords"
 
 # Page size for the SELECT pass. PostgREST default cap is 1000, and Supabase
 # accepts at most ~1000 per request anyway. Keep at 1000 for fewer round-trips.
