@@ -5,8 +5,9 @@ Creators routes - browse and filter discovered YouTube creators.
 import logging
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import pycountry
@@ -782,9 +783,26 @@ TOP_PAGE_SIZE = 50  # creators per page — one screen on a laptop
 # These counts change slowly (only after backfill runs) so a coarse in-process
 # cache is plenty. We deliberately keep the TTL short enough that a fresh
 # deploy reflects new data within an hour, but long enough that the rail
-# never bottlenecks the homepage.
+# never bottlenecks the discovery pages.
 _APLUS_COUNTS_TTL_S = 60 * 60  # 1 hour
-_aplus_counts_cache: dict = {"data": None, "expires_at": 0.0}
+
+
+@dataclass
+class _CountsCacheEntry:
+    """Thread-safe TTL cache for A+ rail counts.
+
+    Wraps the cached payload, expiry, and a ``Lock`` so concurrent requests
+    can't both miss-and-refill (which would fan 6 DB probes out into 12+).
+    The lock is only held around the cache read/write; the actual probe
+    fan-out happens outside it so a slow refresh never blocks readers.
+    """
+
+    data: dict[str, int] | None = None
+    expires_at: float = 0.0
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_aplus_counts_cache = _CountsCacheEntry()
 
 
 def get_aplus_category_counts() -> dict[str, int]:
@@ -799,9 +817,10 @@ def get_aplus_category_counts() -> dict[str, int]:
     import time
 
     now = time.monotonic()
-    cached = _aplus_counts_cache.get("data")
-    if cached is not None and now < _aplus_counts_cache["expires_at"]:
-        return cached
+    with _aplus_counts_cache.lock:
+        if _aplus_counts_cache.data is not None and now < _aplus_counts_cache.expires_at:
+            return _aplus_counts_cache.data
+        prev_payload = _aplus_counts_cache.data  # snapshot for failure fallback
 
     def _probe(slug: str | None, label: str | None) -> tuple[str, int]:
         try:
@@ -830,12 +849,13 @@ def get_aplus_category_counts() -> dict[str, int]:
                 counts[key] = n
     except Exception:
         logger.exception("get_aplus_category_counts: pool failed")
-        if cached is not None:
-            return cached  # serve stale rather than break the rail
+        if prev_payload is not None:
+            return prev_payload  # serve stale rather than break the rail
         return {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
 
-    _aplus_counts_cache["data"] = counts
-    _aplus_counts_cache["expires_at"] = now + _APLUS_COUNTS_TTL_S
+    with _aplus_counts_cache.lock:
+        _aplus_counts_cache.data = counts
+        _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_TTL_S
     return counts
 
 

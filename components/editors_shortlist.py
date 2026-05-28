@@ -24,17 +24,29 @@ from utils import format_number
 
 __all__ = ["EditorsShortlistRail"]
 
-# Card order: "All A+" first as the broadest entry point, then categories
-# in descending A+ population (matches what users will see in counts).
-_RAIL_ITEMS: list[tuple[str | None, str, str]] = [
-    # (slug, label, href)
-    (None, "All A+ Tier", "/creators/top"),
-    ("gaming", "Gaming", "/creators/top/gaming"),
-    ("entertainment", "Entertainment", "/creators/top/entertainment"),
-    ("music", "Music", "/creators/top/music"),
-    ("education", "Education", "/creators/top/education"),
-    ("howto-style", "Howto & Style", "/creators/top/howto-style"),
-]
+# The "All A+" card is always first as the broadest entry point. The
+# category cards are derived from ``routes.creators.TOP_CATEGORY_SLUGS``
+# at call time (see ``_build_rail_items``) so the rail and the
+# ``/creators/top`` landing pages can never silently drift apart. The
+# import is deferred to avoid a components → routes → views → components
+# import cycle at module load.
+_ALL_AP_ITEM: tuple[None, str, str] = (None, "All A+ Tier", "/creators/top")
+
+
+def _build_rail_items() -> list[tuple[str | None, str, str]]:
+    """Return ``[(slug_or_None, label, href), ...]`` for the rail.
+
+    Order: the synthetic "All A+" card first, then category cards in the
+    order ``TOP_CATEGORY_SLUGS`` defines them (which we keep sorted by A+
+    population at the source).
+    """
+    from routes.creators import TOP_CATEGORY_SLUGS  # local: avoid circular import
+
+    items: list[tuple[str | None, str, str]] = [_ALL_AP_ITEM]
+    items.extend(
+        (slug, label, f"/creators/top/{slug}") for slug, label in TOP_CATEGORY_SLUGS.items()
+    )
+    return items
 
 
 def _rail_card(
@@ -72,10 +84,7 @@ def _rail_card(
         Div(
             Span(
                 eyebrow.upper(),
-                cls=(
-                    "text-[10px] font-mono tracking-[0.2em] "
-                    "text-muted-foreground/70"
-                ),
+                cls=("text-[10px] font-mono tracking-[0.2em] " "text-muted-foreground/70"),
             ),
             H3(
                 label,
@@ -130,7 +139,7 @@ def EditorsShortlistRail(
             count=counts.get(slug or "all"),
             is_all=slug is None,
         )
-        for slug, label, href in _RAIL_ITEMS
+        for slug, label, href in _build_rail_items()
     ]
 
     return Div(
@@ -148,11 +157,7 @@ def EditorsShortlistRail(
                     headline,
                     cls="text-xl sm:text-2xl font-bold text-foreground tracking-tight",
                 ),
-                (
-                    P(subhead, cls="text-sm text-muted-foreground mt-1")
-                    if subhead
-                    else None
-                ),
+                (P(subhead, cls="text-sm text-muted-foreground mt-1") if subhead else None),
             ),
             A(
                 see_all_label,
