@@ -5,8 +5,9 @@ Creators routes - browse and filter discovered YouTube creators.
 import logging
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import pycountry
@@ -777,6 +778,85 @@ TOP_CATEGORY_SLUGS: dict[str, str] = {
 }
 
 TOP_PAGE_SIZE = 50  # creators per page — one screen on a laptop
+
+# ----- A+ category counts cache (powers the Editors' Shortlist rail) -------
+# These counts change slowly (only after backfill runs) so a coarse in-process
+# cache is plenty. We deliberately keep the TTL short enough that a fresh
+# deploy reflects new data within an hour, but long enough that the rail
+# never bottlenecks the discovery pages.
+_APLUS_COUNTS_TTL_S = 60 * 60  # 1 hour
+
+
+@dataclass
+class _CountsCacheEntry:
+    """Thread-safe TTL cache for A+ rail counts.
+
+    Wraps the cached payload, expiry, and a ``Lock`` so concurrent requests
+    can't both miss-and-refill (which would fan 6 DB probes out into 12+).
+    The lock is only held around the cache read/write; the actual probe
+    fan-out happens outside it so a slow refresh never blocks readers.
+    """
+
+    data: dict[str, int] | None = None
+    expires_at: float = 0.0
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_aplus_counts_cache = _CountsCacheEntry()
+
+
+def get_aplus_category_counts() -> dict[str, int]:
+    """Return ``{slug: count}`` for each rail slug plus a synthetic ``"all"`` total.
+
+    Issues six parallel count-only queries against ``get_creators`` (which is
+    the same path the landing pages use, so any indexes already cover it).
+    Cached in-process for ``_APLUS_COUNTS_TTL_S`` seconds. Returns the last
+    successful payload on transient failure, or zeros on cold-start failure
+    so the rail still renders gracefully.
+    """
+    import time
+
+    now = time.monotonic()
+    with _aplus_counts_cache.lock:
+        if _aplus_counts_cache.data is not None and now < _aplus_counts_cache.expires_at:
+            return _aplus_counts_cache.data
+        prev_payload = _aplus_counts_cache.data  # snapshot for failure fallback
+
+    def _probe(slug: str | None, label: str | None) -> tuple[str, int]:
+        try:
+            res = get_creators(
+                sort="subscribers",
+                grade_filter="A+",
+                category_filter=label or "all",
+                limit=1,
+                offset=0,
+                return_count=True,
+            )
+            return (slug or "all"), int(res.total_count or 0)
+        except Exception:
+            logger.exception("get_aplus_category_counts: probe failed for %s", slug)
+            return (slug or "all"), 0
+
+    probes: list[tuple[str | None, str | None]] = [(None, None)]
+    probes.extend((slug, label) for slug, label in TOP_CATEGORY_SLUGS.items())
+
+    counts: dict[str, int] = {}
+    try:
+        with ThreadPoolExecutor(max_workers=len(probes)) as pool:
+            futures = [pool.submit(_probe, slug, label) for slug, label in probes]
+            for fut in as_completed(futures):
+                key, n = fut.result()
+                counts[key] = n
+    except Exception:
+        logger.exception("get_aplus_category_counts: pool failed")
+        if prev_payload is not None:
+            return prev_payload  # serve stale rather than break the rail
+        return {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
+
+    with _aplus_counts_cache.lock:
+        _aplus_counts_cache.data = counts
+        _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_TTL_S
+    return counts
 
 
 @dataclass(frozen=True)
