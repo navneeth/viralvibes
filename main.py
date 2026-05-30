@@ -111,6 +111,8 @@ from routes.creators import (
     creator_add_status_route,
     creator_profile_route,
     creator_request_route,
+    creators_like_export_route,
+    creators_like_route,
     creators_route,
     creators_suggest_route,
     creators_top_route,
@@ -128,11 +130,7 @@ from routes.stripe_checkout import (
     billing_portal,
 )
 from services.plan_gate import gate_plan
-from services.sitemap import (
-    build_sitemap_xml as _sitemap_build_xml,
-    STATIC_ROUTES as _SITEMAP_STATIC_ROUTES,
-    BASE_URL as _SITEMAP_BASE_URL,
-)
+from services.sitemap import build_sitemap_xml
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1251,6 +1249,52 @@ def creators_top_category(req, sess, slug: str):
     return _render_creators_top(req, sess, category_slug=slug)
 
 
+# ---------------------------------------------------------------------------
+# /creators/like/{handle} — Lookalike (embedding-peer) landing pages
+# ---------------------------------------------------------------------------
+# Programmatic SEO surface. One indexable page per creator with peers,
+# anonymous-friendly, with a free CSV export of any extracted contacts.
+# Slug = creator handle (custom_url). Extensionless /export to dodge
+# FastHTML's static-route precedence (same bug we hit on /admin/outreach).
+
+
+@rt("/creators/like/{handle}")
+def creators_like(req, sess, handle: str):
+    """GET /creators/like/{handle} — 20 most-similar creators + contacts."""
+    from starlette.responses import Response as _Response
+
+    from routes.creators import CreatorsLikeResult
+    from views.creators import creators_like_head, creators_like_page_title
+
+    result = creators_like_route(req, handle=handle)
+    if isinstance(result, _Response):
+        return result  # 404 for unknown handle or missing peer list
+    if not isinstance(result, CreatorsLikeResult):
+        return result  # defensive passthrough for future redirect shapes
+
+    head_tags = creators_like_head(
+        seed=result.seed,
+        peer_count=result.peer_count,
+        contact_count=result.contact_count,
+    )
+    return Titled(
+        creators_like_page_title(result.seed),
+        Container(
+            NavComponent(oauth, req, sess),
+            result.body,
+            cls=ContainerT.xl,
+        ),
+        *head_tags,
+    )
+
+
+@rt("/creators/like/{handle}/export")
+def creators_like_export(req, sess, handle: str):
+    """GET /creators/like/{handle}/export — CSV download. Extensionless on
+    purpose; Content-Disposition supplies the .csv filename."""
+    return creators_like_export_route(req, handle=handle)
+
+
 @rt("/lists")
 def lists(req, sess):
     """Creator Lists page - curated, pre-filtered creator rankings"""
@@ -1933,19 +1977,12 @@ _SITEMAP_CACHE_TTL = 86_400  # 24 hours
 
 
 def _build_sitemap_xml() -> str:
-    """Query Supabase for synced creators and return a sitemap XML string."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    urlset = _ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+    """Fetch sitemap cohorts from Supabase and delegate to services.sitemap.
 
-    # Static routes
-    for path, changefreq, priority in _SITEMAP_STATIC_ROUTES:
-        url_el = _ET.SubElement(urlset, "url")
-        _ET.SubElement(url_el, "loc").text = _urljoin(_SITEMAP_BASE_URL, path)
-        _ET.SubElement(url_el, "lastmod").text = today
-        _ET.SubElement(url_el, "changefreq").text = changefreq
-        _ET.SubElement(url_el, "priority").text = priority
-
-    # Dynamic creator pages
+    Single source of truth for XML construction lives in
+    ``services.sitemap.build_sitemap_xml`` so the live route and the CI-
+    generated ``public/sitemap.xml`` stay in lockstep.
+    """
     try:
         resp = (
             supabase_client.table("creators")
@@ -1958,21 +1995,24 @@ def _build_sitemap_xml() -> str:
         logger.warning("sitemap: could not fetch creators from Supabase", exc_info=True)
         creators = []
 
-    for creator in creators:
-        creator_id = creator.get("id")
-        if not creator_id:
-            continue
-        raw_lastmod = creator.get("last_updated_at") or ""
-        lastmod = raw_lastmod[:10] if len(raw_lastmod) >= 10 else today
+    # Lookalike landing pages are scoped to A+ tier to stay well under the
+    # 50k URL ceiling and focus Google's crawl budget on the highest-quality
+    # cohort. Requires custom_url because the URL is /creators/like/{handle}.
+    try:
+        aplus_resp = (
+            supabase_client.table("creators")
+            .select("custom_url, last_updated_at")
+            .eq("sync_status", "synced")
+            .eq("quality_grade", "A+")
+            .not_.is_("custom_url", "null")
+            .execute()
+        )
+        aplus_creators = aplus_resp.data or []
+    except Exception:
+        logger.warning("sitemap: could not fetch A+ creators for lookalikes", exc_info=True)
+        aplus_creators = []
 
-        url_el = _ET.SubElement(urlset, "url")
-        _ET.SubElement(url_el, "loc").text = _urljoin(_SITEMAP_BASE_URL, f"/creator/{creator_id}")
-        _ET.SubElement(url_el, "lastmod").text = lastmod
-        _ET.SubElement(url_el, "changefreq").text = "weekly"
-        _ET.SubElement(url_el, "priority").text = "0.7"
-
-    rough = _ET.tostring(urlset, "utf-8")
-    return _minidom.parseString(rough).toprettyxml(indent="  ")
+    return build_sitemap_xml(creators, aplus_creators=aplus_creators)
 
 
 @rt("/sitemap.xml")

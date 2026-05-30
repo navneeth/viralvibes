@@ -937,3 +937,144 @@ def creators_top_route(request, *, category_slug: str | None = None):
         total_count=total_count,
         page=page,
     )
+
+
+# ---------------------------------------------------------------------------
+# /creators/like/{handle} — Lookalike (embedding-peer) landing pages
+# ---------------------------------------------------------------------------
+# Programmatic SEO + bulk-contact wedge:
+#   * 344k potential URLs (one per creator with peers in `creator_peers`)
+#   * Anonymous CSV download — no auth required, no plan-gate
+#   * Reuses ContactExtractorService for the export so the CSV shape stays
+#     identical to /me/outreach/export and the admin bulk export.
+
+LOOKALIKE_LIMIT = 20  # peers shown on /creators/like/{handle}
+
+
+@dataclass(frozen=True)
+class CreatorsLikeResult:
+    """Bundle returned to main.py so the route can wrap with <head> + Titled.
+
+    Same pattern as ``CreatorsTopResult`` — keeps the route the single owner
+    of the data fetch so main.py never has to re-query.
+    """
+
+    body: object  # FT tree from render_creators_like_page()
+    seed: dict  # full creator row for the seed handle
+    peer_count: int  # how many peers we actually rendered
+    contact_count: int  # subset of peers with at least one contact
+
+
+def _resolve_seed_creator(handle: str) -> dict | None:
+    """Lookalike-side handle resolver. Thin wrapper kept for symmetry with
+    the route below so tests/refactors don't have to monkey-patch the DB
+    function directly."""
+    if not handle:
+        return None
+    return find_creator_by_handle(handle)
+
+
+def creators_like_route(request, *, handle: str):
+    """GET /creators/like/{handle}
+
+    Resolves ``handle`` to a creator id, fetches up to ``LOOKALIKE_LIMIT``
+    embedding peers (with the contact-bearing field set), and hands the
+    result to the view. Anonymous-friendly — no auth gate, no plan gate.
+
+    Returns:
+        * ``CreatorsLikeResult`` on success.
+        * ``Response`` 404 when the handle is unknown or has no peers
+          (the latter prevents indexable empty pages).
+    """
+    from starlette.responses import Response
+
+    from views.creators import render_creators_like_page
+
+    seed = _resolve_seed_creator(handle)
+    if not seed:
+        return Response("Creator not found", status_code=404)
+
+    seed_id = seed.get("id")
+    if not seed_id:
+        return Response("Creator not found", status_code=404)
+
+    peers = get_embedding_peers(
+        seed_id,
+        limit=LOOKALIKE_LIMIT,
+        include_contacts=True,
+    )
+    if not peers:
+        # No peer row → don't render an empty SEO page Google can crawl.
+        return Response("No lookalikes available for this creator", status_code=404)
+
+    contact_count = sum(1 for p in peers if p.get("has_contact_info") or p.get("extracted_email"))
+
+    body = render_creators_like_page(
+        seed=seed,
+        peers=peers,
+        contact_count=contact_count,
+    )
+    return CreatorsLikeResult(
+        body=body,
+        seed=seed,
+        peer_count=len(peers),
+        contact_count=contact_count,
+    )
+
+
+def creators_like_export_route(request, *, handle: str):
+    """GET /creators/like/{handle}/export  — CSV download (no extension).
+
+    Returns the same CSV shape as ``/me/outreach/export`` so downstream
+    email tools (Lemlist, Apollo, Instantly, etc.) accept it directly.
+    Extensionless path + ``Content-Disposition`` preserves the .csv
+    filename without tripping FastHTML's static-route precedence
+    (the bug we fixed for ``/admin/outreach/export``).
+    """
+    import csv
+    import io
+
+    from starlette.responses import Response as _Response
+    from starlette.responses import Response as StarletteResponse
+
+    from services.contact_extractor import ContactExtractorService
+
+    seed = _resolve_seed_creator(handle)
+    if not seed or not seed.get("id"):
+        return _Response("Creator not found", status_code=404)
+
+    peers = get_embedding_peers(
+        seed["id"],
+        limit=LOOKALIKE_LIMIT,
+        include_contacts=True,
+    )
+    if not peers:
+        return _Response("No lookalikes available for this creator", status_code=404)
+
+    # Build email-tool-friendly rows and filter to those with an email.
+    # Pulling base_url from the live request keeps profile URLs portable
+    # across staging / production without hard-coding the domain.
+    base_url = str(request.base_url).rstrip("/") if hasattr(request, "base_url") else ""
+    rows = [ContactExtractorService.build_creator_contact_row(p, base_url=base_url) for p in peers]
+    rows = ContactExtractorService.filter_email_ready_rows(rows)
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=ContactExtractorService.EMAIL_EXPORT_HEADERS,
+        extrasaction="ignore",
+    )
+    writer.writeheader()
+    writer.writerows(rows)
+
+    # Filename is sanitised lower-case handle so downloads don't collide
+    # when a user exports several lookalike lists in one session.
+    safe_handle = (seed.get("custom_url") or handle or "creator").lstrip("@").lower()
+    safe_handle = re.sub(r"[^a-z0-9_-]", "", safe_handle) or "creator"
+    filename = f"lookalikes-{safe_handle}.csv"
+
+    return StarletteResponse(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

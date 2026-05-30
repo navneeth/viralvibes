@@ -45,6 +45,28 @@ def _fetch_synced_creators(client) -> list:
         return []
 
 
+def _fetch_aplus_creators(client) -> list:
+    """Return {custom_url, last_updated_at} for synced A+ creators with a handle.
+
+    Used to emit /creators/like/{handle} lookalike landing pages. Scoped to
+    A+ tier so the sitemap stays well under the 50k URL ceiling and focuses
+    crawl budget on the highest-quality cohort.
+    """
+    try:
+        resp = (
+            client.table("creators")
+            .select("custom_url, last_updated_at")
+            .eq("sync_status", "synced")
+            .eq("quality_grade", "A+")
+            .not_.is_("custom_url", "null")
+            .execute()
+        )
+        return resp.data or []
+    except Exception as e:
+        print(f"Warning: could not fetch A+ creators from Supabase: {e}")
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -59,11 +81,14 @@ def generate_sitemap() -> bool:
             "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_KEY are set for full output."
         )
         creators = []
+        aplus_creators = []
     else:
         creators = _fetch_synced_creators(client)
         print(f"Found {len(creators)} synced creators.")
+        aplus_creators = _fetch_aplus_creators(client)
+        print(f"Found {len(aplus_creators)} A+ creators for lookalike pages.")
 
-    xml_content = build_sitemap_xml(creators)
+    xml_content = build_sitemap_xml(creators, aplus_creators=aplus_creators)
 
     public_dir = os.path.join(_PROJECT_ROOT, "public")
     sitemap_path = os.path.join(public_dir, "sitemap.xml")
@@ -74,7 +99,8 @@ def generate_sitemap() -> bool:
             f.write(xml_content)
         print(
             f"Sitemap written to {sitemap_path} "
-            f"({len(STATIC_ROUTES)} static + {len(creators)} creator URLs)"
+            f"({len(STATIC_ROUTES)} static + {len(creators)} creator "
+            f"+ {len(aplus_creators)} lookalike URLs)"
         )
     except IOError as e:
         print(f"Error writing sitemap: {e}")

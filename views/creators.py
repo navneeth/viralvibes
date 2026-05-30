@@ -4248,13 +4248,40 @@ def render_creator_profile_page(
     # Only rendered when embedding_peers is a non-empty list.
     # Passing None means the caller found no row in creator_peers → hide section.
     # ═══════════════════════════════════════════════════════════════════════════
+    # When embedding peers exist we also offer a one-click jump to the full
+    # /creators/like/{handle} landing page (20 peers + CSV export). Handle
+    # slug is sourced from custom_url so it matches the public URL shape.
+    _peer_handle_slug = (custom_url or "").lstrip("@").lower()
+    _lookalike_cta = (
+        Div(
+            A(
+                Span(
+                    f"See all {len(embedding_peers)} lookalikes for " f"{channel_name} ",
+                    cls="font-medium",
+                ),
+                Span("with verified contacts →", cls="text-muted-foreground"),
+                href=f"/creators/like/{_peer_handle_slug}",
+                cls=(
+                    "inline-flex items-center gap-1 text-sm "
+                    "text-primary hover:underline no-underline"
+                ),
+            ),
+            cls="mt-3 px-1",
+        )
+        if embedding_peers and _peer_handle_slug
+        else None
+    )
+
     embedding_peers_section = (
-        _render_similar_creators(
-            embedding_peers,
-            primary_category,
-            country_code,
-            current_creator_id=creator_id,
-            title="Similar creators",
+        Div(
+            _render_similar_creators(
+                embedding_peers,
+                primary_category,
+                country_code,
+                current_creator_id=creator_id,
+                title="Similar creators",
+            ),
+            _lookalike_cta,
         )
         if embedding_peers  # None or [] → section is suppressed
         else None
@@ -4704,3 +4731,285 @@ def creators_top_head(
         *OgTags(title=page_title, description=meta_desc, path=base_path),
     ]
     return tuple(tags)
+
+
+# =============================================================================
+# /creators/like/{handle} — embedding-based lookalike landing pages
+# =============================================================================
+# Programmatic SEO surface backed by the `creator_peers` table. Each page is
+# anonymous-friendly, shows ≤20 similar creators (in similarity order), and
+# offers a free CSV download with verified business contacts inline.
+
+
+def _lookalike_seed_handle(seed: dict) -> str:
+    """Best-effort @handle for display ("MrBeast" → "@mrbeast")."""
+    raw = (seed.get("custom_url") or "").strip().lstrip("@")
+    return f"@{raw}" if raw else (seed.get("channel_name") or "this creator")
+
+
+def _format_contact_summary(contact_count: int, peer_count: int) -> str:
+    """Numeric badge copy for the hero — "12 of 20 with verified contacts"."""
+    if not peer_count:
+        return ""
+    if not contact_count:
+        return "Contacts being extracted — check back soon."
+    if contact_count == peer_count:
+        return f"All {peer_count} have verified business contacts."
+    return f"{contact_count} of {peer_count} have verified business contacts."
+
+
+def _render_lookalike_contact_strip(peer: dict) -> Div | None:
+    """Thin contact bar shown under each peer card.
+
+    Only renders when the peer actually has at least one extractable signal.
+    Designed to be visually subordinate to the card itself — the card is the
+    creator, the strip is the data attached to them.
+    """
+    email = peer.get("extracted_email")
+    website = peer.get("extracted_website")
+    instagram = peer.get("extracted_instagram")
+    x_url = peer.get("extracted_x")
+
+    if not any((email, website, instagram, x_url)):
+        return None
+
+    chips: list = []
+    if email:
+        chips.append(
+            A(
+                "📩 ",
+                Span(email, cls="font-mono text-xs"),
+                href=f"mailto:{email}",
+                cls=(
+                    "inline-flex items-center gap-1 px-2 py-1 rounded-md "
+                    "bg-primary/[0.06] text-primary text-xs font-medium "
+                    "hover:bg-primary/10 transition-colors no-underline truncate max-w-full"
+                ),
+            )
+        )
+    if website:
+        chips.append(
+            A(
+                "🔗 Website",
+                href=website,
+                target="_blank",
+                rel="nofollow noopener",
+                cls=(
+                    "inline-flex items-center gap-1 px-2 py-1 rounded-md "
+                    "bg-accent/40 text-foreground/80 text-xs font-medium "
+                    "hover:bg-accent transition-colors no-underline"
+                ),
+            )
+        )
+    if instagram:
+        chips.append(
+            A(
+                "Instagram",
+                href=instagram,
+                target="_blank",
+                rel="nofollow noopener",
+                cls=(
+                    "inline-flex items-center px-2 py-1 rounded-md "
+                    "bg-accent/40 text-foreground/80 text-xs font-medium "
+                    "hover:bg-accent transition-colors no-underline"
+                ),
+            )
+        )
+    if x_url:
+        chips.append(
+            A(
+                "X",
+                href=x_url,
+                target="_blank",
+                rel="nofollow noopener",
+                cls=(
+                    "inline-flex items-center px-2 py-1 rounded-md "
+                    "bg-accent/40 text-foreground/80 text-xs font-medium "
+                    "hover:bg-accent transition-colors no-underline"
+                ),
+            )
+        )
+
+    return Div(
+        *chips,
+        cls="flex flex-wrap gap-1.5 mt-2 px-1",
+    )
+
+
+def _render_lookalike_grid(peers: list[dict]) -> Div:
+    """3-up grid: each cell wraps the standard creator card + contact strip.
+
+    Re-uses ``_render_creator_card`` so spacing, hover, and dark-mode tokens
+    match the rest of the discovery surfaces. The strip is a sibling, never
+    nested inside the card's anchor.
+    """
+    # Inject _rank so the standard card shows a sane "#N" badge per peer
+    # (peer order is similarity-ranked; rank 1 = closest).
+    cells = []
+    for i, p in enumerate(peers, start=1):
+        peer_with_rank = {**p, "_rank": str(i)}
+        cells.append(
+            Div(
+                _render_creator_card(peer_with_rank, is_favourited=False),
+                _render_lookalike_contact_strip(p),
+                cls="flex flex-col",
+            )
+        )
+    return Div(
+        *cells,
+        cls="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5",
+    )
+
+
+def render_creators_like_page(
+    *,
+    seed: dict,
+    peers: list[dict],
+    contact_count: int,
+) -> Div:
+    """Editorial layout for ``/creators/like/{handle}``.
+
+    Layout
+    ------
+    * Hero — gradient H1 ("Creators like @handle"), eyebrow, lede with
+      contact-count badge, accent rule.
+    * Action bar — CSV download (anonymous-friendly) + breadcrumb back
+      to the seed creator's profile.
+    * 3-up grid of similarity-ordered peers, each with a contact strip.
+    * Footer CTA — link into ``/creators`` filter UI for deeper research.
+    """
+    handle = _lookalike_seed_handle(seed)
+    seed_name = seed.get("channel_name") or handle
+    seed_id = seed.get("id") or ""
+    peer_count = len(peers)
+    summary = _format_contact_summary(contact_count, peer_count)
+
+    hero = Div(
+        Div(
+            Span(
+                "LOOKALIKE LIST",
+                cls=(
+                    "inline-block text-xs font-mono font-medium tracking-[0.18em] "
+                    "text-muted-foreground mb-4"
+                ),
+            ),
+            H1(
+                Span("Creators like ", cls="text-foreground/70"),
+                Span(
+                    seed_name,
+                    cls=(
+                        "bg-gradient-to-r from-foreground to-foreground/70 "
+                        "bg-clip-text text-transparent"
+                    ),
+                ),
+                cls="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6",
+            ),
+            P(
+                f"{peer_count} channels ranked by audience-overlap similarity to " f"{handle}. ",
+                Span(summary, cls="font-medium text-foreground") if summary else None,
+                cls="text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-3xl",
+            ),
+            Div(cls="h-px w-24 bg-primary/40 mt-10"),
+            cls="max-w-4xl",
+        ),
+        cls="py-16 sm:py-20 lg:py-24",
+    )
+
+    action_bar = Div(
+        A(
+            "← Back to ",
+            Span(handle, cls="font-medium"),
+            href=f"/creator/{seed_id}",
+            cls=(
+                "inline-flex items-center text-sm text-muted-foreground "
+                "hover:text-foreground transition-colors no-underline"
+            ),
+        ),
+        (
+            A(
+                "⬇ Export contacts (CSV)",
+                href=f"/creators/like/{seed.get('custom_url', '').lstrip('@').lower() or handle.lstrip('@')}/export",
+                cls=(
+                    "inline-flex items-center px-4 py-2 rounded-md text-sm font-medium "
+                    "bg-primary text-primary-foreground hover:bg-primary/90 "
+                    "transition-colors no-underline shadow-sm"
+                ),
+            )
+            if contact_count > 0
+            else Span(
+                "CSV export will be available once contacts are extracted",
+                cls="text-sm text-muted-foreground italic",
+            )
+        ),
+        cls="flex items-center justify-between gap-4 mb-8 flex-wrap",
+    )
+
+    grid = _render_lookalike_grid(peers)
+
+    footer_cta = Div(
+        Div(
+            Span(
+                "OR DIG DEEPER",
+                cls=(
+                    "block text-[10px] font-mono tracking-[0.22em] " "text-muted-foreground/70 mb-2"
+                ),
+            ),
+            P(
+                f"Want to filter {handle}-style creators by country, growth, "
+                "or category? Open the full search to combine signals.",
+                cls="text-sm text-muted-foreground leading-relaxed",
+            ),
+            A(
+                "Open the creator search →",
+                href="/creators",
+                cls=(
+                    "inline-flex items-center mt-4 text-sm font-medium "
+                    "text-primary hover:underline no-underline"
+                ),
+            ),
+            cls="max-w-2xl",
+        ),
+        cls="mt-16 pt-10 border-t border-border/60",
+    )
+
+    return Container(
+        hero,
+        action_bar,
+        grid,
+        footer_cta,
+        cls=ContainerT.xl,
+    )
+
+
+def creators_like_page_title(seed: dict) -> str:
+    """Single source for the ``<title>`` and visible chrome title."""
+    name = seed.get("channel_name") or _lookalike_seed_handle(seed)
+    return f"Creators like {name} — ViralVibes"
+
+
+def creators_like_head(*, seed: dict, peer_count: int, contact_count: int) -> tuple:
+    """Return ``<head>`` tags for the lookalike landing page."""
+    from components.seo import Canonical, MetaDescription, OgTags
+
+    handle = (seed.get("custom_url") or "").lstrip("@").lower()
+    path = f"/creators/like/{handle}" if handle else "/creators"
+    title = creators_like_page_title(seed)
+    name = seed.get("channel_name") or _lookalike_seed_handle(seed)
+
+    if contact_count:
+        desc = (
+            f"{peer_count} creators similar to {name} on YouTube — ranked by "
+            f"audience overlap. {contact_count} include verified business "
+            "contacts. Free CSV download."
+        )
+    else:
+        desc = (
+            f"{peer_count} YouTube channels similar to {name}, ranked by "
+            "audience overlap. Updated as new creators are discovered."
+        )
+
+    return (
+        Canonical(path),
+        MetaDescription(desc),
+        *OgTags(title=title, description=desc, path=path),
+    )

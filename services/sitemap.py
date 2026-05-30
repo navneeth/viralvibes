@@ -42,12 +42,29 @@ def _prettify(elem: ET.Element) -> str:
     return minidom.parseString(rough).toprettyxml(indent="  ")
 
 
-def build_sitemap_xml(creators: list) -> str:
+def _lastmod_or_today(row: dict, today: str) -> str:
+    """Pull a 10-char (YYYY-MM-DD) lastmod off a row, falling back to today."""
+    raw = row.get("last_updated_at") or ""
+    return raw[:10] if len(raw) >= 10 else today
+
+
+def build_sitemap_xml(
+    creators: list,
+    *,
+    aplus_creators: list | None = None,
+) -> str:
     """Build and return the complete sitemap XML string.
 
     Args:
         creators: List of ``{id, last_updated_at}`` dicts for synced creators.
-                  Pass an empty list to emit static routes only (e.g. in CI).
+                  Each becomes a ``/creator/{id}`` entry. Pass an empty list
+                  to emit static routes only (e.g. in CI when DB is offline).
+        aplus_creators: Optional list of ``{custom_url, last_updated_at}``
+                  dicts for A+ creators with a usable handle. Each becomes a
+                  ``/creators/like/{handle}`` lookalike-page entry. Scoped to
+                  A+ by the caller so the sitemap stays well under Google's
+                  50k-URL ceiling and crawl budget focuses on the most
+                  rankable creators.
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     urlset = ET.Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
@@ -63,13 +80,20 @@ def build_sitemap_xml(creators: list) -> str:
         creator_id = creator.get("id")
         if not creator_id:
             continue
-        raw_lastmod = creator.get("last_updated_at") or ""
-        lastmod = raw_lastmod[:10] if len(raw_lastmod) >= 10 else today
-
         url_el = ET.SubElement(urlset, "url")
         ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/creator/{creator_id}")
-        ET.SubElement(url_el, "lastmod").text = lastmod
+        ET.SubElement(url_el, "lastmod").text = _lastmod_or_today(creator, today)
         ET.SubElement(url_el, "changefreq").text = "weekly"
         ET.SubElement(url_el, "priority").text = "0.7"
+
+    for creator in aplus_creators or []:
+        handle = (creator.get("custom_url") or "").lstrip("@").lower()
+        if not handle:
+            continue
+        url_el = ET.SubElement(urlset, "url")
+        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/creators/like/{handle}")
+        ET.SubElement(url_el, "lastmod").text = _lastmod_or_today(creator, today)
+        ET.SubElement(url_el, "changefreq").text = "weekly"
+        ET.SubElement(url_el, "priority").text = "0.6"
 
     return _prettify(urlset)
