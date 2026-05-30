@@ -1034,14 +1034,13 @@ def creators_like_export_route(request, *, handle: str):
     import csv
     import io
 
-    from starlette.responses import Response as _Response
-    from starlette.responses import Response as StarletteResponse
+    from starlette.responses import Response
 
     from services.contact_extractor import ContactExtractorService
 
     seed = _resolve_seed_creator(handle)
     if not seed or not seed.get("id"):
-        return _Response("Creator not found", status_code=404)
+        return Response("Creator not found", status_code=404)
 
     peers = get_embedding_peers(
         seed["id"],
@@ -1049,7 +1048,7 @@ def creators_like_export_route(request, *, handle: str):
         include_contacts=True,
     )
     if not peers:
-        return _Response("No lookalikes available for this creator", status_code=404)
+        return Response("No lookalikes available for this creator", status_code=404)
 
     # Build email-tool-friendly rows and filter to those with an email.
     # Pulling base_url from the live request keeps profile URLs portable
@@ -1073,7 +1072,7 @@ def creators_like_export_route(request, *, handle: str):
     safe_handle = re.sub(r"[^a-z0-9_-]", "", safe_handle) or "creator"
     filename = f"lookalikes-{safe_handle}.csv"
 
-    return StarletteResponse(
+    return Response(
         content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
