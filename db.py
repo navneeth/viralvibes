@@ -2503,17 +2503,45 @@ _PEER_CREATOR_FIELDS = (
     "current_subscribers, quality_grade, primary_category, country_code"
 )
 
+# Extended fields for the /creators/like/{handle} lookalike page — adds the
+# columns ContactExtractorService.build_creator_contact_row needs (channel_id,
+# custom_url, growth deltas, the persisted extracted_* contact columns from
+# migration 040). Kept separate from the rail tiles so the cheap rail query
+# stays cheap.
+_PEER_CREATOR_FIELDS_WITH_CONTACT = (
+    "id, channel_id, channel_name, channel_url, custom_url, "
+    "channel_thumbnail_url, channel_description, keywords, "
+    "current_subscribers, current_view_count, current_video_count, "
+    "subscribers_change_30d, views_change_30d, "
+    "engagement_score, quality_grade, primary_category, category, "
+    "country_code, default_language, "
+    "has_contact_info, contact_signals_extracted_at, "
+    "extracted_email, extracted_website, extracted_instagram, "
+    "extracted_x, extracted_tiktok, extracted_linkedin"
+)
+
 
 def get_embedding_peers(
     creator_id: str,
     peer_type: str = "embedding_v1",
     limit: int = 20,
+    *,
+    include_contacts: bool = False,
 ) -> Optional[List[Dict[str, Any]]]:
     """Return hydrated creator dicts for the embedding-based peer list.
 
     Two-query pattern:
       1. Fetch the peer_list (ordered UUID array) from creator_peers.
       2. Fetch the matching creator rows, then re-order to match the ranked list.
+
+    Args:
+        creator_id: Seed creator UUID.
+        peer_type: Which embedding bucket to look up (default ``embedding_v1``).
+        limit: Maximum peers to return.
+        include_contacts: When True, fetches the wider field set that
+            ``ContactExtractorService.build_creator_contact_row`` needs
+            (extracted_* contact columns + growth deltas). Used by
+            ``/creators/like/{handle}``. Default keeps the cheap rail query.
 
     Returns:
         list[dict]  — peer creator rows in similarity order (best first)
@@ -2541,11 +2569,9 @@ def get_embedding_peers(
             return None
 
         # Step 2: hydrate creator rows for those IDs
+        fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
         creators_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select(_PEER_CREATOR_FIELDS)
-            .in_("id", peer_ids)
-            .execute()
+            supabase_client.table(CREATOR_TABLE).select(fields).in_("id", peer_ids).execute()
         )
         creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
 
