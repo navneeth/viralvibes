@@ -89,7 +89,7 @@ def _free_cta_target(is_authenticated: bool) -> tuple[str, str]:
     """Return (href, label) for the free-tier CTA based on auth state."""
     if is_authenticated:
         return "/creators", "Go to creators"
-    return "/login", "Get started free"
+    return "/login?return_url=/creators", "Get started free"
 
 
 def _free_card(is_authenticated: bool) -> Div:

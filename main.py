@@ -65,8 +65,10 @@ from controllers.auth_routes import (
     build_login_page,
     build_logout_response,
     build_onetap_login_page,
+    login_subheadline_for_return_url,
     normalize_intended_url,
     require_auth,
+    safe_local_return_url,
 )
 
 from controllers.job_progress import job_progress_controller
@@ -381,10 +383,14 @@ def login(req, sess):
     # clear any stale URLs so they get redirected to homepage after login
     normalize_intended_url(sess)
 
-    # Consume any contextual message set by a pre-auth redirect (e.g. checkout)
-    subheadline = sess.pop("login_context", None)
+    return_url = safe_local_return_url(req.query_params.get("return_url"), default="/")
 
-    return build_auth_redirect_page(oauth, req, sess, return_url="/", subheadline=subheadline)
+    # Consume any contextual message set by a pre-auth redirect (e.g. checkout)
+    subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
+
+    return build_auth_redirect_page(
+        oauth, req, sess, return_url=return_url, subheadline=subheadline
+    )
 
 
 @rt("/login/onetap")
@@ -399,9 +405,13 @@ def login_onetap_test(req, sess):
     """
     # Normalize session: clear stale intended_url if this was a manual visit
     normalize_intended_url(sess)
+    return_url = safe_local_return_url(req.query_params.get("return_url"), default="/")
+    subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
 
     # Use unified builder with force new UI (respects sess['intended_url'])
-    return build_auth_redirect_page(oauth, req, sess, return_url="/", use_new_ui=True)
+    return build_auth_redirect_page(
+        oauth, req, sess, return_url=return_url, use_new_ui=True, subheadline=subheadline
+    )
 
 
 @rt("/login/new")
@@ -420,9 +430,13 @@ def login_new_ui(req, sess):
     """
     # Normalize session: clear stale intended_url if this was a manual visit
     normalize_intended_url(sess)
+    return_url = safe_local_return_url(req.query_params.get("return_url"), default="/")
+    subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
 
     # Use unified builder but FORCE new UI (respects sess['intended_url'])
-    return build_auth_redirect_page(oauth, req, sess, return_url="/", use_new_ui=True)
+    return build_auth_redirect_page(
+        oauth, req, sess, return_url=return_url, use_new_ui=True, subheadline=subheadline
+    )
 
 
 @rt("/logout")

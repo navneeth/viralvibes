@@ -5,6 +5,7 @@ Note: @rt decorators stay in main.py, but business logic goes here.
 
 import logging
 import os
+from urllib.parse import urlsplit
 
 from fasthtml.common import *
 from monsterui.all import ButtonT, AlertT
@@ -140,6 +141,44 @@ def normalize_intended_url(sess):
     """
     if sess and not sess.get("intended_url"):
         sess.pop("intended_url", None)
+
+
+def safe_local_return_url(raw: str | None, default: str = "/") -> str:
+    """Return a same-site redirect target, falling back to default.
+
+    Login links can carry ?return_url=/path so OAuth lands users back at the
+    moment of intent. Keep this deliberately local to avoid open redirects.
+    """
+    if not raw:
+        return default
+
+    value = str(raw).strip()
+    if not value or any(ch in value for ch in "\r\n"):
+        return default
+
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc:
+        return default
+    if not parsed.path.startswith("/") or parsed.path.startswith("//"):
+        return default
+    if parsed.path in {"/login", "/login/new", "/login/onetap", "/redirect"}:
+        return default
+
+    return value
+
+
+def login_subheadline_for_return_url(return_url: str) -> str | None:
+    """Contextual login copy for known product-intent redirects."""
+    path = urlsplit(return_url or "").path
+    if path == "/creators":
+        return "Sign in to start free. No credit card required."
+    if path == "/me/dashboards":
+        return "Sign in to continue to your saved dashboards."
+    if path == "/me/favourites":
+        return "Sign in to save creators and build shortlists."
+    if path == "/me/outreach":
+        return "Sign in to export creator contacts for outreach."
+    return None
 
 
 # =============================================================================
