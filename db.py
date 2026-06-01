@@ -3959,15 +3959,22 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
 
 CONTACT_INQUIRIES_TABLE = "contact_inquiries"
 
-# Allowlisted inquiry-type slugs. KEEP IN SYNC with the
-# ``contact_inquiries_type_allowed`` CHECK constraint in
-# ``db/migrations/041_contact_inquiries.sql`` and with the ``<select>``
-# options in ``routes/contact.py``. ``insert_contact_inquiry`` defends
-# against drift by falling back to ``"general"`` for unknown values, so a
-# stale list here cannot 500 the form — it can only mis-categorise.
-_CONTACT_INQUIRY_TYPES = frozenset(
-    {"general", "sales", "feedback", "support", "partnership", "careers"}
+# Allowlisted inquiry types — single source of truth for both the
+# ``<select>`` rendered in ``routes/contact.py`` and the server-side
+# validator. KEEP IN SYNC with the ``contact_inquiries_type_allowed``
+# CHECK constraint in ``db/migrations/041_contact_inquiries.sql``;
+# ``insert_contact_inquiry`` defends against drift by falling back to
+# ``"general"`` for unknown slugs, so a stale list here cannot 500 the
+# form — it can only mis-categorise.
+CONTACT_INQUIRY_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("general", "General inquiry"),
+    ("sales", "Sales / Pricing question"),
+    ("feedback", "Product feedback"),
+    ("support", "Support / Bug report"),
+    ("partnership", "Partnership opportunity"),
+    ("careers", "Career / Jobs"),
 )
+CONTACT_INQUIRY_TYPES: frozenset[str] = frozenset(slug for slug, _label in CONTACT_INQUIRY_OPTIONS)
 
 
 def insert_contact_inquiry(
@@ -4004,7 +4011,7 @@ def insert_contact_inquiry(
     payload: Dict[str, Any] = {
         "name": name,
         "email": email,
-        "inquiry_type": inquiry_type if inquiry_type in _CONTACT_INQUIRY_TYPES else "general",
+        "inquiry_type": inquiry_type if inquiry_type in CONTACT_INQUIRY_TYPES else "general",
         "message": message,
     }
     if client_ip:
