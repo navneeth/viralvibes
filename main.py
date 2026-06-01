@@ -123,6 +123,7 @@ from routes.creators import (
 from routes.about import about_page_content
 from routes.contact import contact_page_content, post_contact
 from routes.legal import privacy_page_content, terms_page_content
+from routes.press import press_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
 from routes.stripe_checkout import (
@@ -1916,12 +1917,25 @@ def about(req, sess):
     )
 
 
+@rt("/press")
+def press(req, sess):
+    """Press Kit — public route linked from the footer."""
+    return Titled(
+        "Press Kit - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            press_page_content(),
+            cls=ContainerT.xl,
+        ),
+    )
+
+
 @rt("/contact", methods=["GET", "POST"])
-def contact(req, sess):
+async def contact(req, sess):
     """Contact page — public route with form submission."""
     if req.method == "POST":
-        # Handle form submission
-        return post_contact(req, sess)
+        # post_contact is async (reads form data); awaited here.
+        return await post_contact(req, sess)
     # GET request — render the form
     return Titled(
         "Contact Us - ViralVibes",

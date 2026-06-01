@@ -1,6 +1,14 @@
 """
 Contact page — inquiry form, support channels, and FAQ.
+
+Form submissions are currently logged at INFO level so the operator has a
+durable record even without backing storage. PR 2b will persist each
+inquiry to ``contact_inquiries`` (migration 041) and PR 2c will add an
+HTTP transactional-email forward to ``CONTACT_EMAIL`` — SMTP from a
+Vercel serverless runtime was rejected as the wrong transport.
 """
+
+import logging
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -12,6 +20,12 @@ from components.page_layout import (
     StaticPage,
 )
 from constants import CONTACT_EMAIL
+
+logger = logging.getLogger(__name__)
+
+# Hard cap so a pasted novel can't blow up the transactional-email payload
+# or fill the log line with megabytes of text.
+_MAX_MESSAGE_CHARS = 10_000
 
 
 # ---------------------------------------------------------------------------
@@ -193,15 +207,28 @@ def contact_page_content() -> Div:
     )
 
 
-def post_contact(req, sess):
+async def post_contact(req, sess):
     """Handle contact form submission.
 
-    Called from main.py's contact route handler.
-    Extracts form data and processes the submission.
+    Reads the form, logs the inquiry at INFO level, and returns the success
+    page. Persistence to ``contact_inquiries`` and transactional-email
+    forwarding land in PR 2b / 2c — see the module docstring.
     """
-    # TODO: Implement email sending or form processing
-    # For now, just return a success message
-    # Form data would be extracted via await req.form() if needed
+    form = await req.form()
+    name = (form.get("name") or "").strip()
+    email = (form.get("email") or "").strip()
+    inquiry_type = (form.get("inquiry_type") or "general").strip()
+    message = (form.get("message") or "").strip()[:_MAX_MESSAGE_CHARS]
+
+    # Operator-visible record — lands in Vercel runtime logs alongside other
+    # request traffic. Replaced by a DB insert in PR 2b.
+    logger.info(
+        "contact form submission: type=%s from=%s <%s> chars=%d",
+        inquiry_type,
+        name or "(no name)",
+        email or "(no email)",
+        len(message),
+    )
 
     return Div(
         Div(

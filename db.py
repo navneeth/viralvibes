@@ -3947,3 +3947,148 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
         "materialized_views": results,
         "error": partial_errors,  # non-null when one view failed but the other succeeded
     }
+
+
+# ============================================================================
+# 📨 Contact form inquiries  (migration 041)
+# ============================================================================
+# System of record for /contact submissions. Transactional-email forwarding
+# (Resend / Postmark) is layered on top in a subsequent change — keeping the
+# DB write authoritative means an outbound send failure never loses an
+# inquiry, and an admin retry view can drain the queue.
+
+CONTACT_INQUIRIES_TABLE = "contact_inquiries"
+
+_CONTACT_INQUIRY_TYPES = frozenset(
+    {"general", "sales", "feedback", "support", "partnership", "careers"}
+)
+
+
+def insert_contact_inquiry(
+    *,
+    name: str,
+    email: str,
+    inquiry_type: str,
+    message: str,
+    client_ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+) -> Optional[int]:
+    """Persist a /contact form submission and return the new row id.
+
+    Returns ``None`` on any failure (no Supabase client, network error,
+    constraint violation). The caller \u2014 ``routes/contact.py:post_contact``
+    \u2014 always returns the success page regardless, so a DB hiccup never
+    leaks to the visitor; the failure is captured in the application log
+    for operator follow-up.
+
+    Args:
+        name:         Visitor's name (1-200 chars after caller-side trim).
+        email:        Visitor's email (3-320 chars; format checked by caller).
+        inquiry_type: One of the allowlisted slugs (see ``_CONTACT_INQUIRY_TYPES``).
+                      Falls back to ``"general"`` if unknown so a stale option
+                      value can't 500 the form.
+        message:      Free-form body (1-10000 chars; caller enforces the cap).
+        client_ip:    Best-effort source IP for rate limiting; ``None`` is fine.
+        user_agent:   Best-effort UA string for triage; ``None`` is fine.
+    """
+    if not supabase_client:
+        logger.warning("insert_contact_inquiry: no supabase_client; dropping inquiry")
+        return None
+
+    payload: Dict[str, Any] = {
+        "name": name,
+        "email": email,
+        "inquiry_type": inquiry_type if inquiry_type in _CONTACT_INQUIRY_TYPES else "general",
+        "message": message,
+    }
+    if client_ip:
+        payload["client_ip"] = client_ip
+    if user_agent:
+        payload["user_agent"] = user_agent
+
+    try:
+        resp = _db_execute(
+            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE).insert(payload).execute()
+        )
+    except Exception:
+        logger.exception("insert_contact_inquiry: insert failed for <%s>", email)
+        return None
+
+    rows = resp.data or []
+    if not rows:
+        logger.warning("insert_contact_inquiry: insert returned no rows for <%s>", email)
+        return None
+    return rows[0].get("id")
+
+
+def count_contact_inquiries_from_ip(client_ip: str, *, within_minutes: int = 60) -> int:
+    """Return how many inquiries the given IP submitted in the recent window.
+
+    Used by ``post_contact`` to short-circuit obvious flooders before doing
+    a write. Returns ``0`` on any error so a transient DB blip can never
+    block a legitimate user (worst case: rate limit briefly under-counts).
+
+    The lookup is index-supported by
+    ``idx_contact_inquiries_client_ip_created_at``.
+    """
+    if not supabase_client or not client_ip:
+        return 0
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=within_minutes)).isoformat()
+
+    try:
+        resp = _db_execute(
+            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
+            .select("id", count="exact")
+            .eq("client_ip", client_ip)
+            .gte("created_at", cutoff)
+            .execute()
+        )
+    except Exception:
+        logger.exception("count_contact_inquiries_from_ip: lookup failed for %s", client_ip)
+        return 0
+
+    return int(getattr(resp, "count", 0) or 0)
+
+
+def mark_contact_inquiry_forwarded(inquiry_id: int) -> bool:
+    """Record a successful transactional-email send. Returns True on update."""
+    if not supabase_client or not inquiry_id:
+        return False
+    try:
+        _db_execute(
+            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
+            .update(
+                {
+                    "forwarded_at": datetime.now(timezone.utc).isoformat(),
+                    "forward_error": None,
+                }
+            )
+            .eq("id", inquiry_id)
+            .execute()
+        )
+        return True
+    except Exception:
+        logger.exception("mark_contact_inquiry_forwarded: update failed for id=%s", inquiry_id)
+        return False
+
+
+def mark_contact_inquiry_forward_error(inquiry_id: int, error: str) -> bool:
+    """Record a failed transactional-email send. Returns True on update.
+
+    ``error`` is truncated to a sane length so a multi-MB stack trace can't
+    bloat the row \u2014 detailed traces belong in the log, not the DB.
+    """
+    if not supabase_client or not inquiry_id:
+        return False
+    try:
+        _db_execute(
+            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
+            .update({"forward_error": (error or "")[:1000]})
+            .eq("id", inquiry_id)
+            .execute()
+        )
+        return True
+    except Exception:
+        logger.exception("mark_contact_inquiry_forward_error: update failed for id=%s", inquiry_id)
+        return False
