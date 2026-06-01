@@ -3959,6 +3959,12 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
 
 CONTACT_INQUIRIES_TABLE = "contact_inquiries"
 
+# Allowlisted inquiry-type slugs. KEEP IN SYNC with the
+# ``contact_inquiries_type_allowed`` CHECK constraint in
+# ``db/migrations/041_contact_inquiries.sql`` and with the ``<select>``
+# options in ``routes/contact.py``. ``insert_contact_inquiry`` defends
+# against drift by falling back to ``"general"`` for unknown values, so a
+# stale list here cannot 500 the form — it can only mis-categorise.
 _CONTACT_INQUIRY_TYPES = frozenset(
     {"general", "sales", "feedback", "support", "partnership", "careers"}
 )

@@ -28,6 +28,27 @@ logger = logging.getLogger(__name__)
 _MAX_MESSAGE_CHARS = 10_000
 
 
+def _mask_email(email: str) -> str:
+    """Return a privacy-preserving rendering of ``email`` for log lines.
+
+    Keeps the first character of the local part and the full domain so an
+    operator triaging logs can still recognise repeat senders, without
+    putting harvestable addresses in runtime log storage.
+
+    Examples:
+        ``jane@example.com``    -> ``j***@example.com``
+        ``a@example.com``       -> ``*@example.com``
+        ``no-at-sign``          -> ``(no email)``
+    """
+    if not email:
+        return "(no email)"
+    local, sep, domain = email.partition("@")
+    if not sep:
+        return "(invalid email)"
+    masked_local = (local[:1] + "***") if local else "*"
+    return f"{masked_local}@{domain}"
+
+
 # ---------------------------------------------------------------------------
 # Contact Form
 # ---------------------------------------------------------------------------
@@ -210,9 +231,10 @@ def contact_page_content() -> Div:
 async def post_contact(req, sess):
     """Handle contact form submission.
 
-    Reads the form, logs the inquiry at INFO level, and returns the success
-    page. Persistence to ``contact_inquiries`` and transactional-email
-    forwarding land in PR 2b / 2c — see the module docstring.
+    Reads the form, logs a *masked* record of the inquiry at INFO level,
+    and returns the success page. Persistence to ``contact_inquiries``
+    and transactional-email forwarding land in PR 2b / 2c — see the
+    module docstring.
     """
     form = await req.form()
     name = (form.get("name") or "").strip()
@@ -221,12 +243,16 @@ async def post_contact(req, sess):
     message = (form.get("message") or "").strip()[:_MAX_MESSAGE_CHARS]
 
     # Operator-visible record — lands in Vercel runtime logs alongside other
-    # request traffic. Replaced by a DB insert in PR 2b.
+    # request traffic. The email is masked (``j***@example.com``) so the
+    # log line stays operator-useful for triaging repeat senders without
+    # turning runtime logs into a harvestable address list. Full PII lands
+    # in the ``contact_inquiries`` table (PR 2b), which is RLS-restricted
+    # to the service role.
     logger.info(
-        "contact form submission: type=%s from=%s <%s> chars=%d",
+        "contact form submission: type=%s name_present=%s email=%s chars=%d",
         inquiry_type,
-        name or "(no name)",
-        email or "(no email)",
+        bool(name),
+        _mask_email(email),
         len(message),
     )
 

@@ -67,9 +67,11 @@ def _format_count(n: int | float | None) -> str:
 
     Wraps the shared ``utils.formatting.format_number`` so the press page
     matches numbers shown elsewhere (e.g. nav, hero) instead of inventing
-    its own "807K" vs "807.0K" rounding rules.
+    its own "807K" vs "807.0K" rounding rules. Only ``None`` is treated as
+    missing — a legitimate zero (e.g. "0 creators in a niche") passes
+    through to ``format_number`` instead of being silently hidden as "—".
     """
-    if not n:
+    if n is None:
         return "—"
     return format_number(n)
 
@@ -84,9 +86,23 @@ def press_page_content() -> Div:
     top_categories = _safe_top_categories(limit=6)
     top_countries = _safe_top_countries(limit=6)
 
+    # Headline numbers — use _format_count so missing data renders as "—"
+    # instead of a misleading "0+ countries" when the stats RPC is down.
+    # The "+" suffix is only appended when we actually have a number, so the
+    # fallback doesn't read as "—+ countries".
     total_creators = _format_count(stats.get("total_creators"))
-    total_countries = stats.get("total_countries") or 0
-    total_languages = stats.get("total_languages") or 0
+    total_countries_raw = stats.get("total_countries")
+    total_languages_raw = stats.get("total_languages")
+    countries_label = (
+        f"{_format_count(total_countries_raw)}+ countries"
+        if total_countries_raw is not None
+        else "Countries tracked"
+    )
+    languages_label = (
+        f"{_format_count(total_languages_raw)}+ languages"
+        if total_languages_raw is not None
+        else "Languages tracked"
+    )
 
     # Headline stat grid — three numbers a reporter can lift verbatim.
     headline_stats = FeatureGrid(
@@ -96,12 +112,12 @@ def press_page_content() -> Div:
                 "YouTube channels in the ViralVibes index, refreshed on a rolling basis.",
             ),
             (
-                f"{total_countries}+ countries",
+                countries_label,
                 "Geographies represented in the creator dataset, normalised for fair "
                 "cross-market comparison.",
             ),
             (
-                f"{total_languages}+ languages",
+                languages_label,
                 "Spoken-content languages covered, enabling discovery beyond English-first "
                 "creator lists.",
             ),
