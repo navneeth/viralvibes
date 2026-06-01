@@ -4260,8 +4260,9 @@ def render_creator_profile_page(
     # ═══════════════════════════════════════════════════════════════════════════
     _peer_handle_slug = (custom_url or "").lstrip("@").lower()
     _extra_peers = max(0, embedding_peer_total - len(embedding_peers or []))
+    _noun = "lookalike" if _extra_peers == 1 else "lookalikes"
     _cta_label = (
-        f"See {_extra_peers} more lookalikes for {channel_name} →"
+        f"See {_extra_peers} more {_noun} for {channel_name} →"
         if _extra_peers > 0
         else f"Open the lookalike page for {channel_name} →"
     )
