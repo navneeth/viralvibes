@@ -1934,8 +1934,22 @@ def press(req, sess):
 async def contact(req, sess):
     """Contact page — public route with form submission."""
     if req.method == "POST":
-        # post_contact is async (reads form data); awaited here.
-        return await post_contact(req, sess)
+        # post_contact returns a Div with id="contact-form-region" so an
+        # HTMX outerHTML swap targets it precisely. For a non-JS browser
+        # doing a full-page POST (progressive enhancement), wrap the
+        # fragment in the standard page chrome so the user lands on a
+        # complete page rather than a bare fragment.
+        fragment = await post_contact(req, sess)
+        if (req.headers.get("hx-request") or "").lower() == "true":
+            return fragment
+        return Titled(
+            "Contact Us - ViralVibes",
+            Container(
+                NavComponent(oauth, req, sess),
+                fragment,
+                cls=ContainerT.xl,
+            ),
+        )
     # GET request — render the form
     return Titled(
         "Contact Us - ViralVibes",
