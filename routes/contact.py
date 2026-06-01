@@ -35,7 +35,7 @@ from components.page_layout import (
 from constants import CONTACT_EMAIL
 from db import (
     CONTACT_INQUIRY_OPTIONS,
-    _CONTACT_INQUIRY_TYPES,
+    CONTACT_INQUIRY_TYPES,
     count_contact_inquiries_from_ip,
     insert_contact_inquiry,
 )
@@ -95,9 +95,16 @@ def _mask_email(email: str) -> str:
 def _get_client_ip(req) -> str | None:
     """Best-effort client IP — Vercel-aware ordering.
 
-    Prefers ``X-Forwarded-For`` (set by Vercel's edge), falls back to
-    ``X-Real-IP``, then to the raw socket peer. Returns the first comma-
-    separated value so a chain of proxies doesn't end up in the DB.
+    On Vercel (the deployment target), ``req.client.host`` is the *edge
+    proxy*, never the real visitor — ``X-Forwarded-For`` set by Vercel's
+    edge is the only path to the actual client IP. The edge strips and
+    rewrites the header on every hop, so trusting its first value is
+    correct for this deployment. If this app is ever fronted by an
+    untrusted proxy, the rate-limit logic in ``post_contact`` becomes
+    spoofable and this helper must grow a trusted-upstream allowlist.
+
+    Falls back to ``X-Real-IP`` (some CDNs set it) and then to the raw
+    socket peer so local dev / direct hits still get a value.
     """
     xff = req.headers.get("x-forwarded-for") or req.headers.get("x-real-ip")
     if xff:
@@ -349,7 +356,7 @@ def _validate(values: dict) -> dict:
     if not _EMAIL_RE.match(values.get("email", "")):
         errors["email"] = "Please enter a valid email address."
 
-    if values.get("inquiry_type") not in _CONTACT_INQUIRY_TYPES:
+    if values.get("inquiry_type") not in CONTACT_INQUIRY_TYPES:
         values["inquiry_type"] = "general"
 
     msg_len = len(values.get("message", ""))
@@ -361,30 +368,39 @@ def _validate(values: dict) -> dict:
     return errors
 
 
-def _looks_like_bot(form, now_ts: int) -> bool:
+def _looks_like_bot(form, now_ts: int) -> tuple[bool, str | None]:
     """Honeypot and timestamp-floor checks.
 
-    Returns True if the submission should be silently swallowed (we never
-    tell the bot it failed — that just teaches the script to retry).
+    Returns ``(is_bot, reason)``. ``reason`` is a short tag used only for
+    structured logging — the caller always responds with the success
+    fragment when ``is_bot`` is True (we never tell a script its attempt
+    failed). The ``"ts_missing"`` reason exists so a template regression
+    that drops the hidden ``ts`` field shows up loudly in logs instead of
+    silently swallowing every legitimate submission; the behaviour is
+    still silent-drop, but operators get a distinct signal to act on.
     """
     if (form.get(_HONEYPOT_FIELD) or "").strip():
-        return True
+        return True, "honeypot"
+
+    ts_raw = form.get("ts")
+    if ts_raw is None or ts_raw == "":
+        return True, "ts_missing"
 
     try:
-        ts = int(form.get("ts") or 0)
+        ts = int(ts_raw)
     except (TypeError, ValueError):
-        return True
+        return True, "ts_malformed"
 
     if ts <= 0:
-        return True
+        return True, "ts_nonpositive"
 
     delta = now_ts - ts
     if delta < _MIN_FILL_SECONDS:
-        return True  # superhuman speed
+        return True, "ts_too_fast"
     if delta > _MAX_FILL_SECONDS:
-        return True  # stale form / replay
+        return True, "ts_stale"
 
-    return False
+    return False, None
 
 
 # ---------------------------------------------------------------------------
@@ -505,8 +521,20 @@ async def post_contact(req, sess) -> Div:
     }
 
     # 1. Bot? Pretend we accepted it so the script doesn't retry/learn.
-    if _looks_like_bot(form, now_ts):
-        logger.info("contact form: silent-drop (honeypot or ts-floor)")
+    #    A ``ts_missing`` reason almost always means a template regression
+    #    (the hidden field disappeared from contact_form) rather than a
+    #    real bot — log at WARNING so it's visible in alerts; everything
+    #    else stays at INFO.
+    is_bot, reason = _looks_like_bot(form, now_ts)
+    if is_bot:
+        if reason == "ts_missing":
+            logger.warning(
+                "contact form: silent-drop reason=%s — likely template "
+                "regression dropped the hidden ts field",
+                reason,
+            )
+        else:
+            logger.info("contact form: silent-drop reason=%s", reason)
         return _success_fragment()
 
     # 2. Field validation — re-render with inline errors if anything is off.

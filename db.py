@@ -3974,7 +3974,7 @@ CONTACT_INQUIRY_OPTIONS: tuple[tuple[str, str], ...] = (
     ("partnership", "Partnership opportunity"),
     ("careers", "Career / Jobs"),
 )
-_CONTACT_INQUIRY_TYPES: frozenset[str] = frozenset(slug for slug, _label in CONTACT_INQUIRY_OPTIONS)
+CONTACT_INQUIRY_TYPES: frozenset[str] = frozenset(slug for slug, _label in CONTACT_INQUIRY_OPTIONS)
 
 
 def insert_contact_inquiry(
@@ -4011,7 +4011,7 @@ def insert_contact_inquiry(
     payload: Dict[str, Any] = {
         "name": name,
         "email": email,
-        "inquiry_type": inquiry_type if inquiry_type in _CONTACT_INQUIRY_TYPES else "general",
+        "inquiry_type": inquiry_type if inquiry_type in CONTACT_INQUIRY_TYPES else "general",
         "message": message,
     }
     if client_ip:
