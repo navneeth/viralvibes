@@ -3013,6 +3013,7 @@ def render_creator_profile_page(
     niche_leaderboard: list[dict] | None = None,
     recent_upload: dict | None = None,
     embedding_peers: list[dict] | None = None,
+    embedding_peer_total: int = 0,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
@@ -4249,20 +4250,28 @@ def render_creator_profile_page(
     # Passing None means the caller found no row in creator_peers → hide section.
     # ═══════════════════════════════════════════════════════════════════════════
     # When embedding peers exist we also offer a one-click jump to the full
-    # /creators/like/{handle} landing page (20 peers + CSV export). Handle
-    # slug is sourced from custom_url so it matches the public URL shape.
+    # /creators/like/{handle} landing page (shareable URL + optional CSV
+    # contact export when peers have contact info). Handle slug is sourced
+    # from custom_url so it matches the public URL shape; custom_url is
+    # stored lowercase without "@", which is exactly what the route expects.
+    # CTA copy surfaces the additional peers available on the landing page
+    # (embedding_peer_total counts the full peer list; the rail is a slice)
+    # so users get real information scent for clicking through.
+    # ═══════════════════════════════════════════════════════════════════════════
     _peer_handle_slug = (custom_url or "").lstrip("@").lower()
+    _extra_peers = max(0, embedding_peer_total - len(embedding_peers or []))
+    _cta_label = (
+        f"See {_extra_peers} more lookalikes for {channel_name} →"
+        if _extra_peers > 0
+        else f"Open the lookalike page for {channel_name} →"
+    )
     _lookalike_cta = (
         Div(
             A(
-                Span(
-                    f"See all {len(embedding_peers)} lookalikes for " f"{channel_name} ",
-                    cls="font-medium",
-                ),
-                Span("with verified contacts →", cls="text-muted-foreground"),
+                _cta_label,
                 href=f"/creators/like/{_peer_handle_slug}",
                 cls=(
-                    "inline-flex items-center gap-1 text-sm "
+                    "inline-flex items-center gap-1 text-sm font-medium "
                     "text-primary hover:underline no-underline"
                 ),
             ),
