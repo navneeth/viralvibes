@@ -537,7 +537,13 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     niche_leaderboard = get_category_leaderboard(creator.get("primary_category", ""), limit=5)
     is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
     similar_creators = _get_similar_creators(creator)
-    embedding_peers = get_embedding_peers(creator_id)
+    # Fetch the full peer list once (cheap: one JSONB read + one IN-list hydrate)
+    # then slice for the profile rail. The total length drives the CTA copy on
+    # the rail ("See N more lookalikes for X") so users know there's more on
+    # the dedicated landing page.
+    embedding_peers_full = get_embedding_peers(creator_id, limit=LOOKALIKE_LIMIT) or []
+    embedding_peers = embedding_peers_full[:_PROFILE_PEER_RAIL_LIMIT] or None
+    embedding_peer_total = len(embedding_peers_full)
 
     return render_creator_profile_page(
         creator,
@@ -549,6 +555,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         is_favourited=is_fav,
         similar_creators=similar_creators,
         embedding_peers=embedding_peers,
+        embedding_peer_total=embedding_peer_total,
     )
 
 
@@ -948,7 +955,11 @@ def creators_top_route(request, *, category_slug: str | None = None):
 #   * Reuses ContactExtractorService for the export so the CSV shape stays
 #     identical to /me/outreach/export and the admin bulk export.
 
-LOOKALIKE_LIMIT = 20  # peers shown on /creators/like/{handle}
+LOOKALIKE_LIMIT = 50  # peers shown on /creators/like/{handle} (SEO destination)
+# Profile-page rail is intentionally shorter than the landing page so the CTA
+# ("See N more lookalikes for X") has real information scent. Matches the
+# fold-friendly 8-tile shape used by the category-leaderboard rail above.
+_PROFILE_PEER_RAIL_LIMIT = 8
 
 
 @dataclass(frozen=True)
