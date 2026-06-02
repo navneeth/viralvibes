@@ -37,7 +37,7 @@ def AuthDropdown(
     # --- LOGGED OUT STATE ---
     if not user or not user.get("user_id"):
         return A(
-            "Log in",
+            "Sign in with Google",
             href=login_href,
             cls=f"{ButtonT.primary} text-sm",
         )

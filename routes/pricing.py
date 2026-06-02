@@ -89,7 +89,7 @@ def _free_cta_target(is_authenticated: bool) -> tuple[str, str]:
     """Return (href, label) for the free-tier CTA based on auth state."""
     if is_authenticated:
         return "/creators", "Go to creators"
-    return "/login?return_url=/creators", "Get started free"
+    return "/login?return_url=/creators", "Start free with Google"
 
 
 def _free_card(is_authenticated: bool) -> Div:
@@ -127,7 +127,17 @@ def _free_card(is_authenticated: bool) -> Div:
     )
 
 
-def _pro_card() -> Div:
+def _checkout_hint(is_authenticated: bool) -> P | None:
+    if is_authenticated:
+        return None
+    return P(
+        "Google sign-in first; Stripe checkout follows.",
+        cls="text-xs text-muted-foreground text-center -mt-5 mb-6",
+    )
+
+
+def _pro_card(is_authenticated: bool) -> Div:
+    cta_label = "Start Pro free for 7 days" if is_authenticated else "Start Pro trial with Google"
     return Div(
         # "Most popular" badge positioned above the card border
         Div(
@@ -151,13 +161,14 @@ def _pro_card() -> Div:
             Input(type="hidden", name="plan", value="pro"),
             Input(type="hidden", name="interval", value="year"),
             Button(
-                "Start Pro free for 7 days",
+                cta_label,
                 type="submit",
                 cls=(ButtonT.primary, "block w-full text-center font-semibold text-sm py-2.5 mb-8"),
             ),
             method="post",
             action="/billing/checkout",
         ),
+        _checkout_hint(is_authenticated),
         Ul(
             _feature("Everything in Free", bold=True, color="red"),
             _feature("Unlimited saved dashboards", color="red"),
@@ -174,7 +185,10 @@ def _pro_card() -> Div:
     )
 
 
-def _agency_card() -> Div:
+def _agency_card(is_authenticated: bool) -> Div:
+    cta_label = (
+        "Start Agency free for 7 days" if is_authenticated else "Start Agency trial with Google"
+    )
     return Div(
         Div(
             P(
@@ -193,7 +207,7 @@ def _agency_card() -> Div:
             Input(type="hidden", name="plan", value="agency"),
             Input(type="hidden", name="interval", value="year"),
             Button(
-                "Start Agency free for 7 days",
+                cta_label,
                 type="submit",
                 cls=(
                     "block w-full text-center font-semibold text-sm py-2.5 mb-8 rounded-lg "
@@ -204,6 +218,7 @@ def _agency_card() -> Div:
             method="post",
             action="/billing/checkout",
         ),
+        _checkout_hint(is_authenticated),
         Ul(
             _feature("Everything in Pro", bold=True),
             _feature("Unlimited shortlists & creators"),
@@ -340,7 +355,7 @@ def _comparison_table() -> Div:
 
 def _bottom_cta(is_authenticated: bool) -> Div:
     cta_href, _ = _free_cta_target(is_authenticated)
-    cta_label = "Start browsing creators" if is_authenticated else "Get started free"
+    cta_label = "Start browsing creators" if is_authenticated else "Start free with Google"
     return Div(
         P(
             "Still deciding?",
@@ -411,8 +426,8 @@ def pricing_page_content(error: str = "", *, is_authenticated: bool) -> Div:
         # items-start so the Pro card badge overflow doesn't clip siblings
         Div(
             _free_card(is_authenticated),
-            _pro_card(),
-            _agency_card(),
+            _pro_card(is_authenticated),
+            _agency_card(is_authenticated),
             cls="grid grid-cols-1 md:grid-cols-3 gap-8 items-start",
         ),
         # ── Trust strip ───────────────────────────────────────────────────

@@ -4,12 +4,28 @@ Shows personalized content when user is logged in (avatar dropdown with menu).
 """
 
 import logging
+from urllib.parse import urlencode
 
 from fasthtml.common import *
 from monsterui.all import *
 
 from .auth_dropdown import AuthDropdown
 from routes.admin import _is_admin  # ✅ Import admin check
+
+
+def _current_return_url(req) -> str:
+    """Return the current same-site path for post-login continuation."""
+    if not req:
+        return "/"
+    path = req.url.path or "/"
+    if path in {"/login", "/login/new", "/login/onetap", "/redirect"}:
+        return "/"
+    query = getattr(req.url, "query", "")
+    return f"{path}?{query}" if query else path
+
+
+def _branded_login_href(req) -> str:
+    return f"/login?{urlencode({'return_url': _current_return_url(req)})}"
 
 
 def _nav_link_cls(req, path):
@@ -92,15 +108,10 @@ def NavComponent(oauth, req=None, sess=None):
     # Build auth section (right side of navbar)
     # ============================================================================
 
-    # Get login URL with fallback (used by both AuthDropdown and fallback button)
-    login_href = "/login"
-    if oauth and req:
-        try:
-            login_url = oauth.login_link(req)
-            if login_url and isinstance(login_url, str):
-                login_href = login_url
-        except Exception as e:
-            logging.warning(f"Failed to generate OAuth login link: {e}")
+    # Route logged-out users through the branded login page so it is clear that
+    # Google OAuth is the next step. The login card still owns the direct OAuth
+    # URL, preserving the legacy path in one place.
+    login_href = _branded_login_href(req)
 
     if is_authenticated:
         # ✅ LOGGED IN: Use AuthDropdown component
@@ -145,7 +156,7 @@ def NavComponent(oauth, req=None, sess=None):
         )
 
     else:
-        # ❌ LOGGED OUT: Single conversion action — Sign in.
+        # ❌ LOGGED OUT: Single conversion action — Sign in with Google.
         # Nav links already cover all discovery destinations. The only thing
         # missing for a guest is a way in. Mirroring Linear/Vercel/Notion pattern:
         # nav handles "where to go", CTA handles "what to do" — they never overlap.
@@ -153,7 +164,7 @@ def NavComponent(oauth, req=None, sess=None):
         # NavBar's internal flex layout treats both auth states consistently.
         auth_section = Div(
             A(
-                "Sign in",
+                "Sign in with Google",
                 href=login_href,
                 cls="btn-cta-primary text-sm",
             ),

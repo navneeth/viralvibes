@@ -384,7 +384,10 @@ def login(req, sess):
     # clear any stale URLs so they get redirected to homepage after login
     normalize_intended_url(sess)
 
-    return_url = safe_local_return_url(req.query_params.get("return_url"), default="/")
+    return_url = safe_local_return_url(
+        req.query_params.get("return_url") or req.query_params.get("return_to"),
+        default="/",
+    )
 
     # Consume any contextual message set by a pre-auth redirect (e.g. checkout)
     subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
@@ -406,7 +409,10 @@ def login_onetap_test(req, sess):
     """
     # Normalize session: clear stale intended_url if this was a manual visit
     normalize_intended_url(sess)
-    return_url = safe_local_return_url(req.query_params.get("return_url"), default="/")
+    return_url = safe_local_return_url(
+        req.query_params.get("return_url") or req.query_params.get("return_to"),
+        default="/",
+    )
     subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
 
     # Use unified builder with force new UI (respects sess['intended_url'])
@@ -431,7 +437,10 @@ def login_new_ui(req, sess):
     """
     # Normalize session: clear stale intended_url if this was a manual visit
     normalize_intended_url(sess)
-    return_url = safe_local_return_url(req.query_params.get("return_url"), default="/")
+    return_url = safe_local_return_url(
+        req.query_params.get("return_url") or req.query_params.get("return_to"),
+        default="/",
+    )
     subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
 
     # Use unified builder but FORCE new UI (respects sess['intended_url'])

@@ -80,6 +80,10 @@ _CLS_ICON_SM = "size-4 mr-1.5"
 _CLS_SEPARATOR = "text-border mx-1"  # mid-dot "·" between inline items
 
 
+def _login_href(return_url: str = "/creators") -> str:
+    return f"/login?{urlencode({'return_url': return_url})}"
+
+
 # Brand-accurate colours keyed by Lucide icon name
 _SOCIAL_COLOURS = {
     "instagram": "text-pink-500 hover:text-pink-600",
@@ -2651,8 +2655,8 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
     else:
         action = A(
             UkIcon("log-in", cls=_CLS_ICON_SM),
-            "Log in to add",
-            href="/login",
+            "Sign in with Google to add",
+            href=_login_href(f"/creators?search={quote_plus(search)}" if search else "/creators"),
             cls="inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
             "border border-border hover:bg-accent transition-colors shrink-0",
         )
@@ -2727,8 +2731,8 @@ def _render_empty_state(
         else:
             add_cta = A(
                 UkIcon("log-in", cls=_CLS_ICON_SM),
-                "Log in to add this creator",
-                href=f"/login",
+                "Sign in with Google to add this creator",
+                href=_login_href(f"/creators?search={quote_plus(search)}"),
                 cls="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
                 "border border-border hover:bg-accent transition-colors",
             )
@@ -2783,7 +2787,13 @@ def _render_empty_state(
             )
         else:
             submit_area = P(
-                A("Log in", href="/login", cls="text-primary hover:underline font-medium"),
+                A(
+                    "Sign in with Google",
+                    href=_login_href(
+                        f"/creators?search={quote_plus(search)}" if search else "/creators"
+                    ),
+                    cls="text-primary hover:underline font-medium",
+                ),
                 " to submit a creator by @handle.",
                 cls=_CLS_MUTED_SM,
             )
