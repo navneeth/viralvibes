@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 # (Previously 50_000 — caused full-table seq scans and statement timeouts when RPCs 500'd.)
 _MAX_FALLBACK_FETCH = 1_000
 
+
+def _escape_ilike(term: str) -> str:
+    """Escape PostgreSQL LIKE/ILIKE wildcards in user-supplied terms.
+
+    `%` and `_` are LIKE wildcards; leaving them unescaped lets a user's input
+    (or a stray character in a category slug) overmatch or trigger expensive
+    full-table scans. Backslash must be escaped first so the subsequent
+    replacements don't double-escape the wildcards.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 # ---------------------------------------------------------------------------
 # Transient-transport retry for Supabase RPC calls
 # ---------------------------------------------------------------------------
@@ -391,7 +403,7 @@ def get_creators_by_category(category: str, limit: int = 10) -> list[dict]:
         response = (
             supabase_client.table("creators")
             .select("*")
-            .ilike("topic_categories", f"%{category}%")
+            .ilike("topic_categories", f"%{_escape_ilike(category)}%")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .order("current_subscribers", desc=True)
@@ -538,7 +550,7 @@ def get_top_creators_by_categories(
             response = (
                 supabase_client.table("creators")
                 .select("*")
-                .ilike("topic_categories", f"%{ilike_term}%")
+                .ilike("topic_categories", f"%{_escape_ilike(ilike_term)}%")
                 .not_.is_("channel_name", "null")
                 .gt("current_subscribers", 0)
                 .order("current_subscribers", desc=True)
@@ -1119,7 +1131,7 @@ def suggest_primary_categories(q: str, limit: int = 8) -> list[tuple[str, int]]:
     if not supabase_client or not q.strip():
         return []
     try:
-        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        escaped = _escape_ilike(q)
         resp = (
             supabase_client.table("creators")
             .select("primary_category")

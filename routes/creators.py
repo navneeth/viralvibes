@@ -582,6 +582,12 @@ def toggle_favourite_route(request, sess, creator_id: str):
     # that supply a session work, and tests that don't still get a predictable id.
     if not user_id and _IS_TESTING:
         user_id = "test-user-id"
+    # require_auth only validates `auth`; `user_id` can independently be absent
+    # on partial/legacy sessions. Guard explicitly so we never pass None to the
+    # favourite-DB helpers (which would otherwise hit the database with a NULL
+    # user filter).
+    if not user_id:
+        return Response("Authentication required", status_code=401)
 
     currently_favourited = is_creator_favourited(user_id, creator_id)
     if currently_favourited:
