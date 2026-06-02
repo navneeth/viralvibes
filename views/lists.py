@@ -7,7 +7,7 @@ import logging
 import pycountry
 from fasthtml.common import *
 from monsterui.all import *
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
@@ -21,6 +21,10 @@ from utils.creator_metrics import (
 from views.creators import get_topic_category_emoji
 
 logger = logging.getLogger(__name__)
+
+
+def _login_href(return_url: str = "/lists") -> str:
+    return f"/login?{urlencode({'return_url': return_url})}"
 
 
 def _render_lists_editors_rail() -> "Div":
@@ -395,8 +399,8 @@ def _list_heart_btn(
         return A(
             UkIcon("heart", cls="size-4 text-gray-200"),
             id=btn_id,
-            href="/login",
-            title="Sign in to save lists to your dashboard",
+            href=_login_href(list_url or "/lists"),
+            title="Sign in with Google to save lists to your dashboard",
             cls="inline-flex items-center p-1",
         )
     return Form(
