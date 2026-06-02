@@ -56,8 +56,6 @@ _REQUIRED_PRICE_VARS = (
 )
 
 _log = _logging.getLogger(__name__)
-if not stripe.api_key:
-    _log.warning("[stripe_service] Missing env var STRIPE_SECRET_KEY — checkout is unavailable")
 
 for _var in _REQUIRED_PRICE_VARS:
     if not os.environ.get(_var):
@@ -67,8 +65,14 @@ for _var in _REQUIRED_PRICE_VARS:
 
 
 def ensure_stripe_api_key() -> bool:
-    """Refresh Stripe's API key from env and report whether checkout can call Stripe."""
+    """Refresh Stripe's API key from env and report whether checkout can call Stripe.
+
+    Side effect: mutates stripe.api_key with the current env value.
+    This is the single point where Stripe key configuration is checked.
+    """
     stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+    if not stripe.api_key:
+        _log.warning("[stripe_service] Missing env var STRIPE_SECRET_KEY — checkout is unavailable")
     return bool(stripe.api_key)
 
 
