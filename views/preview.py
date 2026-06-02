@@ -1,3 +1,5 @@
+import json
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -5,11 +7,16 @@ from monsterui.all import *
 
 
 def render_redirect_to_full(playlist_url: str):
+    # json.dumps() produces a safely-quoted JS string literal, defending against
+    # quote-injection / </script> breakouts in the playlist URL. The value is
+    # user-controlled (it comes from the form they submitted), so naive f-string
+    # interpolation here was an XSS vector.
+    safe_url = json.dumps(playlist_url)
     return Script(
         f"""
         htmx.ajax('POST', '/validate/full', {{
             target: '#preview-box',
-            values: {{ playlist_url: '{playlist_url}' }}
+            values: {{ playlist_url: {safe_url} }}
         }});
         """
     )

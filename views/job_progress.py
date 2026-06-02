@@ -1,4 +1,5 @@
 # views/job_progress.py
+import json
 from urllib.parse import quote_plus
 
 from constants import JobStatus
@@ -192,8 +193,11 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
                     "✅ Processing complete! Loading results...",
                     cls="text-green-600 font-semibold",
                 ),
+                # json.dumps() escapes quotes/backslashes/control chars so the
+                # user-supplied playlist URL can't break out of the JS string
+                # literal. Prior f-string interpolation was an XSS vector.
                 Script(
-                    f"setTimeout(() => {{ htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: '{state.playlist_url}'}}}}); }}, 1000);"
+                    f"setTimeout(() => {{ htmx.ajax('POST', '/validate/full', {{target: '#preview-box', values: {{playlist_url: {json.dumps(state.playlist_url)}}}}}); }}, 1000);"
                 ),
             )
             if state.status in JobStatus.SUCCESS
