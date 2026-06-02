@@ -23,7 +23,7 @@ from fasthtml.common import Redirect, RedirectResponse, Response
 from monsterui.all import *
 
 from db import get_stripe_customer_id, get_user_plan
-from services.stripe_service import DOMAIN_URL, get_price_for_plan
+from services.stripe_service import DOMAIN_URL, ensure_stripe_api_key, get_price_for_plan
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,10 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
         return RedirectResponse("/pricing?error=config", status_code=303)
 
     user_email: str = sess.get("user_email") or ""
+
+    if not ensure_stripe_api_key():
+        logger.error("[Checkout] STRIPE_SECRET_KEY is not configured; checkout is unavailable")
+        return RedirectResponse("/pricing?error=config", status_code=303)
 
     try:
         session = stripe.checkout.Session.create(
@@ -190,6 +194,10 @@ def billing_portal(req, sess) -> Response:
     if not customer_id:
         # User has no Stripe customer yet — send them to pricing to subscribe
         return RedirectResponse("/pricing", status_code=303)
+
+    if not ensure_stripe_api_key():
+        logger.error("[Portal] STRIPE_SECRET_KEY is not configured; billing portal is unavailable")
+        return RedirectResponse("/me/dashboards", status_code=303)
 
     try:
         portal = stripe.billing_portal.Session.create(
