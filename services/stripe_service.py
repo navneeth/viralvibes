@@ -18,7 +18,7 @@ from typing import Optional
 
 import stripe
 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
 WEBHOOK_SECRET: str = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 PUBLISHABLE_KEY: str = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 DOMAIN_URL: str = os.environ.get("DOMAIN_URL", "http://localhost:5001").rstrip("/")
@@ -56,11 +56,24 @@ _REQUIRED_PRICE_VARS = (
 )
 
 _log = _logging.getLogger(__name__)
+
 for _var in _REQUIRED_PRICE_VARS:
     if not os.environ.get(_var):
         _log.warning(
             "[stripe_service] Missing env var %s — price→plan mapping will be incomplete", _var
         )
+
+
+def ensure_stripe_api_key() -> bool:
+    """Refresh Stripe's API key from env and report whether checkout can call Stripe.
+
+    Side effect: mutates stripe.api_key with the current env value.
+    This is the single point where Stripe key configuration is checked.
+    """
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+    if not stripe.api_key:
+        _log.warning("[stripe_service] Missing env var STRIPE_SECRET_KEY — checkout is unavailable")
+    return bool(stripe.api_key)
 
 
 def get_plan_for_price(price_id: str) -> tuple[str, str]:
