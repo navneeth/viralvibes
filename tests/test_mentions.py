@@ -229,3 +229,79 @@ def test_get_mentions_bundle_has_any_false_when_both_empty():
         # Clear cache for clean test (use a unique channel_id)
         bundle = get_mentions("UCempty_test_xyz", "Empty Channel XYZ")
     assert bundle.has_any is False
+
+
+# ── YouTube RSS with partial/missing fields ──────────────────────────────
+
+
+_YT_RSS_MIXED_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns:media="http://search.yahoo.com/mrss/">
+  <entry>
+    <title>Video With All Fields</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=full001"/>
+    <media:group>
+      <media:thumbnail url="https://i.ytimg.com/vi/full001/hqdefault.jpg"/>
+    </media:group>
+    <yt:statistics viewCount="1000"/>
+    <published>2025-01-01T00:00:00+00:00</published>
+  </entry>
+  <entry>
+    <title>No Stats Video</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=nostats"/>
+    <media:group>
+      <media:thumbnail url="https://i.ytimg.com/vi/nostats/hqdefault.jpg"/>
+    </media:group>
+    <published>2025-01-02T00:00:00+00:00</published>
+  </entry>
+  <entry>
+    <title>No Thumbnail Video</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=nothumb"/>
+    <yt:statistics viewCount="2000"/>
+    <published>2025-01-03T00:00:00+00:00</published>
+  </entry>
+  <entry>
+    <title>Missing Link Should Be Skipped</title>
+    <published>2025-01-04T00:00:00+00:00</published>
+  </entry>
+  <entry>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=notitle"/>
+    <published>2025-01-05T00:00:00+00:00</published>
+  </entry>
+</feed>
+"""
+
+
+def test_fetch_recent_videos_handles_partial_entries():
+    """Verify partial/missing fields are handled gracefully."""
+    with patch("services.mentions.httpx.Client", return_value=_mock_http(_YT_RSS_MIXED_XML)):
+        videos = fetch_recent_videos("UCtest123", limit=10)
+
+    # Two entries are missing either title or link and should be skipped.
+    # The remaining three entries should be present with partially populated fields.
+    assert len(videos) == 3
+
+    videos_by_title = {video.title for video in videos}
+    assert "Video With All Fields" in videos_by_title
+    assert "No Stats Video" in videos_by_title
+    assert "No Thumbnail Video" in videos_by_title
+
+    videos_map = {video.title: video for video in videos}
+
+    full = videos_map["Video With All Fields"]
+    assert "watch?v=full001" in full.url
+    assert full.view_count == 1000
+    assert "full001.jpg" in full.thumbnail_url
+
+    no_stats = videos_map["No Stats Video"]
+    assert "watch?v=nostats" in no_stats.url
+    # When yt:statistics is missing, view_count should be None.
+    assert no_stats.view_count is None
+    assert "nostats.jpg" in no_stats.thumbnail_url
+
+    no_thumb = videos_map["No Thumbnail Video"]
+    assert "watch?v=nothumb" in no_thumb.url
+    assert no_thumb.view_count == 2000
+    # When media:thumbnail is missing, thumbnail_url should be empty.
+    assert no_thumb.thumbnail_url == ""

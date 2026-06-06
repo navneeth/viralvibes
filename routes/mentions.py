@@ -13,9 +13,13 @@ Wire into main.py:
 
 from __future__ import annotations
 
+import logging
+
 from db import get_creator_stats
 from services.mentions import get_mentions
 from views.mentions import render_mentions_card, render_mentions_error
+
+logger = logging.getLogger(__name__)
 
 
 def mentions_route(req, sess, creator_id: str):
@@ -36,5 +40,11 @@ def mentions_route(req, sess, creator_id: str):
 
     except Exception as exc:
         # Fail silently — mentions are supplementary, not critical
-        print(f"[mentions_route] error for {creator_id}: {exc!r}")
+        logger.error(
+            "mentions_route error while rendering mentions card",
+            extra={
+                "creator_id": creator_id,
+                "exception": repr(exc),
+            },
+        )
         return render_mentions_error()

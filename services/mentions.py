@@ -15,6 +15,7 @@ the upstream feeds.
 
 from __future__ import annotations
 
+import logging
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -23,6 +24,8 @@ from typing import Optional
 from urllib.parse import quote_plus
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # ── Models ─────────────────────────────────────────────────────────────────
 
@@ -59,8 +62,12 @@ class MentionBundle:
 
 
 # ── In-process cache (TTL: 30 minutes) ────────────────────────────────────
+#
+# TTL keeps entries fresh, and a max size cap prevents unbounded growth
+# across many channel_id/channel_name pairs.
 
 _CACHE_TTL = 30 * 60  # seconds
+_MAX_CACHE_ENTRIES = 128  # hard cap to avoid unbounded growth
 _cache: dict[str, MentionBundle] = {}
 
 
@@ -76,7 +83,32 @@ def _cached(channel_id: str, channel_name: str) -> Optional[MentionBundle]:
     return None
 
 
+def _prune_cache_now() -> None:
+    """Evict expired entries and trim cache down to _MAX_CACHE_ENTRIES.
+
+    Called opportunistically on cache writes so the cache can't grow
+    without bound in higher-tenant scenarios.
+    """
+    if not _cache:
+        return
+
+    now = time.monotonic()
+
+    # Drop anything older than TTL.
+    expired_keys = [key for key, bundle in _cache.items() if now - bundle.fetched_at > _CACHE_TTL]
+    for key in expired_keys:
+        _cache.pop(key, None)
+
+    # Enforce max size, evicting oldest first by fetched_at.
+    excess = len(_cache) - _MAX_CACHE_ENTRIES
+    if excess > 0:
+        # Sort by fetched_at so we remove the stalest entries first.
+        for key, _bundle in sorted(_cache.items(), key=lambda item: item[1].fetched_at)[:excess]:
+            _cache.pop(key, None)
+
+
 def _store(bundle: MentionBundle) -> None:
+    _prune_cache_now()
     _cache[_cache_key(bundle.channel_id, bundle.channel_name)] = bundle
 
 
@@ -93,10 +125,11 @@ _YT_NS = {
 
 
 def _parse_yt_date(raw: str) -> str:
-    """Convert ISO-8601 to a readable 'Jan 5 2025' string."""
+    """Convert ISO-8601 to a readable 'Jan 5 2025' string (platform-agnostic)."""
     try:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        return dt.strftime("%-d %b %Y")
+        # Use platform-agnostic formatting: compose from day + strftime
+        return f"{dt.day} {dt.strftime('%b %Y')}"
     except Exception:
         return raw[:10]
 
@@ -108,13 +141,19 @@ def fetch_recent_videos(channel_id: str, limit: int = 6) -> list[VideoItem]:
             resp = client.get(url, headers={"User-Agent": "ViralVibesBot/1.0"})
             resp.raise_for_status()
     except Exception as exc:
-        print(f"[mentions/youtube_rss] failed for {channel_id}: {exc!r}")
+        logger.error(
+            "Failed to fetch YouTube RSS feed",
+            extra={"channel_id": channel_id, "exception": repr(exc)},
+        )
         return []
 
     try:
         root = ET.fromstring(resp.text)
     except ET.ParseError as exc:
-        print(f"[mentions/youtube_rss] XML parse error for {channel_id}: {exc!r}")
+        logger.error(
+            "Failed to parse YouTube RSS XML",
+            extra={"channel_id": channel_id, "exception": repr(exc)},
+        )
         return []
 
     videos: list[VideoItem] = []
@@ -160,7 +199,6 @@ def fetch_recent_videos(channel_id: str, limit: int = 6) -> list[VideoItem]:
 # Google exposes this as their official RSS product; it's not scraping.
 
 _GNEWS_RSS = "https://news.google.com/rss/search?q={query}&hl=en&gl=US&ceid=US:en"
-_GNEWS_NS = {"": "http://www.w3.org/2005/Atom"}
 
 
 def _strip_source(title: str) -> tuple[str, str]:
@@ -175,13 +213,14 @@ def _strip_source(title: str) -> tuple[str, str]:
 
 
 def _parse_gnews_date(raw: str) -> str:
-    """Convert RFC-2822 pubDate to a readable string."""
+    """Convert RFC-2822 pubDate to a readable string (platform-agnostic)."""
     try:
         # e.g. 'Mon, 05 Jan 2026 10:00:00 GMT'
         from email.utils import parsedate_to_datetime
 
         dt = parsedate_to_datetime(raw)
-        return dt.strftime("%-d %b %Y")
+        # Use platform-agnostic formatting: compose from day + strftime
+        return f"{dt.day} {dt.strftime('%b %Y')}"
     except Exception:
         return raw[:16] if raw else ""
 
@@ -199,13 +238,19 @@ def fetch_news_mentions(
             resp = client.get(url, headers={"User-Agent": "ViralVibesBot/1.0"})
             resp.raise_for_status()
     except Exception as exc:
-        print(f"[mentions/google_news] failed for {channel_name!r}: {exc!r}")
+        logger.error(
+            "Failed to fetch Google News RSS feed",
+            extra={"channel_name": channel_name, "exception": repr(exc)},
+        )
         return []
 
     try:
         root = ET.fromstring(resp.text)
     except ET.ParseError as exc:
-        print(f"[mentions/google_news] XML parse error: {exc!r}")
+        logger.error(
+            "Failed to parse Google News RSS XML",
+            extra={"exception": repr(exc)},
+        )
         return []
 
     channel_el = root.find("channel")
