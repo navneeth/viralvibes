@@ -129,6 +129,27 @@ def test_fetch_recent_videos_returns_empty_on_malformed_xml():
     assert videos == []
 
 
+def test_fetch_news_mentions_returns_empty_on_malformed_xml():
+    with patch("services.mentions.httpx.Client", return_value=_mock_http("not xml at all <<<")):
+        mentions = fetch_news_mentions("MrBeast", limit=10)
+    assert mentions == []
+
+
+def test_fetch_news_mentions_returns_empty_when_channel_missing():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0">
+      <notchannel>
+        <item>
+          <title>Some title</title>
+        </item>
+      </notchannel>
+    </rss>
+    """
+    with patch("services.mentions.httpx.Client", return_value=_mock_http(xml)):
+        mentions = fetch_news_mentions("MrBeast", limit=10)
+    assert mentions == []
+
+
 # ── Google News RSS ────────────────────────────────────────────────────────
 
 
