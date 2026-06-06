@@ -140,7 +140,8 @@ def test_fetch_news_mentions_returns_empty_when_channel_missing():
     <rss version="2.0">
       <notchannel>
         <item>
-          <title>Some title</title>
+    news_host = urlparse(m.url).hostname
+    assert news_host and (news_host == "bbc.com" or news_host.endswith(".bbc.com"))
         </item>
       </notchannel>
     </rss>
