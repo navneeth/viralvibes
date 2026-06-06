@@ -55,6 +55,7 @@ from utils.creator_metrics import (
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.category_stats import render_category_box_plots
+from views.mentions import render_mentions_placeholder
 
 logger = logging.getLogger(__name__)
 
@@ -4237,6 +4238,7 @@ def render_creator_profile_page(
         performance_card,
         rankings_card,
         *([leaderboard_card] if leaderboard_card else []),
+        render_mentions_placeholder(creator_id),
         topic_pill_section,
         cat_dist_card,
         cls="flex flex-col gap-4",

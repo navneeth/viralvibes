@@ -120,6 +120,7 @@ from routes.creators import (
     creators_top_route,
     toggle_favourite_route,
 )
+from routes.mentions import mentions_route
 from routes.about import about_page_content
 from routes.contact import contact_page_content, post_contact
 from routes.legal import privacy_page_content, terms_page_content
@@ -1447,6 +1448,10 @@ def lists_language_detail(req, sess, language_code: str):
             page_content,
         ),
     )
+
+
+# Wire mentions route (must come before generic /creator/{creator_id} for path resolution)
+rt("/creator/{creator_id}/mentions")(mentions_route)
 
 
 @rt("/creator/{creator_id}")
