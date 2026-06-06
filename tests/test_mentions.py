@@ -8,6 +8,7 @@ All HTTP calls are stubbed — no network required.
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -95,7 +96,10 @@ def test_fetch_recent_videos_returns_correct_fields():
     assert v.title == "Amazing Video Title"
     assert "watch?v=vid001" in v.url
     assert v.view_count == 4_200_000
-    assert "ytimg.com" in v.thumbnail_url
+    thumbnail_host = urlparse(v.thumbnail_url).hostname
+    assert thumbnail_host and (
+        thumbnail_host == "ytimg.com" or thumbnail_host.endswith(".ytimg.com")
+    )
     assert "2025" in v.published
 
 
