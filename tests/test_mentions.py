@@ -293,14 +293,18 @@ def test_fetch_recent_videos_handles_partial_entries():
     assert "watch?v=full001" in full.url
     assert full.view_count == 1000
     assert "full001" in full.thumbnail_url
-    assert "ytimg.com" in full.thumbnail_url
+    full_thumb_host = urlparse(full.thumbnail_url).hostname
+    assert full_thumb_host is not None
+    assert full_thumb_host == "ytimg.com" or full_thumb_host.endswith(".ytimg.com")
 
     no_stats = videos_map["No Stats Video"]
     assert "watch?v=nostats" in no_stats.url
     # When yt:statistics is missing, view_count should be None.
     assert no_stats.view_count is None
     assert "nostats" in no_stats.thumbnail_url
-    assert "ytimg.com" in no_stats.thumbnail_url
+    no_stats_thumb_host = urlparse(no_stats.thumbnail_url).hostname
+    assert no_stats_thumb_host is not None
+    assert no_stats_thumb_host == "ytimg.com" or no_stats_thumb_host.endswith(".ytimg.com")
 
     no_thumb = videos_map["No Thumbnail Video"]
     assert "watch?v=nothumb" in no_thumb.url
