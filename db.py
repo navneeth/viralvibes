@@ -2513,7 +2513,7 @@ _PEER_CREATOR_FIELDS_WITH_CONTACT = (
     "channel_thumbnail_url, channel_description, keywords, "
     "current_subscribers, current_view_count, current_video_count, "
     "subscribers_change_30d, views_change_30d, "
-    "engagement_score, quality_grade, primary_category, category, "
+    "engagement_score, quality_grade, primary_category, "
     "country_code, default_language, "
     "has_contact_info, contact_signals_extracted_at, "
     "extracted_email, extracted_website, extracted_instagram, "
