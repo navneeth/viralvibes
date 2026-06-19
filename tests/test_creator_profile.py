@@ -226,3 +226,50 @@ class TestCreatorProfile:
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
         assert r.status_code == 200
         assert "Safe for Kids" in r.text
+
+    def test_profile_shows_viral_pattern_outliers(self, client, monkeypatch):
+        """Outlier discovery should render a compact profile card."""
+        creator = {
+            **FAKE_CREATOR,
+            "recent_views_median": 1000,
+            "recent_video_sample_size": 6,
+            "outlier_count": 1,
+            "outlier_videos": [
+                {
+                    "video_id": "breakout-1",
+                    "title": "Breakout Video",
+                    "thumbnail_url": "https://example.com/breakout.jpg",
+                    "published_at": "2026-01-15T00:00:00+00:00",
+                    "view_count": 4000,
+                    "like_count": 250,
+                    "view_multiplier": 4.0,
+                    "is_short": False,
+                    "duration_sec": 190,
+                }
+            ],
+        }
+        self._patch_profile_db(monkeypatch, creator=creator)
+
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+
+        assert r.status_code == 200
+        assert "Viral Pattern" in r.text
+        assert "Breakout Video" in r.text
+        assert "4.0x" in r.text
+
+    def test_profile_shows_no_breakout_state_when_sample_has_no_outliers(self, client, monkeypatch):
+        """A computed sample with zero outliers should reassure without crashing."""
+        creator = {
+            **FAKE_CREATOR,
+            "recent_views_median": 1000,
+            "recent_video_sample_size": 8,
+            "outlier_count": 0,
+            "outlier_videos": [],
+        }
+        self._patch_profile_db(monkeypatch, creator=creator)
+
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+
+        assert r.status_code == 200
+        assert "Viral Pattern" in r.text
+        assert "No 3x breakouts" in r.text

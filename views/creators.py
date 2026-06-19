@@ -3112,6 +3112,22 @@ def render_creator_profile_page(
     avg_comments_10 = int(avg_comments_10_raw) if avg_comments_10_raw else None
     avg_days_raw = safe_get_value(creator, "avg_days_between_uploads")
     avg_days_between_uploads = float(avg_days_raw) if avg_days_raw else None
+    recent_views_median_raw = safe_get_value(creator, "recent_views_median")
+    recent_views_median = int(recent_views_median_raw) if recent_views_median_raw else None
+    recent_video_sample_raw = safe_get_value(creator, "recent_video_sample_size")
+    recent_video_sample_size = int(recent_video_sample_raw) if recent_video_sample_raw else 0
+    outlier_count_raw = safe_get_value(creator, "outlier_count")
+    outlier_count = int(outlier_count_raw) if outlier_count_raw else 0
+    outlier_videos = safe_get_value(creator, "outlier_videos") or []
+    if isinstance(outlier_videos, str):
+        try:
+            outlier_videos = json.loads(outlier_videos)
+        except Exception:
+            outlier_videos = []
+    if not isinstance(outlier_videos, list):
+        outlier_videos = []
+    if not outlier_count and outlier_videos:
+        outlier_count = len(outlier_videos)
 
     # ── content flags (brand safety + format) ────────────────────────────────
     # Written by worker from channels.list status.madeForKids / longUploadsStatus
@@ -3995,6 +4011,134 @@ def render_creator_profile_page(
         body_cls="p-5",
     )
 
+    # ── Outlier discovery card (viral pattern identification) ────────────────
+    outlier_card = None
+    if recent_video_sample_size > 0:
+        outlier_rows = []
+        for video in outlier_videos[:3]:
+            if not isinstance(video, dict) or not video.get("video_id"):
+                continue
+            vid_id = video.get("video_id", "")
+            vid_title = video.get("title") or "Untitled"
+            vid_thumb = video.get("thumbnail_url") or ""
+            vid_views = int(video.get("view_count") or 0)
+            vid_likes = int(video.get("like_count") or 0)
+            vid_pub = video.get("published_at") or ""
+            vid_multiplier = float(video.get("view_multiplier") or 0)
+            vid_url = f"https://www.youtube.com/watch?v={vid_id}"
+            outlier_rows.append(
+                A(
+                    *(
+                        [
+                            Img(
+                                src=vid_thumb,
+                                alt=vid_title,
+                                cls="w-20 sm:w-24 aspect-video rounded-lg object-cover shrink-0 bg-accent",
+                                loading="lazy",
+                            )
+                        ]
+                        if vid_thumb
+                        else [
+                            Div(
+                                UkIcon("play", cls="w-5 h-5 text-muted-foreground"),
+                                cls="w-20 sm:w-24 aspect-video rounded-lg bg-accent flex items-center justify-center shrink-0",
+                            )
+                        ]
+                    ),
+                    Div(
+                        Div(
+                            P(
+                                vid_title,
+                                cls="text-sm font-semibold text-foreground line-clamp-2 leading-snug",
+                            ),
+                            Span(
+                                f"{format_float(vid_multiplier, 1)}x",
+                                cls="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 shrink-0",
+                                title="Views compared with this channel's recent median",
+                            ),
+                            cls="flex items-start gap-2",
+                        ),
+                        Div(
+                            Span(f"{format_number(vid_views)} views", cls=_CLS_MUTED_XS),
+                            *(
+                                [
+                                    Span("·", cls=_CLS_SEPARATOR),
+                                    Span(f"{format_number(vid_likes)} likes", cls=_CLS_MUTED_XS),
+                                ]
+                                if vid_likes
+                                else []
+                            ),
+                            *(
+                                [
+                                    Span("·", cls=_CLS_SEPARATOR),
+                                    Span(format_date_relative(vid_pub), cls=_CLS_MUTED_XS),
+                                ]
+                                if vid_pub
+                                else []
+                            ),
+                            cls="flex items-center flex-wrap mt-1",
+                        ),
+                        cls="min-w-0 flex-1",
+                    ),
+                    href=vid_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/70 no-underline transition-colors",
+                )
+            )
+
+        outlier_card = Card(
+            Div(
+                UkIcon("sparkles", cls="w-4 h-4 text-amber-500 mr-2"),
+                H2("Viral Pattern", cls=_CLS_HEADING),
+                Span(
+                    f"{outlier_count} outlier" + ("" if outlier_count == 1 else "s"),
+                    cls=(
+                        "text-xs font-semibold px-2 py-0.5 rounded-full ml-auto "
+                        + (
+                            "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                            if outlier_count
+                            else "bg-accent text-muted-foreground"
+                        )
+                    ),
+                ),
+                cls="flex items-center mb-4",
+            ),
+            Grid(
+                Div(
+                    Span("Median views", cls=_CLS_MUTED_XS),
+                    Span(
+                        format_number(recent_views_median) if recent_views_median else "—",
+                        cls="block text-sm font-bold text-foreground mt-0.5",
+                    ),
+                    cls="rounded-lg bg-accent/70 p-3",
+                ),
+                Div(
+                    Span("Sample", cls=_CLS_MUTED_XS),
+                    Span(
+                        f"Last {recent_video_sample_size}",
+                        cls="block text-sm font-bold text-foreground mt-0.5",
+                    ),
+                    cls="rounded-lg bg-accent/70 p-3",
+                ),
+                cols_sm=2,
+                cls="mb-3",
+            ),
+            (
+                Div(*outlier_rows, cls="space-y-1")
+                if outlier_rows
+                else Div(
+                    UkIcon("check-circle", cls="w-4 h-4 text-emerald-500 shrink-0"),
+                    P(
+                        f"No 3x breakouts in the last {recent_video_sample_size} uploads.",
+                        cls="text-xs text-muted-foreground leading-relaxed",
+                    ),
+                    cls="flex items-start gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800",
+                )
+            ),
+            body_cls="p-5",
+        )
+
     # ── Rankings card (country / language / category) ─────────────────────────
     ranking_rows = []
     if country_rank is not None and country_code:
@@ -4236,6 +4380,7 @@ def render_creator_profile_page(
 
     right_col = Div(
         performance_card,
+        *([outlier_card] if outlier_card else []),
         rankings_card,
         *([leaderboard_card] if leaderboard_card else []),
         render_mentions_placeholder(creator_id),

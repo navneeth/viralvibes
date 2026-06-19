@@ -61,7 +61,7 @@ from db import (
     supabase_client,
 )
 from utils import normalize_category_name
-from services.channel_utils import ChannelIDValidator, YouTubeResolver
+from services.channel_utils import ChannelIDValidator, YouTubeResolver, get_video_category_name
 from services.youtube_errors import is_quota_exhausted_error, QuotaExceededException
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
@@ -112,6 +112,11 @@ else:
 
 YOUTUBE_CREDITS_PER_CHANNEL_FETCH = 1  # channels.list costs 1 unit
 YOUTUBE_CREDITS_PER_CATEGORY_FETCH = 2  # playlistItems.list (1) + videos.list (1)
+YOUTUBE_CREDITS_PER_RECENT_VIDEO_FETCH = 2  # playlistItems.list + videos.list for uploads
+RECENT_VIDEO_SAMPLE_SIZE = 50
+OUTLIER_MULTIPLIER = 3.0
+MIN_OUTLIER_SAMPLE_SIZE = 5
+MAX_STORED_OUTLIERS = 5
 
 
 class JobStatus(Enum):
@@ -565,6 +570,282 @@ def _empty_engagement() -> dict:
         "avg_comments_10": None,
         "avg_days_between_uploads": None,
     }
+
+
+def _empty_recent_video_intelligence() -> dict:
+    """Return a fresh empty recent-video intelligence payload."""
+    return {
+        **_empty_engagement(),
+        "recent_upload": None,
+        "recent_views_median": None,
+        "recent_video_sample_size": 0,
+        "outlier_count": 0,
+        "outlier_videos": [],
+        "primary_category": None,
+        "primary_category_id": None,
+        "category_distribution": {},
+    }
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _pick_thumbnail(thumbnails: dict) -> str:
+    thumbnails = thumbnails or {}
+    for key in ("maxres", "standard", "high", "medium", "default"):
+        url = (thumbnails.get(key) or {}).get("url")
+        if url:
+            return url
+    return ""
+
+
+def _median_int(values: list[int]) -> int | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return round((ordered[mid - 1] + ordered[mid]) / 2)
+
+
+def _build_recent_video_intelligence(
+    playlist_items: list[dict],
+    video_items: list[dict],
+) -> dict:
+    """Build recent performance, latest upload, category, and outlier signals."""
+    if not playlist_items or not video_items:
+        return _empty_recent_video_intelligence()
+
+    video_order = [
+        item.get("contentDetails", {}).get("videoId")
+        for item in playlist_items
+        if item.get("contentDetails", {}).get("videoId")
+    ]
+    rank_by_id = {video_id: idx for idx, video_id in enumerate(video_order)}
+    video_items = sorted(
+        video_items,
+        key=lambda item: rank_by_id.get(item.get("id"), len(rank_by_id)),
+    )
+
+    rows: list[dict] = []
+    engagement_scores: list[float] = []
+    category_counts: dict[str, int] = {}
+    published_dates: list[datetime] = []
+
+    for item in video_items:
+        video_id = item.get("id")
+        if not video_id:
+            continue
+        snippet = item.get("snippet", {}) or {}
+        stats = item.get("statistics", {}) or {}
+        content_details = item.get("contentDetails", {}) or {}
+
+        views = _safe_int(stats.get("viewCount"))
+        likes = _safe_int(stats.get("likeCount"))
+        comments = _safe_int(stats.get("commentCount"))
+        duration_sec = _parse_iso8601_duration(content_details.get("duration", "PT0S"))
+        published_at = snippet.get("publishedAt") or ""
+        category_id = snippet.get("categoryId")
+        if category_id:
+            category_counts[category_id] = category_counts.get(category_id, 0) + 1
+        if published_at:
+            try:
+                published_dates.append(datetime.fromisoformat(published_at.replace("Z", "+00:00")))
+            except ValueError:
+                pass
+        if views > 0:
+            engagement_scores.append((likes + comments) / views * 100)
+
+        rows.append(
+            {
+                "video_id": video_id,
+                "title": snippet.get("title") or "Untitled",
+                "thumbnail_url": _pick_thumbnail(snippet.get("thumbnails") or {}),
+                "published_at": published_at,
+                "view_count": views,
+                "like_count": likes,
+                "comment_count": comments,
+                "duration_sec": duration_sec,
+                "is_short": duration_sec > 0 and duration_sec <= 60,
+                "category_id": category_id,
+            }
+        )
+
+    if not rows:
+        return _empty_recent_video_intelligence()
+
+    recent_10 = rows[:10]
+    view_counts = [row["view_count"] for row in rows if row["view_count"] > 0]
+    median_views = _median_int(view_counts)
+    threshold = (median_views or 0) * OUTLIER_MULTIPLIER
+    outliers = []
+    if median_views and len(view_counts) >= MIN_OUTLIER_SAMPLE_SIZE:
+        for row in rows:
+            views = row["view_count"]
+            if views > threshold:
+                outliers.append(
+                    {
+                        "video_id": row["video_id"],
+                        "title": row["title"],
+                        "thumbnail_url": row["thumbnail_url"],
+                        "published_at": row["published_at"],
+                        "view_count": views,
+                        "like_count": row["like_count"],
+                        "view_multiplier": round(views / median_views, 2),
+                        "is_short": row["is_short"],
+                        "duration_sec": row["duration_sec"],
+                    }
+                )
+    outliers.sort(key=lambda row: row["view_multiplier"], reverse=True)
+
+    avg_days: float | None = None
+    if len(published_dates) >= 2:
+        sorted_dates = sorted(published_dates, reverse=True)
+        gaps = [
+            (sorted_dates[i] - sorted_dates[i + 1]).total_seconds() / 86400
+            for i in range(len(sorted_dates) - 1)
+        ]
+        avg_days = round(sum(gaps) / len(gaps), 2)
+
+    name_distribution = {
+        get_video_category_name(cat_id): count for cat_id, count in category_counts.items()
+    }
+    dominant_id = max(category_counts, key=category_counts.__getitem__) if category_counts else None
+    dominant_name = get_video_category_name(dominant_id) if dominant_id else None
+
+    return {
+        "engagement_score": (
+            sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0.0
+        ),
+        "avg_views_10": (
+            round(sum(row["view_count"] for row in recent_10) / len(recent_10))
+            if recent_10
+            else None
+        ),
+        "avg_likes_10": (
+            round(sum(row["like_count"] for row in recent_10) / len(recent_10))
+            if recent_10
+            else None
+        ),
+        "avg_comments_10": (
+            round(sum(row["comment_count"] for row in recent_10) / len(recent_10))
+            if recent_10
+            else None
+        ),
+        "avg_days_between_uploads": avg_days,
+        "recent_upload": (
+            {
+                "video_id": rows[0]["video_id"],
+                "title": rows[0]["title"],
+                "thumbnail_url": rows[0]["thumbnail_url"],
+                "published_at": rows[0]["published_at"],
+                "view_count": rows[0]["view_count"],
+                "duration_sec": rows[0]["duration_sec"],
+                "is_short": rows[0]["is_short"],
+            }
+            if rows
+            else None
+        ),
+        "recent_views_median": median_views,
+        "recent_video_sample_size": len(rows),
+        "outlier_count": len(outliers),
+        "outlier_videos": outliers[:MAX_STORED_OUTLIERS],
+        "primary_category": dominant_name,
+        "primary_category_id": dominant_id,
+        "category_distribution": name_distribution,
+    }
+
+
+async def _fetch_recent_video_intelligence(
+    channel_id: str,
+    uploads_playlist_id: str | None = None,
+    sample_size: int = RECENT_VIDEO_SAMPLE_SIZE,
+) -> dict:
+    """
+    Fetch recent uploads once and derive all creator-level video intelligence.
+
+    API cost: 2 quota units:
+      - playlistItems.list(part=contentDetails, maxResults<=50)
+      - videos.list(part=statistics,snippet,contentDetails)
+    """
+    if not youtube_resolver:
+        return _empty_recent_video_intelligence()
+
+    quota_spent = 0
+    try:
+        capped_sample = max(1, min(sample_size, RECENT_VIDEO_SAMPLE_SIZE))
+        playlist_id = uploads_playlist_id or (
+            "UU" + channel_id[2:] if channel_id.startswith("UC") else ""
+        )
+        if not playlist_id:
+            return _empty_recent_video_intelligence()
+
+        youtube_resolver._reset_client()
+        youtube = youtube_resolver._get_youtube_client()
+
+        try:
+            playlist_response = await asyncio.wait_for(
+                youtube_resolver._execute_async(
+                    youtube.playlistItems().list(
+                        part="contentDetails",
+                        playlistId=playlist_id,
+                        maxResults=capped_sample,
+                    )
+                ),
+                timeout=10,
+            )
+            quota_spent += 1
+        except Exception as e:
+            logger.debug(f"[RecentVideos] playlistItems failed for {channel_id}: {e}")
+            return _empty_recent_video_intelligence()
+
+        playlist_items = playlist_response.get("items", [])
+        video_ids = [
+            item.get("contentDetails", {}).get("videoId")
+            for item in playlist_items
+            if item.get("contentDetails", {}).get("videoId")
+        ]
+        if not video_ids:
+            return _empty_recent_video_intelligence()
+
+        try:
+            videos_response = await asyncio.wait_for(
+                youtube_resolver._execute_async(
+                    youtube.videos().list(
+                        part="statistics,snippet,contentDetails",
+                        id=",".join(video_ids),
+                    )
+                ),
+                timeout=10,
+            )
+            quota_spent += 1
+        except Exception as e:
+            logger.debug(f"[RecentVideos] videos.list failed for {channel_id}: {e}")
+            return _empty_recent_video_intelligence()
+
+        result = _build_recent_video_intelligence(
+            playlist_items,
+            videos_response.get("items", []),
+        )
+        logger.debug(
+            "[RecentVideos] %s: sample=%s median=%s outliers=%s avg_views_10=%s",
+            channel_id,
+            result["recent_video_sample_size"],
+            result["recent_views_median"],
+            result["outlier_count"],
+            result["avg_views_10"],
+        )
+        return result
+    except Exception as e:
+        logger.debug(f"[RecentVideos] Unexpected error for {channel_id}: {e}")
+        return _empty_recent_video_intelligence()
+    finally:
+        metrics.youtube_credits_used += quota_spent
 
 
 async def _fetch_recent_performance_stats(channel_id: str) -> dict:
@@ -1216,13 +1497,14 @@ async def handle_sync_job(
         except asyncio.TimeoutError:
             raise Exception(f"YouTube API timeout after {SYNC_TIMEOUT}s")
 
-        # STAGE 3.5: Engagement score + category distribution + recent upload (all optional)
+        # STAGE 3.5: Recent video intelligence (all optional)
         # Category costs 2 extra quota units — only fetch when primary_category
         # is NULL (never been set). To force a re-fetch, NULL the column in DB.
-        # Recent upload costs 2 quota units (playlistItems + videos) every sync.
+        # The recent-video sample costs 2 quota units and derives engagement,
+        # latest upload, category distribution, and outlier discovery together.
         #
-        # IMPORTANT: these are called sequentially (not via asyncio.gather) because
-        # all three share the same httplib2-backed YouTube client via run_in_executor.
+        # IMPORTANT: keep YouTube calls sequential (not via asyncio.gather) because
+        # they share the same httplib2-backed YouTube client via run_in_executor.
         # httplib2's C internals are not thread-safe — concurrent executor threads
         # corrupt its heap, producing segfaults and "free(): corrupted unsorted chunks"
         # crashes. Sequential calls are safe; the per-job latency increase is
@@ -1230,10 +1512,17 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
-        engagement_data = await _fetch_recent_performance_stats(channel_id)
-        engagement = engagement_data["engagement_score"]
+        video_intel = await _fetch_recent_video_intelligence(
+            channel_id,
+            uploads_playlist_id=channel_data.get("uploads_playlist_id"),
+        )
+        engagement = video_intel["engagement_score"]
         if should_fetch_categories:
-            cat_data = await _fetch_channel_category_distribution(channel_id)
+            cat_data = {
+                "primary_category": video_intel.get("primary_category"),
+                "primary_category_id": video_intel.get("primary_category_id"),
+                "category_distribution": video_intel.get("category_distribution") or {},
+            }
         else:
             cat_data = {
                 "primary_category": creator.get("primary_category"),
@@ -1241,7 +1530,6 @@ async def handle_sync_job(
                 "category_distribution": None,  # None = leave existing DB value as-is
             }
             logger.debug(f"{job_tag} Category already set — skipping fetch")
-        recent_upload = await _fetch_recent_upload(channel_id)
         quality = _compute_quality_grade(engagement, channel_data["current_subscribers"])
 
         subs = channel_data["current_subscribers"]
@@ -1273,8 +1561,9 @@ async def handle_sync_job(
         logger.info(
             f"{job_tag} Stats: subs={subs:,}, views={views:,}, videos={videos:,}, "
             f"engagement={engagement:.2f}%, quality={quality}, "
-            f"avg_views_10={engagement_data['avg_views_10']}, "
-            f"cadence={engagement_data['avg_days_between_uploads']}d"
+            f"avg_views_10={video_intel['avg_views_10']}, "
+            f"cadence={video_intel['avg_days_between_uploads']}d, "
+            f"outliers={video_intel['outlier_count']}"
         )
         if primary_category and category_distribution:
             dist_str = ", ".join(
@@ -1393,6 +1682,7 @@ async def handle_sync_job(
             "channel_description": channel_data.get("channel_description"),
             "custom_url": channel_data.get("custom_url"),
             "custom_url_available": channel_data.get("custom_url_available", False),
+            "uploads_playlist_id": channel_data.get("uploads_playlist_id"),
             "channel_thumbnail_url": channel_data.get("channel_thumbnail_url"),
             "channel_thumbnail_default": channel_data.get("channel_thumbnail_default"),
             "banner_image_url": channel_data.get("banner_image_url"),
@@ -1446,12 +1736,17 @@ async def handle_sync_job(
                 "quality_grade": quality,
                 "engagement_score": round(engagement, 4),
                 # ── Recent upload (latest video snapshot) ─────────────────
-                "recent_upload": recent_upload,
+                "recent_upload": video_intel["recent_upload"],
                 # ── Tier 1 recent performance ─────────────────────────────
-                "avg_views_10": engagement_data["avg_views_10"],
-                "avg_likes_10": engagement_data["avg_likes_10"],
-                "avg_comments_10": engagement_data["avg_comments_10"],
-                "avg_days_between_uploads": engagement_data["avg_days_between_uploads"],
+                "avg_views_10": video_intel["avg_views_10"],
+                "avg_likes_10": video_intel["avg_likes_10"],
+                "avg_comments_10": video_intel["avg_comments_10"],
+                "avg_days_between_uploads": video_intel["avg_days_between_uploads"],
+                # ── Outlier discovery (viral pattern identification) ──────
+                "recent_views_median": video_intel["recent_views_median"],
+                "recent_video_sample_size": video_intel["recent_video_sample_size"],
+                "outlier_count": video_intel["outlier_count"],
+                "outlier_videos": video_intel["outlier_videos"],
                 # ── Tier 1 brand safety (from channels.list status part) ───
                 "is_made_for_kids": channel_data.get("is_made_for_kids", False),
                 "has_long_upload_status": channel_data.get("has_long_upload_status", False),

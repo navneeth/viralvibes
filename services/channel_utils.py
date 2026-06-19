@@ -315,7 +315,7 @@ class YouTubeResolver:
 
         try:
             request = youtube.channels().list(
-                part="id,snippet,statistics,brandingSettings,topicDetails,status",
+                part="id,snippet,statistics,brandingSettings,topicDetails,status,contentDetails",
                 id=channel_id,
             )
             response = await self._execute_async(request)
@@ -493,6 +493,8 @@ class YouTubeResolver:
         snippet = item.get("snippet", {})
         statistics = item.get("statistics", {})
         status = item.get("status", {})
+        content_details = item.get("contentDetails", {})
+        related_playlists = content_details.get("relatedPlaylists", {}) or {}
         branding = item.get("brandingSettings", {})
         channel_branding = branding.get("channel", {})
         topic_details = item.get("topicDetails", {})
@@ -522,6 +524,7 @@ class YouTubeResolver:
             "channel_name": snippet.get("title"),
             "channel_description": snippet.get("description"),
             "channel_url": f"https://www.youtube.com/channel/{item.get('id')}",
+            "uploads_playlist_id": related_playlists.get("uploads"),
             # ═══════════════════════════════════════════════════════════
             # CUSTOM PRESENCE (Stored in creators table)
             # ═══════════════════════════════════════════════════════════
