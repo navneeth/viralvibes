@@ -273,3 +273,19 @@ class TestCreatorProfile:
         assert r.status_code == 200
         assert "Viral Pattern" in r.text
         assert "No 3x breakouts" in r.text
+
+    def test_profile_hides_viral_pattern_when_sample_size_is_zero(self, client, monkeypatch):
+        """Viral Pattern card should not render when recent_video_sample_size is zero."""
+        creator = {
+            **FAKE_CREATOR,
+            "recent_views_median": 1000,
+            "recent_video_sample_size": 0,
+            "outlier_count": 0,
+            "outlier_videos": [],
+        }
+        self._patch_profile_db(monkeypatch, creator=creator)
+
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+
+        assert r.status_code == 200
+        assert "Viral Pattern" not in r.text
