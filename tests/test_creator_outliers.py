@@ -79,16 +79,18 @@ def test_recent_video_intelligence_defaults_missing_likes_to_zero():
     assert result["outlier_videos"][0]["like_count"] == 0
 
 
-def test_recent_video_intelligence_returns_empty_payload_for_empty_playlist_items():
+def test_recent_video_intelligence_processes_videos_with_empty_playlist_items():
+    """Videos are still processed even if playlist_items is empty (only affects ordering)."""
     videos = [_video_item(idx, 100) for idx in range(3)]
     result = _build_recent_video_intelligence([], videos)
 
-    assert result["recent_views_median"] is None
+    assert result["recent_views_median"] == 100
+    assert result["recent_video_sample_size"] == 3
     assert result["outlier_count"] == 0
-    assert result["outlier_videos"] == []
 
 
 def test_recent_video_intelligence_returns_empty_payload_for_empty_video_items():
+    """Empty video_items should return empty payload."""
     result = _build_recent_video_intelligence(_playlist_items(3), [])
 
     assert result["recent_views_median"] is None
@@ -96,17 +98,19 @@ def test_recent_video_intelligence_returns_empty_payload_for_empty_video_items()
     assert result["outlier_videos"] == []
 
 
-def test_recent_video_intelligence_returns_empty_payload_for_missing_video_id_in_playlist_items():
+def test_recent_video_intelligence_processes_videos_with_missing_video_id_in_playlist_items():
+    """Videos are still processed if playlist_items lack videoId (doesn't affect content processing)."""
     playlist_items = [{"contentDetails": {}} for _ in range(3)]
     videos = [_video_item(idx, 100) for idx in range(3)]
     result = _build_recent_video_intelligence(playlist_items, videos)
 
-    assert result["recent_views_median"] is None
+    assert result["recent_views_median"] == 100
+    assert result["recent_video_sample_size"] == 3
     assert result["outlier_count"] == 0
-    assert result["outlier_videos"] == []
 
 
-def test_recent_video_intelligence_returns_empty_payload_for_missing_ids_in_video_items():
+def test_recent_video_intelligence_skips_video_items_without_ids():
+    """Video items without IDs are skipped, but others are processed."""
     playlist_items = _playlist_items(3)
     videos = [
         {
@@ -118,6 +122,6 @@ def test_recent_video_intelligence_returns_empty_payload_for_missing_ids_in_vide
     ]
     result = _build_recent_video_intelligence(playlist_items, videos)
 
-    assert result["recent_views_median"] is None
+    assert result["recent_views_median"] == 100
+    assert result["recent_video_sample_size"] == 2
     assert result["outlier_count"] == 0
-    assert result["outlier_videos"] == []
