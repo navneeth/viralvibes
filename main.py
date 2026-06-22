@@ -157,6 +157,7 @@ from routes.admin import (
     admin_rescue_quota_jobs,
     admin_outreach_export_route,
 )
+from db_lists import resolve_category_slug
 from views.lists import _unslugify
 
 # Get logger instance
@@ -1418,7 +1419,7 @@ def lists_languages_explorer(req, sess):
 @rt("/lists/category/{category_slug}")
 def lists_category_detail(req, sess, category_slug: str):
     """Detailed creator rankings for a specific topic category."""
-    display_name = _unslugify(category_slug).title()
+    display_name = resolve_category_slug(category_slug) or _unslugify(category_slug).title()
     page_content = category_detail_route(req, category_slug)
     return Titled(
         f"{display_name} Creators - YouTube",
