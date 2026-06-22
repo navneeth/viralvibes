@@ -39,6 +39,7 @@ for _name in [
 ]:
     setattr(views_lists_stub, _name, lambda *args, **kwargs: None)
 views_lists_stub._unslugify = lambda slug: slug.replace("-", " ").title()
+views_lists_stub._list_heart_btn = lambda *args, **kwargs: None
 sys.modules.setdefault("views.lists", views_lists_stub)
 
 import db_lists
