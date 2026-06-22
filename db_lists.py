@@ -306,7 +306,7 @@ def _apply_topic_category_filters(query, category: str):
     """Apply filters shared by category group cards and detail pages."""
     label = _topic_category_label(category)
     if label:
-        query = query.filter("topic_categories::jsonb", "cs", json.dumps([label]))
+        query = query.filter("topic_categories", "cs", json.dumps([label]))
     return (
         query.eq("sync_status", "synced")
         .not_.is_("channel_name", "null")
@@ -914,7 +914,7 @@ def get_top_creators_by_categories(
                 query = supabase_client.table("creators").select("*")
                 if jsonb_contains:
                     query = query.filter(
-                        "topic_categories::jsonb",
+                        "topic_categories",
                         "cs",
                         json.dumps([jsonb_contains]),
                     )
