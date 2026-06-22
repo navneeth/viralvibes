@@ -908,47 +908,67 @@ def get_top_creators_by_categories(
             term_to_cats.setdefault(ilike_term, []).append(category)
 
     for ilike_term, matching_cats in term_to_cats.items():
-        try:
 
-            def _run_query(*, jsonb_contains: str | None = None, ilike: str | None = None):
-                query = supabase_client.table("creators").select("*")
-                if jsonb_contains:
-                    query = query.filter(
-                        "topic_categories",
-                        "cs",
-                        json.dumps([jsonb_contains]),
-                    )
-                elif ilike:
-                    query = query.ilike("topic_categories", f"%{_escape_ilike(ilike)}%")
-                return (
-                    query.not_.is_("channel_name", "null")
-                    .gt("current_subscribers", 0)
-                    .order("current_subscribers", desc=True)
-                    .limit(limit_per_category)
-                    .execute()
+        def _run_query(*, jsonb_contains: str | None = None, ilike: str | None = None):
+            query = supabase_client.table("creators").select("*")
+            if jsonb_contains:
+                query = query.filter(
+                    "topic_categories",
+                    "cs",
+                    json.dumps([jsonb_contains]),
+                )
+            elif ilike:
+                # Use the word-level pattern builder: it handles URLs, underscore
+                # slugs, and space-separated labels without escaping the separator.
+                pattern = _topic_category_ilike_pattern(ilike)
+                if pattern:
+                    query = query.ilike("topic_categories", pattern)
+            return (
+                query.not_.is_("channel_name", "null")
+                .gt("current_subscribers", 0)
+                .order("current_subscribers", desc=True)
+                .limit(limit_per_category)
+                .execute()
+            )
+
+        creators: list[dict] = []
+
+        # Tier 1 – JSONB containment with clean display label (fastest path).
+        label = _topic_category_label(ilike_term)
+        if label:
+            try:
+                r = _run_query(jsonb_contains=label)
+                creators = r.data or []
+            except Exception:
+                logger.debug(
+                    "JSONB label query failed for %r, trying URL tier", label, exc_info=True
                 )
 
-            creators: list[dict] = []
-            label = _topic_category_label(ilike_term)
-            if label:
-                response = _run_query(jsonb_contains=label)
-                creators = response.data if response.data else []
+        # Tier 2 – JSONB containment with canonical Wikipedia URL.
+        if not creators:
+            jsonb_value = _topic_category_jsonb_value(ilike_term)
+            if jsonb_value:
+                try:
+                    r = _run_query(jsonb_contains=jsonb_value)
+                    creators = r.data or []
+                except Exception:
+                    logger.debug(
+                        "JSONB URL query failed for %r, falling back to ILIKE",
+                        jsonb_value,
+                        exc_info=True,
+                    )
 
-            if not creators:
-                jsonb_value = _topic_category_jsonb_value(ilike_term)
-                if jsonb_value:
-                    response = _run_query(jsonb_contains=jsonb_value)
-                    creators = response.data if response.data else []
+        # Tier 3 – ILIKE text search (handles any legacy storage format).
+        if not creators:
+            try:
+                r = _run_query(ilike=ilike_term)
+                creators = r.data or []
+            except Exception:
+                logger.exception("All query tiers failed for category %r", ilike_term)
 
-            if not creators:
-                response = _run_query(ilike=ilike_term)
-                creators = response.data if response.data else []
-
-            # All keys that share this term get the same creator list.
-            for cat in matching_cats:
-                result[cat] = creators
-        except Exception as e:
-            logger.exception("Error fetching creators for category %r: %s", ilike_term, e)
+        # All keys that share this ilike_term get the same creator list.
+        for cat in matching_cats:
+            result[cat] = creators
 
     return result
 
