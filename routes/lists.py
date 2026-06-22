@@ -7,8 +7,7 @@ from urllib.parse import unquote
 
 from fasthtml.common import Div
 
-from db import get_creators
-from db import get_user_favourite_list_keys
+from db import get_creators, get_user_favourite_list_keys
 from db_lists import (
     _count_distinct_languages,
     get_category_groups,
@@ -23,8 +22,10 @@ from db_lists import (
     get_top_countries_with_counts,
     get_top_languages_with_counts,
     get_top_rated_creators,
+    get_topic_category_creators,
     get_veteran_creators,
     merge_language_variants,
+    resolve_category_slug,
 )
 from views.lists import (
     render_lists_page,
@@ -361,32 +362,29 @@ def country_detail_more_route(request):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int]:
+def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int, str]:
     """
     Fetch one page of creators for a category detail view.
 
     Shared by ``category_detail_route`` and ``category_detail_more_route`` so
     the query parameters, sort order, and pagination formula stay in sync.
 
-    The slug is converted back to a space-separated search term
-    (e.g. ``"video-game-culture"`` → ``"video game culture"``), which is
-    then matched via ``get_creators(category_filter=...)`` using
-    ``ilike "%term%"`` against ``topic_categories``.
+    The URL slug is resolved back to the canonical topic category name via
+    ``resolve_category_slug`` (counts/cards use ``topic_categories``, not
+    ``primary_category``).  Creators are fetched with the same ILIKE logic as
+    ``get_top_creators_by_categories``.
 
     Args:
-        category_slug: URL-encoded hyphen/space-separated category slug from the URL.
+        category_slug: URL slug from the path (may be hyphenated or encoded).
         page: 1-based page number.
 
     Returns:
-        ``(creators, total_count, total_pages)`` tuple.
+        ``(creators, total_count, total_pages, category_name)`` tuple.
     """
-    # Decode URL-encoded characters (e.g. %20 for space, %28 for '(') to ensure
-    # categories with spaces or special characters round-trip correctly.
     decoded_slug = unquote(category_slug)
-    category_filter = _unslugify(decoded_slug)
-    result = get_creators(
-        category_filter=category_filter,
-        sort="subscribers",
+    category_name = resolve_category_slug(decoded_slug) or _unslugify(decoded_slug)
+    result = get_topic_category_creators(
+        category_name,
         limit=DETAIL_PAGE_LIMIT,
         offset=(page - 1) * DETAIL_PAGE_LIMIT,
         return_count=True,
@@ -396,7 +394,7 @@ def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int]
     total_pages = (
         (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
-    return creators, total_count, total_pages
+    return creators, total_count, total_pages, category_name
 
 
 def category_detail_route(request, category_slug: str):
@@ -417,10 +415,11 @@ def category_detail_route(request, category_slug: str):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_category_page(category_slug, page)
+    creators, total_count, total_pages, category_name = _fetch_category_page(category_slug, page)
 
     return render_category_detail_page(
         category_slug=category_slug,
+        category_name=category_name,
         creators=creators,
         page=page,
         total_pages=total_pages,
@@ -449,10 +448,11 @@ def category_detail_more_route(request):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_category_page(category_slug, page)
+    creators, total_count, total_pages, category_name = _fetch_category_page(category_slug, page)
 
     return render_category_creators_rows(
         category_slug=category_slug,
+        category_name=category_name,
         creators=creators,
         page=page,
         total_pages=total_pages,

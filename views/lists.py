@@ -497,7 +497,7 @@ def _category_group_card(
 
     list_key = f"category:{display_name}"
     list_label = f"{emoji} {display_name}"
-    list_url = f"/lists/category/{quote(display_name, safe='')}"
+    list_url = f"/lists/category/{slugify(display_name)}"
 
     return Div(
         # Header: emoji + name + creator count + heart
@@ -1599,6 +1599,7 @@ def render_category_detail_page(
     total_pages: int = 1,
     total_count: int = 0,
     page_size: int = 20,
+    category_name: str | None = None,
 ) -> Div:
     """
     Render the detailed category-wise creator rankings page.
@@ -1607,6 +1608,7 @@ def render_category_detail_page(
 
     Args:
         category_slug: URL slug derived from the category display name
+        category_name: Canonical topic category label (resolved from slug)
         creators: List of creator dicts for this page
         page: Current page number (1-based)
         total_pages: Total number of pages
@@ -1616,7 +1618,7 @@ def render_category_detail_page(
     Returns:
         Div component with full detail page
     """
-    display_name = _unslugify(category_slug).title()
+    display_name = category_name or _unslugify(category_slug).title()
     emoji = get_topic_category_emoji(display_name)
 
     start_rank = (page - 1) * page_size + 1
@@ -1695,6 +1697,7 @@ def render_category_creators_rows(
     total_pages: int = 1,
     total_count: int = 0,
     page_size: int = 20,
+    category_name: str | None = None,
 ) -> Div:
     """
     Render just the creator rows for the HTMX load-more endpoint.
@@ -1959,7 +1962,7 @@ def render_categories_explorer_page(
     for i, (cat_name, count) in enumerate(categories):
         pct = round(count / max_count * 100)
         emoji = get_topic_category_emoji(cat_name)
-        slug = quote(cat_name, safe="")
+        slug = slugify(cat_name)
         bar_cls = bar_colours[i % len(bar_colours)]
 
         bar_rows.append(
@@ -2504,7 +2507,7 @@ def _heatmap_tile(item: dict, max_count: int) -> FT:
         f"avg growth {growth_str} · engagement {engagement_str} · "
         f"A/A+ {premium_str}"
     )
-    href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
+    href = f"/lists/category/{slugify(cat)}"
 
     return A(
         Div(
@@ -2545,7 +2548,7 @@ def _heatmap_spotlight_bar(item: dict, rank: int) -> FT:
     growth_str = f"{avg_growth:+.1f}%" if avg_growth is not None else "—"
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     rank_badge = medals.get(rank, f"#{rank}")
-    href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
+    href = f"/lists/category/{slugify(cat)}"
     bar_pct = max(0, min(100, round((avg_growth or 0) / 35 * 100)))
     emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
 
@@ -2575,7 +2578,7 @@ def _heatmap_cooling_bar(item: dict) -> FT:
     avg_growth = item.get("avg_growth_pct")
     growth_str = f"{avg_growth:+.1f}%" if avg_growth is not None else "—"
     emoji = _CATEGORY_EMOJI.get(cat.lower(), "📺")
-    href = f"/lists/category/{quote(cat.replace(' ', '-').lower())}"
+    href = f"/lists/category/{slugify(cat)}"
 
     return Div(
         Span("📉", cls="shrink-0"),

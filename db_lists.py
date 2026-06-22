@@ -7,9 +7,10 @@ import json
 import logging
 import random
 import time
-from typing import Callable
+from typing import Callable, NamedTuple
+from urllib.parse import unquote
 
-from utils import normalize_category_name, safe_get_value
+from utils import normalize_category_name, safe_get_value, slugify
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,253 @@ def _escape_ilike(term: str) -> str:
     replacements don't double-escape the wildcards.
     """
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# YouTube channel ``topicDetails.topicCategories`` are Wikipedia/Knowledge Graph
+# topic labels. They are distinct from the video-level ``primary_category``
+# values in creators. The list is intentionally finite and stable enough to use
+# as the basis for URL slug resolution; live DB counts only tell us which of
+# these categories currently have creators.
+YOUTUBE_TOPIC_CATEGORY_LABELS: tuple[str, ...] = (
+    "Music",
+    "Christian music",
+    "Classical music",
+    "Country music",
+    "Electronic music",
+    "Hip hop music",
+    "Independent music",
+    "Jazz",
+    "Music of Asia",
+    "Music of Latin America",
+    "Pop music",
+    "Reggae",
+    "Rhythm and blues",
+    "Rock music",
+    "Soul music",
+    "Action game",
+    "Action-adventure game",
+    "Casual game",
+    "Music video game",
+    "Puzzle video game",
+    "Racing video game",
+    "Role-playing video game",
+    "Simulation video game",
+    "Sports game",
+    "Strategy video game",
+    "American football",
+    "Baseball",
+    "Basketball",
+    "Boxing",
+    "Cricket",
+    "Association football",
+    "Golf",
+    "Ice hockey",
+    "Mixed martial arts",
+    "Motorsport",
+    "Tennis",
+    "Volleyball",
+    "Entertainment",
+    "Humour",
+    "Film",
+    "Performing arts",
+    "Professional wrestling",
+    "Television program",
+    "Lifestyle (sociology)",
+    "Fashion",
+    "Physical fitness",
+    "Food",
+    "Hobby",
+    "Pet",
+    "Physical attractiveness",
+    "Society",
+    "Business",
+    "Health",
+    "Military",
+    "Politics",
+    "Religion",
+    "Technology",
+    "Tourism",
+    "Vehicle",
+    "Knowledge",
+    "Video game culture",
+)
+
+_FIXED_TOPIC_CATEGORY_SLUG_MAP: dict[str, str] = {
+    slugify(label): label for label in YOUTUBE_TOPIC_CATEGORY_LABELS
+}
+
+
+def topic_category_slug(category: str) -> str:
+    """Return the stable URL slug for a topic category label."""
+    return slugify(normalize_category_name(str(category or "")))
+
+
+def _topic_category_label(category: str) -> str:
+    """Normalize a route value, DB value, or old Wikipedia URL into a label."""
+    return normalize_category_name(unquote(str(category or "").strip()))
+
+
+def _topic_category_ilike_pattern(category: str) -> str:
+    """Build a separator-tolerant ILIKE pattern for ``topic_categories`` text.
+
+    The clean storage form is a JSON array of labels, e.g.
+    ``["Lifestyle (sociology)"]``. Older rows may still contain Wikipedia URLs
+    or underscores, so the fallback text pattern keeps word order while allowing
+    arbitrary separators between words.
+    """
+    label = _topic_category_label(category)
+    words = [w for w in label.replace("(", " ").replace(")", " ").split() if w]
+    if not words:
+        return ""
+    return "%" + "%".join(_escape_ilike(word) for word in words) + "%"
+
+
+class TopicCategoryPageResult(NamedTuple):
+    creators: list[dict]
+    total_count: int
+
+
+# Slug → canonical category name (fixed labels plus live DB categories).
+_CATEGORY_SLUG_CACHE_TTL_S = 60 * 60
+_category_slug_cache: dict[str, object] = {"expires_at": 0.0, "map": {}}
+
+
+def _get_category_slug_map() -> dict[str, str]:
+    """Return ``{slug: canonical_name}`` for fixed and currently observed topics."""
+    now = time.monotonic()
+    expires_at = float(_category_slug_cache.get("expires_at") or 0.0)
+    cached_map = _category_slug_cache.get("map")
+    if isinstance(cached_map, dict) and now < expires_at:
+        return cached_map
+
+    slug_map: dict[str, str] = dict(_FIXED_TOPIC_CATEGORY_SLUG_MAP)
+    for cat_name, _ in get_top_categories_with_counts(limit=2000):
+        label = _topic_category_label(cat_name)
+        if label:
+            slug_map.setdefault(topic_category_slug(label), label)
+
+    _category_slug_cache["expires_at"] = now + _CATEGORY_SLUG_CACHE_TTL_S
+    _category_slug_cache["map"] = slug_map
+    return slug_map
+
+
+def resolve_category_slug(slug: str) -> str | None:
+    """Map a URL slug or encoded label back to a canonical topic category name."""
+    if not slug or not str(slug).strip():
+        return None
+
+    raw = unquote(str(slug)).strip()
+    slug_key = slugify(raw)
+    if not slug_key:
+        return None
+
+    fixed = _FIXED_TOPIC_CATEGORY_SLUG_MAP.get(slug_key)
+    if fixed:
+        return fixed
+
+    resolved = _get_category_slug_map().get(slug_key)
+    if resolved:
+        return resolved
+
+    # Backward compatibility for quoted canonical labels or unknown-but-valid
+    # topic labels. This lets the route degrade to "no creators" instead of
+    # presenting a mangled title like "Lifestyle Sociology".
+    label = _topic_category_label(raw.replace("-", " "))
+    return label or None
+
+
+def _apply_topic_category_filters(query, category: str):
+    """Apply filters shared by category group cards and detail pages."""
+    label = _topic_category_label(category)
+    if label:
+        query = query.filter("topic_categories::jsonb", "cs", json.dumps([label]))
+    return (
+        query.eq("sync_status", "synced")
+        .not_.is_("channel_name", "null")
+        .not_.is_("topic_categories", "null")
+        .gt("current_subscribers", 0)
+    )
+
+
+def _apply_topic_category_text_filters(query, category: str):
+    """Fallback text filter for legacy rows that do not exact-match JSON labels."""
+    pattern = _topic_category_ilike_pattern(category)
+    if pattern:
+        query = query.ilike("topic_categories", pattern)
+    return (
+        query.eq("sync_status", "synced")
+        .not_.is_("channel_name", "null")
+        .not_.is_("topic_categories", "null")
+        .gt("current_subscribers", 0)
+    )
+
+
+def get_topic_category_creators(
+    category: str,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    return_count: bool = False,
+) -> list[dict] | TopicCategoryPageResult:
+    """
+    Paginated creator listing for a topic category detail page.
+
+    Filters on ``topic_categories`` (same column as category counts / list
+    cards), not ``primary_category`` — the latter holds YouTube video-level
+    categories and does not match Wikipedia topic taxonomy.
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client or not category:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    category_label = _topic_category_label(category)
+    if not category_label:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    def _run(use_text_fallback: bool = False):
+        query = supabase_client.table("creators").select(
+            "*", count="exact" if return_count else None
+        )
+        query = (
+            _apply_topic_category_text_filters(query, category_label)
+            if use_text_fallback
+            else _apply_topic_category_filters(query, category_label)
+        )
+        query = query.order("current_subscribers", desc=True).limit(limit)
+        if offset:
+            query = query.offset(offset)
+        return query.execute()
+
+    try:
+        response = _run()
+    except Exception:
+        logger.info(
+            "Exact topic category query failed for %r; trying text fallback",
+            category_label,
+            exc_info=True,
+        )
+        response = _run(use_text_fallback=True)
+
+    creators = response.data if response.data else []
+    total_count = (getattr(response, "count", 0) or 0) if return_count else 0
+
+    if not creators:
+        try:
+            fallback = _run(use_text_fallback=True)
+            creators = fallback.data if fallback.data else []
+            total_count = (getattr(fallback, "count", 0) or 0) if return_count else 0
+        except Exception:
+            logger.exception(
+                "Error fetching topic category creators for %r via text fallback",
+                category_label,
+            )
+
+    for idx, creator in enumerate(creators, 1):
+        creator["_rank"] = offset + idx
+
+    if return_count:
+        return TopicCategoryPageResult(creators, total_count)
+    return creators
 
 
 # ---------------------------------------------------------------------------
@@ -536,22 +784,24 @@ def get_top_creators_by_categories(
     # same term so we fire one query instead of N identical ones.
     term_to_cats: dict[str, list[str]] = {}
     for category in categories:
-        # Extract the meaningful segment from a (possibly URL-normalised) key.
-        segment = category.split("/")[-1] if "/" in category else category
-        # Strip any query-string or fragment that may appear in non-canonical URLs.
-        segment = segment.split("?")[0].split("#")[0].strip()
-        # Spaces → _ so the ILIKE wildcard matches both storage forms.
-        ilike_term = segment.replace(" ", "_")
+        ilike_term = _topic_category_ilike_term(category)
         if ilike_term:
             term_to_cats.setdefault(ilike_term, []).append(category)
 
     for ilike_term, matching_cats in term_to_cats.items():
         try:
+            query = supabase_client.table("creators").select("*")
+            jsonb_value = _topic_category_jsonb_value(ilike_term)
+            if jsonb_value:
+                query = query.filter(
+                    "topic_categories::jsonb",
+                    "cs",
+                    json.dumps([jsonb_value]),
+                )
+            else:
+                query = query.ilike("topic_categories", f"%{_escape_ilike(ilike_term)}%")
             response = (
-                supabase_client.table("creators")
-                .select("*")
-                .ilike("topic_categories", f"%{_escape_ilike(ilike_term)}%")
-                .not_.is_("channel_name", "null")
+                query.not_.is_("channel_name", "null")
                 .gt("current_subscribers", 0)
                 .order("current_subscribers", desc=True)
                 .limit(limit_per_category)
