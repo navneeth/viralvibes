@@ -1,7 +1,45 @@
 """Endpoint-level unit tests for lists category flows."""
 
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+supabase_stub = types.ModuleType("supabase")
+supabase_stub.Client = object
+supabase_stub.create_client = lambda *args, **kwargs: None
+sys.modules.setdefault("supabase", supabase_stub)
+
+monsterui_pkg = types.ModuleType("monsterui")
+monsterui_all = types.ModuleType("monsterui.all")
+monsterui_pkg.all = monsterui_all
+sys.modules.setdefault("monsterui", monsterui_pkg)
+sys.modules.setdefault("monsterui.all", monsterui_all)
+
+db_stub = types.ModuleType("db")
+db_stub.get_creators = lambda *args, **kwargs: None
+db_stub.get_user_favourite_list_keys = lambda *args, **kwargs: frozenset()
+sys.modules.setdefault("db", db_stub)
+
+views_lists_stub = types.ModuleType("views.lists")
+for _name in [
+    "render_lists_page",
+    "render_more_categories",
+    "render_more_countries",
+    "render_more_languages",
+    "render_categories_explorer_page",
+    "render_countries_explorer_page",
+    "render_languages_explorer_page",
+    "render_country_detail_page",
+    "render_country_creators_rows",
+    "render_category_detail_page",
+    "render_category_creators_rows",
+    "render_language_detail_page",
+    "render_language_creators_rows",
+]:
+    setattr(views_lists_stub, _name, lambda *args, **kwargs: None)
+views_lists_stub._unslugify = lambda slug: slug.replace("-", " ").title()
+sys.modules.setdefault("views.lists", views_lists_stub)
 
 import db_lists
 import routes.lists as lists_routes
@@ -34,6 +72,32 @@ def test_get_top_categories_with_counts_projects_onto_fixed_taxonomy(monkeypatch
     assert len(rows) == db_lists.TOTAL_TOPIC_CATEGORIES
     assert rows[0] == ("Music", 100)
     assert not any(name == "Unexpected category" for name, _ in rows)
+
+
+def test_get_top_categories_with_counts_respects_smaller_limit_and_tie_order(monkeypatch):
+    monkeypatch.setattr(
+        db_lists,
+        "_fetch_top_counts",
+        lambda *args, **kwargs: [
+            ("Technology", 80),
+            ("Music", 80),
+            ("Lifestyle (sociology)", 50),
+        ],
+    )
+
+    rows = db_lists.get_top_categories_with_counts(limit=2)
+
+    assert rows == [("Music", 80), ("Technology", 80)]
+
+
+def test_get_top_categories_with_counts_zero_limit_returns_empty(monkeypatch):
+    monkeypatch.setattr(
+        db_lists,
+        "_fetch_top_counts",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not fetch")),
+    )
+
+    assert db_lists.get_top_categories_with_counts(limit=0) == []
 
 
 def test_get_lists_meta_forces_fixed_total_categories(monkeypatch):
@@ -143,3 +207,28 @@ def test_category_detail_more_route_requires_slug(monkeypatch):
     out = lists_routes.category_detail_more_route(_req())
 
     assert out["text"] == "Error: Invalid category"
+
+
+def test_category_detail_more_route_happy_path(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "_fetch_category_page",
+        lambda slug, page: ([{"channel_name": "A"}], 21, 2, "Lifestyle (sociology)"),
+    )
+
+    captured = {}
+
+    def _render(**kwargs):
+        captured.update(kwargs)
+        return captured
+
+    monkeypatch.setattr(lists_routes, "render_category_creators_rows", _render)
+
+    out = lists_routes.category_detail_more_route(
+        _req(query_params={"page": "1"}, category_slug="lifestyle-sociology")
+    )
+
+    assert out["category_slug"] == "lifestyle-sociology"
+    assert out["category_name"] == "Lifestyle (sociology)"
+    assert out["page"] == 1
+    assert out["total_pages"] == 2

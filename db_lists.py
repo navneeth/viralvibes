@@ -127,7 +127,8 @@ def _topic_category_wiki_slug(category: str) -> str:
             # urlparse already strips query/fragment into dedicated fields.
             wiki_path = parsed.path.split("/wiki/", 1)[-1].strip("/")
             if wiki_path:
-                return unquote(wiki_path)
+                normalized_path = normalize_category_name(unquote(wiki_path))
+                return normalized_path.replace(" ", "_") if normalized_path else ""
 
     label = normalize_category_name(raw)
     return label.replace(" ", "_") if label else ""
@@ -234,6 +235,29 @@ _CATEGORY_SLUG_CACHE_TTL_S = 60 * 60
 _category_slug_cache: dict[str, object] = {"expires_at": 0.0, "map": {}}
 
 
+def _get_observed_topic_category_labels(limit: int = 2000) -> list[str]:
+    """Return normalized topic labels currently observed in the DB.
+
+    Unlike ``get_top_categories_with_counts()``, this helper intentionally
+    returns raw observed labels so slug resolution can continue to learn
+    non-fixed topics seen in legacy or long-tail data.
+    """
+    observed = _fetch_top_counts(
+        "get_top_categories_with_counts",
+        "category",
+        _scan_categories_fallback,
+        limit,
+    )
+    labels: list[str] = []
+    seen: set[str] = set()
+    for cat_name, _ in observed:
+        label = _topic_category_label(cat_name)
+        if label and label not in seen:
+            seen.add(label)
+            labels.append(label)
+    return labels
+
+
 def _get_category_slug_map() -> dict[str, str]:
     """Return ``{slug: canonical_name}`` for fixed and currently observed topics."""
     now = time.monotonic()
@@ -243,10 +267,8 @@ def _get_category_slug_map() -> dict[str, str]:
         return cached_map
 
     slug_map: dict[str, str] = dict(_FIXED_TOPIC_CATEGORY_SLUG_MAP)
-    for cat_name, _ in get_top_categories_with_counts(limit=2000):
-        label = _topic_category_label(cat_name)
-        if label:
-            slug_map.setdefault(topic_category_slug(label), label)
+    for label in _get_observed_topic_category_labels(limit=2000):
+        slug_map.setdefault(topic_category_slug(label), label)
 
     _category_slug_cache["expires_at"] = now + _CATEGORY_SLUG_CACHE_TTL_S
     _category_slug_cache["map"] = slug_map
@@ -275,7 +297,9 @@ def resolve_category_slug(slug: str) -> str | None:
     # Backward compatibility for unknown-but-valid labels: degrade to the
     # best normalized label rather than generating a mangled display title.
     fallback_label = _topic_category_label(raw.replace("-", " "))
-    return fallback_label or None
+    if not fallback_label:
+        return None
+    return fallback_label[0].upper() + fallback_label[1:]
 
 
 def _apply_topic_category_filters(query, category: str):
@@ -318,8 +342,11 @@ def get_topic_category_creators(
     cards), not ``primary_category`` — the latter holds YouTube video-level
     categories and does not match Wikipedia topic taxonomy.
     """
+    if not category or not str(category).strip():
+        return TopicCategoryPageResult([], 0) if return_count else []
+
     supabase_client = _get_supabase_client()
-    if not supabase_client or not category:
+    if not supabase_client:
         return TopicCategoryPageResult([], 0) if return_count else []
 
     category_label = _topic_category_label(category)
@@ -340,6 +367,7 @@ def get_topic_category_creators(
             query = query.offset(offset)
         return query.execute()
 
+    response = None
     try:
         response = _run()
     except Exception:
@@ -348,21 +376,19 @@ def get_topic_category_creators(
             category_label,
             exc_info=True,
         )
-        response = _run(use_text_fallback=True)
 
-    creators = response.data if response.data else []
-    total_count = (getattr(response, "count", 0) or 0) if return_count else 0
-
-    if not creators:
+    if response is None or not response.data:
         try:
-            fallback = _run(use_text_fallback=True)
-            creators = fallback.data if fallback.data else []
-            total_count = (getattr(fallback, "count", 0) or 0) if return_count else 0
+            response = _run(use_text_fallback=True)
         except Exception:
             logger.exception(
                 "Error fetching topic category creators for %r via text fallback",
                 category_label,
             )
+            response = None
+
+    creators = response.data if response and response.data else []
+    total_count = (getattr(response, "count", 0) or 0) if return_count and response else 0
 
     for idx, creator in enumerate(creators, 1):
         creator["_rank"] = offset + idx
