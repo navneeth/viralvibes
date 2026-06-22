@@ -8,7 +8,7 @@ import logging
 import random
 import time
 from typing import Callable, NamedTuple
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from utils import normalize_category_name, safe_get_value, slugify
 
@@ -104,6 +104,99 @@ YOUTUBE_TOPIC_CATEGORY_LABELS: tuple[str, ...] = (
 _FIXED_TOPIC_CATEGORY_SLUG_MAP: dict[str, str] = {
     slugify(label): label for label in YOUTUBE_TOPIC_CATEGORY_LABELS
 }
+_FIXED_TOPIC_CATEGORY_LABEL_SET: set[str] = set(YOUTUBE_TOPIC_CATEGORY_LABELS)
+TOTAL_TOPIC_CATEGORIES = len(YOUTUBE_TOPIC_CATEGORY_LABELS)
+
+
+# The YouTube Data API returns topic categories as full Wikipedia URLs under
+# ``topicDetails.topicCategories``. Build and parse URLs from one place so
+# category slugs, cards, and detail pages all resolve consistently.
+_TOPIC_CATEGORY_WIKIPEDIA_BASE_URL = "https://en.wikipedia.org/wiki/"
+
+
+def _topic_category_wiki_slug(category: str) -> str:
+    """Return a Wikipedia slug token (underscored, no URL prefix)."""
+    raw = unquote(str(category or "")).strip()
+    if not raw:
+        return ""
+
+    if raw.startswith(("http://", "https://")):
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        if (host == "wikipedia.org" or host.endswith(".wikipedia.org")) and "/wiki/" in parsed.path:
+            # urlparse already strips query/fragment into dedicated fields.
+            wiki_path = parsed.path.split("/wiki/", 1)[-1].strip("/")
+            if wiki_path:
+                return unquote(wiki_path)
+
+    label = normalize_category_name(raw)
+    return label.replace(" ", "_") if label else ""
+
+
+def _topic_category_ilike_term(category: str) -> str:
+    """Return a DB text-search token for category matching.
+
+    The token mirrors YouTube/Wikipedia slugs (underscores), allowing a single
+    ILIKE pattern to match legacy URL storage and normalized-label rows.
+    """
+    return _topic_category_wiki_slug(category)
+
+
+def _topic_category_jsonb_value(category: str) -> str:
+    """Return canonical topic_categories JSON entry for exact jsonb containment."""
+    slug = _topic_category_wiki_slug(category)
+    if not slug:
+        return ""
+    if str(category or "").strip().startswith(("http://", "https://")):
+        return f"{_TOPIC_CATEGORY_WIKIPEDIA_BASE_URL}{slug}"
+
+    label = _topic_category_label(category)
+    if not label:
+        return ""
+
+    # Prefer fixed YouTube topic labels for canonical jsonb containment checks.
+    if label in _FIXED_TOPIC_CATEGORY_LABEL_SET:
+        return f"{_TOPIC_CATEGORY_WIKIPEDIA_BASE_URL}{label.replace(' ', '_')}"
+    return ""
+
+
+def _iter_normalized_topic_categories(categories_raw) -> list[str]:
+    """Parse raw topic_categories payload and return normalized labels."""
+    if not categories_raw:
+        return []
+
+    if isinstance(categories_raw, list):
+        cat_list = categories_raw
+    elif isinstance(categories_raw, str):
+        try:
+            parsed = json.loads(categories_raw)
+            cat_list = parsed if isinstance(parsed, list) else []
+        except (json.JSONDecodeError, ValueError):
+            cat_list = [c.strip() for c in categories_raw.split(",")]
+    else:
+        return []
+
+    normalized: list[str] = []
+    for cat in cat_list:
+        clean = normalize_category_name(str(cat))
+        if clean:
+            normalized.append(clean)
+    return normalized
+
+
+def _merge_with_fixed_topic_categories(
+    category_counts: list[tuple[str, int]],
+) -> list[tuple[str, int]]:
+    """Return counts projected onto the fixed YouTube topic taxonomy."""
+    counts_by_label: dict[str, int] = {}
+    for raw_name, count in category_counts:
+        label = _topic_category_label(raw_name)
+        if label in _FIXED_TOPIC_CATEGORY_LABEL_SET:
+            counts_by_label[label] = int(count or 0)
+
+    merged = [(label, counts_by_label.get(label, 0)) for label in YOUTUBE_TOPIC_CATEGORY_LABELS]
+    merged.sort(key=lambda x: x[1], reverse=True)
+    return merged
 
 
 def topic_category_slug(category: str) -> str:
@@ -161,12 +254,13 @@ def _get_category_slug_map() -> dict[str, str]:
 
 
 def resolve_category_slug(slug: str) -> str | None:
-    """Map a URL slug or encoded label back to a canonical topic category name."""
+    """Map a URL slug, encoded label, or Wikipedia URL to a canonical label."""
     if not slug or not str(slug).strip():
         return None
 
     raw = unquote(str(slug)).strip()
-    slug_key = slugify(raw)
+    label = _topic_category_label(raw)
+    slug_key = topic_category_slug(label or raw)
     if not slug_key:
         return None
 
@@ -178,11 +272,10 @@ def resolve_category_slug(slug: str) -> str | None:
     if resolved:
         return resolved
 
-    # Backward compatibility for quoted canonical labels or unknown-but-valid
-    # topic labels. This lets the route degrade to "no creators" instead of
-    # presenting a mangled title like "Lifestyle Sociology".
-    label = _topic_category_label(raw.replace("-", " "))
-    return label or None
+    # Backward compatibility for unknown-but-valid labels: degrade to the
+    # best normalized label rather than generating a mangled display title.
+    fallback_label = _topic_category_label(raw.replace("-", " "))
+    return fallback_label or None
 
 
 def _apply_topic_category_filters(query, category: str):
@@ -394,7 +487,7 @@ def _get_supabase_client():
 _EMPTY_META: dict[str, int] = {
     "total_creators": 0,
     "total_countries": 0,
-    "total_categories": 0,
+    "total_categories": TOTAL_TOPIC_CATEGORIES,
     "total_languages": 0,
 }
 
@@ -729,16 +822,16 @@ def get_top_creators_by_categories(
     categories: list[str], limit_per_category: int = 5
 ) -> dict[str, list[dict]]:
     """
-    Fetch the top creators for each category via per-category ILIKE queries.
+    Fetch the top creators for each category via per-category DB-filtered queries.
 
     The previous implementation fetched a global top-N by subscribers and
     matched client-side.  That was broken for categories whose top creators
     are not globally top-ranked (e.g. "Lifestyle (sociology)" has 4 700
     creators but none are in the global top 200, so it always returned empty).
 
-    This version issues one ILIKE query per distinct ilike_term — efficient
-    because each query is DB-filtered and returns only ``limit_per_category``
-    rows.
+    This version issues one filtered query per distinct category token,
+    preferring exact JSONB containment and falling back to ILIKE when needed.
+    Each query is DB-filtered and returns only ``limit_per_category`` rows.
 
     Why not OR-ILIKE batching?
     ───────────────────────────
@@ -790,24 +883,41 @@ def get_top_creators_by_categories(
 
     for ilike_term, matching_cats in term_to_cats.items():
         try:
-            query = supabase_client.table("creators").select("*")
-            jsonb_value = _topic_category_jsonb_value(ilike_term)
-            if jsonb_value:
-                query = query.filter(
-                    "topic_categories::jsonb",
-                    "cs",
-                    json.dumps([jsonb_value]),
+
+            def _run_query(*, jsonb_contains: str | None = None, ilike: str | None = None):
+                query = supabase_client.table("creators").select("*")
+                if jsonb_contains:
+                    query = query.filter(
+                        "topic_categories::jsonb",
+                        "cs",
+                        json.dumps([jsonb_contains]),
+                    )
+                elif ilike:
+                    query = query.ilike("topic_categories", f"%{_escape_ilike(ilike)}%")
+                return (
+                    query.not_.is_("channel_name", "null")
+                    .gt("current_subscribers", 0)
+                    .order("current_subscribers", desc=True)
+                    .limit(limit_per_category)
+                    .execute()
                 )
-            else:
-                query = query.ilike("topic_categories", f"%{_escape_ilike(ilike_term)}%")
-            response = (
-                query.not_.is_("channel_name", "null")
-                .gt("current_subscribers", 0)
-                .order("current_subscribers", desc=True)
-                .limit(limit_per_category)
-                .execute()
-            )
-            creators = response.data if response.data else []
+
+            creators: list[dict] = []
+            label = _topic_category_label(ilike_term)
+            if label:
+                response = _run_query(jsonb_contains=label)
+                creators = response.data if response.data else []
+
+            if not creators:
+                jsonb_value = _topic_category_jsonb_value(ilike_term)
+                if jsonb_value:
+                    response = _run_query(jsonb_contains=jsonb_value)
+                    creators = response.data if response.data else []
+
+            if not creators:
+                response = _run_query(ilike=ilike_term)
+                creators = response.data if response.data else []
+
             # All keys that share this term get the same creator list.
             for cat in matching_cats:
                 result[cat] = creators
@@ -1221,7 +1331,7 @@ def get_lists_meta() -> dict:
             meta = {
                 "total_creators": int(row.get("total_creators") or 0),
                 "total_countries": int(row.get("total_countries") or 0),
-                "total_categories": int(row.get("total_categories") or 0),
+                "total_categories": TOTAL_TOPIC_CATEGORIES,
                 # total_languages added in migration 003; defaults to 0 on older DBs
                 "total_languages": int(row.get("total_languages") or 0),
             }
@@ -1259,24 +1369,10 @@ def _get_lists_meta_cached_tables() -> dict:
             return _get_lists_meta_fallback()
 
         meta_row = meta_resp.data[0]
-        categories = 0
-        try:
-            stats_resp = (
-                supabase_client.table("app_stats")
-                .select("value")
-                .eq("key", "total_categories")
-                .limit(1)
-                .execute()
-            )
-            if stats_resp.data:
-                categories = int(stats_resp.data[0].get("value") or 0)
-        except Exception:
-            logger.warning("[Lists] app_stats total_categories fallback failed", exc_info=True)
-
         meta = {
             "total_creators": int(meta_row.get("total_creators") or 0),
             "total_countries": int(meta_row.get("total_countries") or 0),
-            "total_categories": categories,
+            "total_categories": TOTAL_TOPIC_CATEGORIES,
             "total_languages": int(meta_row.get("total_languages") or 0),
         }
 
@@ -1310,33 +1406,15 @@ def _get_lists_meta_fallback() -> dict:
         total_creators = response.count if response.count is not None else len(rows)
         countries: set[str] = set()
         languages: set[str] = set()
-        categories: set[str] = set()
         for row in rows:
             if cc := row.get("country_code"):
                 countries.add(cc)
             if lang := row.get("default_language"):
                 languages.add(lang)
-            cats_raw = row.get("topic_categories")
-            if cats_raw:
-                if isinstance(cats_raw, list):
-                    cat_list = cats_raw
-                elif isinstance(cats_raw, str):
-                    try:
-                        cat_list = json.loads(cats_raw)
-                        if not isinstance(cat_list, list):
-                            cat_list = []
-                    except (json.JSONDecodeError, ValueError):
-                        cat_list = [c.strip() for c in cats_raw.split(",")]
-                else:
-                    cat_list = []
-                for cat in cat_list:
-                    clean = normalize_category_name(str(cat))
-                    if clean:
-                        categories.add(clean)
         return {
             "total_creators": total_creators,
             "total_countries": len(countries),
-            "total_categories": len(categories),
+            "total_categories": TOTAL_TOPIC_CATEGORIES,
             "total_languages": len(languages),
         }
     except Exception as e:
@@ -1346,22 +1424,28 @@ def _get_lists_meta_fallback() -> dict:
 
 def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     """
-    Get top topic categories by creator count via DB-side RPC aggregation.
+    Get topic categories mapped to the fixed YouTube topic taxonomy.
+
+    The YouTube ``topicDetails.topicCategories`` taxonomy is finite. This
+    function always projects DB counts onto that fixed label set so endpoint
+    pagination and category counts remain stable even when DB refresh jobs lag.
 
     Returns list of (category_name, creator_count) tuples.
     Used for the "By Category" tab and the /creators filter dropdown.
-
-    Delegates to the ``get_top_categories_with_counts`` Supabase RPC
-    (see db/migrations/002_lists_page_rpc_functions.sql), which unnests
-    and normalises ``topic_categories`` server-side with zero row transfer.
-    Falls back to ``_scan_categories_fallback`` if the RPC is unavailable.
     """
-    return _fetch_top_counts(
+    if limit <= 0:
+        return []
+
+    # Fetch enough rows to cover the full fixed taxonomy before projection.
+    fetch_limit = max(limit, TOTAL_TOPIC_CATEGORIES)
+    raw_counts = _fetch_top_counts(
         "get_top_categories_with_counts",
         "category",
         _scan_categories_fallback,
-        limit,
+        fetch_limit,
     )
+    merged = _merge_with_fixed_topic_categories(raw_counts)
+    return merged[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
 
 def suggest_primary_categories(q: str, limit: int = 8) -> list[tuple[str, int]]:
@@ -1429,25 +1513,8 @@ def _scan_categories_fallback(limit: int) -> list[tuple[str, int]]:
         )
         category_counts: dict[str, int] = {}
         for row in response.data or []:
-            categories_raw = row.get("topic_categories")
-            if not categories_raw:
-                continue
-            if isinstance(categories_raw, list):
-                cat_list = categories_raw
-            elif isinstance(categories_raw, str):
-                try:
-                    cat_list = json.loads(categories_raw)
-                    if not isinstance(cat_list, list):
-                        cat_list = []
-                except (json.JSONDecodeError, ValueError):
-                    cat_list = [c.strip() for c in categories_raw.split(",")]
-            else:
-                continue
-            for cat in cat_list:
-                if cat:
-                    clean = normalize_category_name(str(cat))
-                    if clean:
-                        category_counts[clean] = category_counts.get(clean, 0) + 1
+            for clean in _iter_normalized_topic_categories(row.get("topic_categories")):
+                category_counts[clean] = category_counts.get(clean, 0) + 1
         return sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
     except Exception as e:
         logger.exception("Error in categories scan fallback: %s", e)
@@ -1568,19 +1635,8 @@ def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
     # Accumulate per-category stats
     buckets: dict[str, dict] = {}
     for row in rows:
-        cats_raw = row.get("topic_categories")
-        if not cats_raw:
-            continue
-        if isinstance(cats_raw, list):
-            cat_list = cats_raw
-        elif isinstance(cats_raw, str):
-            try:
-                cat_list = json.loads(cats_raw)
-                if not isinstance(cat_list, list):
-                    cat_list = []
-            except (json.JSONDecodeError, ValueError):
-                cat_list = [c.strip() for c in cats_raw.split(",")]
-        else:
+        cat_list = _iter_normalized_topic_categories(row.get("topic_categories"))
+        if not cat_list:
             continue
 
         engagement = row.get("engagement_score")
@@ -1594,10 +1650,7 @@ def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
         if subs_change is not None and current_subs > 0:
             growth_pct = subs_change / current_subs * 100
 
-        for cat in cat_list:
-            clean = normalize_category_name(str(cat))
-            if not clean:
-                continue
+        for clean in cat_list:
             if clean not in buckets:
                 buckets[clean] = {
                     "category": clean,

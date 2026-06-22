@@ -1,6 +1,6 @@
 """Tests for /lists/category/{slug} slug resolution and topic category queries."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import db_lists
 import routes.lists as lists_routes
@@ -9,6 +9,13 @@ import routes.lists as lists_routes
 def test_topic_category_ilike_term_wikipedia_url():
     term = db_lists._topic_category_ilike_term(
         "https://en.wikipedia.org/wiki/Lifestyle (sociology)"
+    )
+    assert term == "Lifestyle_(sociology)"
+
+
+def test_topic_category_ilike_term_handles_query_fragment_and_encoding():
+    term = db_lists._topic_category_ilike_term(
+        "https://en.wikipedia.org/wiki/Lifestyle_%28sociology%29?utm=foo#bar"
     )
     assert term == "Lifestyle_(sociology)"
 
@@ -28,6 +35,10 @@ def test_topic_category_jsonb_value_builds_wikipedia_url():
     )
 
 
+def test_topic_category_jsonb_value_non_catalog_label_returns_empty():
+    assert db_lists._topic_category_jsonb_value("Totally New Niche") == ""
+
+
 def test_resolve_category_slug_matches_slugify_catalogue(monkeypatch):
     monkeypatch.setattr(
         db_lists,
@@ -39,7 +50,14 @@ def test_resolve_category_slug_matches_slugify_catalogue(monkeypatch):
     )
     assert db_lists.resolve_category_slug("lifestyle-sociology") == "Lifestyle (sociology)"
     assert db_lists.resolve_category_slug("music") == "Music"
-    assert db_lists.resolve_category_slug("unknown-niche") is None
+    assert db_lists.resolve_category_slug("unknown-niche") == "Unknown niche"
+
+
+def test_resolve_category_slug_handles_wikipedia_url_input():
+    assert (
+        db_lists.resolve_category_slug("https://en.wikipedia.org/wiki/Video_game_culture")
+        == "Video game culture"
+    )
 
 
 def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypatch):
