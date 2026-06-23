@@ -4502,7 +4502,14 @@ def render_creator_profile_page(
     # ═══════════════════════════════════════════════════════════════════════════
     # SECTION 5 — Category comparison box plots
     # ═══════════════════════════════════════════════════════════════════════════
-    box_plot_section = render_category_box_plots(creator, category_stats)
+    # Combine "you may also like" (similar_creators) and embedding peers into
+    # one deduplicated pool so all peer scatter points come from faces the
+    # viewer already sees elsewhere on the page.
+    _peer_pool = (similar_creators or []) + (embedding_peers or [])
+    _peers_deduped = list(
+        {p["id"]: p for p in _peer_pool if p.get("id") and p.get("id") != creator_id}.values()
+    )
+    box_plot_section = render_category_box_plots(creator, category_stats, peers=_peers_deduped)
 
     return Div(
         banner_section,
