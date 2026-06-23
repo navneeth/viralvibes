@@ -32,31 +32,16 @@ from monsterui.all import ApexChart
 
 logger = logging.getLogger(__name__)
 
-# Metric config: (stats_key, display_label, creator_field, js_y_formatter)
-# js_y_formatter: JS function string passed to ApexCharts yaxis.labels.formatter
-# and tooltip.y.formatter so every number is human-readable.
-
-_LARGE_NUMBER_FORMATTER = (
-    "function(val){if(val>=1e9)return(val/1e9).toFixed(1)+'B';"
-    "if(val>=1e6)return(val/1e6).toFixed(1)+'M';"
-    "if(val>=1e3)return(val/1e3).toFixed(1)+'K';return String(Math.round(val));}"
-)
-
-_METRICS: list[tuple[str, str, str, str]] = [
-    ("subscribers", "Subscribers", "current_subscribers", _LARGE_NUMBER_FORMATTER),
-    ("views", "Total Views", "current_view_count", _LARGE_NUMBER_FORMATTER),
-    (
-        "engagement",
-        "Engagement %",
-        "engagement_score",
-        "function(val){return val.toFixed(2)+'%';}",
-    ),
-    (
-        "monthly_uploads",
-        "Monthly Uploads",
-        "monthly_uploads",
-        "function(val){return val.toFixed(1)+'/mo';}",
-    ),
+# Metric config: (stats_key, display_label, creator_field)
+# Note: JS formatter functions cannot be passed via MonsterUI's ApexChart because
+# opts are serialised with json.dumps() — function strings arrive in the browser
+# as JSON strings, not callable functions, crashing the chart. Use decimalsInFloat
+# on the yaxis instead (see _box_chart).
+_METRICS: list[tuple[str, str, str]] = [
+    ("subscribers", "Subscribers", "current_subscribers"),
+    ("views", "Total Views", "current_view_count"),
+    ("engagement", "Engagement %", "engagement_score"),
+    ("monthly_uploads", "Monthly Uploads", "monthly_uploads"),
 ]
 
 _BOX_FILL = "#f1f5f9"  # slate-100
@@ -138,10 +123,9 @@ def render_category_box_plots(
                     stats=category_stats.get(key, {}),
                     creator_value=creator_values.get(key),
                     category=category,
-                    formatter=fmt,
                     peer_values=peer_values_by_metric.get(key, []),
                 )
-                for key, label, _, fmt in _METRICS
+                for key, label, _ in _METRICS
                 if category_stats.get(key)
             ],
             cls="grid grid-cols-1 sm:grid-cols-2 gap-4",
@@ -161,7 +145,6 @@ def _box_chart(
     stats: dict,
     creator_value: float | None,
     category: str,
-    formatter: str = "",
     peer_values: list[float] | None = None,
 ) -> Div:
     """
@@ -242,14 +225,16 @@ def _box_chart(
         marker_colors.append(_STAR_COLOR)
         marker_shapes.append("star")
 
-    # Tooltip and yaxis both use the same formatter when provided.
+    # Tooltip and yaxis: MonsterUI serialises opts via json.dumps(), so formatter
+    # values arrive in the browser as JSON strings, not JS functions. ApexCharts
+    # calls yaxis.labels.formatter synchronously and throws TypeError when it
+    # receives a string — crashing the entire chart. Use decimalsInFloat instead,
+    # which is a plain JSON integer and is always safe.
+    # Large-number abbreviation (K/M/B) is not available through JSON-safe options;
+    # we accept raw numbers on the axis labels as a consequence.
     tooltip: dict = {"shared": False, "intersect": True}
-    if formatter:
-        tooltip["y"] = {"formatter": formatter}
 
-    yaxis_labels: dict = {"show": True}
-    if formatter:
-        yaxis_labels["formatter"] = formatter
+    yaxis_labels: dict = {"show": True, "decimalsInFloat": 0}
 
     opts = {
         "chart": {
