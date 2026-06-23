@@ -35,23 +35,16 @@ logger = logging.getLogger(__name__)
 # Metric config: (stats_key, display_label, creator_field, js_y_formatter)
 # js_y_formatter: JS function string passed to ApexCharts yaxis.labels.formatter
 # and tooltip.y.formatter so every number is human-readable.
+
+_LARGE_NUMBER_FORMATTER = (
+    "function(val){if(val>=1e9)return(val/1e9).toFixed(1)+'B';"
+    "if(val>=1e6)return(val/1e6).toFixed(1)+'M';"
+    "if(val>=1e3)return(val/1e3).toFixed(1)+'K';return String(Math.round(val));}"
+)
+
 _METRICS: list[tuple[str, str, str, str]] = [
-    (
-        "subscribers",
-        "Subscribers",
-        "current_subscribers",
-        "function(val){if(val>=1e9)return(val/1e9).toFixed(1)+'B';"
-        "if(val>=1e6)return(val/1e6).toFixed(1)+'M';"
-        "if(val>=1e3)return(val/1e3).toFixed(1)+'K';return String(Math.round(val));}",
-    ),
-    (
-        "views",
-        "Total Views",
-        "current_view_count",
-        "function(val){if(val>=1e9)return(val/1e9).toFixed(1)+'B';"
-        "if(val>=1e6)return(val/1e6).toFixed(1)+'M';"
-        "if(val>=1e3)return(val/1e3).toFixed(1)+'K';return String(Math.round(val));}",
-    ),
+    ("subscribers", "Subscribers", "current_subscribers", _LARGE_NUMBER_FORMATTER),
+    ("views", "Total Views", "current_view_count", _LARGE_NUMBER_FORMATTER),
     (
         "engagement",
         "Engagement %",
