@@ -3263,7 +3263,10 @@ def get_creators(
         # Only show fully-synced creators — mirrors calculate_creator_stats() behaviour.
         # Excludes "pending" / "error" rows that have no real stats yet, which would
         # otherwise appear as blank cards and skew pagination counts.
-        query = query.in_("sync_status", ["synced", "pending"])
+        # NOTE: must stay as .eq("synced") — partial indexes (migrations 008, 028, etc.)
+        # are all defined WHERE sync_status = 'synced'. Using IN ('synced', 'pending')
+        # disqualifies every partial index and forces a full table scan.
+        query = query.eq("sync_status", "synced")
 
         # Apply search filter
         if search:
@@ -3321,11 +3324,16 @@ def get_creators(
             elif age_filter == "veteran":
                 query = query.gte("channel_age_days", 3650)  # >= 10 years
 
-        # Apply country filter (case-insensitive: DB stores "US", URL may pass "us")
+        # Apply country filter. DB stores ISO 3166-1 alpha-2 codes in uppercase ("US",
+        # "BM", "JP"). Normalize the input to uppercase so we can use .eq() and let
+        # idx_creators_country_synced (B-tree, migration 008) serve the query as an
+        # index scan. Using .ilike() here defeats the B-tree index and forces a full
+        # sequential scan, which causes statement timeouts on large tables (pg error
+        # 57014). .eq() is safe because there is only one valid casing for country codes.
         if country_filter and country_filter != "all":
-            normalized_country = country_filter.strip()
+            normalized_country = country_filter.strip().upper()
             if normalized_country:
-                query = query.ilike("country_code", normalized_country)
+                query = query.eq("country_code", normalized_country)
 
         # Apply category filter using the primary_category column.
         # primary_category is a clean, normalized, single-value text field
