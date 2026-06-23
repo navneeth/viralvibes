@@ -32,16 +32,16 @@ from monsterui.all import ApexChart
 
 logger = logging.getLogger(__name__)
 
-# Metric config: (stats_key, display_label, creator_field)
+# Metric config: (stats_key, display_label, creator_field, decimals_in_float)
 # Note: JS formatter functions cannot be passed via MonsterUI's ApexChart because
 # opts are serialised with json.dumps() — function strings arrive in the browser
 # as JSON strings, not callable functions, crashing the chart. Use decimalsInFloat
-# on the yaxis instead (see _box_chart).
-_METRICS: list[tuple[str, str, str]] = [
-    ("subscribers", "Subscribers", "current_subscribers"),
-    ("views", "Total Views", "current_view_count"),
-    ("engagement", "Engagement %", "engagement_score"),
-    ("monthly_uploads", "Monthly Uploads", "monthly_uploads"),
+# on the yaxis instead; it is a plain JSON integer and is always safe.
+_METRICS: list[tuple[str, str, str, int]] = [
+    ("subscribers", "Subscribers", "current_subscribers", 0),
+    ("views", "Total Views", "current_view_count", 0),
+    ("engagement", "Engagement %", "engagement_score", 2),
+    ("monthly_uploads", "Monthly Uploads", "monthly_uploads", 1),
 ]
 
 _BOX_FILL = "#f1f5f9"  # slate-100
@@ -124,8 +124,9 @@ def render_category_box_plots(
                     creator_value=creator_values.get(key),
                     category=category,
                     peer_values=peer_values_by_metric.get(key, []),
+                    decimals_in_float=decimals,
                 )
-                for key, label, _ in _METRICS
+                for key, label, _, decimals in _METRICS
                 if category_stats.get(key)
             ],
             cls="grid grid-cols-1 sm:grid-cols-2 gap-4",
@@ -146,6 +147,7 @@ def _box_chart(
     creator_value: float | None,
     category: str,
     peer_values: list[float] | None = None,
+    decimals_in_float: int = 0,
 ) -> Div:
     """
     Single ApexChart box plot with optional scatter overlays.
@@ -234,7 +236,7 @@ def _box_chart(
     # we accept raw numbers on the axis labels as a consequence.
     tooltip: dict = {"shared": False, "intersect": True}
 
-    yaxis_labels: dict = {"show": True, "decimalsInFloat": 0}
+    yaxis_labels: dict = {"show": True, "decimalsInFloat": decimals_in_float}
 
     opts = {
         "chart": {
