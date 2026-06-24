@@ -1610,8 +1610,12 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        response = (
-            supabase_client.table(CREATOR_TABLE).select("*").eq("id", creator_id).single().execute()
+        response = _db_execute(
+            lambda: supabase_client.table(CREATOR_TABLE)
+            .select("*")
+            .eq("id", creator_id)
+            .single()
+            .execute()
         )
 
         if response.data:
@@ -3378,7 +3382,7 @@ def get_creators(
 
         # Execute query (count already included in select if needed)
         try:
-            response = query.execute()
+            response = _db_execute(lambda: query.execute())
         except Exception as e:
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
                 exact_creator = _find_creator_by_normalized_handle(search)
@@ -3668,6 +3672,7 @@ def get_creator_hero_stats() -> dict:
 
         return {
             "total_creators": int(data.get("total_creators") or 0),
+            "total_db_creators": int(data.get("total_db_creators") or 0),
             "avg_engagement": round(avg_engagement, 2),
             "has_engagement_data": avg_engagement > 0,
             "growing_creators": int(data.get("growing_creators") or 0),

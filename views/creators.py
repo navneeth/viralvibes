@@ -31,7 +31,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 from utils import format_float, format_percentage
-from utils.dates import format_date_relative
+from utils.dates import format_date_relative, is_data_stale
 from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     calculate_avg_views_per_video,
@@ -844,7 +844,8 @@ def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False
     Designed for agencies looking to identify collaboration opportunities.
     """
     # Extract only the metrics actually used in hero rendering
-    total_creators = stats.get("total_creators", 0)
+    total_creators = stats.get("total_creators", 0)  # synced-only (filter denominator)
+    total_db_creators = stats.get("total_db_creators") or total_creators  # all rows in DB
     total_countries = stats.get("total_countries", 0)
     total_languages = stats.get("total_languages", 0)
     total_categories = stats.get("total_categories", 0)
@@ -866,7 +867,8 @@ def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False
         ),
         # Metric Strip - marketing-focused metrics from DB
         Div(
-            # Total/Filtered creators - smart display based on filter state
+            # Total/Filtered creators — no-filter shows full DB size for marketing impact;
+            # filtered view shows matching synced creators vs. the browseable synced pool.
             Div(
                 P(
                     "Filtered Results" if has_filters else "Total Creators",
@@ -876,7 +878,7 @@ def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False
                     (
                         f"{format_number(filtered_count)} of {format_number(total_creators)}"
                         if has_filters
-                        else format_number(total_creators)
+                        else format_number(total_db_creators)
                     ),
                     cls="text-2xl font-bold text-foreground mt-1",
                 ),
@@ -2050,7 +2052,11 @@ def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
 
 
 def _build_card_footer(
-    last_updated: str, channel_url: str, creator_id: str = "", is_favourited: bool = False
+    last_updated: str,
+    channel_url: str,
+    creator_id: str = "",
+    is_favourited: bool = False,
+    last_synced: str = "",
 ) -> Div:
     """Card footer: last-updated timestamp + optional heart + YouTube link.
 
@@ -2333,8 +2339,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     views_change = int(views_change_raw) if views_change_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
     last_updated = safe_get_value(creator, "last_updated_at", "")
-
-    # === CALCULATIONS ===
+    last_synced_card = safe_get_value(creator, "last_synced_at", "")
     avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
     growth_rate = calculate_growth_rate(subs_change, current_subs)
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
@@ -2451,6 +2456,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
             channel_url,
             creator_id=safe_get_value(creator, "id", ""),
             is_favourited=is_favourited,
+            last_synced=last_synced_card,
         ),
         body_cls="space-y-3",
         cls=(
