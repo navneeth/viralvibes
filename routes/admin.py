@@ -21,6 +21,7 @@ from fasthtml.common import *
 from starlette.responses import Response as StarletteResponse
 
 import db as _db
+from constants import BROWSEABLE_SYNC_STATUSES
 from services.contact_extractor import ContactExtractorService
 from views.admin import AdminPage, _JobsSection
 
@@ -103,6 +104,33 @@ def _auth_response():
 
 # -- Data fetching ------------------------------------------------------------
 
+# Freshness tier boundaries (days since last_synced_at).
+# Each entry is (data_key, label, ge_days, lt_days_or_None).
+# Boundaries are exclusive-lower / inclusive-upper so tiers are contiguous
+# with no overlap or gap: [0,7) → [7,30) → [30,90) → [90,∞).
+_FRESHNESS_TIERS: tuple[tuple[str, int, int | None], ...] = (
+    ("fresh_7d", 0, 7),
+    ("fresh_7_30d", 7, 30),
+    ("stale_30_90d", 30, 90),
+    ("stale_90d", 90, None),
+)
+
+
+def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int:
+    """Return a COUNT(*) for the creators table with optional sync_status filter.
+
+    Args:
+        sc: Supabase client.
+        status: If given, adds .eq("sync_status", status).
+        extra_filters: Optional callable(query) -> query for additional filters.
+    """
+    q = sc.table("creators").select("id", count="exact")
+    if status is not None:
+        q = q.eq("sync_status", status)
+    if extra_filters is not None:
+        q = extra_filters(q)
+    return q.execute().count or 0
+
 
 def _fetch_admin_data() -> dict:
     """
@@ -115,9 +143,10 @@ def _fetch_admin_data() -> dict:
     now = datetime.now(timezone.utc)
     cutoff_24h = (now - timedelta(hours=24)).isoformat()
     cutoff_1h = (now - timedelta(hours=1)).isoformat()
-    cutoff_7d = (now - timedelta(days=7)).isoformat()
-    cutoff_30d = (now - timedelta(days=30)).isoformat()
-    cutoff_90d = (now - timedelta(days=90)).isoformat()
+
+    # Freshness cutoffs derived from _FRESHNESS_TIERS so the two are always in sync.
+    _tier_days = sorted({d for _, lo, hi in _FRESHNESS_TIERS for d in (lo, hi) if d is not None})
+    _cutoffs: dict[int, str] = {d: (now - timedelta(days=d)).isoformat() for d in _tier_days}
 
     data: dict = {
         # Creator inventory
@@ -169,9 +198,7 @@ def _fetch_admin_data() -> dict:
 
     # ── Creator inventory ──────────────────────────────────────────────────────
     try:
-        data["total_creators"] = (
-            sc.table("creators").select("id", count="exact").execute().count or 0
-        )
+        data["total_creators"] = _count_creators(sc)
         for col, status in [
             ("synced", "synced"),
             ("synced_partial", "synced_partial"),
@@ -179,103 +206,49 @@ def _fetch_admin_data() -> dict:
             ("failed_creators", "failed"),
             ("invalid_creators", "invalid"),
         ]:
-            data[col] = (
-                sc.table("creators")
-                .select("id", count="exact")
-                .eq("sync_status", status)
-                .execute()
-                .count
-                or 0
-            )
-        data["visible"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .in_("sync_status", ["synced", "synced_partial"])
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", 0)
-            .execute()
-            .count
-            or 0
+            data[col] = _count_creators(sc, status=status)
+
+        data["visible"] = _count_creators(
+            sc,
+            extra_filters=lambda q: (
+                q.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
+                .not_.is_("channel_name", "null")
+                .gt("current_subscribers", 0)
+            ),
         )
-        data["fresh_7d"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .gte("last_synced_at", cutoff_7d)
-            .execute()
-            .count
-            or 0
-        )
-        data["fresh_7_30d"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .lt("last_synced_at", cutoff_7d)
-            .gte("last_synced_at", cutoff_30d)
-            .execute()
-            .count
-            or 0
-        )
-        data["stale_30_90d"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .lt("last_synced_at", cutoff_30d)
-            .gte("last_synced_at", cutoff_90d)
-            .execute()
-            .count
-            or 0
-        )
-        data["stale_90d"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .lt("last_synced_at", cutoff_90d)
-            .execute()
-            .count
-            or 0
-        )
+
+        # Freshness tiers — driven by _FRESHNESS_TIERS so boundaries stay consistent.
+        for key, lo_days, hi_days in _FRESHNESS_TIERS:
+
+            def _freshness_filter(q, lo=lo_days, hi=hi_days):
+                q = q.eq("sync_status", "synced")
+                if lo > 0:
+                    q = q.lt("last_synced_at", _cutoffs[lo])
+                if hi is not None:
+                    q = q.gte("last_synced_at", _cutoffs[hi])
+                return q
+
+            data[key] = _count_creators(sc, extra_filters=_freshness_filter)
+
         # keep stale_30d as total stale (>30d) for backward compat with existing view
         data["stale_30d"] = data["stale_30_90d"] + data["stale_90d"]
-        data["never_synced"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .is_("last_synced_at", "null")
-            .execute()
-            .count
-            or 0
+
+        data["never_synced"] = _count_creators(
+            sc, extra_filters=lambda q: q.is_("last_synced_at", "null")
         )
     except Exception:
         logger.exception("[Admin] Creator inventory queries failed")
 
     # ── Data quality (synced pool) ─────────────────────────────────────────────
     try:
-        data["creators_with_engagement"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .gt("engagement_score", 0)
-            .execute()
-            .count
-            or 0
+        data["creators_with_engagement"] = _count_creators(
+            sc, status="synced", extra_filters=lambda q: q.gt("engagement_score", 0)
         )
-        data["creators_with_grade"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .not_.is_("quality_grade", "null")
-            .execute()
-            .count
-            or 0
+        data["creators_with_grade"] = _count_creators(
+            sc, status="synced", extra_filters=lambda q: q.not_.is_("quality_grade", "null")
         )
-        data["creators_with_recent_perf"] = (
-            sc.table("creators")
-            .select("id", count="exact")
-            .eq("sync_status", "synced")
-            .not_.is_("avg_views_10", "null")
-            .execute()
-            .count
-            or 0
+        data["creators_with_recent_perf"] = _count_creators(
+            sc, status="synced", extra_filters=lambda q: q.not_.is_("avg_views_10", "null")
         )
         # Approximate category / country coverage via top-N RPCs
         # (exact DISTINCT counts live in mv_lists_meta but may be stale)

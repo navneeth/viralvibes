@@ -725,7 +725,7 @@ def render_creators_page(
     # NOTE: _filter_valid_creators is intentionally NOT called here.
     # db.get_creators() already applies the same conditions:
     #   channel_name IS NOT NULL, current_subscribers > 0,
-    #   sync_status IN ("synced", "synced_partial")
+    #   sync_status IN BROWSEABLE_SYNC_STATUSES  (constants.py)
     # Applying a second filter on the paginated list would silently reduce the page
     # size while total_count (used for pagination math) stays based on the DB count,
     # making some pages appear to have fewer results than expected.

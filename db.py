@@ -26,6 +26,7 @@ from tenacity import (
 )
 
 from constants import (
+    BROWSEABLE_SYNC_STATUSES,
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
@@ -3274,7 +3275,7 @@ def get_creators(
         # mirror the synced ones (008, 028, 043). PostgreSQL satisfies the IN()
         # condition via BitmapOr(idx_synced, idx_synced_partial) rather than a
         # full table scan.
-        query = query.in_("sync_status", ["synced", "synced_partial"])
+        query = query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
 
         # Apply search filter
         if search:
