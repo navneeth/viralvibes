@@ -845,7 +845,8 @@ def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False
     """
     # Extract only the metrics actually used in hero rendering
     total_creators = stats.get("total_creators", 0)  # synced-only (filter denominator)
-    total_db_creators = stats.get("total_db_creators") or total_creators  # all rows in DB
+    _total_db_val = stats.get("total_db_creators")
+    total_db_creators = total_creators if _total_db_val is None else _total_db_val  # all rows in DB
     total_countries = stats.get("total_countries", 0)
     total_languages = stats.get("total_languages", 0)
     total_categories = stats.get("total_categories", 0)
