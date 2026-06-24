@@ -217,3 +217,22 @@ def format_date_relative(date_str: str | None) -> str:
 
     except Exception:
         return "Unknown"
+
+
+def is_data_stale(date_str: str | None, threshold_days: int = 30) -> bool:
+    """Return True when *date_str* is older than or equal to *threshold_days* (default 30).
+
+    Used to flag creator records whose last_synced_at predates the threshold so
+    the UI can surface an amber staleness warning.  Returns False when the date
+    is unparseable or absent (fail-safe: don't warn on missing data).
+    """
+    if not date_str:
+        return False
+    try:
+        clean = date_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).days >= threshold_days
+    except (ValueError, TypeError):
+        return False
