@@ -117,18 +117,29 @@ def _fetch_admin_data() -> dict:
     cutoff_1h = (now - timedelta(hours=1)).isoformat()
     cutoff_7d = (now - timedelta(days=7)).isoformat()
     cutoff_30d = (now - timedelta(days=30)).isoformat()
+    cutoff_90d = (now - timedelta(days=90)).isoformat()
 
     data: dict = {
         # Creator inventory
         "total_creators": 0,
         "synced": 0,
+        "synced_partial": 0,
         "pending_creators": 0,
         "failed_creators": 0,
         "invalid_creators": 0,
         "visible": 0,
         "fresh_7d": 0,
+        "fresh_7_30d": 0,
+        "stale_30_90d": 0,
+        "stale_90d": 0,
         "stale_30d": 0,
         "never_synced": 0,
+        # Data quality
+        "creators_with_engagement": 0,
+        "creators_with_grade": 0,
+        "creators_with_recent_perf": 0,
+        "distinct_categories": 0,
+        "distinct_countries": 0,
         # Job queue
         "queue_pending": 0,
         "queue_processing": 0,
@@ -163,6 +174,7 @@ def _fetch_admin_data() -> dict:
         )
         for col, status in [
             ("synced", "synced"),
+            ("synced_partial", "synced_partial"),
             ("pending_creators", "pending"),
             ("failed_creators", "failed"),
             ("invalid_creators", "invalid"),
@@ -178,7 +190,7 @@ def _fetch_admin_data() -> dict:
         data["visible"] = (
             sc.table("creators")
             .select("id", count="exact")
-            .eq("sync_status", "synced")
+            .in_("sync_status", ["synced", "synced_partial"])
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .execute()
@@ -194,15 +206,37 @@ def _fetch_admin_data() -> dict:
             .count
             or 0
         )
-        data["stale_30d"] = (
+        data["fresh_7_30d"] = (
             sc.table("creators")
             .select("id", count="exact")
             .eq("sync_status", "synced")
-            .lt("last_synced_at", cutoff_30d)
+            .lt("last_synced_at", cutoff_7d)
+            .gte("last_synced_at", cutoff_30d)
             .execute()
             .count
             or 0
         )
+        data["stale_30_90d"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .lt("last_synced_at", cutoff_30d)
+            .gte("last_synced_at", cutoff_90d)
+            .execute()
+            .count
+            or 0
+        )
+        data["stale_90d"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .lt("last_synced_at", cutoff_90d)
+            .execute()
+            .count
+            or 0
+        )
+        # keep stale_30d as total stale (>30d) for backward compat with existing view
+        data["stale_30d"] = data["stale_30_90d"] + data["stale_90d"]
         data["never_synced"] = (
             sc.table("creators")
             .select("id", count="exact")
@@ -213,6 +247,50 @@ def _fetch_admin_data() -> dict:
         )
     except Exception:
         logger.exception("[Admin] Creator inventory queries failed")
+
+    # ── Data quality (synced pool) ─────────────────────────────────────────────
+    try:
+        data["creators_with_engagement"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .gt("engagement_score", 0)
+            .execute()
+            .count
+            or 0
+        )
+        data["creators_with_grade"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .not_.is_("quality_grade", "null")
+            .execute()
+            .count
+            or 0
+        )
+        data["creators_with_recent_perf"] = (
+            sc.table("creators")
+            .select("id", count="exact")
+            .eq("sync_status", "synced")
+            .not_.is_("avg_views_10", "null")
+            .execute()
+            .count
+            or 0
+        )
+        # Approximate category / country coverage via top-N RPCs
+        # (exact DISTINCT counts live in mv_lists_meta but may be stale)
+        try:
+            cat_resp = sc.rpc("get_top_categories_with_counts", {"p_limit": 200}).execute()
+            data["distinct_categories"] = len(cat_resp.data or [])
+        except Exception:
+            data["distinct_categories"] = 0
+        try:
+            cty_resp = sc.rpc("get_top_countries_with_counts", {"p_limit": 300}).execute()
+            data["distinct_countries"] = len(cty_resp.data or [])
+        except Exception:
+            data["distinct_countries"] = 0
+    except Exception:
+        logger.exception("[Admin] Data quality queries failed")
 
     # ── Job queue ──────────────────────────────────────────────────────────────
     try:

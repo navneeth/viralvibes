@@ -37,6 +37,7 @@ _COLOR = {
 
 _BAR_COLOR = {
     "synced": "bg-green-500",
+    "synced_partial": "bg-blue-400",
     "pending": "bg-yellow-400",
     "failed": "bg-red-500",
     "invalid": "bg-gray-400",
@@ -276,7 +277,9 @@ def _InventorySection(data: dict) -> Div:
         ),
         Grid(
             _StatCard("Total in DB", total, "all records", "blue"),
-            _StatCard("Visible", data["visible"], "synced + named + has subscribers", "green"),
+            _StatCard(
+                "Visible", data["visible"], "synced + synced_partial + named + subs", "green"
+            ),
             _StatCard("Invisible", invisible, "not yet synced, failed, or invalid", "gray"),
             _StatCard("Fresh (<7d)", data["fresh_7d"], "synced within last 7 days", "green"),
             _StatCard(
@@ -350,6 +353,87 @@ def _WorkerSection(data: dict) -> Div:
     return Grid(throughput_card, drain_card, cols_md=2, gap=4, cls="mb-6")
 
 
+def _FreshnessSection(data: dict) -> Div:
+    """Four-tier freshness breakdown for synced creators."""
+    synced = data.get("synced", 0)
+    fresh_7d = data.get("fresh_7d", 0)
+    fresh_7_30d = data.get("fresh_7_30d", 0)
+    stale_30_90d = data.get("stale_30_90d", 0)
+    stale_90d = data.get("stale_90d", 0)
+
+    def _bar(label, count, color):
+        pct = round(count / synced * 100, 1) if synced else 0.0
+        bar_w = max(int(pct), 2) if count > 0 else 0
+        return Div(
+            Span(label, cls="text-sm font-medium w-36 inline-block"),
+            Div(
+                Div(cls=f"{color} h-3 rounded-full", style=f"width:{bar_w}%"),
+                cls="flex-1 bg-accent rounded-full mx-3 h-3",
+            ),
+            Span(f"{count:,}", cls="text-sm font-mono text-muted-foreground w-24 text-right"),
+            Span(f"{pct}%", cls="text-sm font-mono text-muted-foreground w-14 text-right"),
+            cls="flex items-center py-1",
+        )
+
+    return Card(
+        H3(
+            "Sync Freshness (synced creators)",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _bar("< 7 days", fresh_7d, "bg-green-500"),
+        _bar("7 – 30 days", fresh_7_30d, "bg-lime-400"),
+        _bar("30 – 90 days", stale_30_90d, "bg-orange-400"),
+        _bar("> 90 days", stale_90d, "bg-red-500"),
+        body_cls="p-5 space-y-1",
+        cls="mb-6",
+    )
+
+
+def _DataQualitySection(data: dict) -> Div:
+    """Data completeness metrics for the synced creator pool."""
+    synced = data.get("synced", 0)
+
+    def _pct(n):
+        return f"{n / synced * 100:.1f}%" if synced else "—"
+
+    engagement = data.get("creators_with_engagement", 0)
+    grade = data.get("creators_with_grade", 0)
+    recent_perf = data.get("creators_with_recent_perf", 0)
+    categories = data.get("distinct_categories", 0)
+    countries = data.get("distinct_countries", 0)
+
+    quality_card = Card(
+        H3(
+            "Data Completeness (synced)",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _KVRow(
+            "Engagement score",
+            f"{engagement:,}  ({_pct(engagement)})",
+            warn=engagement < synced * 0.5,
+        ),
+        _KVRow("Quality grade", f"{grade:,}  ({_pct(grade)})", warn=grade < synced * 0.5),
+        _KVRow(
+            "Recent perf (last 10 vids)",
+            f"{recent_perf:,}  ({_pct(recent_perf)})",
+            warn=recent_perf < synced * 0.3,
+        ),
+        body_cls="p-5",
+    )
+
+    coverage_card = Card(
+        H3(
+            "Taxonomy Coverage",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _KVRow("Distinct categories", f"{categories:,}"),
+        _KVRow("Distinct countries", f"{countries:,}"),
+        body_cls="p-5",
+    )
+
+    return Grid(quality_card, coverage_card, cols_md=2, gap=4, cls="mb-6")
+
+
 def _OutreachSection(data: dict) -> Div:
     """
     Contact signals & outreach stats.
@@ -405,6 +489,7 @@ def _BreakdownSection(data: dict) -> Div:
     total = data["total_creators"]
     breakdown = {
         "synced": data["synced"],
+        "synced_partial": data.get("synced_partial", 0),
         "pending": data["pending_creators"],
         "failed": data["failed_creators"],
         "invalid": data["invalid_creators"],
@@ -416,7 +501,7 @@ def _BreakdownSection(data: dict) -> Div:
         ),
         *[
             _StatusBar(k, breakdown[k], total, _BAR_COLOR.get(k, "bg-gray-300"))
-            for k in ("synced", "pending", "failed", "invalid")
+            for k in ("synced", "synced_partial", "pending", "failed", "invalid")
         ],
         body_cls="p-5 space-y-1",
         cls="mb-6",
@@ -484,6 +569,8 @@ def AdminPage(data: dict, refreshed_at: str = "") -> FT:
         Container(
             _QueueSection(data),
             _InventorySection(data),
+            _FreshnessSection(data),
+            _DataQualitySection(data),
             _WorkerSection(data),
             _OutreachSection(data),
             _BreakdownSection(data),
