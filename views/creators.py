@@ -2321,7 +2321,9 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     channel_url = (
         safe_get_value(creator, "channel_url") or f"https://youtube.com/channel/{channel_id}"
     )
-    quality_grade = safe_get_value(creator, "quality_grade", "C")
+    # Default to None (not "C") so synced_partial creators don't inherit a false grade.
+    # The grade pill in _build_card_header is already suppressed when quality_grade is falsy.
+    quality_grade = safe_get_value(creator, "quality_grade", None)
     rank = safe_get_value(creator, "_rank", "—")
     thumbnail_url = (
         safe_get_value(creator, "channel_thumbnail_url")
@@ -2349,7 +2351,14 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     # === STATUS & STYLING ===
     sync_status = safe_get_value(creator, "sync_status", "pending")
     sync_badge_info = get_sync_status_badge(sync_status)
-    card_border = f"border-l-4 border-amber-400" if sync_status != "synced" else ""
+    # synced_partial: slate border (informative, not alarming).
+    # Other non-synced states (pending/failed/invalid): amber border (action needed).
+    if sync_status == "synced_partial":
+        card_border = "border-l-4 border-slate-300 dark:border-slate-600"
+    elif sync_status != "synced":
+        card_border = "border-l-4 border-amber-400"
+    else:
+        card_border = ""
 
     grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
     growth_label, growth_style = get_growth_signal(growth_rate)
@@ -3078,7 +3087,7 @@ def render_creator_profile_page(
     keywords = safe_get_value(creator, "keywords", "")
     country_code = safe_get_value(creator, "country_code", "")
     language = safe_get_value(creator, "default_language", "")
-    quality_grade = safe_get_value(creator, "quality_grade", "C")
+    quality_grade = safe_get_value(creator, "quality_grade", None)
     official = safe_get_value(creator, "official", False)
     hidden_subs = safe_get_value(creator, "hidden_subscriber_count", False)
     primary_category = safe_get_value(creator, "primary_category", "")

@@ -230,9 +230,24 @@ def get_sync_status_badge(sync_status: str) -> Optional[Tuple[str, str, str]]:
         Tuple of (emoji, label, style_classes) or None if synced
     """
     badge_map = {
-        "pending": ("⏳", "Syncing", "bg-amber-100 text-amber-800"),
-        "invalid": ("⚠️", "Invalid", "bg-red-100 text-red-800"),
-        "failed": ("❌", "Error", "bg-orange-100 text-orange-800"),
+        "pending": (
+            "⏳",
+            "Syncing",
+            "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+        ),
+        "invalid": ("⚠️", "Invalid", "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"),
+        "failed": (
+            "❌",
+            "Error",
+            "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+        ),
+        # synced_partial: basic fields only (subs/views/videos), analytics not yet scored.
+        # Neutral slate — not alarming, just informative.
+        "synced_partial": (
+            "📋",
+            "Basic data",
+            "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+        ),
     }
     return badge_map.get(sync_status, None)
 
