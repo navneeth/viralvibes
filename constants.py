@@ -354,6 +354,11 @@ CREATOR_SYNC_JOBS_TABLE = "creator_sync_jobs"
 USER_FAVOURITE_CREATORS_TABLE = "user_favourite_creators"
 USER_FAVOURITE_LISTS_TABLE = "user_favourite_lists"
 
+# Sync statuses that produce browseable creator records (have channel_name,
+# current_subscribers and enough fields for cards and ranking pages).
+# Used by get_creators() and admin inventory counts.
+BROWSEABLE_SYNC_STATUSES: tuple[str, ...] = ("synced", "synced_partial")
+
 # Update frequency (frugal)
 CREATOR_WORKER_BATCH_SIZE = 2  # Process at a time
 CREATOR_WORKER_POLL_INTERVAL = 300  # 5 minutes

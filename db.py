@@ -26,6 +26,7 @@ from tenacity import (
 )
 
 from constants import (
+    BROWSEABLE_SYNC_STATUSES,
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
@@ -3264,13 +3265,17 @@ def get_creators(
         # Using .not_.is_() for NULL check - only works after .select() is called
         query = query.not_.is_("channel_name", "null")
         query = query.gt("current_subscribers", 0)
-        # Only show fully-synced creators — mirrors calculate_creator_stats() behaviour.
-        # Excludes "pending" / "error" rows that have no real stats yet, which would
-        # otherwise appear as blank cards and skew pagination counts.
-        # NOTE: must stay as .eq("synced") — partial indexes (migrations 008, 028, etc.)
-        # are all defined WHERE sync_status = 'synced'. Using IN ('synced', 'pending')
-        # disqualifies every partial index and forces a full table scan.
-        query = query.eq("sync_status", "synced")
+        # Include synced_partial creators alongside fully-synced ones so that
+        # creators with basic data (channel_name, subscribers, views) appear on
+        # browse and ranking pages.  synced_partial rows have all listing fields
+        # populated but may be missing engagement_score / quality_grade / recent
+        # performance columns — card components already degrade gracefully on None.
+        #
+        # Performance: migration 045 adds synced_partial partial indexes that
+        # mirror the synced ones (008, 028, 043). PostgreSQL satisfies the IN()
+        # condition via BitmapOr(idx_synced, idx_synced_partial) rather than a
+        # full table scan.
+        query = query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
 
         # Apply search filter
         if search:
