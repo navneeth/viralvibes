@@ -534,7 +534,7 @@ def _JobsSection(jobs: list[dict]) -> Div:
         body_cls="p-5",
         id="jobs-panel",
         hx_get="/admin/jobs",
-        hx_trigger="every 30s",
+        hx_trigger="every 5m",
         hx_swap="outerHTML",
     )
 

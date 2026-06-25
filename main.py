@@ -953,7 +953,7 @@ def submit_job(playlist_url: str, req, sess):
     # Instead of polling instruction, show the full engagement screen
     return Div(
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="load, every 2s",
+        hx_trigger="load, every 5s",
         hx_swap="outerHTML",
         id="preview-box",
         children=[
@@ -1026,7 +1026,7 @@ def check_job_status(playlist_url: str, req, sess):
             ),
             # Continue polling this endpoint
             hx_get=f"/check-job-status?playlist_url={quote_plus(playlist_url)}",
-            hx_trigger="every 3s",  # Poll every 3 seconds
+            hx_trigger="every 8s",  # Poll every 8 seconds
             hx_swap="outerHTML",  # Replace the entire div with the new response
         )
 

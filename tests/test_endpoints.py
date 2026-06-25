@@ -364,7 +364,7 @@ class TestJobSubmission:
         1. User clicks "Analyze" or auto-submit triggers
         2. POST /submit-job
         3. Job created in database
-        4. Returns div with hx-get="/job-progress" + hx-trigger="every 2s"
+        4. Returns div with hx-get="/job-progress" + hx-trigger with interval
         """
         called = {}
 
@@ -401,9 +401,7 @@ class TestJobSubmission:
         assert (
             'hx-get="/job-progress' in html or 'hx-get="/job-progress' in html
         ), "Response missing HTMX polling trigger"
-        assert (
-            'hx-trigger="load, every 2s"' in html or "every 2s" in html
-        ), "Response missing polling interval"
+        assert "hx-trigger" in html and "every" in html, "Response missing polling interval"
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
     def test_submit_job_handles_duplicate_submission(self, authenticated_client, monkeypatch):
@@ -492,7 +490,7 @@ class TestJobProgress:
         1. GET /job-progress
         2. Job status = processing, progress = 25%
         3. Returns progress UI with stats
-        4. Includes hx-trigger="every 2s" for continued polling
+        4. Includes hx-trigger with polling interval for continued polling
         """
         monkeypatch.setattr(
             "controllers.job_progress.get_job_progress",
@@ -514,7 +512,7 @@ class TestJobProgress:
 
         # Should continue polling
         assert 'hx-get="/job-progress' in r.text
-        assert 'hx-trigger="every 2s"' in r.text
+        assert "hx-trigger=" in r.text and "every" in r.text
 
     def test_job_progress_redirects_on_completion(self, authenticated_client, monkeypatch):
         """
@@ -543,7 +541,7 @@ class TestJobProgress:
         assert "window.location.href" in r.text or "complete" in r.text.lower()
 
         # Should NOT have polling trigger
-        assert 'hx-trigger="every 2s"' not in r.text
+        assert 'hx-trigger="every' not in r.text
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
     def test_job_progress_shows_error_on_failure(self, authenticated_client, monkeypatch):
@@ -576,7 +574,7 @@ class TestJobProgress:
         assert "Network timeout" in r.text
 
         # Should NOT poll
-        assert 'hx-trigger="every 2s"' not in r.text
+        assert 'hx-trigger="every' not in r.text
 
     def test_job_progress_shows_blocked_state(self, authenticated_client, monkeypatch):
         """Test blocked job shows appropriate warning message."""
