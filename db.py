@@ -1610,6 +1610,11 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
         logger.warning("Supabase client not available to get creator stats")
         return None
 
+    # Guard against string "null" / empty strings that crash the UUID column
+    if not creator_id or str(creator_id).strip().lower() in ("null", "none", ""):
+        logger.warning("get_creator_stats called with invalid creator_id: %r", creator_id)
+        return None
+
     try:
         response = _db_execute(
             lambda: supabase_client.table(CREATOR_TABLE)
@@ -1828,7 +1833,7 @@ def get_creator_rank(
     def _fetch_rank():
         resp = (
             supabase_client.table(CREATOR_TABLE)
-            .select("id", count="exact")
+            .select("id", count="estimated")
             .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", current_subscribers)
