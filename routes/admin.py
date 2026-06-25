@@ -107,20 +107,31 @@ _FRESHNESS_TIERS: tuple[tuple[str, int, int | None], ...] = (
 )
 
 
-def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int:
-    """Return a COUNT(*) for the creators table with optional sync_status filter.
+def _count(sc, table: str, extra_filters=None) -> int:
+    """Generic COUNT(*) helper for any table.
 
     Args:
         sc: Supabase client.
-        status: If given, adds .eq("sync_status", status).
+        table: Table name.
         extra_filters: Optional callable(query) -> query for additional filters.
     """
-    q = sc.table("creators").select("id", count="exact")
-    if status is not None:
-        q = q.eq("sync_status", status)
+    q = sc.table(table).select("id", count="exact")
     if extra_filters is not None:
         q = extra_filters(q)
     return q.execute().count or 0
+
+
+def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int:
+    """Return a COUNT(*) for the creators table with optional sync_status filter."""
+
+    def _f(q):
+        if status is not None:
+            q = q.eq("sync_status", status)
+        if extra_filters is not None:
+            q = extra_filters(q)
+        return q
+
+    return _count(sc, "creators", _f)
 
 
 def _fetch_admin_data() -> dict:
@@ -132,8 +143,10 @@ def _fetch_admin_data() -> dict:
     query (e.g. missing column) degrades that section only, not the whole page.
     """
     now = datetime.now(timezone.utc)
-    cutoff_24h = (now - timedelta(hours=24)).isoformat()
     cutoff_1h = (now - timedelta(hours=1)).isoformat()
+    cutoff_24h = (now - timedelta(hours=24)).isoformat()
+    cutoff_7d = (now - timedelta(days=7)).isoformat()
+    cutoff_30d = (now - timedelta(days=30)).isoformat()
 
     # Freshness cutoffs derived from _FRESHNESS_TIERS so the two are always in sync.
     _tier_days = sorted({d for _, lo, hi in _FRESHNESS_TIERS for d in (lo, hi) if d is not None})
@@ -178,6 +191,24 @@ def _fetch_admin_data() -> dict:
         "creators_with_email": 0,
         "creators_with_instagram": 0,
         "last_contact_extracted_at": None,
+        # Users & growth
+        "total_users": 0,
+        "users_new_7d": 0,
+        "users_new_30d": 0,
+        "users_completed_oauth": 0,
+        "users_active_30d": 0,
+        "users_never_returned": 0,
+        # Revenue & plans
+        "plan_active_paid": 0,
+        "plan_pro_monthly": 0,
+        "plan_pro_annual": 0,
+        "plan_trialing": 0,
+        "plan_past_due": 0,
+        # Engagement
+        "total_favourites": 0,
+        # Contact inquiries inbox
+        "inquiries_new_7d": 0,
+        "inquiries_unforwarded": 0,
         # Recent jobs table
         "recent_jobs": [],
     }
@@ -427,6 +458,56 @@ def _fetch_admin_data() -> dict:
         )
     except Exception:
         logger.exception("[Admin] Failed job breakdown query failed")
+
+    # ── Users & Growth ────────────────────────────────────────────────────────
+    try:
+        data["total_users"] = _count(sc, "users")
+        data["users_new_7d"] = _count(sc, "users", lambda q: q.gte("created_at", cutoff_7d))
+        data["users_new_30d"] = _count(sc, "users", lambda q: q.gte("created_at", cutoff_30d))
+        data["users_completed_oauth"] = _count(sc, "auth_providers")
+        data["users_active_30d"] = _count(sc, "users", lambda q: q.gte("last_login_at", cutoff_30d))
+        data["users_never_returned"] = _count(sc, "users", lambda q: q.is_("last_login_at", "null"))
+    except Exception:
+        logger.exception("[Admin] Users & growth queries failed")
+
+    # ── Revenue & Plans ───────────────────────────────────────────────────────
+    try:
+        data["plan_active_paid"] = _count(
+            sc, "subscriptions", lambda q: q.eq("status", "active").neq("plan", "free")
+        )
+        data["plan_pro_monthly"] = _count(
+            sc,
+            "subscriptions",
+            lambda q: q.eq("status", "active").neq("plan", "free").eq("interval", "month"),
+        )
+        data["plan_pro_annual"] = _count(
+            sc,
+            "subscriptions",
+            lambda q: q.eq("status", "active").neq("plan", "free").eq("interval", "year"),
+        )
+        data["plan_trialing"] = _count(sc, "subscriptions", lambda q: q.eq("status", "trialing"))
+        data["plan_past_due"] = _count(sc, "subscriptions", lambda q: q.eq("status", "past_due"))
+    except Exception:
+        logger.exception("[Admin] Revenue & plans queries failed")
+
+    # ── Engagement ────────────────────────────────────────────────────────────
+    try:
+        data["total_favourites"] = _count(sc, "user_favourite_creators")
+    except Exception:
+        logger.exception("[Admin] Engagement queries failed")
+
+    # ── Contact inquiries inbox ───────────────────────────────────────────────
+    try:
+        data["inquiries_new_7d"] = _count(
+            sc, "contact_inquiries", lambda q: q.gte("created_at", cutoff_7d)
+        )
+        data["inquiries_unforwarded"] = _count(
+            sc,
+            "contact_inquiries",
+            lambda q: q.is_("forwarded_at", "null").is_("forward_error", "null"),
+        )
+    except Exception:
+        logger.exception("[Admin] Contact inquiries queries failed")
 
     return data
 
