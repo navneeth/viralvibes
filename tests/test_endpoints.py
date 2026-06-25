@@ -9,6 +9,7 @@ Test Organization:
 5. Dashboard (/d/{id})
 """
 
+import re
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Optional
@@ -401,7 +402,7 @@ class TestJobSubmission:
         assert (
             'hx-get="/job-progress' in html or 'hx-get="/job-progress' in html
         ), "Response missing HTMX polling trigger"
-        assert "hx-trigger" in html and "every" in html, "Response missing polling interval"
+        assert re.search(r'hx-trigger="[^"]*every \d+s', html), "Response missing polling interval"
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
     def test_submit_job_handles_duplicate_submission(self, authenticated_client, monkeypatch):
@@ -512,7 +513,10 @@ class TestJobProgress:
 
         # Should continue polling
         assert 'hx-get="/job-progress' in r.text
-        assert "hx-trigger=" in r.text and "every" in r.text
+        assert re.search(
+            r'hx-trigger="[^"]*every \d+s',
+            r.text,
+        ), "Response missing polling interval for job-progress"
 
     def test_job_progress_redirects_on_completion(self, authenticated_client, monkeypatch):
         """
