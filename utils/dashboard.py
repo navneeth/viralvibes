@@ -7,6 +7,8 @@ import html
 import re
 from datetime import datetime, timezone
 
+from utils.dates import parse_iso_utc
+
 
 def normalize_playlist_url(url: str) -> str:
     """Normalize playlist URL by removing query parameters."""
@@ -42,7 +44,7 @@ def compute_time_metrics(started_at_str: str | None, progress: float):
         Tuple of (elapsed_seconds, remaining_seconds)
     """
     try:
-        started_at = datetime.fromisoformat(started_at_str) if started_at_str else None
+        started_at = parse_iso_utc(started_at_str)
         now = datetime.now(timezone.utc)
         elapsed = (now - started_at).total_seconds() if started_at else 0
     except Exception:
