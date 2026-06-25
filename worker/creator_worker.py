@@ -655,7 +655,7 @@ def _build_recent_video_intelligence(
             category_counts[category_id] = category_counts.get(category_id, 0) + 1
         if published_at:
             try:
-                published_dates.append(datetime.fromisoformat(published_at.replace("Z", "+00:00")))
+                published_dates.append(datetime.fromisoformat(published_at))
             except ValueError:
                 pass
         if views > 0:
@@ -907,7 +907,7 @@ async def _fetch_recent_performance_stats(channel_id: str) -> dict:
             raw_date = item.get("contentDetails", {}).get("videoPublishedAt")
             if raw_date:
                 try:
-                    published_dates.append(datetime.fromisoformat(raw_date.replace("Z", "+00:00")))
+                    published_dates.append(datetime.fromisoformat(raw_date))
                 except ValueError:
                     pass
 

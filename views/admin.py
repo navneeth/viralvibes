@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from fasthtml.common import *
 from monsterui.all import *
 
+from utils.dates import parse_iso_utc
+
 
 def _parse_iso_utc(s: str | None) -> datetime | None:
     """Parse an ISO-8601 timestamp (with or without trailing Z) to a UTC-aware datetime."""
@@ -541,7 +543,9 @@ def _JobsSection(jobs: list[dict]) -> Div:
         body,
         body_cls="p-5",
         id="jobs-panel",
-        **{"hx-get": "/admin/jobs", "hx-trigger": "every 30s", "hx-swap": "outerHTML"},
+        hx_get="/admin/jobs",
+        hx_trigger="every 30s",
+        hx_swap="outerHTML",
     )
 
 

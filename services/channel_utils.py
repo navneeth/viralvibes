@@ -635,7 +635,7 @@ def calculate_channel_age(published_at: Optional[str]) -> Optional[int]:
 
     try:
         # Parse ISO 8601 datetime
-        published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        published = datetime.fromisoformat(published_at)
         now = datetime.now(timezone.utc)
         delta = now - published
         return delta.days

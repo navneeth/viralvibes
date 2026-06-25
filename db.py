@@ -2783,7 +2783,7 @@ def get_or_create_creator_from_playlist(
                 sync_threshold = CREATOR_REDISCOVERY_THRESHOLD_DAYS
 
                 if last_synced:
-                    last_synced_dt = datetime.fromisoformat(last_synced.replace("Z", "+00:00"))
+                    last_synced_dt = datetime.fromisoformat(last_synced)
                     days_since_sync = (datetime.now(timezone.utc) - last_synced_dt).days
                     should_queue = days_since_sync >= sync_threshold
 

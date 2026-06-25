@@ -42,11 +42,7 @@ def compute_time_metrics(started_at_str: str | None, progress: float):
         Tuple of (elapsed_seconds, remaining_seconds)
     """
     try:
-        started_at = (
-            datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
-            if started_at_str
-            else None
-        )
+        started_at = datetime.fromisoformat(started_at_str) if started_at_str else None
         now = datetime.now(timezone.utc)
         elapsed = (now - started_at).total_seconds() if started_at else 0
     except Exception:

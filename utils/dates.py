@@ -11,6 +11,23 @@ from constants import TimeEstimates
 logger = logging.getLogger(__name__)
 
 
+def parse_iso_utc(s: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp to a UTC-aware datetime.
+
+    Handles the trailing ``Z`` suffix natively (Python 3.12+).
+    Returns ``None`` when *s* is absent, empty, or unparseable — never raises.
+    """
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, AttributeError):
+        return None
+
+
 def format_duration(seconds: int) -> str:
     """
     Convert seconds into a human-readable duration string (e.g., 1:30, 2:15:45).
@@ -145,19 +162,10 @@ def format_date_simple(date_str: str | None) -> str:
     """
     if not date_str:
         return "Recently"
-
-    try:
-        # Handle both datetime and date strings
-        if isinstance(date_str, str):
-            # Remove timezone info for parsing
-            clean_date = date_str.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(clean_date)
-        else:
-            dt = date_str
-
-        return dt.strftime("%b %d, %Y")
-    except Exception:
+    dt = parse_iso_utc(date_str) if isinstance(date_str, str) else date_str
+    if dt is None:
         return "Recently"
+    return dt.strftime("%b %d, %Y")
 
 
 def format_date_relative(date_str: str | None) -> str:
@@ -186,37 +194,27 @@ def format_date_relative(date_str: str | None) -> str:
     if not date_str:
         return "Never updated"
 
-    try:
-        # Parse datetime and ensure timezone-aware
-        clean_date = date_str.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(clean_date)
-
-        # Ensure dt is timezone-aware
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-
-        now = datetime.now(timezone.utc)
-
-        # Calculate difference between two timezone-aware datetimes
-        diff = now - dt
-
-        # Format based on age
-        if diff.days == 0:
-            hours = diff.seconds // 3600
-            if hours == 0:
-                minutes = diff.seconds // 60
-                return f"{minutes}m ago" if minutes > 0 else "Just now"
-            return f"{hours}h ago"
-        elif diff.days == 1:
-            return "Yesterday"
-        elif diff.days < 7:
-            return f"{diff.days}d ago"
-        else:
-            # Fall back to simple date for older dates
-            return dt.strftime("%b %d, %Y")
-
-    except Exception:
+    dt = parse_iso_utc(date_str)
+    if dt is None:
         return "Unknown"
+
+    now = datetime.now(timezone.utc)
+    diff = now - dt
+
+    # Format based on age
+    if diff.days == 0:
+        hours = diff.seconds // 3600
+        if hours == 0:
+            minutes = diff.seconds // 60
+            return f"{minutes}m ago" if minutes > 0 else "Just now"
+        return f"{hours}h ago"
+    elif diff.days == 1:
+        return "Yesterday"
+    elif diff.days < 7:
+        return f"{diff.days}d ago"
+    else:
+        # Fall back to simple date for older dates
+        return dt.strftime("%b %d, %Y")
 
 
 def is_data_stale(date_str: str | None, threshold_days: int = 30) -> bool:
@@ -226,13 +224,7 @@ def is_data_stale(date_str: str | None, threshold_days: int = 30) -> bool:
     the UI can surface an amber staleness warning.  Returns False when the date
     is unparseable or absent (fail-safe: don't warn on missing data).
     """
-    if not date_str:
+    dt = parse_iso_utc(date_str)
+    if dt is None:
         return False
-    try:
-        clean = date_str.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(clean)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - dt).days >= threshold_days
-    except (ValueError, TypeError):
-        return False
+    return (datetime.now(timezone.utc) - dt).days >= threshold_days

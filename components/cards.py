@@ -1002,7 +1002,7 @@ def PlaylistPreviewCard(
         try:
             # Assume datetime is imported outside; handle ISO formats
             if "T" in published_at:
-                dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(published_at)
             else:
                 dt = datetime.fromisoformat(published_at)
             published_display = dt.strftime("%B %d, %Y")
