@@ -12,15 +12,7 @@ from datetime import datetime, timezone
 from fasthtml.common import *
 from monsterui.all import *
 
-
-def _parse_iso_utc(s: str | None) -> datetime | None:
-    """Parse an ISO-8601 timestamp (with or without trailing Z) to a UTC-aware datetime."""
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        return None
+from utils.dates import parse_iso_utc
 
 
 # ── Colour maps ───────────────────────────────────────────────────────────────
@@ -153,8 +145,8 @@ def _JobRow(job: dict) -> Tr:
 
     # Per-job duration
     duration = "—"
-    s_dt = _parse_iso_utc(job.get("started_at"))
-    c_dt = _parse_iso_utc(job.get("completed_at"))
+    s_dt = parse_iso_utc(job.get("started_at"))
+    c_dt = parse_iso_utc(job.get("completed_at"))
     if s_dt and c_dt:
         dur = (c_dt - s_dt).total_seconds()
         if dur >= 0:
@@ -166,7 +158,7 @@ def _JobRow(job: dict) -> Tr:
     # Age of last update
     age_ts = job.get("completed_at") or job.get("created_at")
     age = "—"
-    age_dt = _parse_iso_utc(age_ts)
+    age_dt = parse_iso_utc(age_ts)
     if age_dt:
         secs = int((datetime.now(timezone.utc) - age_dt).total_seconds())
         age = _fmt_ago(secs)
@@ -541,7 +533,9 @@ def _JobsSection(jobs: list[dict]) -> Div:
         body,
         body_cls="p-5",
         id="jobs-panel",
-        **{"hx-get": "/admin/jobs", "hx-trigger": "every 30s", "hx-swap": "outerHTML"},
+        hx_get="/admin/jobs",
+        hx_trigger="every 30s",
+        hx_swap="outerHTML",
     )
 
 

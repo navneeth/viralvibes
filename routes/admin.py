@@ -23,21 +23,12 @@ from starlette.responses import Response as StarletteResponse
 import db as _db
 from constants import BROWSEABLE_SYNC_STATUSES
 from services.contact_extractor import ContactExtractorService
+from utils.dates import parse_iso_utc
 from views.admin import AdminPage, _JobsSection
 
 logger = logging.getLogger(__name__)
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
-
-
-def _parse_iso_utc(s: str | None) -> datetime | None:
-    """Parse an ISO-8601 timestamp (with or without trailing Z) to a UTC-aware datetime."""
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        return None
 
 
 # -- Auth helpers ─────────────────────────────────────────────────────────────
@@ -290,7 +281,7 @@ def _fetch_admin_data() -> dict:
             .data
         )
         if oldest:
-            dt = _parse_iso_utc(oldest[0]["created_at"])
+            dt = parse_iso_utc(oldest[0]["created_at"])
             if dt:
                 data["oldest_pending_secs"] = int((now - dt).total_seconds())
     except Exception:
@@ -333,8 +324,8 @@ def _fetch_admin_data() -> dict:
         )
         durations = []
         for row in rows:
-            s_dt = _parse_iso_utc(row.get("started_at"))
-            c_dt = _parse_iso_utc(row.get("completed_at"))
+            s_dt = parse_iso_utc(row.get("started_at"))
+            c_dt = parse_iso_utc(row.get("completed_at"))
             if s_dt and c_dt:
                 dur = (c_dt - s_dt).total_seconds()
                 if 0 < dur < 300:
@@ -342,7 +333,7 @@ def _fetch_admin_data() -> dict:
         if durations:
             data["avg_job_secs"] = round(sum(durations) / len(durations), 1)
         if rows:
-            last_dt = _parse_iso_utc(rows[0].get("completed_at"))
+            last_dt = parse_iso_utc(rows[0].get("completed_at"))
             if last_dt:
                 data["last_completed_secs"] = int((now - last_dt).total_seconds())
     except Exception:
@@ -384,7 +375,7 @@ def _fetch_admin_data() -> dict:
             .data
         )
         if last_extracted and last_extracted[0].get("contact_signals_extracted_at"):
-            dt = _parse_iso_utc(last_extracted[0]["contact_signals_extracted_at"])
+            dt = parse_iso_utc(last_extracted[0]["contact_signals_extracted_at"])
             if dt:
                 data["last_contact_extracted_at"] = int((now - dt).total_seconds())
     except Exception:

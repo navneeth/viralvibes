@@ -1,13 +1,16 @@
-import asyncio
-import functools
-import hashlib
-import html
-import json
-import logging
-import random
-import re
-import isodate
-from datetime import datetime, timezone
+# DEAD FILE — scheduled for deletion.
+#
+# This module is permanently shadowed by the utils/ package (utils/__init__.py).
+# Python always resolves `import utils` / `from utils import …` to the package,
+# so the code below is unreachable at runtime.
+#
+# If you somehow see this ImportError it means the utils/ package is missing
+# or broken — fix that rather than restoring this file.
+raise ImportError(
+    "utils.py is a dead file superseded by the utils/ package. "
+    "Delete it — do not restore or edit it."
+)
+
 from typing import Any
 from urllib.parse import quote
 

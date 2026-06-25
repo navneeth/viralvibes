@@ -127,7 +127,7 @@ _YT_NS = {
 def _parse_yt_date(raw: str) -> str:
     """Convert ISO-8601 to a readable 'Jan 5 2025' string (platform-agnostic)."""
     try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(raw)
         # Use platform-agnostic formatting: compose from day + strftime
         return f"{dt.day} {dt.strftime('%b %Y')}"
     except Exception:

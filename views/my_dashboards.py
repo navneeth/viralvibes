@@ -4,13 +4,12 @@ My Dashboards page - user's playlist analysis history.
 
 import json
 import logging
-from datetime import datetime
 
 from fasthtml.common import *
 from monsterui.all import *
 
 from components.tables import Badge
-from utils.dates import format_date_relative
+from utils.dates import format_date_relative, parse_iso_utc
 from utils import format_date_simple, format_number
 
 logger = logging.getLogger(__name__)
@@ -55,18 +54,12 @@ def render_billing_section(plan_info: dict) -> Div:
 
     # Renewal / expiry line
     if period_end and status in ("active", "trialing", "past_due"):
-        try:
-            dt = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
-            verb = "Trial ends" if status == "trialing" else "Renews"
-            period_line = f"{verb} {dt.strftime('%b %d, %Y').replace(' 0', ' ')}"
-        except (ValueError, AttributeError):
-            period_line = None
+        dt = parse_iso_utc(period_end)
+        verb = "Trial ends" if status == "trialing" else "Renews"
+        period_line = f"{verb} {dt.strftime('%b %d, %Y').replace(' 0', ' ')}" if dt else None
     elif status == "canceled" and period_end:
-        try:
-            dt = datetime.fromisoformat(period_end.replace("Z", "+00:00"))
-            period_line = f"Access until {dt.strftime('%b %d, %Y').replace(' 0', ' ')}"
-        except (ValueError, AttributeError):
-            period_line = None
+        dt = parse_iso_utc(period_end)
+        period_line = f"Access until {dt.strftime('%b %d, %Y').replace(' 0', ' ')}" if dt else None
     else:
         period_line = None
 
