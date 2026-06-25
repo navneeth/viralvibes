@@ -54,20 +54,12 @@ def render_billing_section(plan_info: dict) -> Div:
 
     # Renewal / expiry line
     if period_end and status in ("active", "trialing", "past_due"):
-        try:
-            dt = parse_iso_utc(period_end)
-            verb = "Trial ends" if status == "trialing" else "Renews"
-            period_line = f"{verb} {dt.strftime('%b %d, %Y').replace(' 0', ' ')}" if dt else None
-        except (ValueError, AttributeError):
-            period_line = None
+        dt = parse_iso_utc(period_end)
+        verb = "Trial ends" if status == "trialing" else "Renews"
+        period_line = f"{verb} {dt.strftime('%b %d, %Y').replace(' 0', ' ')}" if dt else None
     elif status == "canceled" and period_end:
-        try:
-            dt = parse_iso_utc(period_end)
-            period_line = (
-                f"Access until {dt.strftime('%b %d, %Y').replace(' 0', ' ')}" if dt else None
-            )
-        except (ValueError, AttributeError):
-            period_line = None
+        dt = parse_iso_utc(period_end)
+        period_line = f"Access until {dt.strftime('%b %d, %Y').replace(' 0', ' ')}" if dt else None
     else:
         period_line = None
 
