@@ -198,6 +198,81 @@ def _JobRow(job: dict) -> Tr:
 # ── Section builders ──────────────────────────────────────────────────────────
 
 
+def _UsersSection(data: dict) -> Div:
+    total = data.get("total_users", 0)
+    completed_oauth = data.get("users_completed_oauth", 0)
+    never_returned = data.get("users_never_returned", 0)
+    oauth_pct = f"{completed_oauth / total * 100:.0f}% of signups" if total else "—"
+
+    return Div(
+        H3(
+            "Users & Growth",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        Grid(
+            _StatCard("Total Users", total, "all-time signups", "blue"),
+            _StatCard("Completed OAuth", completed_oauth, oauth_pct, "green"),
+            _StatCard(
+                "Active (30d)",
+                data.get("users_active_30d", 0),
+                "logged in last 30 days",
+                "purple",
+            ),
+            _StatCard("New (7d)", data.get("users_new_7d", 0), "signed up this week", "blue"),
+            _StatCard("New (30d)", data.get("users_new_30d", 0), "signed up this month", "blue"),
+            _StatCard(
+                "Never Returned",
+                never_returned,
+                "signed up, no further login",
+                "orange",
+                warn=never_returned > 0,
+            ),
+            cols_md=3,
+            gap=4,
+        ),
+        cls="mb-6",
+    )
+
+
+def _RevenueSection(data: dict) -> Div:
+    total_users = data.get("total_users", 0)
+    active_paid = data.get("plan_active_paid", 0)
+    monthly = data.get("plan_pro_monthly", 0)
+    annual = data.get("plan_pro_annual", 0)
+    trialing = data.get("plan_trialing", 0)
+    past_due = data.get("plan_past_due", 0)
+    total_favs = data.get("total_favourites", 0)
+    inquiries_new = data.get("inquiries_new_7d", 0)
+    inquiries_unfwd = data.get("inquiries_unforwarded", 0)
+    conversion = f"{active_paid / total_users * 100:.1f}% conversion" if total_users else "—"
+
+    billing_card = Card(
+        H3(
+            "Revenue & Plans",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _KVRow("Paid (active)", f"{active_paid:,}  ({conversion})"),
+        _KVRow("Pro Monthly", f"{monthly:,}"),
+        _KVRow("Pro Annual", f"{annual:,}"),
+        _KVRow("Trialing", f"{trialing:,}", warn=trialing > 0),
+        _KVRow("Past Due", f"{past_due:,}", warn=past_due > 0),
+        body_cls="p-5",
+    )
+
+    signals_card = Card(
+        H3(
+            "Engagement & Inbox",
+            cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-4",
+        ),
+        _KVRow("Favourites saved (total)", f"{total_favs:,}"),
+        _KVRow("Contact inquiries (7d)", f"{inquiries_new:,}"),
+        _KVRow("Pending forward", f"{inquiries_unfwd:,}", warn=inquiries_unfwd > 0),
+        body_cls="p-5",
+    )
+
+    return Grid(billing_card, signals_card, cols_md=2, gap=4, cls="mb-6")
+
+
 def _QueueSection(data: dict) -> Div:
     pending = data["queue_pending"]
     oldest_str = _fmt_age(data.get("oldest_pending_secs"))
@@ -561,6 +636,8 @@ def AdminPage(data: dict, refreshed_at: str = "") -> FT:
             cls="flex items-center justify-between bg-background border-b border-border px-6 py-3 mb-6 sticky top-0 z-40 shadow-sm",
         ),
         Container(
+            _UsersSection(data),
+            _RevenueSection(data),
             _QueueSection(data),
             _InventorySection(data),
             _FreshnessSection(data),

@@ -132,8 +132,10 @@ def _fetch_admin_data() -> dict:
     query (e.g. missing column) degrades that section only, not the whole page.
     """
     now = datetime.now(timezone.utc)
-    cutoff_24h = (now - timedelta(hours=24)).isoformat()
     cutoff_1h = (now - timedelta(hours=1)).isoformat()
+    cutoff_24h = (now - timedelta(hours=24)).isoformat()
+    cutoff_7d = (now - timedelta(days=7)).isoformat()
+    cutoff_30d = (now - timedelta(days=30)).isoformat()
 
     # Freshness cutoffs derived from _FRESHNESS_TIERS so the two are always in sync.
     _tier_days = sorted({d for _, lo, hi in _FRESHNESS_TIERS for d in (lo, hi) if d is not None})
@@ -178,6 +180,24 @@ def _fetch_admin_data() -> dict:
         "creators_with_email": 0,
         "creators_with_instagram": 0,
         "last_contact_extracted_at": None,
+        # Users & growth
+        "total_users": 0,
+        "users_new_7d": 0,
+        "users_new_30d": 0,
+        "users_completed_oauth": 0,
+        "users_active_30d": 0,
+        "users_never_returned": 0,
+        # Revenue & plans
+        "plan_active_paid": 0,
+        "plan_pro_monthly": 0,
+        "plan_pro_annual": 0,
+        "plan_trialing": 0,
+        "plan_past_due": 0,
+        # Engagement
+        "total_favourites": 0,
+        # Contact inquiries inbox
+        "inquiries_new_7d": 0,
+        "inquiries_unforwarded": 0,
         # Recent jobs table
         "recent_jobs": [],
     }
@@ -427,6 +447,127 @@ def _fetch_admin_data() -> dict:
         )
     except Exception:
         logger.exception("[Admin] Failed job breakdown query failed")
+
+    # ── Users & Growth ────────────────────────────────────────────────────────
+    try:
+        data["total_users"] = sc.table("users").select("id", count="exact").execute().count or 0
+        data["users_new_7d"] = (
+            sc.table("users")
+            .select("id", count="exact")
+            .gte("created_at", cutoff_7d)
+            .execute()
+            .count
+            or 0
+        )
+        data["users_new_30d"] = (
+            sc.table("users")
+            .select("id", count="exact")
+            .gte("created_at", cutoff_30d)
+            .execute()
+            .count
+            or 0
+        )
+        data["users_completed_oauth"] = (
+            sc.table("auth_providers").select("id", count="exact").execute().count or 0
+        )
+        data["users_active_30d"] = (
+            sc.table("users")
+            .select("id", count="exact")
+            .gte("last_login_at", cutoff_30d)
+            .execute()
+            .count
+            or 0
+        )
+        data["users_never_returned"] = (
+            sc.table("users")
+            .select("id", count="exact")
+            .is_("last_login_at", "null")
+            .execute()
+            .count
+            or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Users & growth queries failed")
+
+    # ── Revenue & Plans ───────────────────────────────────────────────────────
+    try:
+        data["plan_active_paid"] = (
+            sc.table("subscriptions")
+            .select("id", count="exact")
+            .eq("status", "active")
+            .neq("plan", "free")
+            .execute()
+            .count
+            or 0
+        )
+        data["plan_pro_monthly"] = (
+            sc.table("subscriptions")
+            .select("id", count="exact")
+            .eq("status", "active")
+            .neq("plan", "free")
+            .eq("interval", "month")
+            .execute()
+            .count
+            or 0
+        )
+        data["plan_pro_annual"] = (
+            sc.table("subscriptions")
+            .select("id", count="exact")
+            .eq("status", "active")
+            .neq("plan", "free")
+            .eq("interval", "year")
+            .execute()
+            .count
+            or 0
+        )
+        data["plan_trialing"] = (
+            sc.table("subscriptions")
+            .select("id", count="exact")
+            .eq("status", "trialing")
+            .execute()
+            .count
+            or 0
+        )
+        data["plan_past_due"] = (
+            sc.table("subscriptions")
+            .select("id", count="exact")
+            .eq("status", "past_due")
+            .execute()
+            .count
+            or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Revenue & plans queries failed")
+
+    # ── Engagement ────────────────────────────────────────────────────────────
+    try:
+        data["total_favourites"] = (
+            sc.table("user_favourite_creators").select("id", count="exact").execute().count or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Engagement queries failed")
+
+    # ── Contact inquiries inbox ───────────────────────────────────────────────
+    try:
+        data["inquiries_new_7d"] = (
+            sc.table("contact_inquiries")
+            .select("id", count="exact")
+            .gte("created_at", cutoff_7d)
+            .execute()
+            .count
+            or 0
+        )
+        data["inquiries_unforwarded"] = (
+            sc.table("contact_inquiries")
+            .select("id", count="exact")
+            .is_("forwarded_at", "null")
+            .is_("forward_error", "null")
+            .execute()
+            .count
+            or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Contact inquiries queries failed")
 
     return data
 
