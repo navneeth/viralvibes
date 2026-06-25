@@ -223,7 +223,7 @@ def _UsersSection(data: dict) -> Div:
             _StatCard(
                 "Never Returned",
                 never_returned,
-                "signed up, no further login",
+                "first OAuth only, never logged in again",
                 "orange",
                 warn=never_returned > 0,
             ),

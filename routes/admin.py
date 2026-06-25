@@ -107,20 +107,31 @@ _FRESHNESS_TIERS: tuple[tuple[str, int, int | None], ...] = (
 )
 
 
-def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int:
-    """Return a COUNT(*) for the creators table with optional sync_status filter.
+def _count(sc, table: str, extra_filters=None) -> int:
+    """Generic COUNT(*) helper for any table.
 
     Args:
         sc: Supabase client.
-        status: If given, adds .eq("sync_status", status).
+        table: Table name.
         extra_filters: Optional callable(query) -> query for additional filters.
     """
-    q = sc.table("creators").select("id", count="exact")
-    if status is not None:
-        q = q.eq("sync_status", status)
+    q = sc.table(table).select("id", count="exact")
     if extra_filters is not None:
         q = extra_filters(q)
     return q.execute().count or 0
+
+
+def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int:
+    """Return a COUNT(*) for the creators table with optional sync_status filter."""
+
+    def _f(q):
+        if status is not None:
+            q = q.eq("sync_status", status)
+        if extra_filters is not None:
+            q = extra_filters(q)
+        return q
+
+    return _count(sc, "creators", _f)
 
 
 def _fetch_admin_data() -> dict:
@@ -450,121 +461,50 @@ def _fetch_admin_data() -> dict:
 
     # ── Users & Growth ────────────────────────────────────────────────────────
     try:
-        data["total_users"] = sc.table("users").select("id", count="exact").execute().count or 0
-        data["users_new_7d"] = (
-            sc.table("users")
-            .select("id", count="exact")
-            .gte("created_at", cutoff_7d)
-            .execute()
-            .count
-            or 0
-        )
-        data["users_new_30d"] = (
-            sc.table("users")
-            .select("id", count="exact")
-            .gte("created_at", cutoff_30d)
-            .execute()
-            .count
-            or 0
-        )
-        data["users_completed_oauth"] = (
-            sc.table("auth_providers").select("id", count="exact").execute().count or 0
-        )
-        data["users_active_30d"] = (
-            sc.table("users")
-            .select("id", count="exact")
-            .gte("last_login_at", cutoff_30d)
-            .execute()
-            .count
-            or 0
-        )
-        data["users_never_returned"] = (
-            sc.table("users")
-            .select("id", count="exact")
-            .is_("last_login_at", "null")
-            .execute()
-            .count
-            or 0
-        )
+        data["total_users"] = _count(sc, "users")
+        data["users_new_7d"] = _count(sc, "users", lambda q: q.gte("created_at", cutoff_7d))
+        data["users_new_30d"] = _count(sc, "users", lambda q: q.gte("created_at", cutoff_30d))
+        data["users_completed_oauth"] = _count(sc, "auth_providers")
+        data["users_active_30d"] = _count(sc, "users", lambda q: q.gte("last_login_at", cutoff_30d))
+        data["users_never_returned"] = _count(sc, "users", lambda q: q.is_("last_login_at", "null"))
     except Exception:
         logger.exception("[Admin] Users & growth queries failed")
 
     # ── Revenue & Plans ───────────────────────────────────────────────────────
     try:
-        data["plan_active_paid"] = (
-            sc.table("subscriptions")
-            .select("id", count="exact")
-            .eq("status", "active")
-            .neq("plan", "free")
-            .execute()
-            .count
-            or 0
+        data["plan_active_paid"] = _count(
+            sc, "subscriptions", lambda q: q.eq("status", "active").neq("plan", "free")
         )
-        data["plan_pro_monthly"] = (
-            sc.table("subscriptions")
-            .select("id", count="exact")
-            .eq("status", "active")
-            .neq("plan", "free")
-            .eq("interval", "month")
-            .execute()
-            .count
-            or 0
+        data["plan_pro_monthly"] = _count(
+            sc,
+            "subscriptions",
+            lambda q: q.eq("status", "active").neq("plan", "free").eq("interval", "month"),
         )
-        data["plan_pro_annual"] = (
-            sc.table("subscriptions")
-            .select("id", count="exact")
-            .eq("status", "active")
-            .neq("plan", "free")
-            .eq("interval", "year")
-            .execute()
-            .count
-            or 0
+        data["plan_pro_annual"] = _count(
+            sc,
+            "subscriptions",
+            lambda q: q.eq("status", "active").neq("plan", "free").eq("interval", "year"),
         )
-        data["plan_trialing"] = (
-            sc.table("subscriptions")
-            .select("id", count="exact")
-            .eq("status", "trialing")
-            .execute()
-            .count
-            or 0
-        )
-        data["plan_past_due"] = (
-            sc.table("subscriptions")
-            .select("id", count="exact")
-            .eq("status", "past_due")
-            .execute()
-            .count
-            or 0
-        )
+        data["plan_trialing"] = _count(sc, "subscriptions", lambda q: q.eq("status", "trialing"))
+        data["plan_past_due"] = _count(sc, "subscriptions", lambda q: q.eq("status", "past_due"))
     except Exception:
         logger.exception("[Admin] Revenue & plans queries failed")
 
     # ── Engagement ────────────────────────────────────────────────────────────
     try:
-        data["total_favourites"] = (
-            sc.table("user_favourite_creators").select("id", count="exact").execute().count or 0
-        )
+        data["total_favourites"] = _count(sc, "user_favourite_creators")
     except Exception:
         logger.exception("[Admin] Engagement queries failed")
 
     # ── Contact inquiries inbox ───────────────────────────────────────────────
     try:
-        data["inquiries_new_7d"] = (
-            sc.table("contact_inquiries")
-            .select("id", count="exact")
-            .gte("created_at", cutoff_7d)
-            .execute()
-            .count
-            or 0
+        data["inquiries_new_7d"] = _count(
+            sc, "contact_inquiries", lambda q: q.gte("created_at", cutoff_7d)
         )
-        data["inquiries_unforwarded"] = (
-            sc.table("contact_inquiries")
-            .select("id", count="exact")
-            .is_("forwarded_at", "null")
-            .is_("forward_error", "null")
-            .execute()
-            .count
-            or 0
+        data["inquiries_unforwarded"] = _count(
+            sc,
+            "contact_inquiries",
+            lambda q: q.is_("forwarded_at", "null").is_("forward_error", "null"),
         )
     except Exception:
         logger.exception("[Admin] Contact inquiries queries failed")
