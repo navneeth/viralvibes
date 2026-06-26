@@ -2562,8 +2562,8 @@ def get_embedding_peers(
         return None
     try:
         # Step 1: look up peer list
-        resp = (
-            supabase_client.table(_CREATOR_PEERS_TABLE)
+        resp = _db_execute(
+            lambda: supabase_client.table(_CREATOR_PEERS_TABLE)
             .select("peer_list")
             .eq("creator_id", creator_id)
             .eq("peer_type", peer_type)
@@ -2580,8 +2580,11 @@ def get_embedding_peers(
 
         # Step 2: hydrate creator rows for those IDs
         fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
-        creators_resp = (
-            supabase_client.table(CREATOR_TABLE).select(fields).in_("id", peer_ids).execute()
+        creators_resp = _db_execute(
+            lambda: supabase_client.table(CREATOR_TABLE)
+            .select(fields)
+            .in_("id", peer_ids)
+            .execute()
         )
         creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
 
