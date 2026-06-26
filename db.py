@@ -1749,8 +1749,8 @@ def get_category_leaderboard(category: str, limit: int = 5) -> list[dict]:
 
     safe_limit = max(1, min(10, limit))
     try:
-        resp = (
-            supabase_client.table(CREATOR_TABLE)
+        resp = _db_execute(
+            lambda: supabase_client.table(CREATOR_TABLE)
             .select(
                 "id,"
                 "channel_name,"
