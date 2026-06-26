@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-06-26 04:41 +0000
+            created at 2026-06-26 06:45 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1833,8 +1833,8 @@
     <p class="pln"><span class="n"><a id="t1749" href="#t1749">1749</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1750" href="#t1750">1750</a></span><span class="t">    <span class="nam">safe_limit</span> <span class="op">=</span> <span class="nam">max</span><span class="op">(</span><span class="num">1</span><span class="op">,</span> <span class="nam">min</span><span class="op">(</span><span class="num">10</span><span class="op">,</span> <span class="nam">limit</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1751" href="#t1751">1751</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1752" href="#t1752">1752</a></span><span class="t">        <span class="nam">resp</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1753" href="#t1753">1753</a></span><span class="t">            <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CREATOR_TABLE</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t1752" href="#t1752">1752</a></span><span class="t">        <span class="nam">resp</span> <span class="op">=</span> <span class="nam">_db_execute</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1753" href="#t1753">1753</a></span><span class="t">            <span class="key">lambda</span><span class="op">:</span> <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CREATOR_TABLE</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1754" href="#t1754">1754</a></span><span class="t">            <span class="op">.</span><span class="nam">select</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1755" href="#t1755">1755</a></span><span class="t">                <span class="str">"id,"</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1756" href="#t1756">1756</a></span><span class="t">                <span class="str">"channel_name,"</span>&nbsp;</span><span class="r"></span></p>
@@ -4224,7 +4224,7 @@
             <a class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-06-26 04:41 +0000
+            created at 2026-06-26 06:45 +0000
         </p>
     </div>
 </footer>
