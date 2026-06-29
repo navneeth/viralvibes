@@ -215,7 +215,7 @@ def render_job_progress_view(state: JobProgressViewState) -> Div:
             if state.is_complete
             else f"/job-progress?playlist_url={quote_plus(state.playlist_url)}"
         ),
-        hx_trigger=None if state.is_complete else "every 2s",
+        hx_trigger=None if state.is_complete else "every 5s",
         hx_swap=None if state.is_complete else "outerHTML",
         cls="max-w-2xl mx-auto",
     )

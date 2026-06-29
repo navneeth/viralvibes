@@ -953,7 +953,7 @@ def submit_job(playlist_url: str, req, sess):
     # Instead of polling instruction, show the full engagement screen
     return Div(
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="load, every 5s",
+        hx_trigger="load, every 10s",
         hx_swap="outerHTML",
         id="preview-box",
         children=[
@@ -1026,7 +1026,7 @@ def check_job_status(playlist_url: str, req, sess):
             ),
             # Continue polling this endpoint
             hx_get=f"/check-job-status?playlist_url={quote_plus(playlist_url)}",
-            hx_trigger="every 8s",  # Poll every 8 seconds
+            hx_trigger="every 15s",
             hx_swap="outerHTML",  # Replace the entire div with the new response
         )
 
@@ -1198,13 +1198,35 @@ def creators(req, sess):
         return page_content
 
     # Render with navigation
-    return Titled(
+    response = Titled(
         "Top Creators - YouTube",
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
     )
+
+    # Cache at the CDN edge for logged-out visitors (no search query) only.
+    # Vary: Cookie keeps logged-in responses separate.
+    is_filtered = bool(
+        req.query_params.get("search")
+        or req.query_params.get("category")
+        or req.query_params.get("country")
+        or req.query_params.get("language")
+    )
+    if not sess.get("auth") and not is_filtered:
+        from starlette.responses import HTMLResponse
+        from fasthtml.common import to_xml
+
+        return HTMLResponse(
+            to_xml(response),
+            headers={
+                "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
+                "Vary": "Cookie",
+            },
+        )
+
+    return response
 
 
 @rt("/creators/request")
@@ -1329,13 +1351,30 @@ def lists(req, sess):
     page_content = lists_route(req)
 
     # Render with navigation
-    return Titled(
+    response = Titled(
         "Creator Lists - YouTube",
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
     )
+
+    # Cache at the CDN edge for logged-out visitors only.
+    # Vary: Cookie tells the CDN to keep separate cache entries per
+    # cookie presence, so logged-in users always get a fresh response.
+    if not sess.get("auth"):
+        from starlette.responses import HTMLResponse
+        from fasthtml.common import to_xml
+
+        return HTMLResponse(
+            to_xml(response),
+            headers={
+                "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+                "Vary": "Cookie",
+            },
+        )
+
+    return response
 
 
 @rt("/lists/more-countries")
