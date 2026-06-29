@@ -379,7 +379,7 @@ def render_add_creator_result(
             status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
             poll_attrs = dict(
                 hx_get=status_url,
-                hx_trigger="load, every 8s",
+                hx_trigger="load, every 15s",
                 hx_target="this",
                 hx_swap="outerHTML",
             )
@@ -485,7 +485,7 @@ def render_add_creator_status_result(
     status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
     poll_attrs = dict(
         hx_get=status_url,
-        hx_trigger="every 8s",
+        hx_trigger="every 15s",
         hx_target="this",
         hx_swap="outerHTML",
     )

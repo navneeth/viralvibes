@@ -372,6 +372,6 @@ def render_job_progress_ui(
         id="preview-box",
         # 🔄 Continue polling
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="every 5s",
+        hx_trigger="every 10s",
         hx_swap="outerHTML",
     )
