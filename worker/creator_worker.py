@@ -56,7 +56,6 @@ from db import (
     queue_creator_sync,
     queue_creator_sync_bulk,
     queue_invalid_creators_for_retry,
-    refresh_hero_stats_cache,
     setup_logging,
     supabase_client,
 )
@@ -2277,21 +2276,7 @@ async def process_creator_syncs():
                     "(prevents httplib2 memory corruption)"
                 )
 
-                # Refresh hero stats cache after successful batch
-                try:
-                    result = refresh_hero_stats_cache()
-                    if result.get("success"):
-                        logger.info(
-                            "[Hero Stats Cache] ✅ Refreshed after batch: %s",
-                            result.get("materialized_views"),
-                        )
-                    else:
-                        logger.warning(
-                            "[Hero Stats Cache] ⚠️  Refresh failed: %s",
-                            result.get("error"),
-                        )
-                except Exception as e:
-                    logger.warning("[Hero Stats Cache] ⚠️  Refresh exception: %s", e)
+                # MV refresh is handled by pg_cron (every 30 min) — no per-job call needed.
 
                 global _worker_outcome
                 quota_hit = any(

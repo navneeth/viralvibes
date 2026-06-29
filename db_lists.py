@@ -491,7 +491,7 @@ def _rpc_with_retry(
 # Channels created within this many days are considered "new".
 NEW_CHANNEL_MAX_AGE_DAYS = 365
 
-_LISTS_META_TTL_SECONDS = 60
+_LISTS_META_TTL_SECONDS = 600  # 10 min — data changes at most a few times/day
 _lists_meta_cache: tuple[float, dict[str, int]] | None = None
 
 
