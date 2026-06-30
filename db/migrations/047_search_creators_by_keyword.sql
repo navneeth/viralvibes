@@ -37,9 +37,16 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
-    WITH matched AS (
+    WITH
+    -- Parse the query string once so it is not re-evaluated in the WHERE clause,
+    -- the ts_rank() call, or any future references. Ensures consistency for multi-
+    -- word queries and avoids redundant parsing work on every matched row.
+    q AS (
+        SELECT plainto_tsquery('english', search_query) AS tsq
+    ),
+    matched AS (
         SELECT
             c.id,
             c.channel_name,
@@ -50,14 +57,13 @@ AS $$
             c.engagement_score,
             c.transcript_keywords,
             c.transcript_keywords_updated_at,
-            -- Rank by relevance score: sum of keyword scores for matching phrases
-            -- so a creator whose top keyword IS the search term ranks above one
-            -- where it appears as a low-weight bigram.
-            (
-                SELECT COALESCE(SUM((kw_item->>'score')::NUMERIC), 0)
-                FROM jsonb_array_elements(c.transcript_keywords) AS kw_item
-                WHERE to_tsvector('english', kw_item->>'kw')
-                      @@ plainto_tsquery('english', search_query)
+            -- ts_rank over the same jsonb_to_tsvector expression used by the GIN
+            -- index (idx_creators_transcript_keywords_fts). This reuses the index's
+            -- pre-tokenized tsvector instead of re-tokenizing each keyword element
+            -- row-by-row, which was CPU-heavy for creators with many keywords.
+            ts_rank(
+                jsonb_to_tsvector('english', c.transcript_keywords, '["string"]'),
+                (SELECT tsq FROM q)
             ) AS relevance
         FROM public.creators c
         WHERE
@@ -65,7 +71,7 @@ AS $$
             AND c.transcript_keywords IS NOT NULL
             -- FTS match — uses idx_creators_transcript_keywords_fts
             AND jsonb_to_tsvector('english', c.transcript_keywords, '["string"]')
-                @@ plainto_tsquery('english', search_query)
+                @@ (SELECT tsq FROM q)
             -- Optional filters
             AND (p_category IS NULL OR c.primary_category = p_category)
             AND (p_min_subs IS NULL OR c.current_subscribers >= p_min_subs)
@@ -75,7 +81,9 @@ AS $$
         SELECT *, COUNT(*) OVER () AS total_count
         FROM matched
         ORDER BY relevance DESC, current_subscribers DESC
-        LIMIT  GREATEST(1, LEAST(COALESCE(p_limit, 50), 200))
+        -- GREATEST(0, ...) rather than GREATEST(1, ...) so p_limit=0 is honored
+        -- literally rather than silently returning 1 row.
+        LIMIT  GREATEST(0, LEAST(COALESCE(p_limit, 50), 200))
         OFFSET GREATEST(0, COALESCE(p_offset, 0))
     )
     SELECT
