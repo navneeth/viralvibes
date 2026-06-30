@@ -1968,17 +1968,25 @@ def _render_content_dna_preview(transcript_keywords) -> Div | None:
     if isinstance(transcript_keywords, str):
         try:
             transcript_keywords = json.loads(transcript_keywords)
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError):
             return None
 
     if not isinstance(transcript_keywords, list) or not transcript_keywords:
         return None
 
+    def _fmt_score(score) -> str:
+        if score is None:
+            return "n/a"
+        try:
+            return f"{float(score):.2f}"
+        except (TypeError, ValueError):
+            return "n/a"
+
     chips = [
         Span(
             k["kw"],
             cls="px-2 py-0.5 rounded text-xs text-foreground/60 bg-muted border border-border/50",
-            title=f"relevance {k.get('score', 0):.2f}",
+            title=f"relevance {_fmt_score(k.get('score'))}",
         )
         for k in transcript_keywords[:12]
         if isinstance(k, dict) and k.get("kw")
@@ -4450,7 +4458,11 @@ def render_creator_profile_page(
         render_mentions_placeholder(creator_id),
         topic_pill_section,
         cat_dist_card,
-        *([_render_content_dna_preview(transcript_keywords)] if transcript_keywords else []),
+        *(
+            [content_dna]
+            if (content_dna := _render_content_dna_preview(transcript_keywords)) is not None
+            else []
+        ),
         cls="flex flex-col gap-4",
     )
 
