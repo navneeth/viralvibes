@@ -1950,6 +1950,52 @@ def _build_growth_trend(
     )
 
 
+def _render_content_dna_preview(transcript_keywords) -> Div | None:
+    """
+    Low-key preview strip for transcript_keywords (KeyBERT output).
+
+    Intentionally inconspicuous — plain chips inside a collapsed <details>
+    element so it doesn't affect the visual hierarchy during evaluation.
+    Only renders when the creator has keywords (migration 046 + Kaggle
+    write-back complete); returns None otherwise so no gap appears.
+
+    Data shape: [{"kw": "mechanical keyboards", "score": 0.68}, ...]
+    Scores are KeyBERT cosine-similarity, typically 0.40–0.75.
+    """
+    if not transcript_keywords:
+        return None
+
+    if isinstance(transcript_keywords, str):
+        try:
+            transcript_keywords = json.loads(transcript_keywords)
+        except Exception:
+            return None
+
+    if not isinstance(transcript_keywords, list) or not transcript_keywords:
+        return None
+
+    chips = [
+        Span(
+            k["kw"],
+            cls="px-2 py-0.5 rounded text-xs text-foreground/60 bg-muted border border-border/50",
+            title=f"relevance {k.get('score', 0):.2f}",
+        )
+        for k in transcript_keywords[:12]
+        if isinstance(k, dict) and k.get("kw")
+    ]
+    if not chips:
+        return None
+
+    return Details(
+        Summary(
+            "Content keywords",
+            cls="text-xs text-muted-foreground cursor-pointer select-none py-0.5",
+        ),
+        Div(*chips, cls="flex flex-wrap gap-1.5 pt-2"),
+        cls="px-1",
+    )
+
+
 def _render_topic_categories(topic_categories: str | None) -> Div | None:
     """
     Render topic categories as clean emoji-only pills.
@@ -3096,6 +3142,7 @@ def render_creator_profile_page(
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0) or 0
     topic_categories_raw = safe_get_value(creator, "topic_categories")
     category_distribution = safe_get_value(creator, "category_distribution")
+    transcript_keywords = safe_get_value(creator, "transcript_keywords")
     featured_channels_raw = safe_get_value(creator, "featured_channels_urls", "")
     last_updated = safe_get_value(creator, "last_updated_at", "")
     last_synced = safe_get_value(creator, "last_synced_at", "")
@@ -4403,6 +4450,7 @@ def render_creator_profile_page(
         render_mentions_placeholder(creator_id),
         topic_pill_section,
         cat_dist_card,
+        *([_render_content_dna_preview(transcript_keywords)] if transcript_keywords else []),
         cls="flex flex-col gap-4",
     )
 
