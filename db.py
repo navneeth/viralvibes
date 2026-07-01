@@ -1729,11 +1729,11 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
                 exc,
             )
             return _default
-        # Supabase / PostgREST API errors carry a .code attribute (e.g. 400,
-        # 500).  The previous check used .status_code which does NOT exist on
-        # postgrest.exceptions.APIError — causing these to fall through to the
-        # re-raise path and crash the ASGI request with a 500.
-        if getattr(exc, "code", None) is not None or getattr(exc, "status_code", None) is not None:
+        # postgrest.exceptions.APIError carries a .code attribute (e.g. 400,
+        # 500).  Match by type name — consistent with the _is_transient_disconnect
+        # pattern — so only PostgREST errors are swallowed, not any exception
+        # that happens to have a .code attribute.
+        if type(exc).__name__ == "APIError" and getattr(exc, "code", None) is not None:
             logger.warning(
                 "get_category_peer_benchmarks: API error for '%s': %s",
                 category,
