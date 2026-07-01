@@ -74,7 +74,16 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
     """
 
     def _matches(e: BaseException) -> bool:
-        return type(e).__name__ == "RemoteProtocolError" or "Server disconnected" in str(e)
+        if type(e).__name__ == "RemoteProtocolError" or "Server disconnected" in str(e):
+            return True
+        # h2 concurrent-stream thread-safety errors: the vendored h2 library
+        # mutates its stream dict while another thread is iterating it.  These
+        # RuntimeErrors are NOT wrapped into RemoteProtocolError so they bypass
+        # the check above.  After such a failure httpcore drops the broken
+        # connection; a retry gets a fresh one.
+        if isinstance(e, RuntimeError) and "iteration" in str(e) and "dictionary" in str(e):
+            return True
+        return False
 
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
@@ -1655,8 +1664,8 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
         return _default
 
     try:
-        resp = (
-            supabase_client.table(CREATOR_TABLE)
+        resp = _db_execute(
+            lambda: supabase_client.table(CREATOR_TABLE)
             .select(
                 "current_view_count,"
                 "current_video_count,"
@@ -1720,10 +1729,16 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
                 exc,
             )
             return _default
-        # Supabase / PostgREST API errors have a status_code; treat all as
-        # swallowed since they represent valid "no data" server responses.
-        if getattr(exc, "status_code", None) is not None:
-            logger.exception("get_category_peer_benchmarks: API error for '%s'", category)
+        # postgrest.exceptions.APIError carries a .code attribute (e.g. 400,
+        # 500).  Match by type name — consistent with the _is_transient_disconnect
+        # pattern — so only PostgREST errors are swallowed, not any exception
+        # that happens to have a .code attribute.
+        if type(exc).__name__ == "APIError" and getattr(exc, "code", None) is not None:
+            logger.warning(
+                "get_category_peer_benchmarks: API error for '%s': %s",
+                category,
+                exc,
+            )
             return _default
         # Unexpected programming error — re-raise so it's caught in tests.
         logger.exception("get_category_peer_benchmarks: unexpected error for '%s'", category)
