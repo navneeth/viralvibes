@@ -1,4148 +1,5266 @@
 """
-Database operations module.
-Handles Supabase client initialization, logging setup, and caching functionality.
+Creator Intelligence Dashboard - Analytics-first design for YouTube creators
+Focused on what matters: Growth, Revenue, Engagement, Quality
+
+Data collected by worker:
+- current_subscribers, current_view_count, current_video_count (from YouTube API)
+- engagement_score (calculated from recent video comments/likes)
+- quality_grade (A+/A/B+/B/C based on engagement + subscriber size)
+- country_code, channel_name, channel_thumbnail_url
+- last_updated_at, last_synced_at (for freshness indicator)
+- 30-day deltas (subscribers_change_30d, views_change_30d)
+
+Creator perspective (Jimmy Donaldson style):
+1. Growth trajectory (trending up/down?) - MOST IMPORTANT
+2. Revenue potential (monthly earnings)
+3. Engagement quality (audience size vs views ratio)
+4. Video consistency (how many videos, posting frequency)
+5. Ranking/position (competitive benchmark)
+6. Quality assessment (why are they ranked this way?)
 """
 
 from __future__ import annotations
 
-import io
 import json
 import logging
-import os
-import random
-import re
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Protocol, NamedTuple
+import re as _re  # private alias — wildcard `from fasthtml.common import *` cannot shadow it
+from collections.abc import Callable
+from urllib.parse import urlencode, unquote, quote, quote_plus, urlparse
 
-from supabase import Client, create_client
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-    retry_if_exception,
-    before_sleep_log,
+from fasthtml.common import *
+from monsterui.all import *
+
+from utils import format_float, format_percentage
+from utils.dates import format_date_relative, is_data_stale
+from utils import format_number, safe_get_value, slugify
+from utils.creator_metrics import (
+    calculate_avg_views_per_video,
+    calculate_growth_rate,
+    calculate_momentum_score,
+    calculate_views_per_subscriber,
+    estimate_monthly_revenue_v4,
+    get_momentum_label,
+    format_channel_age,
+    get_activity_badge,
+    get_activity_title,
+    get_age_emoji,
+    get_age_title,
+    get_country_flag,
+    get_grade_info,
+    get_growth_signal,
+    get_language_emoji,
+    get_language_name,
+    get_sync_status_badge,
 )
-
-from constants import (
-    BROWSEABLE_SYNC_STATUSES,
-    CREATOR_REDISCOVERY_THRESHOLD_DAYS,
-    CREATOR_SYNC_JOBS_TABLE,
-    CREATOR_TABLE,
-    CREATOR_UPDATE_INTERVAL_DAYS,
-    CREATOR_WORKER_MAX_RETRIES,
-    CREATOR_WORKER_RETRY_BASE,
-    PLAYLIST_JOBS_TABLE,
-    PLAYLIST_STATS_TABLE,
-    SIGNUPS_TABLE,
-    USER_FAVOURITE_CREATORS_TABLE,
-    USER_FAVOURITE_LISTS_TABLE,
-    JobStatus,
-)
-from utils import (
-    compute_dashboard_id,
-    deserialize_dataframe,
-    normalize_category_name,
-    safe_get_value,
-)
-
-# Use a dedicated DB logger
-logger = logging.getLogger("vv_db")
-
-
-# ==============================================================
-# 🔄 Transient-error retry helper
-# ==============================================================
-# Supabase uses HTTP/2 keep-alive connections.  Under load the server-side
-# idle timeout can fire between the client sending a request and receiving
-# the response headers, causing httpx / httpcore to raise:
-#   httpx.RemoteProtocolError: Server disconnected
-# This is a transient transport error — the request never reached the DB.
-# A single immediate retry resolves it in practice.
-#
-# We only retry on RemoteProtocolError (and its httpcore base).  All other
-# exceptions (PostgREST errors, auth failures, etc.) are NOT retried so we
-# don't mask genuine application bugs.
-
-
-def _is_transient_disconnect(exc: BaseException) -> bool:
-    """Return True for HTTP/2 server-disconnect errors worth retrying.
-
-    Checks the exception and its direct __cause__ — the real transport error
-    is always one level deep in the httpx/httpcore chain.
-    """
-
-    def _matches(e: BaseException) -> bool:
-        if type(e).__name__ == "RemoteProtocolError" or "Server disconnected" in str(e):
-            return True
-        # h2 concurrent-stream thread-safety errors: the vendored h2 library
-        # mutates its stream dict while another thread is iterating it.  These
-        # RuntimeErrors are NOT wrapped into RemoteProtocolError so they bypass
-        # the check above.  After such a failure httpcore drops the broken
-        # connection; a retry gets a fresh one.
-        if isinstance(e, RuntimeError) and "iteration" in str(e) and "dictionary" in str(e):
-            return True
-        return False
-
-    return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
-
-
-_with_disconnect_retry = retry(
-    retry=retry_if_exception(_is_transient_disconnect),
-    stop=stop_after_attempt(2),  # 1 original + 1 retry
-    wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-    reraise=True,
-)
-
-
-def _db_execute(fn):
-    """Invoke a zero-arg callable that runs a postgrest-py query, retrying
-    once on transient HTTP/2 server-disconnect errors.  Always returns the
-    query result directly — never a callable.
-
-    Usage::
-
-        _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
-    """
-    return _with_disconnect_retry(fn)()
-
-
-# ==============================================================
-# 🧩 Protocol-based Dependency Injection
-# ==============================================================
-
-
-class SupabaseLike(Protocol):
-    """Protocol to allow fake/mocked Supabase clients in tests."""
-
-    def table(self, name: str) -> Any: ...
-
-
-# Global Supabase client# Global Supabase client
-supabase_client: Optional[SupabaseLike] = None
-
-
-def set_supabase_client(client: SupabaseLike) -> None:
-    """Dependency injection hook for tests."""
-    global supabase_client
-    supabase_client = client
-    logger.info("[DB] Supabase client overridden")
-
-
-def setup_logging():
-    """Configure logging for the application.
-
-    This function should be called at application startup.
-    It configures the logging format and level.
-    """
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    reraise=True,
-)
-def init_supabase() -> Optional[Client]:
-    """Initialize Supabase client with retry logic and proper error handling.
-
-    Returns:
-        Optional[Client]: Supabase     Credential resolution order (first non-empty value wins):
-        1. SUPABASE_SERVICE_KEY        — worker / Kaggle context (broader permissions)
-        2. NEXT_PUBLIC_SUPABASE_ANON_KEY — web-app / GitHub Actions fallback
-
-    Both paths normalise into os.environ *before* this function is called.
-    Use ``secrets_loader.load_secrets()`` at your entry-point to ensure that.
-
-    Returns:
-        Optional[Client]: Supabase client if initialization succeeds, None otherwise
-
-    Note:
-        - Retries up to 3 times with exponential backoff
-        - Returns None instead of raising exceptions
-        - Logs errors for debugging
-    """
-    global supabase_client
-
-    # Return existing client if already initialized
-    if supabase_client is not None:
-        return supabase_client
-
-    _url_names = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL"]
-    url = next((os.environ[n] for n in _url_names if os.environ.get(n)), "")
-
-    # Prefer the service key (worker / Kaggle / Vercel); fall back to the anon key
-    # (local dev / CI).  Two naming conventions are in use across environments:
-    #   SUPABASE_SERVICE_KEY       — legacy name used by secrets_loader.py / Kaggle
-    #   SUPABASE_SERVICE_ROLE_KEY  — standard Supabase / Vercel dashboard name
-    _key_names = [
-        "SUPABASE_SERVICE_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-        "SUPABASE_ANON_KEY",
-    ]
-    key = key_source = ""
-    for _name in _key_names:
-        if _val := os.environ.get(_name, ""):
-            key, key_source = _val, _name
-            break
-
-    if not url or not key:
-        logger.warning(
-            "Missing Supabase environment variables. Need URL "
-            "(NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL) and key "
-            "(SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SERVICE_KEY, "
-            "NEXT_PUBLIC_SUPABASE_ANON_KEY, or SUPABASE_ANON_KEY) "
-            "- running without Supabase"
-        )
-        return None
-
-    try:
-        client = create_client(url, key)
-
-        # Test the connection
-        client.auth.get_session()
-
-        supabase_client = client
-        logger.info("Supabase client initialized successfully (key source: %s)", key_source)
-        return client
-
-    except Exception as e:
-        logger.error(f"Failed to initialize Supabase client: {e}")
-        return None
-
-
-def _is_empty_json(json_str: Optional[str]) -> bool:
-    """Check if JSON string represents empty/null data."""
-    if not json_str:
-        return True
-
-    stripped = json_str.strip()
-    if stripped in ("[]", "{}", "null", '""'):
-        return True
-
-    # Additional check: try parsing and check if actually empty
-    try:
-        parsed = json.loads(stripped)
-        if isinstance(parsed, (list, dict)) and len(parsed) == 0:
-            return True
-    except json.JSONDecodeError:
-        pass
-
-    return False
-
-
-# --- General DB Helpers ---
-def upsert_row(table: str, payload: dict, conflict_fields: List[str] = None) -> bool:
-    """Inserts or updates a row in a given table.
-
-    Args:
-        table (str): The name of the table.
-        payload (dict): The data to insert or update.
-        conflict_fields (List[str], optional): Columns to use for conflict resolution.
-
-    Returns:
-        bool: True if the operation was successful, False otherwise.
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for upsert")
-        return False
-    try:
-        query = supabase_client.table(table)
-        if conflict_fields:
-            logger.debug(f"[DB] Upserting to {table} with conflict resolution on {conflict_fields}")
-            query = query.upsert(payload, on_conflict=",".join(conflict_fields))
-        else:
-            logger.debug(f"[DB] Inserting to {table} (no conflict resolution)")
-            query = query.insert(payload)
-        response = query.execute()
-        logger.debug(f"[DB] Upsert response for table {table}: {response.data}")
-        return bool(response.data)
-    except Exception as e:
-        logger.exception(f"Error upserting row in {table}: {e}")
-        return False
-
-
-# --- Playlist Caching and Job Management ---
-def get_cached_playlist_stats(
-    playlist_url: str, user_id: Optional[str] = None, check_date: bool = True
-) -> Optional[Dict[str, Any]]:
-    """
-    Fetch the most recent cached playlist stats for a given playlist URL,
-    scoped to a specific user (or anonymous if user_id is None).
-
-    - If user_id is None: only anonymous rows (shared across all users) are considered
-    - If user_id is provided: only that user's rows are considered
-    - If check_date is True: restrict to today's snapshot
-
-    Args:
-        playlist_url (str): The YouTube playlist URL to check.
-        check_date (bool): If True, only returns today's cache.
-
-    Returns:
-        Optional[Dict[str, Any]]: Cached stats if found, None otherwise.
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for caching")
-        return None
-
-    try:
-        query = (
-            supabase_client.table(PLAYLIST_STATS_TABLE).select("*").eq("playlist_url", playlist_url)
-        )
-
-        # scope cache by ownership
-        if user_id is None:
-            query = query.is_("user_id", None)  # anonymous cache only
-        else:
-            query = query.eq("user_id", user_id)  # user-specific cache only
-
-        # Optional same-day cache restriction
-        if check_date:
-            query = query.eq("processed_date", datetime.now(timezone.utc).date().isoformat())
-
-        response = query.order("processed_on", desc=True).limit(1).execute()
-
-        if response.data and len(response.data) > 0:
-            row = response.data[0]
-
-            # --- Validate the integrity of the cached data ---
-            df_json = row.get("df_json")
-            # Check if df_json is missing, empty, or represents an empty list/object.
-            if _is_empty_json(df_json):
-                logger.warning(
-                    f"[Cache] Found invalid/empty cache entry for {playlist_url}"
-                    f"(user={user_id}). Treating as miss."
-                )
-                return None
-
-            logger.info(f"[Cache] Hit for playlist: {playlist_url} (user={user_id})")
-
-            # Deserialize JSON fields
-            try:
-                row["df"] = deserialize_dataframe(df_json)
-            except Exception as e:
-                logger.error(f"[Cache] Failed to deserialize DataFrame for {playlist_url}: {e}")
-                return None
-
-            if row.get("summary_stats"):
-                try:
-                    row["summary_stats"] = json.loads(row["summary_stats"])
-                except json.JSONDecodeError as e:
-                    logger.error(f"[Cache] Failed to parse summary_stats for {playlist_url}: {e}")
-                    row["summary_stats"] = {}
-
-            return row
-        else:
-            logger.info(f"[Cache] Miss for playlist: {playlist_url} (user={user_id})")
-            return None
-
-    except Exception as e:
-        logger.exception(f"Error checking cache for playlist {playlist_url} (user={user_id}): {e}")
-        return None
-
-
-@dataclass
-class UpsertResult:
-    """Result of upserting playlist stats to the database."""
-
-    source: str  # 'cache', 'fresh', 'error'
-    df_json: Optional[str] = None
-    summary_stats_json: Optional[str] = None
-    error: Optional[str] = None
-    raw_row: Optional[Dict[str, Any]] = None
-
-    @property
-    def success(self) -> bool:
-        """Check if operation was successful."""
-        return self.source in ("cache", "fresh")
-
-
-def upsert_playlist_stats(stats: Dict[str, Any]) -> UpsertResult:
-    """
-    Main entrypoint for playlist stats caching:
-    - Return cached stats if they exist for today.
-    - Otherwise insert fresh stats and return an UpsertResult.
-
-    Note: This function intentionally does NOT return a Polars DataFrame.
-
-    Required in stats:
-    - playlist_url: str
-    - user_id: Optional[str] (None for anonymous)
-    """
-    playlist_url = stats.get("playlist_url")
-    if not playlist_url:
-        logger.error("No playlist_url provided in stats")
-        return UpsertResult(source="error", error="Missing playlist_url")
-
-    # --- Prevent caching empty DataFrames ---
-    df = stats.get("df")
-    if df is None or getattr(df, "is_empty", lambda: True)():
-        logger.warning(
-            f"Attempted to cache empty or missing DataFrame for {playlist_url}. Aborting cache."
-        )
-        return UpsertResult(source="error", error="Empty DataFrame provided")
-
-    # Extract user_id from stats (can be None)
-    user_id = stats.get("user_id")
-
-    # --- Check for existing cache ---
-    cached = get_cached_playlist_stats(playlist_url, user_id=user_id, check_date=True)
-
-    if cached:
-        logger.info(f"[Cache] Returning cached stats for {playlist_url} (user={user_id})")
-        # Prefer any stored df_json present in the raw row, otherwise reserialize the in-memory df
-        cached_df_json = cached.get("df_json")
-        if not cached_df_json and cached.get("df") is not None:
-            try:
-                cached_df_json = cached["df"].write_json()
-            except Exception as e:
-                logger.exception(f"[Cache] Failed to re-serialize df for {playlist_url}: {e}")
-                cached_df_json = None
-
-        # Ensure summary_stats is returned as JSON string when possible
-        summary_stats_json = cached.get("summary_stats")
-        if isinstance(summary_stats_json, dict):
-            try:
-                summary_stats_json = json.dumps(summary_stats_json)
-            except Exception as e:
-                logger.exception(
-                    f"[Cache] Failed to serialize summary_stats for {playlist_url}: {e}"
-                )
-                summary_stats_json = None
-
-        return UpsertResult(
-            source="cache",
-            df_json=cached_df_json,
-            summary_stats_json=summary_stats_json,
-            raw_row=cached,
-        )
-
-    # --- Prepare for fresh insert ---
-    try:
-        df_json = df.write_json() if df is not None else None
-    except Exception as e:
-        logger.exception(f"Error serializing df for {playlist_url}: {e}")
-        df_json = None
-
-    try:
-        summary_stats_json = json.dumps(stats.get("summary_stats", {}))
-    except Exception as e:
-        logger.exception(f"Error serializing summary_stats for {playlist_url}: {e}")
-        summary_stats_json = None
-
-    # If serialization failed, do not insert an incomplete row; return error result
-    if not df_json or not summary_stats_json:
-        err_msg = (
-            f"[DB] Serialization failed for {playlist_url}. "
-            f"df_json present: {bool(df_json)}, "
-            f"summary_stats_json present: {bool(summary_stats_json)}"
-        )
-        logger.error(err_msg)
-        return UpsertResult(source="error", error=err_msg)
-
-    user_id = stats.get("user_id")
-
-    stats_to_insert = {
-        **stats,
-        "user_id": user_id,
-        "processed_date": datetime.now(timezone.utc).date().isoformat(),
-        "df_json": df_json,
-        "summary_stats": summary_stats_json,
-        "dashboard_id": compute_dashboard_id(playlist_url),
-    }
-
-    # Remove Polars DataFrame before inserting
-    stats_to_insert.pop("df", None)
-
-    logger.debug(
-        f"[DB] Upserting stats for {playlist_url} (user={user_id}): "
-        f"keys={list(stats_to_insert.keys())}"
-    )
-
-    success = upsert_row(
-        PLAYLIST_STATS_TABLE,
-        stats_to_insert,
-        # Conflict on (playlist_url, user_id) tuple
-        conflict_fields=["playlist_url", "user_id"],
-    )
-
-    if success:
-        logger.info(f"[DB] Returning fresh stats for {playlist_url} (user={user_id})")
-        return UpsertResult(
-            source="fresh",
-            df_json=df_json,
-            summary_stats_json=summary_stats_json,
-        )
-    else:
-        logger.error(f"[DB] Failed to insert fresh stats for {playlist_url} (user={user_id})")
-        return UpsertResult(source="error", error="DB insert failed")
-
-
-def fetch_playlists(
-    user_id: Optional[str] = None,
-    max_items: int = 10,
-    randomize: bool = False,
-) -> List[Dict[str, Any]]:
-    """
-    Fetch playlists analyzed by a specific user (or anonymous).
-    If randomize=True, returns a random subset (non-deterministic).
-    Otherwise, returns the most recent playlists (deterministic).
-
-    Args:
-        user_id: User ID (None for anonymous playlists)
-        max_items: Maximum number of playlists to return
-        randomize: If True, returns random subset
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch playlists")
-        return []
-
-    try:
-        pool_size = max_items * 5 if randomize else max_items
-        query = supabase_client.table(PLAYLIST_STATS_TABLE).select(
-            "playlist_url, title, processed_date"
-        )
-        # Filter by user_id
-        if user_id is None:
-            query = query.is_("user_id", None)  # Anonymous playlists
-        else:
-            query = query.eq("user_id", user_id)  # User-specific playlists
-
-        response = query.order("processed_date", desc=True).limit(pool_size).execute()
-
-        seen = set()
-        playlists = []
-        for row in response.data:
-            url = row.get("playlist_url")
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            playlists.append({"url": url, "title": row.get("title") or "Untitled Playlist"})
-            if not randomize and len(playlists) >= max_items:
-                break
-
-        if not playlists:
-            return []
-
-        if randomize:
-            return random.sample(playlists, k=min(max_items, len(playlists)))
-        else:
-            return playlists
-
-    except Exception as e:
-        logger.error(f"Error fetching playlists for user {user_id}: {e}")
-        return []
-
-
-def get_latest_playlist_job(playlist_url: str) -> Optional[Dict[str, Any]]:
-    """
-    Returns the most recent job record for a given playlist URL.
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch job")
-        return None
-    try:
-        response = (
-            supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .select("*")  # Select all columns
-            .eq("playlist_url", playlist_url)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if response.data:
-            return response.data[0]
-        return None
-    except Exception as e:
-        logger.error(f"Error fetching latest job for {playlist_url}: {e}")
-        return None
-
-
-def get_playlist_job_status(playlist_url: str) -> Optional[str]:
-    """
-    Returns the status of a playlist analysis job.
-    Possible statuses: 'pending', 'processing', 'complete', 'failed', or None if not submitted.
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch job status")
-        return None
-
-    try:
-        response = (
-            supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .select("status, created_at")
-            .eq("playlist_url", playlist_url)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if response.data:
-            return response.data[0].get("status")
-        return None
-    except Exception as e:
-        logger.error(f"Error fetching job status for {playlist_url}: {e}")
-        return None
-
-
-def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
-    """
-    Returns minimal info about a playlist for preview.
-    Flattens `summary_stats` JSON into usable front-end fields.
-    """
-    default = {
-        "title": "YouTube Playlist",
-        "channel": "Unknown Channel",
-        "thumbnail": "/static/favicon.jpeg",
-        "video_count": 0,
-        "description": "",
-    }
-
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch preview info")
-        return default
-
-    try:
-        response = (
-            supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("title, channel_name, channel_thumbnail, summary_stats")
-            .eq("playlist_url", playlist_url)
-            .limit(1)
-            .execute()
-        )
-
-        if not response.data:
-            logger.warning(f"No playlist stats found for {playlist_url}")
-            return default
-
-        data = response.data[0]
-        preview_info = {
-            "title": data.get("title") or default["title"],
-            "channel_name": data.get("channel_name") or default["channel"],
-            "thumbnail": data.get("channel_thumbnail") or default["thumbnail"],
-            "video_count": 0,
-            "description": "",
-        }
-
-        summary_stats_raw = data.get("summary_stats") or {}
-        if summary_stats_raw:
-            # Parse JSON if it's a string
-            if isinstance(summary_stats_raw, str):
-                try:
-                    summary_stats = json.loads(summary_stats_raw)
-                except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON in summary_stats for {playlist_url}")
-                    summary_stats = {}
-            else:
-                summary_stats = summary_stats_raw
-
-            # Fill in video_count if missing
-            preview_info["video_count"] = summary_stats.get(
-                "actual_playlist_count", default["video_count"]
-            )
-            # Optional: include other summary stats for future use
-            preview_info.update(
-                {
-                    "total_views": summary_stats.get("total_views"),
-                    "total_likes": summary_stats.get("total_likes"),
-                    "total_dislikes": summary_stats.get("total_dislikes"),
-                    "total_comments": summary_stats.get("total_comments"),
-                    "avg_engagement": summary_stats.get("avg_engagement"),
-                    "processed_video_count": summary_stats.get("processed_video_count"),
-                }
-            )
-
-        logger.info(
-            f"Retrieved preview info for {playlist_url}: {preview_info.get('title')}, "
-            f"videos: {preview_info.get('video_count')}"
-        )
-        return preview_info
-
-    except Exception as e:
-        logger.error(f"Error fetching preview info for {playlist_url}: {e}")
-        return {}
-
-
-def submit_playlist_job(
-    playlist_url: str,
-    user_id: Optional[str] = None,  # ✅ Add user_id parameter
-) -> bool:
-    """
-    Insert a new playlist analysis job into the playlist_jobs table,
-    but only if one is not already pending or in progress.
-
-    ✅ Now scoped to user_id for proper job ownership.
-
-    Args:
-        playlist_url: YouTube playlist URL
-        user_id: User ID (None for anonymous jobs)
-
-    Returns:
-        bool: True if job submitted successfully
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to submit job")
-        return False
-
-    # Check for existing jobs scoped to user
-    try:
-        query = (
-            supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .select("status, created_at")
-            .eq("playlist_url", playlist_url)
-            .not_.eq("status", JobStatus.COMPLETE)
-            .not_.eq("status", JobStatus.FAILED)
-        )
-
-        # ✅ Scope check to user
-        if user_id is None:
-            query = query.is_("user_id", None)
-        else:
-            query = query.eq("user_id", user_id)
-
-        response = query.order("created_at", desc=True).limit(1).execute()
-
-        # If an unfinished job exists for this user, don't submit a new one
-        if response.data:
-            job_status = response.data[0].get("status")
-            logger.info(
-                f"Skipping job submission for {playlist_url} (user={user_id}). "
-                f"Job with status '{job_status}' already exists."
-            )
-            return False
-
-    except Exception as e:
-        logger.error(f"Error checking for existing jobs: {e}")
-        # Continue to submit the job in case of an error
-
-    # No existing job found, so submit a new one
-    payload = {
-        "playlist_url": playlist_url,
-        "user_id": user_id,  # ✅ Store user ownership
-        "status": JobStatus.PENDING,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "retry_count": 0,
-    }
-
-    # Use insert instead of upsert to avoid conflicts on non-unique columns
-    success = upsert_row(PLAYLIST_JOBS_TABLE, payload)
-    if success:
-        logger.info(f"Submitted job for {playlist_url} (user={user_id})")
-    else:
-        logger.error(f"Failed to submit job for {playlist_url} (user={user_id})")
-
-    return success
-
-
-# =============================================================================
-# 🎬 Creator Sync Queue Management (NEW - Added for creator infrastructure)
-# =============================================================================
-# Manages the creator_sync_jobs queue for background processing
-
-
-def queue_invalid_creators_for_retry(
-    hours_since_last_sync: int = 24,
-    force_resync_all: bool = False,
-    batch_size: int = 50,
-) -> int:
-    """
-    Queue creators with invalid/failed/partial sync status for retry.
-
-    This function finds creators marked as 'invalid', 'failed', or 'synced_partial'
-    and queues them for another sync attempt. When force_resync_all=True, it will
-    also queue creators with 'synced' status to refresh all fields (useful after
-    schema updates).
-
-    Args:
-        hours_since_last_sync: Only retry if last sync was N hours ago (default 24)
-        force_resync_all: If True, also queue creators with 'synced' status (default False)
-        batch_size: Maximum number of creators to queue per call (default 50)
-
-    Returns:
-        Number of creators queued for retry
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return 0
-
-    try:
-
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_since_last_sync)
-
-        # Statuses to retry:
-        # - 'invalid': Zero subs/views, likely bad channel_id
-        # - 'failed': Sync errors
-        # - 'synced_partial': Missing columns, partial data
-        # - 'synced': (optional) Force refresh all data
-        cutoff_iso = cutoff_time.isoformat()
-
-        # Query 1: creators that previously failed and whose last sync is old enough.
-        # Note: 'not_found' channels are hard-deleted by the worker, so they won't
-        # appear here. The .in_() filter already restricts to specific statuses.
-        # Reduced batch size to avoid statement timeouts on large datasets.
-        failed_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
-            .in_("sync_status", ["invalid", "failed", "synced_partial"])
-            .not_.is_("last_synced_at", "null")  # ← only rows where value exists
-            .lt("last_synced_at", cutoff_iso)
-            .limit(batch_size)
-            .execute()
-        )
-
-        # Query 2: creators that have NEVER been synced (last_synced_at IS NULL)
-        # These were being silently excluded by the original .lt() filter.
-        # Includes NULL sync_status (creators inserted without a status).
-        # Note: .neq() would exclude NULLs due to SQL NULL behavior, so we omit it.
-        # 'not_found' channels are hard-deleted by worker anyway.
-        never_synced_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
-            .is_("last_synced_at", "null")
-            .limit(batch_size)
-            .execute()
-        )
-
-        creators = (failed_resp.data or []) + (never_synced_resp.data or [])
-
-        # Deduplicate by id (shouldn't overlap, but be safe)
-        seen_ids = set()
-        unique_creators = []
-        for c in creators:
-            if c["id"] not in seen_ids:
-                seen_ids.add(c["id"])
-                unique_creators.append(c)
-        creators = unique_creators
-
-        logger.info(
-            f"[queue_invalid_creators_for_retry] "
-            f"Found {len(failed_resp.data or [])} failed/invalid + "
-            f"{len(never_synced_resp.data or [])} never-synced creators"
-        )
-
-        creator_ids = [c["id"] for c in creators]
-        queued_count, skipped_count = queue_creator_sync_bulk(creator_ids, source="auto_retry")
-
-        if queued_count > 0:
-            logger.info(
-                f"Auto-retry: queued {queued_count} creators " f"({skipped_count} already pending)"
-            )
-
-        return queued_count
-
-    except Exception as e:
-        logger.exception(f"Error queuing invalid creators for retry: {e}")
-        return 0
-
-
-def queue_creator_sync(
-    creator_id: str,
-    source: str = "scheduled",
-) -> bool:
-    """
-    Queue a creator for stats sync.
-
-    Uses check-then-insert pattern to prevent duplicate pending jobs. This is
-    NOT atomic and has a race window between check and insert. For production,
-    add a unique partial index to guarantee uniqueness:
-
-        CREATE UNIQUE INDEX idx_creator_sync_jobs_pending_unique
-        ON creator_sync_jobs (creator_id)
-        WHERE status = 'pending';
-
-    With the index, concurrent enqueues will safely fail on constraint violation
-    instead of creating duplicates.
-
-    Args:
-        creator_id: Creator UUID from creators table
-        source: How it got queued ('discovered', 'manual', 'scheduled')
-
-    Returns:
-        True if queued successfully or already pending, False otherwise
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to queue creator sync")
-        return False
-
-    try:
-        # Check if there's already a pending job for this creator
-        # NOTE: This is not atomic - see docstring for production hardening
-        existing = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id")
-            .eq("creator_id", creator_id)
-            .eq("status", "pending")
-            .limit(1)
-            .execute()
-        )
-
-        if existing.data:
-            logger.debug(f"Creator {creator_id} already has a pending sync job, skipping")
-            return True  # Already queued, consider this success
-
-        payload = {
-            "creator_id": creator_id,
-            "status": "pending",
-            "source": source,
-            "job_type": "sync_stats",
-        }
-
-        # Plain insert (no upsert semantics - we checked for duplicates above)
-        response = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-
-        if response.data:
-            logger.info(f"Queued creator {creator_id} for sync (source={source})")
-            return True
-        else:
-            logger.error(f"Failed to queue creator {creator_id}")
-            return False
-
-    except Exception as e:
-        logger.exception(f"Error queuing creator sync: {e}")
-        return False
-
-
-def queue_creator_sync_bulk(
-    creator_ids: List[str],
-    source: str = "scheduled",
-) -> tuple[int, int]:
-    """
-    Bulk-queue a list of creators for stats sync.
-
-    Replaces the N+1 pattern of calling queue_creator_sync() in a loop.
-    Uses 2 round-trips regardless of batch size:
-      1. SELECT  — find which creator_ids already have a pending job
-      2. INSERT  — insert all the rest in one call
-
-    Args:
-        creator_ids: List of creator UUIDs to enqueue
-        source:      Job source label (e.g. 'bootstrap_unsynced', 'scheduled_refresh')
-
-    Returns:
-        (queued, skipped) — queued = newly inserted, skipped = already pending
-    """
-    if not supabase_client or not creator_ids:
-        return 0, 0
-
-    try:
-        # 1. One SELECT to find already-pending creator_ids in this batch
-        existing_resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("creator_id")
-            .in_("creator_id", creator_ids)
-            .eq("status", "pending")
-            .execute()
-        )
-        already_pending = {row["creator_id"] for row in (existing_resp.data or [])}
-
-        to_insert = [cid for cid in creator_ids if cid not in already_pending]
-        skipped = len(already_pending)
-
-        if not to_insert:
-            logger.debug(
-                "queue_creator_sync_bulk: all %d creator(s) already pending",
-                skipped,
-            )
-            return 0, skipped
-
-        # 2. One bulk INSERT for the remainder
-        payload = [
-            {
-                "creator_id": cid,
-                "status": "pending",
-                "source": source,
-                "job_type": "sync_stats",
-            }
-            for cid in to_insert
-        ]
-        insert_resp = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-        queued = len(insert_resp.data or [])
-        logger.info(
-            "queue_creator_sync_bulk: %d queued, %d skipped (source=%s)",
-            queued,
-            skipped,
-            source,
-        )
-        return queued, skipped
-
-    except Exception as e:
-        logger.exception("Error in queue_creator_sync_bulk: %s", e)
-        return 0, 0
+from db import calculate_creator_stats, get_creator_hero_stats
+from services.contact_extractor import extract_social_links
+from components.category_stats import render_category_box_plots
+from views.mentions import render_mentions_placeholder
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# � Creator add-by-handle/ID request queue  (migration 018)
+# DESIGN TOKENS — repeated Tailwind sequences extracted as module constants.
+# Changing one line here updates every usage site automatically.
 # ============================================================================
 
-# Regex patterns for input validation — compiled once at module load
-_UC_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
-_HANDLE_RE = re.compile(r"^@[a-zA-Z0-9._-]{1,100}$")
+# Typography
+_CLS_LABEL = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+_CLS_MUTED_XS = "text-xs text-muted-foreground"
+_CLS_MUTED_SM = "text-sm text-muted-foreground"
+_CLS_HEADING = "text-base font-bold text-foreground"
+_CLS_VALUE_SM = "text-sm font-medium text-foreground"
 
-# Per-user rate limit: max requests per window
-_ADD_REQUEST_LIMIT = int(os.getenv("CREATOR_ADD_REQUEST_LIMIT", "5"))
-_ADD_REQUEST_WINDOW_HOURS = int(os.getenv("CREATOR_ADD_REQUEST_WINDOW_HOURS", "1"))
+# Layout
+_CLS_ROW_DIVIDED = "flex justify-between items-center py-2 border-b border-border last:border-0"
+_CLS_ROW_PY = "flex justify-between items-center py-1.5"
+_CLS_ICON_SM = "size-4 mr-1.5"
+
+# Separators / decoration
+_CLS_SEPARATOR = "text-border mx-1"  # mid-dot "·" between inline items
 
 
-def _validate_creator_input(q: str) -> tuple[bool, str]:
+def _login_href(return_url: str = "/creators") -> str:
+    return f"/login?{urlencode({'return_url': return_url})}"
+
+
+# Brand-accurate colours keyed by Lucide icon name
+_SOCIAL_COLOURS = {
+    "instagram": "text-pink-500 hover:text-pink-600",
+    "twitter": "text-sky-500 hover:text-sky-600",
+    "facebook": "text-blue-600 hover:text-blue-700",
+    "linkedin": "text-blue-700 hover:text-blue-800",
+    "github": "text-foreground hover:text-primary",
+    "youtube": "text-red-600 hover:text-red-700",
+    "mail": "text-violet-600 hover:text-violet-700",
+    "music": "text-foreground hover:text-primary",  # TikTok
+    "monitor-play": "text-purple-600 hover:text-purple-700",  # Twitch
+    "message-circle": "text-indigo-500 hover:text-indigo-600",  # Discord
+    "heart": "text-rose-500 hover:text-rose-600",  # Patreon
+    "link": "text-emerald-600 hover:text-emerald-700",  # Linktree
+    "globe": "text-emerald-600 hover:text-emerald-700",
+}
+
+
+def _extract_socials(bio: str, keywords: str) -> list[tuple[str, str, str]]:
+    """Backwards-compatible wrapper for the shared contact parser."""
+    return extract_social_links(bio, keywords)
+
+
+# Matches youtube.com (with or without www) and the youtu.be short-link domain.
+_YT_URL_RE = _re.compile(r"https?://(?:(?:www\.)?youtube\.com|youtu\.be)/\S+", _re.I)
+
+
+def _parse_featured_channels(raw: str) -> list[str]:
+    """Parse featured_channels_urls (newline/comma/space separated) → YouTube URLs.
+
+    Accepts both ``youtube.com`` and ``youtu.be`` variants.
     """
-    Validate a raw user input string as a YouTube channel identifier.
+    if not raw:
+        return []
+    seen: set[str] = set()
+    result = []
+    for u in _re.split(r"[\n,\s]+", raw.strip()):
+        u = u.strip()
+        if u and _YT_URL_RE.match(u) and u not in seen:
+            seen.add(u)
+            result.append(u)
+    return result[:6]
 
-    Accepts:
-        - Canonical channel ID: UC followed by exactly 22 base64url chars
-        - @handle: starting with @ followed by 1–100 alphanumeric/._- chars
 
-    Returns:
-        (is_valid, normalised_input)  — normalised lowercases handles, leaves UC IDs as-is.
+# Topic Category to Emoji Mapping (for topicCategories from YouTube API)
+# These are Wikipedia-based categories distinct from video categoryId
+TOPIC_CATEGORY_EMOJI_MAP = {
+    "music": "🎵",
+    "gaming": "🎮",
+    "video game": "🎮",
+    "game": "🎮",
+    "sport": "⚽",
+    "basketball": "🏀",
+    "baseball": "⚾",
+    "football": "🏈",
+    "soccer": "⚽",
+    "entertainment": "🎬",
+    "film": "🎬",
+    "movie": "🎬",
+    "television": "📺",
+    "education": "🎓",
+    "knowledge": "📚",
+    "science": "🔬",
+    "technology": "💻",
+    "food": "🍳",
+    "lifestyle": "🏠",
+    "cooking": "🍳",
+    "health": "💪",
+    "fitness": "💪",
+    "art": "🎨",
+    "performing arts": "🎭",
+    "society": "🎪",
+    "culture": "🎪",
+    "news": "📰",
+    "politics": "🏛️",
+    "comedy": "😂",
+    "humor": "😂",
+    "travel": "✈️",
+    "nature": "🌿",
+    "animals": "🐾",
+    "pets": "🐾",
+    "fashion": "👗",
+    "beauty": "💄",
+    "diy": "🔨",
+    "craft": "✂️",
+    "business": "💼",
+    "finance": "💰",
+    "automotive": "🚗",
+    "vehicle": "🚗",
+}
+
+
+def get_topic_category_emoji(category_name: str) -> str:
     """
-    q = q.strip()
-    if _UC_ID_RE.match(q):
-        return True, q
-    # Strings that start with "UC" but fail the strict regex are malformed
-    # channel IDs — reject them rather than silently treating as a handle.
-    if q.upper().startswith("UC") and not q.startswith("@"):
-        return False, q
-    handle = q if q.startswith("@") else f"@{q}"
-    if _HANDLE_RE.match(handle):
-        return True, handle.lower()
-    return False, q
-
-
-def queue_creator_add_request(
-    input_query: str,
-    user_id: str,
-) -> tuple[bool, str, Optional[str]]:
-    """
-    Submit a user request to add a creator by @handle or channel ID.
-
-    This writes a ``job_type='resolve_and_add'`` row to ``creator_sync_jobs``
-    with ``creator_id=NULL``.  The worker resolves the input to a real channel,
-    upserts the creator row, then converts the job to ``job_type='sync_stats'``
-    so the normal pipeline takes over.
-
-    Validations performed (all enforced before any DB write):
-        1. Input matches UC ID or @handle format.
-        2. Creator not already in ``creators`` table (by channel_id or custom_url).
-        3. No pending ``resolve_and_add`` job for the same ``input_query`` exists
-           (enforced by partial unique index; also checked explicitly for a clear
-           error message).
-        4. Per-user rate limit: max ``CREATOR_ADD_REQUEST_LIMIT`` requests per
-           ``CREATOR_ADD_REQUEST_WINDOW_HOURS`` hours.
+    Get emoji for a topic category name.
 
     Args:
-        input_query: Raw user input — "@MrBeast" or "UCX6OQ3DkcsbYNE6H8uQQuVA".
-        user_id:     Authenticated user UUID (from session).
+        category_name: Topic category name (e.g., "Music", "Video game culture")
 
     Returns:
-        ``(True, "queued", None)`` on success.
-        ``(False, message, None)`` on validation or DB failure.
-        ``(False, message, creator_id)`` when the creator already exists in the DB.
+        Emoji string (e.g., "🎵", "🎮")
+
+    Examples:
+        get_topic_category_emoji("Music") → "🎵"
+        get_topic_category_emoji("Video game culture") → "🎮"
+        get_topic_category_emoji("Entertainment") → "🎬"
     """
-    if not supabase_client:
-        return False, "Database unavailable", None
+    if not category_name:
+        return "🏷️"
 
-    # ── 1. Validate format ────────────────────────────────────────────────────
-    is_valid, normalised = _validate_creator_input(input_query)
-    if not is_valid:
-        return (
-            False,
-            (
-                "Invalid input — please enter a YouTube @handle (e.g. @MrBeast) "
-                "or a channel ID starting with UC."
-            ),
-            None,
-        )
+    name_lower = category_name.lower()
 
-    try:
-        # ── 2. Already in DB? ─────────────────────────────────────────────────
-        if normalised.startswith("UC"):
-            existing = (
-                supabase_client.table(CREATOR_TABLE)
-                .select("id")
-                .eq("channel_id", normalised)
-                .limit(1)
-                .execute()
-            )
-            if existing.data:
-                creator_id = existing.data[0]["id"]
-                return False, "This creator is already in the database.", creator_id
+    # Try to find a matching emoji
+    for key, emoji in TOPIC_CATEGORY_EMOJI_MAP.items():
+        if key in name_lower:
+            return emoji
+
+    # Default fallback
+    return "🏷️"
+
+
+def _filter_valid_creators(creators: list[dict]) -> list[dict]:
+    """
+    Filter out creators with incomplete data.
+
+    Only shows creators that have:
+    - A channel_name (successfully resolved)
+    - At least 1 subscriber (data has been synced)
+
+    This prevents showing empty "Sync Pending" cards.
+    """
+
+    def get_val(obj, key, default=None):
+        if isinstance(obj, dict):
+            v = obj.get(key, default)
         else:
-            existing_creator = _find_creator_by_normalized_handle(normalised, select="id")
-            if existing_creator:
-                creator_id = existing_creator["id"]
-                return False, "This creator is already in the database.", creator_id
+            v = getattr(obj, key, default)
+        return v if v is not None else default
 
-        # ── 3. Duplicate pending resolve_and_add? ────────────────────────────
-        dup = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id")
-            .eq("input_query", normalised)
-            .eq("job_type", "resolve_and_add")
-            .eq("status", "pending")
-            .limit(1)
-            .execute()
-        )
-        if dup.data:
-            return (
-                False,
-                "A request for this creator is already pending — please check back soon.",
-                None,
-            )
+    valid = []
+    for creator in creators:
+        channel_name = get_val(creator, "channel_name")
+        subs = get_val(creator, "current_subscribers", 0)
 
-        # ── 4. Rate limit ─────────────────────────────────────────────────────
-        window_start = (
-            datetime.now(timezone.utc) - timedelta(hours=_ADD_REQUEST_WINDOW_HOURS)
-        ).isoformat()
+        if channel_name and subs > 0:
+            valid.append(creator)
 
-        recent = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id", count="exact")
-            .eq("requested_by", user_id)
-            .eq("job_type", "resolve_and_add")
-            .gte("created_at", window_start)
-            .execute()
-        )
-        recent_count = recent.count or 0
-        if recent_count >= _ADD_REQUEST_LIMIT:
-            return (
-                False,
-                (
-                    f"You can submit up to {_ADD_REQUEST_LIMIT} creator requests per "
-                    f"{_ADD_REQUEST_WINDOW_HOURS}h. Please try again later."
-                ),
-                None,
-            )
-
-        # ── 5. Insert the job ─────────────────────────────────────────────────
-        payload = {
-            "job_type": "resolve_and_add",
-            "status": "pending",
-            "source": "user_add",
-            "input_query": normalised,
-            "requested_by": user_id,
-            # creator_id intentionally NULL — filled in by the worker
-        }
-        resp = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-
-        if resp.data:
-            logger.info(
-                "Creator add request queued: input=%s user=%s job_id=%s",
-                normalised,
-                user_id,
-                resp.data[0].get("id"),
-            )
-            return True, "queued", None
-
-        logger.error("Insert returned no data for creator add request: %s", normalised)
-        return False, "Failed to queue request — please try again.", None
-
-    except Exception as e:
-        logger.exception("Error queuing creator add request for %s: %s", normalised, e)
-        return False, "An unexpected error occurred — please try again.", None
-
-
-def get_creator_add_request_status(input_query: str) -> Optional[dict]:
-    """
-    Return the status of the most recent resolve_and_add job for *input_query*.
-
-    The worker converts the job to job_type='sync_stats' once a creator row
-    exists, so we query by input_query alone (no job_type filter) and
-    use the presence of a non-NULL creator_id to signal completion.
-
-    Returns a dict with keys status and creator_id, or None
-    if no matching job is found or the input is invalid.
-    """
-    if not supabase_client:
-        return None
-
-    is_valid, normalised = _validate_creator_input(input_query)
-    if not is_valid:
-        return None
-
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("status,creator_id")
-            .eq("input_query", normalised)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if not resp.data:
-            # Row doesn't exist yet — likely a timing race right after submission.
-            return {"status": "processing", "creator_id": None}
-
-        row = resp.data[0]
-        creator_id = row.get("creator_id")
-
-        if creator_id:
-            return {"status": "completed", "creator_id": creator_id}
-
-        raw_status = row.get("status", "")
-        if raw_status == "failed":
-            return {"status": "failed", "creator_id": None}
-
-        return {"status": "processing", "creator_id": None}
-
-    except Exception as e:
-        if _is_transient_disconnect(e):
-            logger.warning(
-                "get_creator_add_request_status transient disconnect for %s; keeping poll alive",
-                normalised,
-            )
-            return {"status": "processing", "creator_id": None}
-        logger.exception("get_creator_add_request_status error for %s: %s", normalised, e)
-        return {"status": "failed", "creator_id": None}
+    return valid
 
 
 # ============================================================================
-# �💳 Stripe / Subscription helpers
+# URL CONSTRUCTION HELPERS
 # ============================================================================
 
-SUBSCRIPTIONS_TABLE = "subscriptions"
 
-
-def get_stripe_customer_id(user_id: str) -> str | None:
-    """Return the Stripe customer_id for a given user, or None."""
-    if not supabase_client or not user_id:
-        return None
-    try:
-        resp = (
-            supabase_client.table("users")
-            .select("stripe_customer_id")
-            .eq("id", user_id)
-            .limit(1)
-            .execute()
-        )
-        rows = resp.data or []
-        return rows[0].get("stripe_customer_id") if rows else None
-    except Exception as exc:
-        logger.exception("[DB] get_stripe_customer_id failed: %s", exc)
-        return None
-
-
-def link_stripe_customer(user_id: str, stripe_customer_id: str) -> bool:
-    """Write stripe_customer_id onto the users row (called once at checkout)."""
-    if not supabase_client:
-        logger.warning("[DB] Supabase not available for link_stripe_customer")
-        return False
-    try:
-        supabase_client.table("users").update({"stripe_customer_id": stripe_customer_id}).eq(
-            "id", user_id
-        ).execute()
-        return True
-    except Exception as exc:
-        logger.exception("[DB] link_stripe_customer failed: %s", exc)
-        return False
-
-
-def get_user_id_by_stripe_customer(stripe_customer_id: str) -> Optional[str]:
-    """Return the ViralVibes user_id for a given Stripe customer_id, or None."""
-    if not supabase_client or not stripe_customer_id:
-        return None
-    try:
-        resp = (
-            supabase_client.table("users")
-            .select("id")
-            .eq("stripe_customer_id", stripe_customer_id)
-            .limit(1)
-            .execute()
-        )
-        rows = resp.data or []
-        return rows[0]["id"] if rows else None
-    except Exception as exc:
-        logger.exception("[DB] get_user_id_by_stripe_customer failed: %s", exc)
-        return None
-
-
-def upsert_subscription(
-    user_id: str,
-    stripe_subscription_id: str,
-    stripe_price_id: str,
-    plan: str,
-    interval: str,
-    status: str,
-    current_period_end_ts: int,
-) -> bool:
-    """
-    Insert or update a subscription row for a user.
-
-    Uses on_conflict on stripe_subscription_id (UNIQUE column) so re-delivered
-    webhook events are idempotent.
-    """
-    if not supabase_client:
-        logger.warning("[DB] Supabase not available for upsert_subscription")
-        return False
-
-    period_end_iso = (
-        datetime.fromtimestamp(current_period_end_ts, tz=timezone.utc).isoformat()
-        if current_period_end_ts
-        else None
-    )
-
-    payload = {
-        "user_id": user_id,
-        "stripe_subscription_id": stripe_subscription_id,
-        "stripe_price_id": stripe_price_id,
-        "plan": plan,
-        "interval": interval,
-        "status": status,
-        "current_period_end": period_end_iso,
-    }
-
-    try:
-        supabase_client.table(SUBSCRIPTIONS_TABLE).upsert(
-            payload,
-            on_conflict="stripe_subscription_id",
-        ).execute()
-        return True
-    except Exception as exc:
-        logger.exception("[DB] upsert_subscription failed: %s", exc)
-        return False
-
-
-def get_user_plan(user_id: str) -> Dict[str, Any]:
-    """
-    Return the active subscription info for a user.
-
-    Returns a dict with keys: plan, interval, status, current_period_end.
-    Defaults to {'plan': 'free', 'interval': None, 'status': 'inactive',
-    'current_period_end': None} when no active subscription exists.
-    """
-    default: Dict[str, Any] = {
-        "plan": "free",
-        "interval": None,
-        "status": "inactive",
-        "current_period_end": None,
-    }
-
-    if not supabase_client or not user_id:
-        return default
-
-    try:
-        resp = (
-            supabase_client.table(SUBSCRIPTIONS_TABLE)
-            .select("plan, interval, status, current_period_end")
-            .eq("user_id", user_id)
-            .in_("status", ["active", "trialing", "past_due"])
-            .order("current_period_end", desc=True)
-            .limit(1)
-            .execute()
-        )
-        rows = resp.data or []
-        return rows[0] if rows else default
-    except Exception as exc:
-        logger.exception("[DB] get_user_plan failed: %s", exc)
-        return default
-
-
-def get_pending_creator_syncs(batch_size: int = 1) -> List[Dict[str, Any]]:
-    """
-    Get pending creator syncs from queue.
-
-    Args:
-        batch_size: How many pending jobs to retrieve (default 1 for frugal)
-
-    Returns:
-        List of pending sync job dicts
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to get pending creator syncs")
-        return []
-
-    try:
-        response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id, creator_id, source, created_at")
-            .eq("status", "pending")
-            .order("created_at", desc=False)
-            .limit(batch_size)
-            .execute()
-        )
-
-        jobs = response.data if response.data else []
-
-        if jobs:
-            logger.info(f"Found {len(jobs)} pending creator syncs")
-        else:
-            logger.debug("No pending creator syncs")
-
-        return jobs
-
-    except Exception as e:
-        logger.exception(f"Error getting pending creator syncs: {e}")
-        return []
-
-
-def mark_creator_sync_processing(job_id: int) -> bool:
-    """Mark a creator sync job as currently processing."""
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return False
-
-    try:
-        response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .update(
-                {
-                    "status": "processing",
-                    "started_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            .eq("id", job_id)
-            .execute()
-        )
-
-        return bool(response.data)
-
-    except Exception as e:
-        logger.exception(f"Error marking creator sync {job_id} as processing: {e}")
-        return False
-
-
-def mark_creator_sync_completed(job_id: int) -> bool:
-    """Mark a creator sync job as completed."""
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return False
-
-    try:
-        response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .update(
-                {
-                    "status": "completed",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            .eq("id", job_id)
-            .execute()
-        )
-
-        return bool(response.data)
-
-    except Exception as e:
-        logger.exception(f"Error marking creator sync {job_id} as completed: {e}")
-        return False
-
-
-def mark_creator_sync_failed(job_id: int, error: str) -> bool:
-    """Mark a creator sync job as failed with retry logic."""
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return False
-
-    try:
-        resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("retry_count")
-            .eq("id", job_id)
-            .single()
-            .execute()
-        )
-
-        retry_count = resp.data.get("retry_count", 0) if resp.data else 0
-
-        if retry_count >= CREATOR_WORKER_MAX_RETRIES:
-            status = "failed"
-            next_retry = None
-            # Rewrite the error message to make clear no more retries are scheduled
-            error = f"{error} (permanent — max retries reached)"
-            logger.warning(f"Creator sync job {job_id} exhausted retries")
-        else:
-            status = "pending"
-            backoff_seconds = CREATOR_WORKER_RETRY_BASE * (2**retry_count)
-            next_retry = (
-                datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
-            ).isoformat()
-            logger.info(f"Creator sync job {job_id} will retry in {backoff_seconds}s")
-
-        update_payload = {
-            "status": status,
-            "retry_count": retry_count + 1,
-            "error_message": error,
-        }
-
-        if next_retry:
-            update_payload["retry_at"] = next_retry
-
-        response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .update(update_payload)
-            .eq("id", job_id)
-            .execute()
-        )
-
-        return bool(response.data)
-
-    except Exception as e:
-        logger.exception(f"Error marking creator sync {job_id} as failed: {e}")
-        return False
-
-
-def archive_permanently_failed_creators(max_retries: int = 3) -> int:
-    """
-    Archive creators that failed to sync after max retries.
-
-    Args:
-        max_retries: Retries before marking as archived (default 3)
-
-    Returns:
-        Number of creators archived
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return 0
-
-    try:
-        failed_response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("creator_id, retry_count")
-            .eq("status", "failed")
-            .gte("retry_count", max_retries)
-            .limit(100)
-            .execute()
-        )
-
-        failed_jobs = failed_response.data if failed_response.data else []
-        if not failed_jobs:
-            return 0
-
-        failed_creator_ids = set(job["creator_id"] for job in failed_jobs)
-        archived_count = 0
-
-        logger.info(
-            f"Found {len(failed_creator_ids)} creators with {max_retries}+ "
-            f"failed sync attempts - archiving..."
-        )
-
-        for creator_id in failed_creator_ids:
-            try:
-                result = (
-                    supabase_client.table(CREATOR_TABLE)
-                    .update(
-                        {
-                            "sync_status": "archived",
-                            "sync_error_message": f"Failed after {max_retries}+ retries",
-                            "archived_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                    .eq("id", creator_id)
-                    .execute()
-                )
-
-                if result.data:
-                    archived_count += 1
-                    logger.info(f"✅ Archived creator: {creator_id}")
-            except Exception as e:
-                logger.error(f"Error archiving {creator_id}: {e}")
-
-        if archived_count > 0:
-            logger.warning(f"Archived {archived_count} permanently failed creators")
-
-        return archived_count
-    except Exception as e:
-        logger.exception(f"Error archiving failed creators: {e}")
-        return 0
-
-
-# =============================================================================
-# 📊 Creator Stats Management (NEW - Added for creator infrastructure)
-# =============================================================================
-
-
-def update_creator_stats(
-    creator_id: str,
-    stats: Dict[str, Any],
-    job_id: int,
-) -> bool:
-    """
-    Update creator stats after successful sync.
-
-    Updates the creators table with current stats from YouTube API.
-    Schema fields: current_subscribers, current_view_count, current_video_count, last_updated_at
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to update creator stats")
-        return False
-
-    try:
-        # Update creators table with current stats
-        # Match actual DB schema: current_subscribers, current_view_count, current_video_count
-        payload = {
-            "current_subscribers": stats.get("subscriber_count", 0),
-            "current_view_count": stats.get("view_count", 0),
-            "current_video_count": stats.get("video_count", 0),
-            "last_updated_at": datetime.now(timezone.utc).isoformat(),
-            "channel_name": stats.get("channel_name"),
-            "channel_thumbnail_url": stats.get("channel_thumbnail"),
-            "channel_url": f"https://www.youtube.com/channel/{stats.get('channel_id')}",
-        }
-
-        # Conditionally add optional fields if they exist in stats
-        if "engagement_score" in stats:
-            payload["engagement_score"] = stats.get("engagement_score")
-        if "quality_grade" in stats:
-            payload["quality_grade"] = stats.get("quality_grade")
-
-        response = (
-            supabase_client.table(CREATOR_TABLE).update(payload).eq("id", creator_id).execute()
-        )
-
-        if response.data:
-            logger.info(f"Updated creator stats for {creator_id}")
-        else:
-            logger.error(f"Failed to update creator stats for {creator_id}")
-            return False
-
-        # Mark sync job complete
-        if not mark_creator_sync_completed(job_id):
-            logger.error(f"Failed to mark job {job_id} as completed")
-            return False
-
-        logger.info(f"Successfully updated stats for creator {creator_id}")
-        return True
-
-    except Exception as e:
-        logger.exception(f"Error updating creator stats: {e}")
-        return False
-
-
-def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
-    """Get the current stats from the creators table."""
-    if not supabase_client:
-        logger.warning("Supabase client not available to get creator stats")
-        return None
-
-    # Guard against string "null" / empty strings that crash the UUID column
-    if not creator_id or str(creator_id).strip().lower() in ("null", "none", ""):
-        logger.warning("get_creator_stats called with invalid creator_id: %r", creator_id)
-        return None
-
-    try:
-        response = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select("*")
-            .eq("id", creator_id)
-            .single()
-            .execute()
-        )
-
-        if response.data:
-            logger.info(f"Retrieved stats for creator {creator_id}")
-            return response.data
-        else:
-            logger.debug(f"No stats found for creator {creator_id}")
-            return None
-
-    except Exception as e:
-        logger.exception(f"Error getting creator stats: {e}")
-        return None
-
-
-def get_category_peer_benchmarks(category: str) -> dict[str, float]:
-    """
-    Return p75 views-per-video and viral-coeff for all synced creators
-    in ``category``.  Used by the Growth Blueprint scorer to contextualise
-    a single creator against its cohort.
-
-    Fetches only the four numeric columns needed; typically <200 rows per
-    category so the PostgREST default limit (1 000) is not a concern.
-
-    Returns:
-        {"peer_vpv_p75": float, "peer_vc_p75": float}
-        Both values are 0.0 when the category has no synced peers.
-    """
-    _default = {"peer_vpv_p75": 0.0, "peer_vc_p75": 0.0, "peer_engagement_p75": 0.0}
-
-    if not supabase_client or not category:
-        return _default
-
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select(
-                "current_view_count,"
-                "current_video_count,"
-                "views_change_30d,"
-                "current_subscribers,"
-                "engagement_score"
-            )
-            .eq("sync_status", "synced")
-            .eq("primary_category", category)
-            .gt("current_video_count", 0)
-            .gt("current_subscribers", 0)
-            .execute()
-        )
-        rows = resp.data or []
-        if not rows:
-            return _default
-
-        vpvs: list[float] = [
-            r["current_view_count"] / r["current_video_count"]
-            for r in rows
-            if (r.get("current_view_count") or 0) > 0
-        ]
-        vcs: list[float] = [
-            (r.get("views_change_30d") or 0) / r["current_subscribers"]
-            for r in rows
-            if (r.get("views_change_30d") or 0) >= 0
-        ]
-
-        eng_scores: list[float] = [
-            float(val) for r in rows if (val := r.get("engagement_score")) and float(val) > 0
-        ]
-
-        def _p75(lst: list[float]) -> float:
-            if not lst:
-                return 0.0
-            s = sorted(lst)
-            return s[min(int(len(s) * 0.75), len(s) - 1)]
-
-        return {
-            "peer_vpv_p75": _p75(vpvs),
-            "peer_vc_p75": _p75(vcs),
-            "peer_engagement_p75": _p75(eng_scores),
-        }
-
-    except Exception as exc:
-        # Log and swallow only network/transport and Supabase API errors so that
-        # the caller always gets a usable default instead of a 500 page.
-        # Programming errors (AttributeError, TypeError, etc.) are re-raised so
-        # they surface in logs and are not silently swallowed as "empty data".
-        try:
-            import httpx
-
-            _SWALLOWED = (httpx.TransportError, httpx.TimeoutException)
-        except ImportError:
-            _SWALLOWED = ()
-        _SWALLOWED = _SWALLOWED + (TimeoutError, ConnectionError, OSError)
-        if isinstance(exc, _SWALLOWED):
-            logger.warning(
-                "get_category_peer_benchmarks: transient error for '%s': %s",
-                category,
-                exc,
-            )
-            return _default
-        # Supabase / PostgREST API errors carry a .code attribute (e.g. 400,
-        # 500).  The previous check used .status_code which does NOT exist on
-        # postgrest.exceptions.APIError — causing these to fall through to the
-        # re-raise path and crash the ASGI request with a 500.
-        if getattr(exc, "code", None) is not None or getattr(exc, "status_code", None) is not None:
-            logger.warning(
-                "get_category_peer_benchmarks: API error for '%s': %s",
-                category,
-                exc,
-            )
-            return _default
-        # Unexpected programming error — re-raise so it's caught in tests.
-        logger.exception("get_category_peer_benchmarks: unexpected error for '%s'", category)
-        raise
-
-
-def get_category_leaderboard(category: str, limit: int = 5) -> list[dict]:
-    """
-    Return the top-N synced creators in ``category`` ranked by engagement score
-    descending.  Used to render the Niche Leaderboard widget on creator profiles.
-
-    Args:
-        category: Primary category string (e.g. "Gaming", "Tech").
-        limit:    Number of rows to return (default 5, max 10).
-
-    Returns:
-        List of dicts with keys: id, channel_name, channel_thumbnail_url,
-        custom_url, engagement_score, current_subscribers.
-        Empty list when the category is unknown or DB is unavailable.
-    """
-    if not supabase_client or not category:
-        return []
-
-    safe_limit = max(1, min(10, limit))
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select(
-                "id,"
-                "channel_name,"
-                "channel_thumbnail_url,"
-                "custom_url,"
-                "engagement_score,"
-                "current_subscribers"
-            )
-            .eq("sync_status", "synced")
-            .eq("primary_category", category)
-            .gt("engagement_score", 0)
-            .order("engagement_score", desc=True)
-            .limit(safe_limit)
-            .execute()
-        )
-        return resp.data or []
-    except Exception:
-        logger.exception("get_category_leaderboard: error for '%s'", category)
-        return []
-
-
-def get_creator_rank(
-    current_subscribers: int,
-    filter_key: str,
-    filter_val: str,
-) -> int | None:
-    """
-    Return this creator's 1-based subscriber rank within a filtered segment.
-
-    Uses a server-side COUNT — zero rows transferred to the application.
-    Rank = COUNT(synced creators in segment with MORE subscribers) + 1
-
-    Args:
-        current_subscribers: This creator's current subscriber count.
-        filter_key:  Column to filter on. Validated against allowlist.
-        filter_val:  Value to match (e.g. "US", "en", "Gaming").
-
-    Returns:
-        Integer rank (1 = top of segment) or None on any error.
-    """
-    # Allowlist prevents column injection via dynamic filter_key
-    _ALLOWED = frozenset({"country_code", "default_language", "primary_category"})
-    if not supabase_client or not current_subscribers or not filter_val:
-        return None
-    if filter_key not in _ALLOWED:
-        logger.warning("[DB] get_creator_rank: disallowed filter_key %s", filter_key)
-        return None
-
-    def _is_transient(exc: BaseException) -> bool:
-        """Retry only on network/transport failures and Supabase 5xx responses."""
-        # httpx transport errors (connection reset, timeout, etc.)
-        try:
-            import httpx
-
-            if isinstance(exc, (httpx.TransportError, httpx.TimeoutException)):
-                return True
-        except ImportError:
-            pass
-        # stdlib network errors
-        if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
-            return True
-        # PostgREST APIError / supabase-py errors carry a .code (PG error code)
-        # or a .status_code attribute; retry only on 5xx backend failures
-        status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-        if isinstance(status_code, int) and 500 <= status_code < 600:
-            return True
-        # PG error code 57014 = query_canceled (statement timeout)
-        pg_code = getattr(exc, "code", None)
-        if pg_code == "57014":
-            return True
-        return False
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=4),
-        retry=retry_if_exception(_is_transient),
-        reraise=False,
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-    )
-    def _fetch_rank():
-        resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id", count="estimated")
-            .eq("sync_status", "synced")
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", current_subscribers)
-            .eq(filter_key, filter_val)
-            .limit(1)
-            .execute()
-        )
-        above = getattr(resp, "count", None)
-        return int(above) + 1 if above is not None else None
-
-    try:
-        return _fetch_rank()
-    except Exception:
-        logger.exception("Error computing rank for %s=%s after retries", filter_key, filter_val)
-        return None
-
-
-def get_top_creators_by_growth(limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Get top creators by subscriber count.
-
-    Note: Growth rates require historical data tables (not yet implemented).
-    For now, sort by current_subscribers as a proxy.
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch top creators")
-        return []
-
-    try:
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select(
-                "id, channel_id, channel_name, channel_url, "
-                "channel_thumbnail_url, current_subscribers, "
-                "current_view_count, current_video_count, last_updated_at"
-            )
-            .order("current_subscribers", desc=True)
-            .limit(limit)
-            .execute()
-        )
-
-        creators = response.data if response.data else []
-        logger.info(f"Retrieved {len(creators)} top creators by subscriber count")
-        return creators
-
-    except Exception as e:
-        logger.exception(f"Error getting top creators: {e}")
-        return []
-
-
-def get_top_creators_by_engagement(limit: int = 20) -> List[Dict[str, Any]]:
-    """
-    Get top creators by view count.
-
-    Note: Engagement metrics require additional data (not in current schema).
-    For now, sort by current_view_count as a proxy.
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch top creators")
-        return []
-
-    try:
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select(
-                "id, channel_id, channel_name, channel_url, "
-                "channel_thumbnail_url, current_subscribers, "
-                "current_view_count, current_video_count, last_updated_at"
-            )
-            .order("current_view_count", desc=True)
-            .limit(limit)
-            .execute()
-        )
-
-        creators = response.data if response.data else []
-        logger.info(f"Retrieved {len(creators)} top creators by view count")
-        return creators
-
-    except Exception as e:
-        logger.exception(f"Error getting top creators: {e}")
-        return []
-        return creators
-
-    except Exception as e:
-        logger.exception(f"Error getting top creators by engagement: {e}")
-        return []
-
-
-def get_job_progress(playlist_url: str) -> Dict[str, Any]:
-    """
-    Fetch job progress for polling updates.
-
-    Always returns a dictionary. If no job exists, returns default values.
-
-    Returns:
-        Dict with keys:
-        - job_id: int | None (renamed from 'id')
-        - status: str | None
-        - progress: float (0.0-1.0, guaranteed non-null)
-        - started_at: str (ISO) | None
-        - error: str | None
-    """
-    # ✅ Define default response for "no job found" case
-    default_response = {
-        "job_id": None,
-        "status": None,
-        "progress": 0.0,
-        "started_at": None,
-        "error": None,
-    }
-
-    if not supabase_client:
-        logger.warning("Supabase client not available to fetch job progress")
-        return {**default_response, "error": "Database unavailable"}
-
-    try:
-        response = (
-            supabase_client.table(PLAYLIST_JOBS_TABLE)
-            .select("id, status, progress, started_at, error, retry_count")
-            .eq("playlist_url", playlist_url)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-
-        if not response.data:
-            logger.debug(f"No job found for playlist: {playlist_url}")
-            return default_response
-
-        job = response.data[0]
-
-        # ✅ Normalize field names
-        job["job_id"] = job.pop("id", None)
-
-        # ✅ Include retry_count
-        job["retry_count"] = job.get("retry_count", 0)
-
-        # ✅ Ensure progress is float and clamped to [0.0, 1.0]
-        raw_progress = job.get("progress")
-
-        if raw_progress is None:
-            job["progress"] = 0.0
-        else:
-            try:
-                progress = float(raw_progress)
-                # Clamp to valid range
-                job["progress"] = max(0.0, min(1.0, progress))
-            except (TypeError, ValueError):
-                logger.warning(
-                    f"Invalid progress value for {playlist_url}: {raw_progress!r}. "
-                    f"Defaulting to 0.0"
-                )
-                job["progress"] = 0.0
-
-        return job
-
-    except Exception as e:
-        logger.exception(f"Error fetching job progress for {playlist_url}: {e}")
-        return {**default_response, "error": str(e)}
-
-
-def get_estimated_stats(video_count: int) -> Dict[str, Any]:
-    """
-    Generate rough estimates for stats based on video count.
-    Used to show user "what they'll discover" during processing.
-
-    These are intentionally conservative estimates.
-    """
-    # Assumptions:
-    # - Average video: 50K views, 1.5K likes, 150 comments
-    # - Variance by channel type (music, vlog, tutorial, etc.)
-
-    avg_views_per_video = 50_000
-    avg_likes_per_video = 1_500
-    avg_comments_per_video = 150
-
-    return {
-        "estimated_total_views": video_count * avg_views_per_video,
-        "estimated_total_likes": video_count * avg_likes_per_video,
-        "estimated_total_comments": video_count * avg_comments_per_video,
-        "note": "These are rough estimates and will be refined during processing",
-    }
-
-
-# =============================================================================
-# Dashboard events (views / shares)
-# =============================================================================
-
-
-def record_dashboard_event(
-    supabase: Optional[SupabaseLike] = None,
-    dashboard_id: str = "",
-    event_type: str = "view",
-) -> None:
-    """
-    Record a dashboard event (view, share, etc) in the dashboard_events table.
-
-    Args:
-        supabase: Supabase client (uses global if not provided)
-        dashboard_id: Dashboard ID to record event for
-        event_type: Type of event ('view', 'share', etc)
-    """
-    client = supabase or supabase_client
-    if not client:
-        logger.warning("Supabase client not available to record event")
-        return
-
-    # ✅ Validate event_type
-    if event_type not in ("view", "share"):
-        logger.warning(f"Invalid event_type: {event_type}. Must be 'view' or 'share'")
-        return
-
-    try:
-        # ✅ Insert into dashboard_events table (NOT playlist_stats)
-        payload = {
-            "dashboard_id": dashboard_id,
-            "event_type": event_type,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        client.table("dashboard_events").insert(payload).execute()
-
-        logger.debug(f"Recorded {event_type} event for dashboard {dashboard_id}")
-
-    except Exception as e:
-        logger.warning(f"Failed to record dashboard event: {e}")
-        # Don't raise - event tracking is non-critical
-
-
-def get_dashboard_event_counts(
-    supabase: Optional[SupabaseLike] = None, dashboard_id: str = ""
-) -> dict:
-    """
-    Get event counts for a dashboard by aggregating from dashboard_events table.
-
-    Args:
-        supabase: Supabase client (uses global if not provided)
-        dashboard_id: Dashboard ID to fetch events for
-
-    Returns:
-        dict with event_type -> count mapping (e.g., {"view": 5, "share": 2})
-    """
-    client = supabase or supabase_client
-    if not client:
-        logger.warning("Supabase client not available to fetch event counts")
-        return {"view": 0, "share": 0}
-
-    try:
-        # ✅ Query dashboard_events table (NOT playlist_stats)
-        response = (
-            client.table("dashboard_events")
-            .select("event_type")
-            .eq("dashboard_id", dashboard_id)
-            .execute()
-        )
-
-        # ✅ Aggregate counts by event_type
-        counts = {"view": 0, "share": 0}
-
-        if response.data:
-            for event in response.data:
-                event_type = event.get("event_type")
-                if event_type in counts:
-                    counts[event_type] += 1
-
-        logger.debug(f"Event counts for {dashboard_id}: {counts}")
-        return counts
-
-    except Exception as e:
-        logger.warning(f"Failed to get event counts for {dashboard_id}: {e}")
-        return {"view": 0, "share": 0}
-
-
-def get_dashboard_stats_by_id(
-    dashboard_id: str,
-    user_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    """
-    Fetch complete playlist stats directly by dashboard_id.
-
-    This function is used for loading existing dashboards and does NOT filter by date,
-    ensuring that dashboards created on previous days are still accessible.
-
-    Args:
-        dashboard_id: The dashboard ID (MD5 hash of playlist URL)
-        user_id: Optional user_id for ownership filtering
-
-    Returns:
-        Complete stats dict with df_json, summary_stats, etc., or None if not found
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return None
-
-    try:
-        query = (
-            supabase_client.table(PLAYLIST_STATS_TABLE).select("*").eq("dashboard_id", dashboard_id)
-        )
-
-        # Filter by user if provided
-        if user_id is not None:
-            query = query.eq("user_id", user_id)
-
-        response = query.order("processed_on", desc=True).limit(1).execute()
-
-        if response.data and len(response.data) > 0:
-            row = response.data[0]
-
-            # Validate df_json
-            df_json = row.get("df_json")
-            if _is_empty_json(df_json):
-                logger.warning(
-                    f"[Dashboard] Found invalid/empty data for dashboard_id={dashboard_id}"
-                )
-                return None
-
-            logger.info(f"[Dashboard] Loaded dashboard: {dashboard_id} (user={user_id})")
-
-            # Deserialize JSON fields
-            if row.get("summary_stats"):
-                try:
-                    row["summary_stats"] = json.loads(row["summary_stats"])
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse summary_stats: {e}")
-                    row["summary_stats"] = {}
-
-            return row
-        else:
-            logger.warning(f"[Dashboard] Not found: {dashboard_id} (user={user_id})")
-            return None
-
-    except Exception as e:
-        logger.exception(f"Failed to fetch dashboard {dashboard_id}: {e}")
-        return None
-
-
-def resolve_playlist_url_from_dashboard_id(
-    dashboard_id: str,
-    user_id: Optional[str] = None,
-) -> Optional[str]:
-    """
-    Resolve playlist_url from dashboard_id, optionally scoped to a user.
-
-    Note: Uses 64-bit MD5 hash. Collision probability:
-    - 100K playlists: ~0.00003%
-    - 1M playlists: ~0.003%
-    - 10M playlists: ~0.3%
-
-    If collision occurs, returns most recent playlist for that user (or any user if user_id=None)
-    """
-    if not supabase_client:
-        return None
-
-    try:
-        query = (
-            supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select("playlist_url")
-            .eq("dashboard_id", dashboard_id)
-        )
-
-        # Filter by user if provided
-        if user_id is not None:
-            query = query.eq("user_id", user_id)
-
-        response = query.order("processed_on", desc=True).limit(1).execute()
-
-        return response.data[0]["playlist_url"] if response.data else None
-
-    except Exception as e:
-        logger.exception(f"Failed to resolve dashboard_id={dashboard_id} (user={user_id}): {e}")
-        return None
-
-
-def get_user_dashboards(
-    user_id: str,
-    search: str = "",
-    sort: str = "recent",
-    limit: Optional[int] = None,
-    offset: int = 0,
-) -> list[dict]:
-    """
-    Get all dashboards owned by a user with optional filtering and sorting.
-
-    Args:
-        user_id: User ID from session
-        search: Optional search query for title/channel (sanitized)
-        sort: Sort option ('recent', 'views', 'videos', 'title')
-        limit: Optional maximum number of rows to return
-        offset: Optional number of rows to skip when paginating
-
-    Returns:
-        List of dashboard metadata dicts sorted according to sort parameter
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for get_user_dashboards")
-        return []
-
-    try:
-        # Build base query
-        query = (
-            supabase_client.table(PLAYLIST_STATS_TABLE)
-            .select(
-                "dashboard_id, playlist_url, title, channel_name, "
-                "channel_thumbnail, video_count, view_count, processed_on, "
-                "summary_stats, processed_date"
-            )
-            .eq("user_id", user_id)
-        )
-
-        # ✅ SECURITY: Escape wildcards in search input
-        if search:
-            # Escape PostgreSQL ILIKE wildcards
-            escaped_search = (
-                search.replace("\\", "\\\\")  # Escape backslash first
-                .replace("%", "\\%")  # Escape percent (any chars)
-                .replace("_", "\\_")  # Escape underscore (single char)
-            )
-
-            search_pattern = f"%{escaped_search}%"
-
-            query = query.or_(f"title.ilike.{search_pattern},channel_name.ilike.{search_pattern}")
-
-        # Apply sorting
-        if sort == "views":
-            query = query.order("view_count", desc=True)
-        elif sort == "videos":
-            query = query.order("video_count", desc=True)
-        elif sort == "title":
-            query = query.order("title", desc=False)
-        else:  # recent
-            query = query.order("processed_on", desc=True)
-
-        if offset:
-            query = query.offset(max(offset, 0))
-        if limit is not None:
-            query = query.limit(limit)
-
-        # Execute query
-        response = query.execute()
-        dashboards = response.data or []
-
-        logger.info(
-            f"✅ Found {len(dashboards)} dashboards for user {user_id} "
-            f"(search='{search}', sort='{sort}')"
-        )
-
-        return dashboards
-
-    except Exception as e:
-        logger.exception(f"Failed to fetch dashboards for user {user_id}: {e}")
-        return []
-
-
-# ============================================================================
-# ❤️  User Favourite Creators
-# ============================================================================
-
-_USER_FAVOURITE_CREATORS_TABLE = USER_FAVOURITE_CREATORS_TABLE
-
-
-def add_favourite_creator(user_id: str, creator_id: str) -> bool:
-    """
-    Mark a creator as a favourite for a user.
-
-    Uses upsert so the call is idempotent — calling it twice does not
-    raise an error or duplicate the row.
-
-    Returns True on success, False on failure.
-    """
-    if not supabase_client or not user_id or not creator_id:
-        return False
-    try:
-        supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE).upsert(
-            {"user_id": user_id, "creator_id": creator_id},
-            on_conflict="user_id,creator_id",
-        ).execute()
-        logger.info("[Favourites] Added creator %s for user %s", creator_id, user_id)
-        return True
-    except Exception as exc:
-        logger.exception("[Favourites] add_favourite_creator failed: %s", exc)
-        return False
-
-
-def add_favourite_creators_bulk(user_id: str, creator_ids: list[str]) -> int:
-    """
-    Mark many creators as favourites for a user.
-
-    This powers the outreach harness: curated lists are bulk-saved into the
-    existing saved-creators pool, which the outreach export already understands.
-
-    Returns the number of unique creator IDs attempted. Upsert makes existing
-    favourites a no-op.
-    """
-    unique_ids = [cid for cid in dict.fromkeys(creator_ids) if cid]
-    if not supabase_client or not user_id or not unique_ids:
-        return 0
-    try:
-        payload = [{"user_id": user_id, "creator_id": creator_id} for creator_id in unique_ids]
-        supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE).upsert(
-            payload,
-            on_conflict="user_id,creator_id",
-        ).execute()
-        logger.info("[Favourites] Bulk-added %d creators for user %s", len(unique_ids), user_id)
-        return len(unique_ids)
-    except Exception as exc:
-        logger.exception("[Favourites] add_favourite_creators_bulk failed: %s", exc)
-        return 0
-
-
-def remove_favourite_creator(user_id: str, creator_id: str) -> bool:
-    """
-    Remove a creator from a user's favourites.
-
-    Returns True on success (including when the row did not exist),
-    False if the delete raised an unexpected error.
-    """
-    if not supabase_client or not user_id or not creator_id:
-        return False
-    try:
-        supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE).delete().eq("user_id", user_id).eq(
-            "creator_id", creator_id
-        ).execute()
-        logger.info("[Favourites] Removed creator %s for user %s", creator_id, user_id)
-        return True
-    except Exception as exc:
-        logger.exception("[Favourites] remove_favourite_creator failed: %s", exc)
-        return False
-
-
-def is_creator_favourited(user_id: str, creator_id: str) -> bool:
-    """
-    Return True if the user has favourited this creator, False otherwise.
-
-    Performs a lightweight COUNT query so it works even when the creator
-    row has been deleted (returns False in that case too).
-    """
-    if not supabase_client or not user_id or not creator_id:
-        return False
-    try:
-        resp = (
-            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .eq("creator_id", creator_id)
-            .limit(1)
-            .execute()
-        )
-        return (resp.count or 0) > 0
-    except Exception as exc:
-        logger.exception("[Favourites] is_creator_favourited failed: %s", exc)
-        return False
-
-
-def get_user_favourite_creator_ids(user_id: str) -> set[str]:
-    """
-    Return the set of creator UUIDs the user has favourited.
-
-    Fetches only the creator_id column so the query is lightweight even
-    when a user has many favourites.  Used by list/browse views to render
-    heart icons without an extra per-creator query.
-    """
-    if not supabase_client or not user_id:
-        return set()
-    try:
-        resp = (
-            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
-            .select("creator_id")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        return {row["creator_id"] for row in (resp.data or [])}
-    except Exception as exc:
-        logger.exception("[Favourites] get_user_favourite_creator_ids failed: %s", exc)
-        return set()
-
-
-def get_user_favourite_creators(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """
-    Return full creator rows for all creators the user has favourited,
-    ordered by most-recently-favourited first.
-
-    Performs an explicit join via two queries:
-      1. Fetch creator_id list (ordered by fav.created_at DESC)
-      2. Fetch full creator rows for those IDs
-
-    This avoids requiring a Supabase foreign-table join and works with the
-    existing supabase-py query builder.
-
-    Returns a list of creator dicts (same shape as get_creators() rows)
-    ordered by when the user favourited them, newest first.
-    """
-    if not supabase_client or not user_id:
-        return []
-    try:
-        # Step 1: get ordered creator_id list
-        fav_resp = (
-            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
-            .select("creator_id, created_at")
-            .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        rows = fav_resp.data or []
-        if not rows:
-            return []
-
-        creator_ids = [r["creator_id"] for r in rows]
-
-        # Step 2: fetch full creator rows for those IDs
-        creators_resp = (
-            supabase_client.table(CREATOR_TABLE).select("*").in_("id", creator_ids).execute()
-        )
-        creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
-
-        # Re-order to match the fav order (most recently favourited first)
-        return [creators_by_id[cid] for cid in creator_ids if cid in creators_by_id]
-
-    except Exception as exc:
-        logger.exception("[Favourites] get_user_favourite_creators failed: %s", exc)
-        return []
-
-
-def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """
-    Return saved creators for a user, sorted by 30-day subscriber growth (highest first).
-
-    Fetches a focused set of columns needed for the Watchlist Pulse card:
-        channel_name, channel_thumbnail_url, current_subscribers,
-        subscribers_change_30d, engagement_score, quality_grade, country_code, category
-
-    Two-query pattern (same as get_user_favourite_creators) because supabase-py
-    does not support cross-table ORDER BY in a single .select() call.
-    """
-    if not supabase_client or not user_id:
-        return []
-    try:
-        fav_resp = (
-            supabase_client.table(_USER_FAVOURITE_CREATORS_TABLE)
-            .select("creator_id")
-            .eq("user_id", user_id)
-            .limit(limit)
-            .execute()
-        )
-        rows = fav_resp.data or []
-        if not rows:
-            return []
-
-        creator_ids = [r["creator_id"] for r in rows]
-
-        creators_resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select(
-                "id, channel_name, channel_thumbnail_url, current_subscribers, "
-                "subscribers_change_30d, engagement_score, quality_grade, country_code, category"
-            )
-            .in_("id", creator_ids)
-            .order("subscribers_change_30d", desc=True, nullsfirst=False)
-            .execute()
-        )
-        return creators_resp.data or []
-
-    except Exception as exc:
-        logger.exception("[Favourites] get_favourite_creators_with_stats failed: %s", exc)
-        return []
-
-
-# ============================================================================
-# 🤝  Creator Peers  (embedding-based similarity)
-# ============================================================================
-
-_CREATOR_PEERS_TABLE = "creator_peers"
-
-# Fields fetched for each peer creator — same subset used by the similar-rail tiles
-_PEER_CREATOR_FIELDS = (
-    "id, channel_name, channel_thumbnail_url, "
-    "current_subscribers, quality_grade, primary_category, country_code"
-)
-
-# Extended fields for the /creators/like/{handle} lookalike page — adds the
-# columns ContactExtractorService.build_creator_contact_row needs (channel_id,
-# custom_url, growth deltas, the persisted extracted_* contact columns from
-# migration 040). Kept separate from the rail tiles so the cheap rail query
-# stays cheap.
-_PEER_CREATOR_FIELDS_WITH_CONTACT = (
-    "id, channel_id, channel_name, channel_url, custom_url, "
-    "channel_thumbnail_url, channel_description, keywords, "
-    "current_subscribers, current_view_count, current_video_count, "
-    "subscribers_change_30d, views_change_30d, "
-    "engagement_score, quality_grade, primary_category, "
-    "country_code, default_language, "
-    "has_contact_info, contact_signals_extracted_at, "
-    "extracted_email, extracted_website, extracted_instagram, "
-    "extracted_x, extracted_tiktok, extracted_linkedin"
-)
-
-
-def get_embedding_peers(
-    creator_id: str,
-    peer_type: str = "embedding_v1",
-    limit: int = 20,
+def _build_filter_url(
     *,
-    include_contacts: bool = False,
-) -> Optional[List[Dict[str, Any]]]:
-    """Return hydrated creator dicts for the embedding-based peer list.
-
-    Two-query pattern:
-      1. Fetch the peer_list (ordered UUID array) from creator_peers.
-      2. Fetch the matching creator rows, then re-order to match the ranked list.
-
-    Args:
-        creator_id: Seed creator UUID.
-        peer_type: Which embedding bucket to look up (default ``embedding_v1``).
-        limit: Maximum peers to return.
-        include_contacts: When True, fetches the wider field set that
-            ``ContactExtractorService.build_creator_contact_row`` needs
-            (extracted_* contact columns + growth deltas). Used by
-            ``/creators/like/{handle}``. Default keeps the cheap rail query.
-
-    Returns:
-        list[dict]  — peer creator rows in similarity order (best first)
-        None        — creator_id not present in creator_peers for this peer_type,
-                      so callers should suppress the "Similar creators" section.
-    """
-    if not supabase_client or not creator_id:
-        return None
-    try:
-        # Step 1: look up peer list
-        resp = _db_execute(
-            lambda: supabase_client.table(_CREATOR_PEERS_TABLE)
-            .select("peer_list")
-            .eq("creator_id", creator_id)
-            .eq("peer_type", peer_type)
-            .limit(1)
-            .execute()
-        )
-        rows = resp.data or []
-        if not rows:
-            return None  # ← caller must hide the section
-
-        peer_ids: list[str] = (rows[0].get("peer_list") or [])[:limit]
-        if not peer_ids:
-            return None
-
-        # Step 2: hydrate creator rows for those IDs
-        fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
-        creators_resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select(fields)
-            .in_("id", peer_ids)
-            .execute()
-        )
-        creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
-
-        # Re-order to preserve similarity ranking from peer_list
-        return [creators_by_id[pid] for pid in peer_ids if pid in creators_by_id]
-
-    except Exception as exc:
-        logger.exception("[EmbeddingPeers] get_embedding_peers failed for %s: %s", creator_id, exc)
-        return None
-
-
-# ============================================================================
-# 🔖  User Favourite Lists
-# ============================================================================
-
-_USER_FAVOURITE_LISTS_TABLE = USER_FAVOURITE_LISTS_TABLE
-
-# Allowlist of valid list_key formats (checked on write)
-_LIST_KEY_RE = re.compile(
-    r"^(top-rated|most-active|rising|veterans|new-channels|by-country|by-category|by-language"
-    r"|country:[A-Z]{2}"
-    r"|category:[^:]{1,80}"
-    r"|language:[a-z]{2,10})$"
-)
-
-
-def add_favourite_list(
-    user_id: str,
-    list_key: str,
-    list_label: str,
-    list_url: str,
-) -> bool:
-    """
-    Bookmark a curated list for a user.
-
-    Uses upsert on (user_id, list_key) so the call is idempotent.
-    Validates list_key against an allowlist and list_url as an internal path.
-
-    Returns True on success, False on failure.
-    """
-    if not supabase_client or not user_id:
-        return False
-    if not _LIST_KEY_RE.match(list_key):
-        logger.warning("[FavLists] Rejected invalid list_key: %r", list_key)
-        return False
-    if not list_url.startswith("/lists"):
-        logger.warning("[FavLists] Rejected non-internal list_url: %r", list_url)
-        return False
-    # Sanitise label: strip leading/trailing whitespace, cap length
-    list_label = list_label.strip()[:100]
-    try:
-        supabase_client.table(_USER_FAVOURITE_LISTS_TABLE).upsert(
-            {
-                "user_id": user_id,
-                "list_key": list_key,
-                "list_label": list_label,
-                "list_url": list_url,
-            },
-            on_conflict="user_id,list_key",
-        ).execute()
-        logger.info("[FavLists] Added list %s for user %s", list_key, user_id)
-        return True
-    except Exception as exc:
-        logger.exception("[FavLists] add_favourite_list failed: %s", exc)
-        return False
-
-
-def remove_favourite_list(user_id: str, list_key: str) -> bool:
-    """
-    Remove a bookmarked list for a user.
-
-    Returns True on success (including when the row did not exist).
-    """
-    if not supabase_client or not user_id or not list_key:
-        return False
-    try:
-        supabase_client.table(_USER_FAVOURITE_LISTS_TABLE).delete().eq("user_id", user_id).eq(
-            "list_key", list_key
-        ).execute()
-        logger.info("[FavLists] Removed list %s for user %s", list_key, user_id)
-        return True
-    except Exception as exc:
-        logger.exception("[FavLists] remove_favourite_list failed: %s", exc)
-        return False
-
-
-def get_user_favourite_lists(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """
-    Return all bookmarked lists for a user, ordered by most recently saved first.
-
-    Each item has keys: list_key, list_label, list_url, created_at.
-    """
-    if not supabase_client or not user_id:
-        return []
-    try:
-        resp = (
-            supabase_client.table(_USER_FAVOURITE_LISTS_TABLE)
-            .select("list_key, list_label, list_url, created_at")
-            .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return resp.data or []
-    except Exception as exc:
-        logger.exception("[FavLists] get_user_favourite_lists failed: %s", exc)
-        return []
-
-
-def get_user_favourite_list_keys(user_id: str) -> frozenset:
-    """
-    Return the set of list_key strings the user has bookmarked.
-
-    Lightweight: fetches only list_key column.  Used by list renderers to
-    decide filled vs. outline heart icons without per-item DB queries.
-    """
-    if not supabase_client or not user_id:
-        return frozenset()
-    try:
-        resp = (
-            supabase_client.table(_USER_FAVOURITE_LISTS_TABLE)
-            .select("list_key")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        return frozenset(row["list_key"] for row in (resp.data or []))
-    except Exception as exc:
-        logger.exception("[FavLists] get_user_favourite_list_keys failed: %s", exc)
-        return frozenset()
-
-
-def get_or_create_creator_from_playlist(
-    channel_id: str,
-    channel_name: str,
-    channel_url: str,
-    channel_thumbnail_url: str | None = None,
-    user_id: str | None = None,
-) -> Optional[str]:
-    """
-    Get or create a creator row based on YouTube channel identity.
-
-    ✅ UPDATED: Returns creator UUID, auto-queues for sync.
-
-    Args:
-        channel_id: YouTube channel ID (e.g., "UCxxxxx")
-        channel_name: Creator's channel name
-        channel_url: YouTube channel URL
-        channel_thumbnail_url: Channel avatar URL
-        user_id: Optional user who discovered (for future ownership)
-
-    Returns:
-        Creator UUID (id) if successful, None if error
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for creator discovery")
-        return None
-
-    try:
-        # 1️⃣ Try to fetch existing creator
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id")
-            .eq("channel_id", channel_id)
-            .limit(1)
-            .execute()
-        )
-
-        if response.data:
-            creator_id = response.data[0]["id"]
-            logger.info(f"Creator {channel_id} already exists (id={creator_id})")
-
-            # Opportunistic metadata refresh (update basic fields only)
-            # Note: Stats (country_code, video_count, subscribers) are updated by creator_worker
-            try:
-                update_payload = {
-                    "channel_name": channel_name,
-                    "channel_url": channel_url,
-                    "last_seen_at": datetime.now(timezone.utc).isoformat(),
-                }
-                # Only update thumbnail if we have a new value (avoid overwriting with None)
-                if channel_thumbnail_url:
-                    update_payload["channel_thumbnail_url"] = channel_thumbnail_url
-
-                supabase_client.table(CREATOR_TABLE).update(update_payload).eq(
-                    "id", creator_id
-                ).execute()
-                logger.debug(f"Refreshed metadata for creator {channel_id} (last_seen updated)")
-            except Exception as e:
-                logger.debug(f"Metadata refresh failed (non-critical): {e}")
-
-            # Queue for sync if not recently synced (intelligent deduplication)
-            try:
-                creator_resp = (
-                    supabase_client.table(CREATOR_TABLE)
-                    .select("last_synced_at")
-                    .eq("id", creator_id)
-                    .single()
-                    .execute()
-                )
-
-                last_synced = creator_resp.data.get("last_synced_at") if creator_resp.data else None
-                should_queue = True
-                # Use shorter interval for rediscovered creators vs scheduled syncs
-                sync_threshold = CREATOR_REDISCOVERY_THRESHOLD_DAYS
-
-                if last_synced:
-                    last_synced_dt = datetime.fromisoformat(last_synced)
-                    days_since_sync = (datetime.now(timezone.utc) - last_synced_dt).days
-                    should_queue = days_since_sync >= sync_threshold
-
-                    if not should_queue:
-                        logger.debug(
-                            f"Skipping sync queue for {channel_id} - synced {days_since_sync} days ago "
-                            f"(threshold: {sync_threshold} days)"
-                        )
-                    else:
-                        logger.info(
-                            f"Re-queuing {channel_id} for sync - last synced {days_since_sync} days ago"
-                        )
-
-                if should_queue:
-                    if not queue_creator_sync(creator_id, source="rediscovered"):
-                        logger.warning(f"Failed to queue existing creator {creator_id} for sync")
-
-            except Exception as e:
-                logger.debug(f"Sync queuing check failed (non-critical): {e}", exc_info=True)
-
-            return creator_id
-
-        # 2️⃣ Create new creator
-        insert_payload = {
-            "channel_id": channel_id,
-            "channel_name": channel_name,
-            "channel_url": channel_url,
-            "channel_thumbnail_url": channel_thumbnail_url,
-            # Ensure these essential fields have default values
-            "current_subscribers": 0,
-            "current_view_count": 0,
-            "current_video_count": 0,
-            # Country code can be null initially (will be filled by sync worker)
-        }
-
-        insert_resp = supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
-
-        if not insert_resp.data:
-            logger.error(f"Failed to insert creator {channel_id}")
-            return None
-
-        creator_id = insert_resp.data[0]["id"]
-        logger.info(f"Discovered new creator {channel_id} (id={creator_id})")
-
-        # 3️⃣ Queue for immediate sync (high priority for new creators)
-        if not queue_creator_sync(creator_id, source="discovered"):
-            logger.warning(f"Failed to queue creator {creator_id} for sync")
-        else:
-            logger.debug(f"Queued creator {creator_id} for immediate sync")
-
-        return creator_id
-
-    except Exception as e:
-        logger.exception(f"Error getting/creating creator {channel_id}: {e}")
-        return None
-
-
-def add_creator_manually(
-    channel_id: str,
-    channel_name: str,
-    channel_url: str,
-) -> Optional[str]:
-    """
-    Manual creator addition from UI endpoint.
-
-    Args:
-        channel_id: YouTube channel ID
-        channel_name: Creator's name
-        channel_url: YouTube URL
-
-    Returns:
-        Creator UUID if successful
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for manual creator add")
-        return None
-
-    try:
-        # Check if already exists
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id")
-            .eq("channel_id", channel_id)
-            .limit(1)
-            .execute()
-        )
-
-        if response.data:
-            creator_id = response.data[0]["id"]
-            logger.info(f"Creator {channel_id} already exists")
-            return creator_id
-
-        # Create new
-        insert_payload = {
-            "channel_id": channel_id,
-            "channel_name": channel_name,
-            "channel_url": channel_url,
-        }
-
-        insert_resp = supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
-
-        if not insert_resp.data:
-            logger.error(f"Failed to insert creator {channel_id}")
-            return None
-
-        creator_id = insert_resp.data[0]["id"]
-
-        # Queue for sync
-        queue_creator_sync(creator_id, source="manual")
-
-        logger.info(f"Manually added creator {channel_id} (id={creator_id})")
-        return creator_id
-
-    except Exception as e:
-        logger.exception(f"Error adding creator manually: {e}")
-        return None
-
-
-def find_creator_by_handle(handle: str) -> Optional[Dict[str, Any]]:
-    """
-    Find creator by YouTube handle (@username) or custom_url.
-
-    Uses the normalized-handle RPC when available so both historical storage
-    shapes (``mrbeast`` and ``@MrBeast``) resolve to the same creator.
-
-    Args:
-        handle: YouTube handle (e.g., "@MrBeast" or "MrBeast")
-
-    Returns:
-        Creator dict if found, None otherwise
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for handle search")
-        return None
-
-    creator = _find_creator_by_normalized_handle(handle)
-    if creator:
-        logger.info(f"Found creator by handle: {handle}")
-        return creator
-
-    logger.debug(f"No creator found with handle: {handle}")
-    return None
-
-
-def add_creator_by_handle(
-    handle: str,
-    channel_id: str,
-    channel_name: str,
-    custom_url: str,
-    channel_thumbnail_url: Optional[str] = None,
-) -> Optional[str]:
-    """
-    Add creator to database by YouTube handle with metadata.
-
-    This is called after fetching basic channel info from YouTube API.
-    Automatically queues the creator for full stats sync.
-
-    Args:
-        handle: YouTube handle (e.g., "@MrBeast")
-        channel_id: YouTube channel ID (UCxxxxx)
-        channel_name: Creator's display name
-        custom_url: Custom URL slug (without @)
-        channel_thumbnail_url: Avatar/thumbnail URL
-
-    Returns:
-        Creator UUID if successful, None otherwise
-    """
-    if not supabase_client:
-        logger.warning("Supabase client not available for creator addition")
-        return None
-
-    try:
-        # Check if already exists by channel_id (more reliable than handle)
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id")
-            .eq("channel_id", channel_id)
-            .limit(1)
-            .execute()
-        )
-
-        if response.data:
-            creator_id = response.data[0]["id"]
-            logger.info(f"Creator {channel_id} already exists with id={creator_id}")
-
-            # Update handle/custom_url if it's changed
-            try:
-                supabase_client.table(CREATOR_TABLE).update(
-                    {
-                        "custom_url": custom_url.lstrip("@").lower(),
-                        "channel_name": channel_name,
-                        "channel_thumbnail_url": channel_thumbnail_url,
-                        "last_seen_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                ).eq("id", creator_id).execute()
-                logger.debug(f"Updated metadata for creator {channel_id}")
-            except Exception as e:
-                logger.debug(f"Metadata update failed (non-critical): {e}")
-
-            return creator_id
-
-        # Create new creator
-        insert_payload = {
-            "channel_id": channel_id,
-            "channel_name": channel_name,
-            "channel_url": f"https://www.youtube.com/channel/{channel_id}",
-            "channel_thumbnail_url": channel_thumbnail_url,
-            "custom_url": custom_url.lstrip("@").lower(),
-            "current_subscribers": 0,
-            "current_view_count": 0,
-            "current_video_count": 0,
-        }
-
-        insert_resp = supabase_client.table(CREATOR_TABLE).insert(insert_payload).execute()
-
-        if not insert_resp.data:
-            logger.error(f"Failed to insert creator with handle {handle}")
-            return None
-
-        creator_id = insert_resp.data[0]["id"]
-        logger.info(f"Added creator {handle} (channel_id={channel_id}, id={creator_id})")
-
-        # Queue for immediate stats sync
-        if not queue_creator_sync(creator_id, source="handle_search"):
-            logger.warning(f"Failed to queue creator {creator_id} for sync")
-        else:
-            logger.info(f"Queued creator {creator_id} for stats sync")
-
-        return creator_id
-
-    except Exception as e:
-        logger.exception(f"Error adding creator by handle {handle}: {e}")
-        return None
-
-
-# =============================================================================
-# 📊 Creator Discovery & Listing (Frontend API)
-# =============================================================================
-
-
-class CreatorsResult(NamedTuple):
-    """Result from get_creators with pagination metadata."""
-
-    creators: list[dict]
-    total_count: int
-
-
-def _normalize_creator_handle(handle: str) -> str:
-    """Normalize a YouTube handle for exact DB lookup."""
-    return (handle or "").strip().lstrip("@").lower()
-
-
-def _find_creator_by_normalized_handle(
-    handle: str,
-    *,
-    select: str = "*",
-) -> Optional[Dict[str, Any]]:
-    """
-    Find a creator by exact normalized handle.
-
-    Primary path uses the Supabase RPC backed by the normalized expression
-    index. The fallback handles older local/test DBs that do not have the RPC
-    yet and also covers both historical storage shapes: ``mrbeast`` and
-    ``@mrbeast``.
-    """
-    if not supabase_client:
-        return None
-
-    normalized_handle = _normalize_creator_handle(handle)
-    if not normalized_handle:
-        return None
-
-    if hasattr(supabase_client, "rpc"):
-        try:
-            resp = _db_execute(
-                lambda: supabase_client.rpc(
-                    "find_creator_by_normalized_handle",
-                    {"p_handle": normalized_handle},
-                ).execute()
-            )
-            if resp.data:
-                return resp.data[0]
-            return None
-        except Exception:
-            logger.warning(
-                "find_creator_by_normalized_handle RPC failed; falling back to custom_url lookup",
-                exc_info=True,
-            )
-
-    for candidate in (normalized_handle, f"@{normalized_handle}"):
-        try:
-            resp = (
-                supabase_client.table(CREATOR_TABLE)
-                .select(select)
-                .ilike("custom_url", candidate)
-                .limit(1)
-                .execute()
-            )
-            if resp.data:
-                return resp.data[0]
-        except Exception:
-            logger.exception("Fallback handle lookup failed for %s", candidate)
-            continue
-
-    return None
-
-
-def _is_statement_timeout_error(exc: Exception) -> bool:
-    """Return True when Postgres canceled a query with statement timeout."""
-    text = str(exc).lower()
-    return "57014" in text or "statement timeout" in text
-
-
-def _is_handle_like_search(search: str) -> bool:
-    """Return True for single-token searches that look like YouTube handles."""
-    return bool(_HANDLE_RE.match(f"@{_normalize_creator_handle(search)}"))
-
-
-def _get_ranked_creator_search(
-    *,
-    search: str,
     sort: str,
-    limit: int,
-    offset: int,
-    return_count: bool,
-) -> tuple[bool, list[dict] | CreatorsResult]:
+    search: str,
+    grade: str = "all",
+    language: str = "all",
+    activity: str = "all",
+    age: str = "all",
+    country: str = "all",
+    category: str = "all",
+    page: int = None,
+    per_page: int = None,
+) -> str:
     """
-    Use the ranked search RPC for unfiltered text search when available.
+    Central helper for building /creators filter URLs.
 
-    Returns ``(True, result)`` when the RPC was attempted successfully,
-    including empty result sets. Returns ``(False, [])`` when ``return_count`` is
-    ``False`` or ``(False, CreatorsResult([], 0))`` when ``return_count`` is
-    ``True``, allowing callers to fall back to the legacy query.
+    Ensures all filter links stay in sync when query parameters change.
+    By consolidating URL construction here, we prevent parameter divergence
+    and reduce maintenance overhead.
+
+    Args:
+        sort: Sort criteria (subscribers, views, engagement, etc.)
+        search: Search query string
+        grade: Quality grade filter (all, A+, A, B+, B, C)
+        language: Language filter (all, en, ja, es, etc.)
+        activity: Activity level filter (all, active, dormant)
+        age: Channel age filter (all, new, established, veteran)
+        country: Country filter (all, or country code)
+        page: Optional page number for pagination
+        per_page: Optional items per page for pagination
+
+    Returns:
+        URL string for /creators with all parameters encoded
+
+    Examples:
+        _build_filter_url(sort='subscribers', search='', grade='A+')
+        → '/creators?sort=subscribers&search=&grade=A%2B&language=all&...'
+
+        _build_filter_url(sort='subscribers', search='', page=2, per_page=20)
+        → '/creators?sort=subscribers&search=&page=2&per_page=20&...'
     """
-    if not supabase_client or not hasattr(supabase_client, "rpc"):
-        return False, CreatorsResult([], 0) if return_count else []
+    params = {
+        "sort": sort,
+        "search": search,
+        "grade": grade,
+        "language": language,
+        "activity": activity,
+        "age": age,
+        "country": country,
+        "category": category,
+    }
 
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.rpc(
-                "search_creators_ranked",
-                {
-                    "p_search": search,
-                    "p_sort": sort,
-                    "p_limit": limit,
-                    "p_offset": offset,
-                },
-            ).execute()
+    if page is not None:
+        params["page"] = str(page)
+    if per_page is not None:
+        params["per_page"] = str(per_page)
+
+    return f"/creators?{urlencode(params)}"
+
+
+# ============================================================================
+# ADD CREATOR SECTION
+# ============================================================================
+
+
+def render_add_creator_section() -> Div:
+    """
+    HTMX form that lets authenticated users submit a creator by @handle or
+    channel ID.  No YouTube API is called on the Vercel frontend — the input
+    is passed directly to the backend worker queue via ``POST /creators/request``.
+    """
+    return Div(
+        Div(
+            Div(
+                UkIcon("plus-circle", cls="size-5 text-primary shrink-0 mt-0.5"),
+                Div(
+                    H3("Submit a Creator", cls="text-base font-semibold text-foreground"),
+                    P(
+                        "Know a channel that's not listed? Submit their @handle or "
+                        "channel ID and our system will add them automatically.",
+                        cls="text-sm text-muted-foreground mt-0.5",
+                    ),
+                    cls="flex-1 min-w-0",
+                ),
+                cls="flex items-start gap-3",
+            ),
+            # Input + submit (HTMX inline form)
+            Form(
+                Div(
+                    Input(
+                        type="text",
+                        name="q",
+                        id="creator-add-input",
+                        placeholder="@MrBeast or UCX6OQ3DkcsbYNE6H8uQQuVA",
+                        autocomplete="off",
+                        cls="flex-1 px-3 py-2 text-sm rounded-lg border border-border "
+                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
+                    ),
+                    Button(
+                        UkIcon("send", cls=_CLS_ICON_SM),
+                        "Submit",
+                        type="submit",
+                        cls="flex items-center px-4 py-2 text-sm font-medium rounded-lg "
+                        "bg-primary text-primary-foreground hover:bg-primary/90 "
+                        "transition-colors shrink-0",
+                    ),
+                    cls="flex gap-2 mt-3",
+                ),
+                # Response target injected below the form
+                Div(id="creator-add-result", cls="mt-3"),
+                hx_post="/creators/request",
+                hx_target="#creator-add-result",
+            ),
+            cls="p-4 rounded-xl border border-border bg-background",
+        ),
+        cls="mt-6 mb-2",
+    )
+
+
+def render_add_creator_result(
+    success: bool,
+    message: str,
+    creator_id: str = "",
+    input_query: str = "",
+) -> Div:
+    """
+    HTMX partial returned by POST /creators/request.
+    Renders a success or error notice inline below the submit form.
+
+    When ``success=True`` and ``input_query`` is provided, an HTMX poll is
+    attached so the card auto-updates to a profile link once the worker
+    completes (without requiring a full page reload).
+    """
+    if success:
+        poll_attrs = {}
+        if input_query:
+            status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
+            poll_attrs = dict(
+                hx_get=status_url,
+                hx_trigger="load, every 15s",
+                hx_target="this",
+                hx_swap="outerHTML",
+            )
+        return Div(
+            UkIcon("check-circle", cls="size-4 text-green-600 shrink-0"),
+            Div(
+                P(
+                    "Request queued!",
+                    cls="text-sm font-semibold text-green-700 dark:text-green-400",
+                ),
+                P(message, cls="text-xs text-muted-foreground mt-0.5"),
+                cls="flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 "
+            "border border-green-200 dark:border-green-800",
+            **poll_attrs,
         )
-    except Exception:
-        logger.warning("search_creators_ranked RPC failed; falling back", exc_info=True)
-        return False, CreatorsResult([], 0) if return_count else []
 
-    rows = resp.data or []
-    creators: list[dict] = []
-    total_count = 0
-    for idx, row in enumerate(rows, 1):
-        creator = row.get("creator") or {}
-        if not isinstance(creator, dict):
-            continue
-        creator["_rank"] = offset + idx
-        creators.append(creator)
-        if not total_count:
-            total_count = int(row.get("total_count") or 0)
+    # creator_id is non-empty when the creator already exists in the DB
+    if creator_id:
+        return Div(
+            UkIcon("info", cls="size-4 text-blue-600 shrink-0"),
+            Div(
+                P(
+                    "Already in the database",
+                    cls="text-sm font-semibold text-blue-700 dark:text-blue-400",
+                ),
+                A(
+                    "View their profile →",
+                    href=f"/creator/{creator_id}",
+                    cls="text-xs text-primary hover:underline",
+                ),
+                cls="flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 "
+            "border border-blue-200 dark:border-blue-800",
+        )
 
-    if return_count:
-        return True, CreatorsResult(creators, total_count)
-    return True, creators
+    return Div(
+        UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+        P(message, cls="text-sm text-red-700 dark:text-red-400 flex-1"),
+        cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+        "border border-red-200 dark:border-red-800",
+    )
 
 
-def get_creators(
-    search: str = "",
+def render_add_creator_status_result(
+    status: str,
+    creator_id: str = "",
+    input_query: str = "",
+) -> Div:
+    """
+    HTMX partial returned by GET /creators/add-status.
+
+    ``status`` values:
+        - ``"processing"`` — still in progress; card re-polls every 3 s.
+        - ``"completed"``  — creator is ready; renders a "View profile →" link.
+        - ``"failed"``     — worker could not resolve the creator.
+    """
+    if status == "completed" and creator_id:
+        return Div(
+            UkIcon("check-circle", cls="size-4 text-green-600 shrink-0"),
+            Div(
+                P(
+                    "Creator added!",
+                    cls="text-sm font-semibold text-green-700 dark:text-green-400",
+                ),
+                A(
+                    "View their profile →",
+                    href=f"/creator/{creator_id}",
+                    cls="text-xs text-primary hover:underline",
+                ),
+                cls="flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 "
+            "border border-green-200 dark:border-green-800",
+        )
+
+    if status == "failed":
+        return Div(
+            UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+            P(
+                "We couldn't find that creator. Please check the @handle or channel ID and try again.",
+                cls="text-sm text-red-700 dark:text-red-400 flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+            "border border-red-200 dark:border-red-800",
+        )
+
+    # Processing without a query to poll is unrecoverable — render as failed.
+    if not input_query:
+        return Div(
+            UkIcon("alert-circle", cls="size-4 text-red-600 shrink-0"),
+            P(
+                "We couldn't find that creator. Please check the @handle or channel ID and try again.",
+                cls="text-sm text-red-700 dark:text-red-400 flex-1",
+            ),
+            cls="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 "
+            "border border-red-200 dark:border-red-800",
+        )
+
+    # Still processing — continue polling
+    status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
+    poll_attrs = dict(
+        hx_get=status_url,
+        hx_trigger="every 15s",
+        hx_target="this",
+        hx_swap="outerHTML",
+    )
+    return Div(
+        Div(
+            cls="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0"
+        ),
+        P(
+            "Processing… this usually takes under a minute.",
+            cls="text-sm text-muted-foreground flex-1",
+        ),
+        cls="flex items-center gap-2 p-3 rounded-lg bg-muted/40 border border-border",
+        **poll_attrs,
+    )
+
+
+# ============================================================================
+# FAVOURITE BUTTON COMPONENT
+# ============================================================================
+
+
+def render_favourite_button(creator_id: str, is_favourited: bool = False) -> Div:
+    """
+    Heart-shaped toggle button for marking a creator as a favourite.
+
+    The button posts to ``POST /creator/{creator_id}/favourite`` via HTMX and
+    swaps itself in-place when the server responds with the updated fragment.
+
+    Args:
+        creator_id:     UUID of the creator (used in the HTMX target URL).
+        is_favourited:  Current state — True renders a filled/red heart,
+                        False renders an outlined/grey heart.
+
+    The wrapping ``div`` carries the ``id="fav-btn-{creator_id}"`` HTMX swap
+    target and is ``inline-flex`` so it does not disrupt flex-row siblings.
+    """
+    if is_favourited:
+        icon_cls = "w-4 h-4 fill-red-500 text-red-500"
+        btn_cls = (
+            "inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 "
+            "bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 "
+            "text-xs sm:text-sm font-semibold rounded-lg transition-colors"
+        )
+        label = "Saved"
+        aria_label = "Remove from favourites"
+    else:
+        icon_cls = "w-4 h-4 text-gray-400 hover:text-red-500"
+        btn_cls = (
+            "inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 "
+            "bg-accent hover:bg-red-50 border border-gray-200 hover:border-red-200 "
+            "text-foreground text-xs sm:text-sm font-semibold rounded-lg transition-colors"
+        )
+        label = "Save"
+        aria_label = "Add to favourites"
+
+    return Div(
+        Button(
+            UkIcon("heart", cls=icon_cls),
+            Span(label),  # always visible — consistent with sibling YouTube and Back buttons
+            hx_post=f"/creator/{creator_id}/favourite",
+            hx_target=f"#fav-btn-{creator_id}",
+            hx_swap="outerHTML",
+            aria_label=aria_label,
+            cls=btn_cls,
+        ),
+        id=f"fav-btn-{creator_id}",
+        cls="inline-flex",  # size to content — behaves as an inline sibling in flex rows
+    )
+
+
+# ============================================================================
+# FILTER SUGGESTION PARTIAL (HTMX typeahead response)
+# ============================================================================
+
+
+def render_filter_suggestions(
+    dim: str,
+    suggestions: list[tuple[str, str, int]],  # (value, display_label, count)
+    current: dict,
+) -> Div:
+    """
+    HTMX partial returned by GET /creators/suggest.
+
+    Renders a clickable list that applies the selected filter value while
+    preserving all other active filters.  Returns an empty Div (which clears
+    the results container) when *suggestions* is empty.
+
+    Args:
+        dim:         "country" | "language" | "category"
+        suggestions: List of (value, display_label, creator_count) tuples.
+        current:     Dict of current filter state (sort, search, grade, …).
+    """
+    if not suggestions:
+        return Div()
+
+    def _url(val: str) -> str:
+        kwargs = {
+            "sort": current["sort"],
+            "search": current["search"],
+            "grade": current["grade"],
+            "language": current["language"],
+            "activity": current["activity"],
+            "age": current["age"],
+            "country": current["country"],
+            "category": current["category"],
+            dim: val,  # Override just this dimension
+        }
+        return _build_filter_url(**kwargs)
+
+    return Div(
+        *[
+            A(
+                Span(label, cls="flex-1 truncate"),
+                Span(f"{count:,}", cls="text-muted-foreground text-xs shrink-0 tabular-nums"),
+                href=_url(val),
+                cls="flex items-center gap-2 px-3 py-2 text-sm no-underline "
+                "hover:bg-accent rounded-md transition-colors",
+            )
+            for val, label, count in suggestions
+        ],
+        cls="flex flex-col border border-border rounded-lg overflow-hidden bg-background shadow-sm",
+    )
+
+
+def _render_typeahead_section(
+    dim: str,
+    placeholder: str,
+    filters: dict,
+) -> Div:
+    """
+    Debounced search input for the filter modal.
+
+    Fires GET /creators/suggest?dim=…&q=… on every keystroke (debounced
+    300ms via HTMX) and swaps the result list in-place.  All current filter
+    state is bundled via hx-include="closest form" so suggestion links build
+    correct URLs that preserve existing active filters.
+
+    Args:
+        dim:      "country" | "language" | "category"
+        placeholder: Input placeholder text.
+        filters:  Current filter state dict with keys: sort, search, grade,
+                  language, activity, age, country, category.
+    """
+    result_id = f"suggest-{dim}-results"
+    return Form(
+        Div(
+            UkIcon(
+                "search",
+                cls="size-3.5 text-muted-foreground absolute left-2.5 top-1/2 "
+                "-translate-y-1/2 pointer-events-none",
+            ),
+            Input(
+                type="search",
+                name="q",
+                placeholder=placeholder,
+                autocomplete="off",
+                hx_get="/creators/suggest",
+                hx_target=f"#{result_id}",
+                hx_trigger="input changed delay:300ms",
+                hx_include="closest form",
+                cls="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-border "
+                "bg-background focus:outline-none focus:ring-1 focus:ring-primary/40 "
+                "placeholder:text-muted-foreground/60",
+            ),
+            cls="relative",
+        ),
+        # Hidden inputs — picked up by hx-include="closest form" on the Input above
+        Input(type="hidden", name="dim", value=dim),
+        Input(type="hidden", name="sort", value=filters["sort"]),
+        Input(type="hidden", name="search", value=filters["search"]),
+        Input(type="hidden", name="grade", value=filters["grade"]),
+        Input(type="hidden", name="language", value=filters["language"]),
+        Input(type="hidden", name="activity", value=filters["activity"]),
+        Input(type="hidden", name="age", value=filters["age"]),
+        Input(type="hidden", name="country", value=filters["country"]),
+        Input(type="hidden", name="category", value=filters["category"]),
+        # Results injected here by HTMX
+        Div(id=result_id),
+        onsubmit="return false;",
+        cls="mt-3",
+    )
+
+
+def _active_filter_pill(label: str, clear_url: str) -> A:
+    """
+    Pill shown when the active filter value is outside the top-N quick-pick
+    pill row.  Clicking it clears that filter dimension.
+    """
+    return A(
+        label,
+        Span(" ×", cls="opacity-70"),
+        href=clear_url,
+        title="Clear this filter",
+        cls=_PILL_BASE + "bg-primary text-primary-foreground mb-2 inline-flex items-center",
+    )
+
+
+# ============================================================================
+# MAIN PAGE FUNCTION
+# ============================================================================
+
+
+def render_creators_page(
+    creators: list[dict],
     sort: str = "subscribers",
+    search: str = "",
     grade_filter: str = "all",
     language_filter: str = "all",
     activity_filter: str = "all",
     age_filter: str = "all",
     country_filter: str = "all",
     category_filter: str = "all",
-    limit: int = 50,
-    offset: int = 0,
-    return_count: bool = False,
-    cursor_value: any = None,  # New: for keyset/cursor pagination
-) -> list[dict] | CreatorsResult:
+    stats: dict = None,
+    page: int = 1,
+    per_page: int = 50,
+    total_count: int = 0,
+    total_pages: int = 1,
+    is_authenticated: bool = False,
+    favourite_ids: set[str] | None = None,
+    handle_not_found: bool = False,
+) -> Div:
     """
-    Fetch creators for frontend display with comprehensive filtering and sorting.
-
-    ALL heavy lifting (filtering, sorting) done by database for performance.
-    This is the ONLY function frontend routes should use for creator listing.
-
+    Analytics-first creator discovery dashboard.
+    Optimized for what creators care about: growth, revenue, engagement.
     Args:
-        search: Search across channel name, @handle, description, category, topic
-            categories, keywords, and country code (case-insensitive substring match)
-        sort: Sort criteria
-            - subscribers: Most subscribers (default)
-            - views: Most total views
-            - videos: Most video count
-            - engagement: Best engagement score
-            - quality: Best quality grade
-            - recent: Recently updated
-            - consistency: Most consistent uploads (monthly_uploads DESC)
-            - newest_channel: Newest channels (published_at DESC)
-            - oldest_channel: Oldest/veteran channels (published_at ASC)
-        grade_filter: Filter by quality grade (all, A+, A, B+, B, C)
-        language_filter: Filter by content language (all, en, ja, es, ko, zh, etc)
-        activity_filter: Filter by upload frequency
-            - all: All creators
-            - active: Very active (>5 videos/month)
-            - dormant: Dormant (<1 video/month)
-        age_filter: Filter by channel age
-            - all: All creators
-            - new: New channels (<1 year old)
-            - established: Established (1-10 years old)
-            - veteran: Veteran channels (10+ years old)
-        country_filter: Filter by country code (all, us, jp, kr, gb, etc).
-            Value is normalized (trimmed and lowercased) before applying the filter.
-        limit: Maximum number of results (default 50)
-        offset: Number of results to skip (for pagination)
-        return_count: If True, returns CreatorsResult with total_count
-
-    Returns:
-        List of creator dicts with _rank position added (1-based index)
-        OR CreatorsResult(creators, total_count) if return_count=True
-
-    Examples:
-        # Get top 50 Japanese creators by consistency
-        creators = get_creators(language_filter="ja", sort="consistency", limit=50)
-
-        # Get active English creators
-        creators = get_creators(language_filter="en", activity_filter="active")
-
-        # Find new creators with good engagement
-        creators = get_creators(age_filter="new", sort="engagement")
+        creators: List of creator dicts with stats and ranking
+        sort: Sort criteria (subscribers, views, videos, engagement, quality)
+        search: Search query for filtering by name
+        grade_filter: Quality grade filter (all, A+, A, B+, B, C)
+        stats: Aggregate statistics dict from backend
     """
-    if not supabase_client:
-        logger.warning("Supabase client not available")
-        return CreatorsResult([], 0) if return_count else []
+    # Grade counts for the filter modal badge ("X creators available").
+    # Computed from the current page — a full-DB per-grade count would require
+    # an extra query.  Acceptable approximation for the badge display.
+    grade_counts = _count_by_grade(creators)
 
+    # NOTE: _filter_valid_creators is intentionally NOT called here.
+    # db.get_creators() already applies the same conditions:
+    #   channel_name IS NOT NULL, current_subscribers > 0,
+    #   sync_status IN BROWSEABLE_SYNC_STATUSES  (constants.py)
+    # Applying a second filter on the paginated list would silently reduce the page
+    # size while total_count (used for pagination math) stays based on the DB count,
+    # making some pages appear to have fewer results than expected.
+
+    # Use provided stats or build them from the current page + RPC global counts.
+    # Must use the merge pattern so distribution keys (top_countries, top_languages,
+    # grade_counts, etc.) are always present — get_creator_hero_stats() alone only
+    # returns the 5 numeric hero keys and would leave _render_filter_bar with nothing.
+    if stats is None:
+        page_stats = calculate_creator_stats(creators)
+        hero_stats = get_creator_hero_stats()
+        stats = {**page_stats, **hero_stats}
+
+    # Check if any filters are active
+    has_active_filters = (
+        search
+        or grade_filter != "all"
+        or language_filter != "all"
+        or activity_filter != "all"
+        or age_filter != "all"
+        or country_filter != "all"
+        or category_filter != "all"
+    )
+
+    return Container(
+        # Hero section with real stats from DB
+        _render_hero(
+            stats=stats,
+            # total_count is the exact DB count for the current query (with or without
+            # filters). Using it instead of len(creators) ensures the hero shows the
+            # real filtered total ("450 of 500"), not just the current page size ("50").
+            filtered_count=total_count,
+            has_filters=has_active_filters,
+        ),
+        # Editors' Shortlist rail — curated entry points into /creators/top.
+        # Lazy-imported to keep this module's import surface lean and to avoid
+        # a circular components ⇄ routes graph when routes/creators imports views.
+        _render_editors_shortlist_rail(),
+        # Filter controls (sticky bar)
+        _render_filter_bar(
+            search=search,
+            sort=sort,
+            grade_filter=grade_filter,
+            language_filter=language_filter,
+            activity_filter=activity_filter,
+            age_filter=age_filter,
+            country_filter=country_filter,
+            category_filter=category_filter,
+            grade_counts=grade_counts,
+            top_countries=stats.get("top_countries", []) if stats else [],
+            top_categories=stats.get("top_categories", []) if stats else [],
+            top_languages=stats.get("top_languages", []) if stats else [],
+            total_count=total_count,
+            per_page=per_page,
+        ),
+        # "@handle not in DB" banner — only shown alongside a real results grid.
+        # When creators is empty, _render_empty_state Flow 1 handles the CTA,
+        # avoiding duplicate id="creator-add-result" in the same page.
+        (
+            _render_handle_not_found_banner(search, is_authenticated)
+            if handle_not_found and creators
+            else None
+        ),
+        # Creators grid or empty state
+        (
+            Div(
+                _render_creators_grid(creators, favourite_ids=favourite_ids),
+                # Pagination controls
+                _render_pagination(
+                    page=page,
+                    total_pages=total_pages,
+                    search=search,
+                    sort=sort,
+                    grade_filter=grade_filter,
+                    language_filter=language_filter,
+                    activity_filter=activity_filter,
+                    age_filter=age_filter,
+                    country_filter=country_filter,
+                    category_filter=category_filter,
+                    per_page=per_page,
+                    total_count=total_count,
+                ),
+            )
+            if creators
+            else _render_empty_state(search, grade_filter, has_active_filters, is_authenticated)
+        ),
+        cls=ContainerT.xl,
+    )
+
+
+def _render_editors_shortlist_rail() -> Div:
+    """Mount point for the EditorsShortlistRail on /creators.
+
+    Wrapped in a helper so the rail's import (and its associated 6-probe
+    DB call for live counts) stays out of the module-level scope. Failure
+    here must never break the page — falls back to a no-op div.
+    """
     try:
-        # Build sort mapping (DB does the sorting based on this)
-        sort_map = {
-            "subscribers": ("current_subscribers", True),
-            "views": ("current_view_count", True),
-            "videos": ("current_video_count", True),
-            "engagement": ("engagement_score", True),
-            "quality": ("quality_grade", False),
-            "recent": ("last_updated_at", True),
-            "consistency": ("monthly_uploads", True),
-            "newest_channel": ("published_at", True),
-            "oldest_channel": ("published_at", False),
-        }
-        sort_field, descending = sort_map.get(sort, ("current_subscribers", True))
+        from components.editors_shortlist import EditorsShortlistRail
+        from routes.creators import get_aplus_category_counts
 
-        no_extra_filters = (
-            grade_filter == "all"
-            and language_filter == "all"
-            and activity_filter == "all"
-            and age_filter == "all"
-            and country_filter == "all"
-            and category_filter == "all"
-        )
-        if search and no_extra_filters:
-            used_ranked_rpc, ranked_result = _get_ranked_creator_search(
-                search=search,
-                sort=sort,
-                limit=limit,
-                offset=offset,
-                return_count=return_count,
-            )
-            if used_ranked_rpc:
-                return ranked_result
-
-        # Start query - must call .select() to get a builder with filter methods
-        query = supabase_client.table(CREATOR_TABLE).select(
-            "*", count="exact" if return_count else None
-        )
-
-        # Filter out incomplete creators (ensure data quality)
-        # Using .not_.is_() for NULL check - only works after .select() is called
-        query = query.not_.is_("channel_name", "null")
-        query = query.gt("current_subscribers", 0)
-        # Include synced_partial creators alongside fully-synced ones so that
-        # creators with basic data (channel_name, subscribers, views) appear on
-        # browse and ranking pages.  synced_partial rows have all listing fields
-        # populated but may be missing engagement_score / quality_grade / recent
-        # performance columns — card components already degrade gracefully on None.
-        #
-        # Performance: migration 045 adds synced_partial partial indexes that
-        # mirror the synced ones (008, 028, 043). PostgreSQL satisfies the IN()
-        # condition via BitmapOr(idx_synced, idx_synced_partial) rather than a
-        # full table scan.
-        query = query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
-
-        # Apply search filter
-        if search:
-            # ✅ SECURITY: Escape wildcards in search input
-            escaped_search = (
-                search.replace("\\", "\\\\")  # Escape backslash first
-                .replace("%", "\\%")  # Escape percent (any chars)
-                .replace("_", "\\_")  # Escape underscore (single char)
-            )
-            search_pattern = f"%{escaped_search}%"
-
-            # Multi-column ILIKE search — only columns with pg_trgm GIN indexes are safe;
-            # unindexed ILIKE on long text causes full seq scans and 57014 stmt timeouts.
-            # To add a column: create a GIN index with gin_trgm_ops first (see migration 028).
-            #
-            # Excluded columns:
-            #   topic_categories     — GIN is jsonb_path_ops (containment only, not text search)
-            #   country_code         — stores "JP" not "japan"; use country_filter param instead
-            #   channel_description  — high noise, low signal: bio mentions of a creator's name
-            #                          (e.g. shoutouts) drowned out exact name matches. Removed
-            #                          to improve precision; legit name matches are well covered
-            #                          by the four columns below.
-            _search_cols = [
-                "channel_name",  # short text
-                "custom_url",  # short text
-                "primary_category",  # idx_creators_primary_category_trgm (migration 028)
-                "keywords",  # medium text
-            ]
-            or_filter = ",".join(f"{col}.ilike.{search_pattern}" for col in _search_cols)
-            query = query.or_(or_filter)
-
-        # Apply grade filter
-        valid_grades = ["A+", "A", "B+", "B", "C"]
-        if grade_filter and grade_filter in valid_grades:
-            query = query.eq("quality_grade", grade_filter)
-
-        # Apply language filter
-        if language_filter and language_filter != "all":
-            query = query.eq("default_language", language_filter)
-
-        # Apply activity filter
-        if activity_filter and activity_filter != "all":
-            if activity_filter == "active":
-                query = query.gt("monthly_uploads", 5)  # > 5 videos/month
-            elif activity_filter == "dormant":
-                query = query.lt("monthly_uploads", 1)  # < 1 video/month
-
-        # Apply age filter (NEW)
-        if age_filter and age_filter != "all":
-            if age_filter == "new":
-                query = query.lt("channel_age_days", 365)  # < 1 year
-            elif age_filter == "established":
-                query = query.gte("channel_age_days", 365)  # >= 1 year
-                query = query.lt("channel_age_days", 3650)  # < 10 years
-            elif age_filter == "veteran":
-                query = query.gte("channel_age_days", 3650)  # >= 10 years
-
-        # Apply country filter. DB stores ISO 3166-1 alpha-2 codes in uppercase ("US",
-        # "BM", "JP"). Normalize the input to uppercase so we can use .eq() and let
-        # idx_creators_country_synced (B-tree, migration 008) serve the query as an
-        # index scan. Using .ilike() here defeats the B-tree index and forces a full
-        # sequential scan, which causes statement timeouts on large tables (pg error
-        # 57014). .eq() is safe because there is only one valid casing for country codes.
-        if country_filter and country_filter != "all":
-            normalized_country = country_filter.strip().upper()
-            if normalized_country:
-                query = query.eq("country_code", normalized_country)
-
-        # Apply category filter using the primary_category column.
-        # primary_category is a clean, normalized, single-value text field
-        # (populated by the worker from topic_categories).  Filtering on it
-        # instead of the raw topic_categories JSON text column allows
-        # idx_creators_primary_category_trgm (pg_trgm GIN partial index,
-        # migration 028) to service the query as an index scan instead of a
-        # multi-MB sequential scan — eliminating the statement timeout.
-        if category_filter and category_filter != "all":
-            # Normalize filter term to match cleaned category names:
-            # - Strip leading/trailing whitespace
-            # - Replace underscores with spaces
-            # - Collapse internal whitespace to single spaces
-            normalized_category = normalize_category_name(category_filter)
-            # Guard against empty/whitespace-only category_filter to avoid ilike_pattern
-            # becoming "%%" and unintentionally matching all categories.
-            if normalized_category:
-                # Preserve multi-word matching semantics: build a positional wildcard
-                # pattern so each word must appear in order but separators between
-                # them don't have to match exactly.
-                # e.g. "Howto & Style" → "%Howto%&%Style%" still matches the clean
-                # primary_category value "Howto & Style".
-                # Single-word terms fall through to a plain %term%.
-                # The pg_trgm GIN index (migration 028) services all ilike patterns.
-                words = normalized_category.split()
-                ilike_pattern = (
-                    "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
-                )
-                query = query.ilike("primary_category", ilike_pattern)
-
-        # Keyset/cursor pagination optimization
-        if cursor_value is not None:
-            if descending:
-                query = query.lt(sort_field, cursor_value)
-            else:
-                query = query.gt(sort_field, cursor_value)
-            # Note: For compound keys (e.g., sort_field + id), extend this logic
-        query = query.order(sort_field, desc=descending).limit(limit)
-        # If cursor_value is not provided, fallback to offset for first page or legacy clients
-        if cursor_value is None and offset:
-            query = query.offset(offset)
-
-        # Execute query (count already included in select if needed)
-        try:
-            response = _db_execute(lambda: query.execute())
-        except Exception as e:
-            if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
-                exact_creator = _find_creator_by_normalized_handle(search)
-                if exact_creator:
-                    exact_creator["_rank"] = 1
-                    logger.warning(
-                        "Creator broad search timed out for %r; returned exact handle fallback",
-                        search,
-                    )
-                    if return_count:
-                        return CreatorsResult([exact_creator], 1)
-                    return [exact_creator]
-                if _is_handle_like_search(search):
-                    logger.warning(
-                        "Creator broad search timed out for handle-like query %r; "
-                        "returning empty exact-search result",
-                        search,
-                    )
-                    if return_count:
-                        return CreatorsResult([], 0)
-                    return []
-
-            logger.error(
-                f"Query execution failed: {type(e).__name__}: {str(e)}\n"
-                f"Sort: {sort}, Search: {search!r}, Filters: "
-                f"[grade={grade_filter}, lang={language_filter}, activity={activity_filter}, "
-                f"age={age_filter}, country={country_filter}, category={category_filter}]",
-                exc_info=True,
-            )
-            raise
-        creators = response.data if response.data else []
-        total_count = (getattr(response, "count", 0) or 0) if return_count else 0
-
-        # Add ranking position (1-based index, adjusted for offset)
-        for idx, creator in enumerate(creators, 1):
-            creator["_rank"] = offset + idx
-
-        # Log results
-        filters_applied = []
-        if search:
-            filters_applied.append(f"search='{search}'")
-        if grade_filter != "all":
-            filters_applied.append(f"grade={grade_filter}")
-        if language_filter != "all":
-            filters_applied.append(f"language={language_filter}")
-        if activity_filter != "all":
-            filters_applied.append(f"activity={activity_filter}")
-        if age_filter != "all":
-            filters_applied.append(f"age={age_filter}")
-        if country_filter != "all":
-            filters_applied.append(f"country={country_filter}")
-        if category_filter != "all":
-            filters_applied.append(f"category={category_filter}")
-
-        filters_str = ", ".join(filters_applied) if filters_applied else "none"
-        logger.info(
-            f"Retrieved {len(creators)} creators "
-            f"(sort={sort}, filters=[{filters_str}], limit={limit}, offset={offset})"
-            + (f", total_count={total_count}" if return_count else "")
-        )
-
-        if return_count:
-            return CreatorsResult(creators, total_count)
-        return creators
-
-    except Exception as e:
-        logger.exception(f"Error fetching creators: {e}")
-        return CreatorsResult([], 0) if return_count else []
+        return EditorsShortlistRail(counts=get_aplus_category_counts())
+    except Exception:  # pragma: no cover — never block /creators
+        logger.exception("Editors' Shortlist rail failed to render")
+        return Div()
 
 
-def calculate_creator_stats(creators: list[dict]) -> dict:
+def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False) -> Div:
     """
-    Calculate aggregate statistics from a page of creators for the hero section.
+    Hero section with marketing-relevant statistics from database.
 
-    Computes per-page distributions (grade_counts, top_countries, top_languages,
-    top_categories) from the current page's rows.  Global scalar totals
-    (total_creators, avg_engagement, growing_creators, premium_creators,
-    total_countries, total_languages) are always overridden by the caller with
-    results from get_creator_hero_stats() — a zero-row-transfer DB RPC — so
-    those values here are page-level approximations only.
+    Smart display:
+    - No filters: Shows total creators from DB (e.g., "500 creators")
+    - With filters: Shows filtered count + total (e.g., "45 of 500 creators")
+
+    All numbers come from DB state (via stats dict), NOT from filtered results.
+    Designed for agencies looking to identify collaboration opportunities.
+    """
+    # Extract only the metrics actually used in hero rendering
+    total_creators = stats.get("total_creators", 0)  # synced-only (filter denominator)
+    _total_db_val = stats.get("total_db_creators")
+    total_db_creators = total_creators if _total_db_val is None else _total_db_val  # all rows in DB
+    total_countries = stats.get("total_countries", 0)
+    total_languages = stats.get("total_languages", 0)
+    total_categories = stats.get("total_categories", 0)
+    top_countries = stats.get("top_countries") or []
+    top_languages = stats.get("top_languages") or []
+    top_categories = stats.get("top_categories") or []
+
+    return Div(
+        Div(
+            P(
+                "Creator Intelligence",
+                cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+            ),
+            P(
+                "Discover high-performing creators for brand collaborations.",
+                cls="text-sm text-muted-foreground mt-1",
+            ),
+            cls="mb-5",
+        ),
+        # Metric Strip - marketing-focused metrics from DB
+        Div(
+            # Total/Filtered creators — no-filter shows full DB size for marketing impact;
+            # filtered view shows matching synced creators vs. the browseable synced pool.
+            Div(
+                P(
+                    "Filtered Results" if has_filters else "Total Creators",
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-wider",
+                ),
+                H2(
+                    (
+                        f"{format_number(filtered_count)} of {format_number(total_creators)}"
+                        if has_filters
+                        else format_number(total_db_creators)
+                    ),
+                    cls="text-2xl font-bold text-foreground mt-1",
+                ),
+                P(
+                    "matching filters" if has_filters else "In database",
+                    cls="text-xs text-muted-foreground mt-1",
+                ),
+                cls="text-center",
+            ),
+            # Global Reach - Countries with flag showcase
+            Div(
+                # Card header links to the full country rankings list
+                A(
+                    P(
+                        "Global Reach",
+                        cls="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2",
+                    ),
+                    H2(
+                        f"{format_number(total_countries)} Nations",
+                        cls="text-xl font-bold text-blue-600",
+                    ),
+                    href="/lists?tab=by-country",
+                    cls="block no-underline hover:opacity-80 transition-opacity",
+                ),
+                # Top country flags — each links to that country’s ranked creator list
+                Div(
+                    *(
+                        [
+                            A(
+                                get_country_flag(country_code) or "🌍",
+                                href=f"/lists/country/{country_code.upper()}",
+                                title=f"{country_code.upper()}: {count} creators",
+                                cls="text-2xl hover:scale-110 transition-transform inline-block",
+                            )
+                            for country_code, count in top_countries[:4]
+                        ]
+                        if top_countries
+                        else [Span("🌍", cls="text-2xl")]
+                    ),
+                    cls="flex gap-1 justify-center mt-2",
+                ),
+                P(
+                    "worldwide creators",
+                    cls="text-xs text-blue-500 mt-1",
+                ),
+                cls="text-center bg-blue-50 dark:bg-blue-950/30 rounded-xl p-4 border border-blue-200 dark:border-blue-900 hover:border-blue-400 hover:shadow-sm transition-all",
+            ),
+            # Linguistic Diversity - Languages with emoji showcase
+            Div(
+                # Card header links to the creators page (language filter)
+                A(
+                    P(
+                        "Languages",
+                        cls="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-2",
+                    ),
+                    H2(
+                        format_number(total_languages),
+                        cls="text-xl font-bold text-purple-600",
+                    ),
+                    href="/lists?tab=by-language",
+                    cls="block no-underline hover:opacity-80 transition-opacity",
+                ),
+                # Top language emojis — each links to that language’s ranked creator list
+                Div(
+                    *(
+                        [
+                            A(
+                                get_language_emoji(lang_code) or "🗣️",
+                                href=f"/lists/language/{lang_code}",
+                                title=f"{get_language_name(lang_code)}: {count} creators",
+                                cls="text-2xl hover:scale-110 transition-transform inline-block",
+                            )
+                            for lang_code, count in top_languages
+                        ]
+                        if top_languages
+                        else [Span("🗣️", cls="text-2xl")]
+                    ),
+                    cls="flex gap-1 justify-center mt-2 flex-wrap",
+                ),
+                P(
+                    "content languages",
+                    cls="text-xs text-purple-500 mt-1",
+                ),
+                cls="text-center bg-purple-50 dark:bg-purple-950/30 rounded-xl p-4 border border-purple-200 dark:border-purple-900 hover:border-purple-400 hover:shadow-sm transition-all",
+            ),
+            # Categories — content topic diversity (same source as /lists page)
+            Div(
+                # Card header links to the full category rankings list
+                A(
+                    P(
+                        "Categories",
+                        cls="text-xs font-semibold text-pink-600 uppercase tracking-wider mb-2",
+                    ),
+                    H2(
+                        format_number(total_categories),
+                        cls="text-xl font-bold text-pink-600",
+                    ),
+                    href="/lists?tab=by-category",
+                    cls="block no-underline hover:opacity-80 transition-opacity",
+                ),
+                # Top category emojis — each links to that category's ranked creator list
+                Div(
+                    *(
+                        [
+                            A(
+                                get_topic_category_emoji(cat_name) or "🏷️",
+                                href=f"/lists/category/{slugify(cat_name)}",
+                                title=f"{cat_name}: {count} creators",
+                                cls="text-2xl hover:scale-110 transition-transform inline-block",
+                            )
+                            for cat_name, count in top_categories
+                        ]
+                        if top_categories
+                        else [Span("🏷️", cls="text-2xl")]
+                    ),
+                    cls="flex gap-1 justify-center mt-2 flex-wrap",
+                ),
+                P(
+                    "content topics",
+                    cls="text-xs text-pink-500 mt-1",
+                ),
+                cls="text-center bg-pink-50 dark:bg-pink-950/30 rounded-xl p-4 border border-pink-200 dark:border-pink-900 hover:border-pink-400 hover:shadow-sm transition-all",
+            ),
+            cls="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 py-8 border-t border-b border-border",
+        ),
+        cls="bg-background rounded-lg border border-border p-6 md:p-8 mb-8",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Filter pill helper — DRYs the 6 near-identical pill sections in _render_filter_bar
+# ─────────────────────────────────────────────────────────────────────────────
+_PILL_BASE = "px-2.5 py-1 rounded-md transition-all inline-block no-underline text-xs font-medium "
+_PILL_INACTIVE = "bg-background border border-border hover:bg-accent text-foreground"
+
+
+def _filter_pills(
+    options: list[tuple[str, str, str]],
+    current_val: str,
+    active_cls: str,
+    build_url: Callable[[str], str],
+) -> Div:
+    """Render a row of filter pills.
 
     Args:
-        creators: List of creator dicts for the current page.
+        options:    [(value, label, emoji), ...]
+        current_val: currently active value
+        active_cls: Tailwind classes for the active state
+        build_url:  ``(value: str) -> str`` — returns the href for a given filter value
+    """
+    return Div(
+        *[
+            A(
+                f"{emoji} {label}",
+                href=build_url(val),
+                cls=_PILL_BASE + (active_cls if current_val == val else _PILL_INACTIVE),
+            )
+            for val, label, emoji in options
+        ],
+        cls="flex gap-1.5 flex-wrap",
+    )
+
+
+def _render_filter_bar(
+    search: str,
+    sort: str,
+    grade_filter: str,
+    grade_counts: dict,
+    language_filter: str = "all",
+    activity_filter: str = "all",
+    age_filter: str = "all",
+    country_filter: str = "all",
+    category_filter: str = "all",
+    top_countries: list = None,
+    top_categories: list = None,
+    top_languages: list = None,
+    total_count: int = 0,
+    per_page: int = 50,
+) -> Div:
+    """
+    Clean horizontal card-based filter bar.
+
+    Shows search + sort on top line, then 4 filter cards below.
+    All filters visible at once, no accordion clicks needed.
+
+    Space: ~150px, all filters visible
+    Clicks: 0 (vs 1-4 with accordion)
+    Design: Modern, card-based, professional
+    """
+
+    # ═══════════════════════════════════════════════════════════════
+    # 1. SEARCH BAR — full-width pill, icon inside, inline clear button
+    # ═══════════════════════════════════════════════════════════════
+    _clear_url = _build_filter_url(
+        sort=sort,
+        search="",
+        grade=grade_filter,
+        language=language_filter,
+        activity=activity_filter,
+        age=age_filter,
+        country=country_filter,
+        category=category_filter,
+    )
+    search_bar = Form(
+        Div(
+            Div(
+                UkIcon("search", cls="size-4 text-muted-foreground"),
+                cls="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none",
+            ),
+            Input(
+                type="search",
+                name="search",
+                placeholder="Search creators, niches, countries, categories…",
+                value=search,
+                cls="w-full h-11 pl-10 pr-9 rounded-full border border-border bg-background "
+                "text-foreground text-sm placeholder:text-muted-foreground/70 "
+                "focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary "
+                "transition-shadow",
+                autofocus=bool(search),
+            ),
+            (
+                A(
+                    "×",
+                    href=_clear_url,
+                    aria_label="Clear search",
+                    title="Clear search",
+                    cls="absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center "
+                    "justify-center rounded-full bg-muted-foreground/20 "
+                    "hover:bg-muted-foreground/35 text-foreground text-sm font-bold "
+                    "leading-none no-underline transition-colors",
+                )
+                if search
+                else None
+            ),
+            cls="relative",
+        ),
+        Input(type="hidden", name="sort", value=sort),
+        Input(type="hidden", name="grade", value=grade_filter),
+        Input(type="hidden", name="language", value=language_filter),
+        Input(type="hidden", name="activity", value=activity_filter),
+        Input(type="hidden", name="age", value=age_filter),
+        Input(type="hidden", name="country", value=country_filter),
+        Input(type="hidden", name="category", value=category_filter),
+        method="GET",
+        action="/creators",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 2. SORT CHIPS — <a> links, horizontally scrollable, zero JS
+    #    Replaces onchange form submit (unreliable) with plain href navigation,
+    #    consistent with how all other filter pills work.
+    # ═══════════════════════════════════════════════════════════════
+    _sort_opts = [
+        ("subscribers", "📊", "Subscribers"),
+        ("views", "👁", "Views"),
+        ("engagement", "🔥", "Engagement"),
+        ("quality", "⭐", "Quality"),
+        ("recent", "🕐", "Recent"),
+        ("consistency", "📈", "Consistent"),
+        ("newest_channel", "🎉", "Newest"),
+        ("oldest_channel", "👑", "Oldest"),
+    ]
+    _SORT_CHIP_BASE = (
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full "
+        "no-underline transition-all shrink-0 "
+    )
+    _SORT_CHIP_ACTIVE = "bg-foreground text-background font-semibold border border-foreground"
+    _SORT_CHIP_INACTIVE = (
+        "bg-background border border-border text-muted-foreground "
+        "hover:text-foreground hover:border-foreground/40"
+    )
+    sort_chips = Div(
+        *[
+            A(
+                Span(emoji, cls="text-sm leading-none"),
+                Span(label, cls="text-xs font-medium leading-none"),
+                href=_build_filter_url(
+                    sort=val,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=country_filter,
+                    category=category_filter,
+                ),
+                cls=_SORT_CHIP_BASE + (_SORT_CHIP_ACTIVE if sort == val else _SORT_CHIP_INACTIVE),
+            )
+            for val, emoji, label in _sort_opts
+        ],
+        cls="flex gap-2 overflow-x-auto py-0.5",
+        style="-ms-overflow-style:none;scrollbar-width:none;",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 3. QUALITY GRADE PILLS
+    # ═══════════════════════════════════════════════════════════════
+    grade_options = [
+        ("all", "All", "🎯"),
+        ("A+", "Elite", "👑"),
+        ("A", "Star", "⭐"),
+        ("B+", "Rising", "📈"),
+        ("B", "Good", "💎"),
+        ("C", "New", "🔍"),
+    ]
+
+    grade_pills = _filter_pills(
+        grade_options,
+        grade_filter,
+        active_cls="bg-primary text-primary-foreground shadow-sm",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=v,
+            language=language_filter,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+        ),
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 4. LANGUAGE FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
+    # Dynamic from RPC — reflects the actual language distribution in the DB.
+    # Falls back to popular defaults if the RPC returns nothing.
+    _fallback_languages = [
+        ("en", "English", "🇺🇸"),
+        ("es", "Español", "🇪🇸"),
+        ("ja", "日本語", "🇯🇵"),
+        ("ko", "Korean", "🇰🇷"),
+        ("zh", "Chinese", "🇨🇳"),
+    ]
+    language_options = [("all", "All", "🌍")]
+    _lang_source = top_languages or []
+    if _lang_source:
+        for _lang_code, _lang_count in _lang_source[:7]:
+            if not _lang_code:
+                continue
+            language_options.append(
+                (
+                    _lang_code,
+                    get_language_name(_lang_code),
+                    get_language_emoji(_lang_code),
+                )
+            )
+    else:
+        language_options.extend(_fallback_languages)
+
+    language_pills = _filter_pills(
+        language_options,
+        language_filter,
+        active_cls="bg-blue-100 text-blue-700 border border-blue-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=v,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+            per_page=per_page,
+        ),
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 5. ACTIVITY FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
+    activity_options = [
+        ("all", "All", "📊"),
+        ("active", "Active (>5/mo)", "🔥"),
+        ("dormant", "Dormant (<1/mo)", "⚠️"),
+    ]
+
+    activity_pills = _filter_pills(
+        activity_options,
+        activity_filter,
+        active_cls="bg-green-100 text-green-700 border border-green-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=v,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+        ),
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 6. CHANNEL AGE FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
+    age_options = [
+        ("all", "All", "📅"),
+        ("new", "0–1 yr", "🆕"),
+        ("established", "1–10 yrs", "🏆"),
+        ("veteran", "10+ yrs", "👑"),
+    ]
+
+    age_pills = _filter_pills(
+        age_options,
+        age_filter,
+        active_cls="bg-purple-100 text-purple-700 border border-purple-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=activity_filter,
+            age=v,
+            country=country_filter,
+            category=category_filter,
+        ),
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 7. COUNTRY FILTER PILLS
+    # ═══════════════════════════════════════════════════════════════
+    # Use top countries from stats, default to popular ones if not provided
+    if top_countries is None:
+        top_countries = []
+
+    country_options = [("all", "All", "🌍")]
+
+    # Add top countries from database stats
+    for country_code, count in top_countries[:8] if top_countries else []:
+        flag = get_country_flag(country_code) or "🏴"
+        country_options.append((country_code, f"{flag} {country_code.upper()}", flag))
+
+    # Country pills use a custom label format (flag + code only), so built manually
+    country_pills = Div(
+        *[
+            A(
+                label if emoji == "🌍" else f"{emoji} {label.split()[-1]}",
+                href=_build_filter_url(
+                    sort=sort,
+                    search=search,
+                    grade=grade_filter,
+                    language=language_filter,
+                    activity=activity_filter,
+                    age=age_filter,
+                    country=val,
+                    category=category_filter,
+                ),
+                cls=_PILL_BASE
+                + (
+                    "bg-orange-100 text-orange-700 border border-orange-300"
+                    if country_filter == val
+                    else _PILL_INACTIVE
+                ),
+            )
+            for val, label, emoji in country_options
+        ],
+        cls="flex gap-1.5 flex-wrap",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 8. CATEGORY FILTER PILLS (dynamic from DB stats)
+    # ═══════════════════════════════════════════════════════════════
+    if top_categories is None:
+        top_categories = []
+
+    category_options = [("all", "All", "🏷️")]
+    for cat_name, _count in top_categories[:9]:
+        if not cat_name:  # Skip None/empty to avoid crashes
+            continue
+        emoji = get_topic_category_emoji(cat_name)
+        # Shorten long Wikipedia-style names for pill display
+        short_name = cat_name.split("/")[-1].strip()  # "Music" not "https://...Music"
+        if not short_name:  # Skip if splitting resulted in empty string
+            continue
+        category_options.append((cat_name, short_name, emoji))
+
+    category_pills = _filter_pills(
+        category_options,
+        category_filter,
+        active_cls="bg-pink-100 text-pink-700 border border-pink-300",
+        build_url=lambda v: _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=v,
+            per_page=per_page,
+        ),
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 9. COUNT ACTIVE FILTERS
+    # Includes search so the FAB badge correctly reflects a text-only search.
+    # Strip whitespace so "   " doesn't inflate the badge when the input is blank.
+    # ═══════════════════════════════════════════════════════════════
+    active_filters = bool(search and search.strip()) + sum(
+        f != "all"
+        for f in (
+            grade_filter,
+            language_filter,
+            activity_filter,
+            age_filter,
+            country_filter,
+            category_filter,
+        )
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 10. BUILD FLOATING FILTER BUTTON
+    #
+    # IMPORTANT: this element must NOT be a descendant of any element
+    # with backdrop-filter/backdrop-blur. Chromium and Safari create a
+    # new containing block for position:fixed children of such elements,
+    # causing the FAB to be anchored to the sticky bar instead of the
+    # viewport. It is rendered as a sibling of the sticky bar (see §12).
+    # ═══════════════════════════════════════════════════════════════
+    filter_button = A(
+        # Decorative — aria_label on the <a> already describes the action
+        UkIcon("sliders-horizontal", cls="size-5 shrink-0", aria_hidden="true"),
+        # Label: hidden on mobile (icon-only circle), visible on sm+
+        Span("Filters", cls="hidden sm:inline text-sm font-semibold leading-none"),
+        # Active count badge
+        (
+            Span(
+                str(active_filters),
+                cls="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold min-w-[1.1rem] h-[1.1rem] px-0.5 rounded-full flex items-center justify-center leading-none",
+                aria_label=f"{active_filters} active filters",
+            )
+            if active_filters > 0
+            else None
+        ),
+        href="#filter-modal",
+        uk_toggle=True,
+        aria_label=(
+            f"Open filters ({active_filters} active)" if active_filters else "Open filters"
+        ),
+        # Must stay outside any backdrop-filter ancestor (see §12 return block)
+        cls="fixed bottom-6 right-6 z-[999] flex items-center gap-2 "
+        "bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white "
+        "p-3.5 sm:px-5 sm:py-3 rounded-full "
+        "shadow-xl hover:shadow-violet-500/40 "
+        "transition-all duration-150 hover:scale-105 active:scale-95 no-underline",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 11. BUILD FILTER MODAL WITH ACCORDION
+    # ═══════════════════════════════════════════════════════════════
+
+    # Reset filters link
+    reset_link = (
+        A(
+            "Reset All Filters",
+            href=_build_filter_url(
+                sort=sort,
+                search=search,
+                grade="all",
+                language="all",
+                activity="all",
+                age="all",
+                country="all",
+                category="all",
+            ),
+            cls="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline",
+        )
+        if active_filters > 0
+        else None
+    )
+
+    # Track which filter values are explicitly shown as pills — to detect when the
+    # active filter is outside the top-N set and needs an "active selection" pill.
+    _top_country_codes = {str(code).upper() for code, _ in (top_countries or [])[:8]}
+    _top_lang_codes = {code for code, _ in _lang_source[:7]}
+    _top_cat_names = {cat for cat, _ in (top_categories or [])[:9] if cat}
+
+    # Single dict passed into _render_typeahead_section and render_filter_suggestions
+    # so filter state is never threaded as positional args.
+    _current_filters = {
+        "sort": sort,
+        "search": search,
+        "grade": grade_filter,
+        "language": language_filter,
+        "activity": activity_filter,
+        "age": age_filter,
+        "country": country_filter,
+        "category": category_filter,
+    }
+
+    filter_modal = Div(
+        Div(
+            Div(
+                # Header
+                Div(
+                    Div(
+                        H3(
+                            "Filter Creators",
+                            cls="text-xl font-bold text-foreground mb-1",
+                        ),
+                        P(
+                            (
+                                f"{total_count:,} creators"
+                                if total_count
+                                else f"{grade_counts.get('all', 0)} on this page"
+                            ),
+                            cls=_CLS_MUTED_SM,
+                        ),
+                        cls="flex-1",
+                    ),
+                    # Close button
+                    Button(
+                        Span("✕", cls="text-xl"),
+                        cls="uk-modal-close-default p-2 hover:bg-accent rounded-lg transition-colors",
+                        type="button",
+                    ),
+                    cls="flex items-start justify-between mb-4 pb-4 border-b border-border",
+                ),
+                # Reset link
+                (
+                    Div(
+                        reset_link,
+                        cls="mb-4",
+                    )
+                    if reset_link
+                    else None
+                ),
+                # Accordion with filters
+                Accordion(
+                    AccordionItem(
+                        "Quality Grade",
+                        grade_pills,
+                        open=(grade_filter != "all"),
+                    ),
+                    AccordionItem(
+                        "Category",
+                        Div(
+                            # Active-selection pill when the active value isn't a top-N pill
+                            (
+                                _active_filter_pill(
+                                    f"{get_topic_category_emoji(category_filter)} "
+                                    f"{category_filter.split('/')[-1].strip() or category_filter}",
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade=grade_filter,
+                                        language=language_filter,
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country=country_filter,
+                                        category="all",
+                                    ),
+                                )
+                                if category_filter != "all"
+                                and category_filter not in _top_cat_names
+                                else None
+                            ),
+                            category_pills,
+                            _render_typeahead_section(
+                                "category",
+                                "Search categories\u2026",
+                                _current_filters,
+                            ),
+                        ),
+                        open=(category_filter != "all"),
+                    ),
+                    AccordionItem(
+                        "Language",
+                        Div(
+                            (
+                                _active_filter_pill(
+                                    (get_language_emoji(language_filter) or "\U0001f310")
+                                    + " "
+                                    + get_language_name(language_filter),
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade=grade_filter,
+                                        language="all",
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country=country_filter,
+                                        category=category_filter,
+                                    ),
+                                )
+                                if language_filter != "all"
+                                and language_filter not in _top_lang_codes
+                                else None
+                            ),
+                            language_pills,
+                            _render_typeahead_section(
+                                "language",
+                                "Search languages\u2026",
+                                _current_filters,
+                            ),
+                        ),
+                        open=(language_filter != "all"),
+                    ),
+                    AccordionItem(
+                        "Country",
+                        Div(
+                            (
+                                _active_filter_pill(
+                                    (get_country_flag(country_filter) or "\U0001f3f4")
+                                    + " "
+                                    + country_filter.upper(),
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade=grade_filter,
+                                        language=language_filter,
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country="all",
+                                        category=category_filter,
+                                    ),
+                                )
+                                if country_filter != "all"
+                                and country_filter.upper() not in _top_country_codes
+                                else None
+                            ),
+                            country_pills,
+                            _render_typeahead_section(
+                                "country",
+                                "Search countries\u2026",
+                                _current_filters,
+                            ),
+                        ),
+                        open=(country_filter != "all"),
+                    ),
+                    AccordionItem(
+                        "Activity Level",
+                        activity_pills,
+                        open=(activity_filter != "all"),
+                    ),
+                    AccordionItem(
+                        "Channel Age",
+                        age_pills,
+                        open=(age_filter != "all"),
+                    ),
+                    multiple=True,
+                    collapsible=True,
+                    cls="space-y-2",
+                ),
+                cls="uk-modal-body bg-background rounded-t-3xl md:rounded-2xl p-6 max-h-[85vh] overflow-y-auto",
+            ),
+            cls="uk-modal-dialog uk-margin-auto-vertical",
+        ),
+        id="filter-modal",
+        uk_modal="bg-close: true; esc-close: true;",
+        cls="uk-modal",
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 12. RETURN CLEAN TOP BAR + FLOATING BUTTON + MODAL
+    #
+    # ═══════════════════════════════════════════════════════════════
+    # 12. RETURN: sticky bar + FAB + modal
+    #
+    # FAB and modal are siblings of the sticky bar, NOT children.
+    # backdrop-blur-sm (backdrop-filter) creates a containing block in
+    # Chromium/Safari that breaks position:fixed on descendants.
+    # ═══════════════════════════════════════════════════════════════
+    return Div(
+        # ── Sticky search + sort bar ──────────────────────────────
+        Div(
+            Div(
+                search_bar,
+                sort_chips,
+                cls="flex flex-col gap-2.5",
+            ),
+            cls="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-sm z-30",
+        ),
+        # ── FAB + modal: must be outside the backdrop-blur div above
+        filter_button,
+        filter_modal,
+    )
+
+
+def _render_creators_grid(creators: list[dict], favourite_ids: set[str] | None = None) -> Div:
+    """Grid of creator cards with strict row-based layout."""
+    _favs = favourite_ids or set()
+    return Div(
+        *[
+            _render_creator_card(creator, is_favourited=safe_get_value(creator, "id", "") in _favs)
+            for creator in creators
+        ],
+        cls="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5",
+    )
+
+
+# =============================================================================
+# CREATOR CARD SECTION BUILDERS
+# =============================================================================
+
+
+def _build_card_header(
+    thumbnail_url: str,
+    channel_name: str,
+    channel_url: str,
+    custom_url: str,
+    current_subs: int,
+    current_videos: int,
+    rank: str,
+    grade_icon: str,
+    grade_label: str,
+    grade_bg: str,
+    quality_grade: str,
+    channel_age_days: int,
+) -> Div:
+    """Build card header: award-showcase rank badge, avatar, name, grade pill.
+
+    No nested <a> tags — the whole card is already wrapped in an <a> by the
+    caller, so channel_name is plain H3 text.  The YouTube link lives only in
+    the footer as a <button onclick> to avoid invalid HTML nesting.
+    """
+    # Normalize custom URL to handle both "@" and non-"@" formats, but display with "@" for familiarity
+    handle_display = f"@{custom_url.lstrip('@')}" if custom_url else None
+
+    # Award-style rank colouring: gold top-3, silver top-10, neutral otherwise
+    try:
+        rank_int = int(rank)
+    except (ValueError, TypeError):
+        rank_int = 999
+    rank_cls = (
+        "bg-amber-400 text-amber-900"
+        if rank_int <= 3
+        else (
+            "bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-200"
+            if rank_int <= 10
+            else "bg-accent text-muted-foreground border border-border"
+        )
+    )
+
+    return Div(
+        # Avatar with rank badge anchored to its bottom-left corner
+        Div(
+            Img(
+                src=thumbnail_url,
+                alt=channel_name,
+                cls="w-14 h-14 rounded-xl object-cover ring-2 ring-border",
+            ),
+            Div(
+                f"#{rank}",
+                cls=f"absolute -bottom-2 -left-2 {rank_cls} text-xs font-bold px-1.5 py-0.5 rounded-md shadow-sm whitespace-nowrap",
+            ),
+            cls="relative shrink-0",
+        ),
+        # Channel name + handle + quick stats — plain text, no nested <a>
+        Div(
+            H3(
+                channel_name,
+                cls="font-bold text-base text-foreground leading-tight truncate group-hover:text-primary transition-colors",
+            ),
+            (
+                P(handle_display, cls="text-xs text-muted-foreground truncate mt-0.5")
+                if handle_display
+                else None
+            ),
+            P(
+                f"{format_number(current_subs)} subs · {current_videos} videos",
+                cls="text-xs text-muted-foreground truncate mt-0.5",
+            ),
+            cls="flex-1 min-w-0",
+        ),
+        # Grade pill — omitted for grade C (unscored/new channels)
+        (
+            Div(
+                Span(grade_icon, cls="text-base leading-none"),
+                Span(grade_label, cls="text-xs font-semibold leading-none"),
+                cls=f"flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg {grade_bg} shrink-0",
+            )
+            if quality_grade and quality_grade != "C"
+            else None
+        ),
+        cls="flex items-start gap-3",
+    )
+
+
+def _build_primary_metrics(
+    current_subs: int, subs_change: int, current_views: int, views_change: int
+) -> Div:
+    """Build primary metrics section (subscribers and views)."""
+    return Div(
+        # Subscribers
+        Div(
+            P(
+                "SUBSCRIBERS",
+                cls=_CLS_LABEL,
+            ),
+            H2(
+                format_number(current_subs),
+                cls="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-1",
+            ),
+            P(
+                (
+                    f"{format_number(subs_change, signed=True)} (30d)"
+                    if subs_change is not None
+                    else "—"
+                ),
+                cls="text-xs text-muted-foreground mt-1",
+            ),
+            cls="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center",
+        ),
+        # Views
+        Div(
+            P(
+                "VIEWS",
+                cls=_CLS_LABEL,
+            ),
+            H2(
+                format_number(current_views),
+                cls="text-3xl font-bold text-purple-600 dark:text-purple-400 mt-1",
+            ),
+            P(
+                (
+                    f"{format_number(views_change, signed=True)} (30d)"
+                    if views_change is not None
+                    else "—"
+                ),
+                cls="text-xs text-muted-foreground mt-1",
+            ),
+            cls="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 text-center",
+        ),
+        cls="grid grid-cols-2 gap-3 mb-4",
+    )
+
+
+def _build_performance_metrics(
+    avg_views_per_video: int,
+    current_videos: int,
+    estimated_revenue: int,
+    views_per_sub: float,
+) -> Div:
+    """Build performance metrics grid."""
+    return Div(
+        Div(
+            P(
+                "AVG VIEWS",
+                cls="text-xs font-semibold text-muted-foreground uppercase",
+            ),
+            P(
+                format_number(avg_views_per_video),
+                cls="text-lg font-bold text-foreground mt-1",
+            ),
+            P("per video", cls=_CLS_MUTED_XS),
+            cls="bg-accent rounded-lg p-3 text-center",
+        ),
+        Div(
+            P(
+                "VIDEOS",
+                cls="text-xs font-semibold text-muted-foreground uppercase",
+            ),
+            P(
+                format_number(current_videos),
+                cls="text-lg font-bold text-foreground mt-1",
+            ),
+            P("published", cls=_CLS_MUTED_XS),
+            cls="bg-accent rounded-lg p-3 text-center",
+        ),
+        Div(
+            P(
+                "VIEWS/SUB",
+                cls="text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase",
+            ),
+            P(
+                f"{format_float(views_per_sub, 1)}x",
+                cls="text-lg font-bold text-indigo-600 dark:text-indigo-400 mt-1",
+            ),
+            P("audience reach", cls="text-xs text-indigo-500 dark:text-indigo-400"),
+            cls="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-3 text-center",
+        ),
+        Div(
+            P(
+                "EST. REVENUE",
+                cls="text-xs font-semibold text-green-700 dark:text-green-400 uppercase",
+            ),
+            P(
+                f"${format_number(estimated_revenue)}",
+                cls="text-lg font-bold text-green-600 dark:text-green-400 mt-1",
+            ),
+            P("/month est.", cls="text-xs text-green-600 dark:text-green-400"),
+            cls="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center",
+        ),
+        cls="grid grid-cols-2 gap-3 mb-4",
+    )
+
+
+def _build_growth_trend(
+    growth_rate: float,
+    growth_label: str,
+    growth_style: str,
+    subs_change: int | None = None,
+) -> Div:
+    """
+    Build growth trend indicator section.
+
+    Handles three states:
+    1. Valid growth data: Shows percentage, label, and bar
+    2. Tracking in progress (NULL/None): Shows "tracking" badge
+    3. Zero growth with valid baseline: Shows 0% (legitimate)
+    """
+    # Check if growth data is available (not None/NULL from DB)
+    has_growth_data = subs_change is not None
+
+    if not has_growth_data:
+        return Div(
+            Div(
+                P(
+                    "GROWTH TRACKING",
+                    cls="text-xs font-semibold text-muted-foreground",
+                ),
+                Div(
+                    Span("📊", cls="text-2xl"),
+                    Span(
+                        "Initializing...",
+                        cls="px-3 py-1.5 text-xs font-semibold rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800",
+                    ),
+                    cls="flex items-center gap-3",
+                ),
+                P(
+                    "Growth metrics available in 7+ days",
+                    cls="text-xs text-muted-foreground mt-2",
+                ),
+                cls="flex flex-col items-center justify-center gap-2",
+            ),
+            cls="bg-gradient-to-br from-blue-50 dark:from-blue-900/10 to-indigo-50 dark:to-indigo-900/10 rounded-lg p-4 mb-4 border border-blue-100 dark:border-blue-900/30",
+        )
+
+    # Has valid growth data - show normal growth bar
+    return Div(
+        Div(
+            P(
+                "30-DAY TREND",
+                cls="text-xs font-semibold text-muted-foreground",
+            ),
+            Div(
+                P(
+                    f"{growth_rate:+.1f}%",
+                    cls="text-sm font-bold text-foreground",
+                ),
+                Span(
+                    growth_label,
+                    cls=f"px-2 py-1 text-xs font-semibold rounded-full border {growth_style}",
+                ),
+                cls="flex items-center gap-2",
+            ),
+            cls="flex justify-between items-center mb-3",
+        ),
+        # Growth bar
+        Div(
+            Div(
+                cls=(
+                    "h-2 bg-green-500 rounded-full"
+                    if growth_rate >= 0
+                    else "h-2 bg-red-500 rounded-full"
+                ),
+                style=f"width: {min(100, max(0, abs(growth_rate) * 5))}%",
+            ),
+            cls="w-full h-2 bg-border rounded-full overflow-hidden",
+        ),
+        cls=(
+            "bg-green-50 dark:bg-green-900/20 rounded-lg p-3 mb-4"
+            if growth_rate >= 0
+            else "bg-red-50 dark:bg-red-900/20 rounded-lg p-3 mb-4"
+        ),
+    )
+
+
+def _render_content_dna_preview(transcript_keywords) -> Div | None:
+    """
+    Low-key preview strip for transcript_keywords (KeyBERT output).
+
+    Intentionally inconspicuous — plain chips inside a collapsed <details>
+    element so it doesn't affect the visual hierarchy during evaluation.
+    Only renders when the creator has keywords (migration 046 + Kaggle
+    write-back complete); returns None otherwise so no gap appears.
+
+    Data shape: [{"kw": "mechanical keyboards", "score": 0.68}, ...]
+    Scores are KeyBERT cosine-similarity, typically 0.40–0.75.
+    """
+    if not transcript_keywords:
+        return None
+
+    if isinstance(transcript_keywords, str):
+        try:
+            transcript_keywords = json.loads(transcript_keywords)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return None
+
+    if not isinstance(transcript_keywords, list) or not transcript_keywords:
+        return None
+
+    def _fmt_score(score) -> str:
+        if score is None:
+            return "n/a"
+        try:
+            return f"{float(score):.2f}"
+        except (TypeError, ValueError):
+            return "n/a"
+
+    chips = [
+        Span(
+            k["kw"],
+            cls="px-2 py-0.5 rounded text-xs text-foreground/60 bg-muted border border-border/50",
+            title=f"relevance {_fmt_score(k.get('score'))}",
+        )
+        for k in transcript_keywords[:12]
+        if isinstance(k, dict) and k.get("kw")
+    ]
+    if not chips:
+        return None
+
+    return Details(
+        Summary(
+            "Content keywords",
+            cls="text-xs text-muted-foreground cursor-pointer select-none py-0.5",
+        ),
+        Div(*chips, cls="flex flex-wrap gap-1.5 pt-2"),
+        cls="px-1",
+    )
+
+
+def _render_topic_categories(topic_categories: str | None) -> Div | None:
+    """
+    Render topic categories as clean emoji-only pills.
+
+    Args:
+        topic_categories: Comma-separated category names from DB
+                         (e.g., "Music,Entertainment,Video game culture")
 
     Returns:
-        Dict with marketing-relevant metrics.
+        Div with minimal emoji pills, or None if no categories
+
+    Design: Ultra-clean emoji-only badges with subtle colors.
+            Full category name appears on hover with Wikipedia link.
+            Reduces visual overload while maintaining context.
+    """
+    if not topic_categories:
+        return None
+
+    # Parse categories - may be JSON array or comma-separated string
+    raw_categories = []
+    try:
+        # Try parsing as JSON first (e.g., '["https://...", "https://..."]')
+        parsed = json.loads(topic_categories)
+        if isinstance(parsed, list):
+            raw_categories = [str(item).strip() for item in parsed if item]
+        else:
+            raw_categories = [str(parsed).strip()]
+    except (json.JSONDecodeError, TypeError):
+        # Fallback to comma-separated string
+        raw_categories = [cat.strip() for cat in str(topic_categories).split(",") if cat.strip()]
+
+    if not raw_categories:
+        return None
+
+    # Extract category names from Wikipedia URLs
+    categories = []
+    for item in raw_categories:
+        # If it's a Wikipedia URL, extract the category name from the slug
+        if "wikipedia.org/wiki/" in item:
+            try:
+                # Extract everything after the last /wiki/
+                slug = item.split("/wiki/")[-1].rstrip("/")
+                # Decode URL encoding and convert underscores to spaces
+                name = unquote(slug).replace("_", " ")
+                if name:
+                    categories.append(name)
+            except Exception:
+                continue
+        else:
+            # It's already a category name
+            clean_name = item.strip("\"'[]").strip()
+            if clean_name:
+                categories.append(clean_name)
+
+    if not categories:
+        return None
+
+    # Color palette for pills (subtle, professional)
+    pill_colors = [
+        "bg-blue-100 dark:bg-blue-900/40 hover:bg-blue-200 dark:hover:bg-blue-800/60",
+        "bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-800/60",
+        "bg-green-100 dark:bg-green-900/40 hover:bg-green-200 dark:hover:bg-green-800/60",
+        "bg-pink-100 dark:bg-pink-900/40 hover:bg-pink-200 dark:hover:bg-pink-800/60",
+        "bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-800/60",
+    ]
+
+    # Build emoji-only pills (limit to 5 for clean display)
+    category_pills = []
+    for idx, cat in enumerate(categories[:5]):
+        emoji = get_topic_category_emoji(cat)
+        # Create clean Wikipedia URL from category name (URL-encoded for special characters)
+        wiki_slug = quote(cat.replace(" ", "_"))
+        wiki_url = f"https://en.wikipedia.org/wiki/{wiki_slug}"
+        color = pill_colors[idx % len(pill_colors)]
+
+        category_pills.append(
+            A(
+                emoji,
+                href=wiki_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                cls=f"inline-flex items-center justify-center w-8 h-8 rounded-full {color} text-base transition-all duration-200 no-underline hover:scale-110",
+                title=f"{cat} (click to learn more)",
+            )
+        )
+
+    return Div(
+        *category_pills,
+        cls="flex items-center justify-center gap-2 py-2 px-3 mb-3",
+    )
+
+
+def _render_bio(bio: str | None, max_chars: int = 130) -> P | None:
+    """Render a truncated bio paragraph, or None if no bio is available."""
+    if not bio:
+        return None
+    text = bio[:max_chars].rstrip() + "…" if len(bio) > max_chars else bio
+    return P(
+        text,
+        cls="text-xs text-muted-foreground leading-relaxed mb-4 line-clamp-2",
+    )
+
+
+def _build_card_footer(
+    last_updated: str,
+    channel_url: str,
+    creator_id: str = "",
+    is_favourited: bool = False,
+    last_synced: str = "",
+) -> Div:
+    """Card footer: last-updated timestamp + optional heart + YouTube link.
+
+    The YouTube link and favourite heart are <button> elements rather than <a>
+    because the whole card is already wrapped in an <a> (profile link).
+    Nested <a> tags are invalid HTML and cause browsers to silently drop the
+    inner link.  Both buttons call event.stopPropagation() to prevent the card
+    click from also triggering the outer link.
+    """
+    # json.dumps produces a fully JS-safe quoted string (handles backslashes,
+    # newlines, and all special chars), not just single-quote substitution.
+    js_url = json.dumps(channel_url)  # e.g. '"https://youtube.com/..."'
+
+    # Heart button — only rendered when creator_id is available
+    if creator_id:
+        heart_cls = "w-3.5 h-3.5" + (
+            " fill-red-500 text-red-500" if is_favourited else " text-gray-400"
+        )
+        heart_btn = Div(
+            Button(
+                UkIcon("heart", cls=heart_cls),
+                hx_post=f"/creator/{creator_id}/favourite",
+                hx_target=f"#fav-btn-{creator_id}",
+                hx_swap="outerHTML",
+                type="button",
+                onclick="event.stopPropagation(); event.preventDefault();",
+                aria_label="Toggle favourite",
+                cls="flex items-center text-xs font-semibold text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+            ),
+            id=f"fav-btn-{creator_id}",
+        )
+    else:
+        heart_btn = None
+
+    return Div(
+        Div(
+            UkIcon("clock", cls="w-3 h-3 mr-1 opacity-50"),
+            Span(
+                format_date_relative(last_updated),
+                cls=_CLS_MUTED_XS,
+            ),
+            cls="flex items-center gap-0.5",
+        ),
+        Div(
+            heart_btn,
+            # <button> stops the card-level click; JS opens YouTube in a new tab
+            Button(
+                UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
+                "YouTube",
+                type="button",
+                onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
+                cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+            ),
+            cls="flex items-center gap-3",
+        ),
+        cls="flex justify-between items-center mt-auto pt-3 border-t border-border",
+    )
+
+
+def _build_info_strip(
+    language: str,
+    country_code: str,
+    channel_age_days: int,
+    monthly_uploads: float,
+    custom_url: str = "",
+) -> Div | None:
+    """Build clean emoji/icon strip showing key channel info."""
+    # Build icon list
+    icons = []
+
+    # Country flag
+    country_flag = get_country_flag(country_code)
+    if country_flag:
+        icons.append(
+            Span(
+                country_flag,
+                title=f"Country: {country_code.upper()}",
+                cls="text-lg",
+            )
+        )
+
+    # Language
+    if language:
+        icons.append(
+            Span(
+                get_language_emoji(language),
+                title=f"Language: {get_language_name(language)}",
+                cls="text-lg",
+            )
+        )
+
+    if channel_age_days:
+        icons.append(
+            Span(
+                f"{get_age_emoji(channel_age_days)} {format_channel_age(channel_age_days)}",
+                title=f"Channel age: {get_age_title(channel_age_days)}",
+                cls="text-xs font-medium text-muted-foreground",
+            )
+        )
+
+    activity_badge = get_activity_badge(monthly_uploads)
+    if activity_badge:
+        icons.append(
+            Span(
+                activity_badge,
+                title=f"Upload frequency: {get_activity_title(monthly_uploads)}",
+                cls="text-xs font-medium text-muted-foreground",
+            )
+        )
+
+    if not icons:
+        return None
+
+    return Div(
+        *icons,
+        cls="flex items-center justify-center gap-3 py-2 bg-accent rounded-lg",
+    )
+
+
+def _build_recent_performance(
+    avg_views_10: int | None,
+    current_subs: int,
+    avg_days_between_uploads: float | None,
+    is_made_for_kids: bool,
+    has_long_upload_status: bool,
+) -> Div | None:
+    """
+    Tier 1 — "Recent Performance" microcard section (Tufte / Economist style).
+
+    Shows a reach microbar (avg views of last 10 videos as % of subscribers)
+    and upload cadence pill.  Brand safety badges only shown when relevant.
+
+    Hidden entirely when avg_views_10 is not yet populated (pre-migration data).
+    """
+    if avg_views_10 is None:
+        return None
+
+    # ── Reach % bar ──────────────────────────────────────────────────────────
+    # Reach = avg_views_10 / current_subscribers.  Reference ceiling = 10% of subs.
+    # Below 2% → red (ghost channel); 2–7% → amber; ≥7% → green (highly engaged).
+    reach_pct: float = (avg_views_10 / current_subs * 100) if current_subs > 0 else 0.0
+    bar_pct = min(reach_pct / 10 * 100, 100)  # scale to a 10%-of-subs ceiling
+
+    if reach_pct >= 7:
+        bar_fill = "bg-emerald-500"
+        reach_color = "text-emerald-600 dark:text-emerald-400"
+        reach_label_cls = "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+    elif reach_pct >= 2:
+        bar_fill = "bg-amber-400"
+        reach_color = "text-amber-600 dark:text-amber-400"
+        reach_label_cls = "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+    else:
+        bar_fill = "bg-red-400"
+        reach_color = "text-red-500 dark:text-red-400"
+        reach_label_cls = "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800"
+
+    reach_row = Div(
+        # Label + value — left column
+        Div(
+            Span(
+                "REACH",
+                cls="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide",
+            ),
+            Span(
+                f"{format_percentage(reach_pct / 100)} of subs",
+                cls=f"text-xs font-bold {reach_color}",
+            ),
+            cls="flex flex-col gap-0.5 min-w-[90px]",
+        ),
+        # Microbar — right column, Tufte-style: one thin rule, no grid
+        Div(
+            Div(
+                cls=f"h-[5px] rounded-sm {bar_fill} transition-all",
+                style=f"width:{bar_pct:.1f}%",
+            ),
+            cls="flex-1 h-[5px] bg-border rounded-sm overflow-hidden self-center",
+            title=f"{format_number(avg_views_10)} avg views on last 10 videos",
+        ),
+        # Avg views absolute — right label
+        Span(
+            format_number(avg_views_10),
+            cls="text-xs font-semibold text-muted-foreground text-right min-w-[44px]",
+        ),
+        cls="flex items-center gap-2",
+    )
+
+    # ── Cadence pill + brand-safety badges ───────────────────────────────────
+    badges: list = []
+
+    if avg_days_between_uploads is not None:
+        if avg_days_between_uploads < 1:
+            cadence_str = "multiple/day"
+        elif avg_days_between_uploads < 7:
+            cadence_str = f"every {avg_days_between_uploads:.0f}d"
+        else:
+            weeks = avg_days_between_uploads / 7
+            cadence_str = f"every {weeks:.1f}w"
+        badges.append(
+            Span(
+                f"⏱ {cadence_str}",
+                cls="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700",
+                title="Average days between uploads (last 10 videos)",
+            )
+        )
+
+    if is_made_for_kids:
+        badges.append(
+            Span(
+                "🧸 Kids",
+                cls="text-[10px] font-medium px-2 py-0.5 rounded-full bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-700",
+                title="This channel is made for children (COPPA)",
+            )
+        )
+
+    if has_long_upload_status:
+        badges.append(
+            Span(
+                "⬆ Long video",
+                cls="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700",
+                title="Eligible to upload videos longer than 15 minutes",
+            )
+        )
+
+    badge_row = Div(*badges, cls="flex flex-wrap gap-1.5") if badges else None
+
+    return Div(
+        # Section label — Tufte-style: flush left, text only, no borders
+        P(
+            "RECENT · last 10",
+            cls="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2",
+        ),
+        reach_row,
+        badge_row,
+        cls="px-3 py-2.5 rounded-lg bg-accent/50 border border-border/60",
+    )
+
+
+def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
+    """
+    Creator card - clean, data-driven design.
+
+    Layout:
+    [Thumbnail + Rank] | [Name + Badge]
+    ────────────────────────────────────
+    SUBSCRIBERS | VIEWS (large 2-col metrics)
+    ────────────────────────────────────
+    AVG/VID | VIDEOS | ENGAGEMENT | REVENUE (small 4-col metrics)
+    ────────────────────────────────────
+    RECENT · last 10  (reach microbar + cadence + brand safety)
+    ────────────────────────────────────
+    30-Day Trend bar
+    ────────────────────────────────────
+    Updated · ❤ · Analyze → (footer)
+    """
+
+    # Extract all data
+    channel_id = safe_get_value(creator, "channel_id", "N/A")
+    channel_name = safe_get_value(creator, "channel_name", "Unknown")
+    # Preserve existing channel_url if present, otherwise construct from channel_id
+    channel_url = (
+        safe_get_value(creator, "channel_url") or f"https://youtube.com/channel/{channel_id}"
+    )
+    # Default to None (not "C") so synced_partial creators don't inherit a false grade.
+    # The grade pill in _build_card_header is already suppressed when quality_grade is falsy.
+    quality_grade = safe_get_value(creator, "quality_grade", None)
+    rank = safe_get_value(creator, "_rank", "—")
+    thumbnail_url = (
+        safe_get_value(creator, "channel_thumbnail_url")
+        or safe_get_value(creator, "thumbnail_url")
+        or "https://via.placeholder.com/64x64?text=No+Image"
+    )
+    channel_age_days = safe_get_value(creator, "channel_age_days", 0)
+
+    # Numeric fields
+    current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
+    current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
+    current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
+    # Preserve None for delta fields (growth tracking initializing)
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d", None)
+    subs_change = int(subs_change_raw) if subs_change_raw is not None else None
+    views_change_raw = safe_get_value(creator, "views_change_30d", None)
+    views_change = int(views_change_raw) if views_change_raw is not None else None
+    engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
+    last_updated = safe_get_value(creator, "last_updated_at", "")
+    last_synced_card = safe_get_value(creator, "last_synced_at", "")
+    avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
+    growth_rate = calculate_growth_rate(subs_change, current_subs)
+    views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
+
+    # === STATUS & STYLING ===
+    sync_status = safe_get_value(creator, "sync_status", "pending")
+    sync_badge_info = get_sync_status_badge(sync_status)
+    # synced_partial: slate border (informative, not alarming).
+    # Other non-synced states (pending/failed/invalid): amber border (action needed).
+    if sync_status == "synced_partial":
+        card_border = "border-l-4 border-slate-300 dark:border-slate-600"
+    elif sync_status != "synced":
+        card_border = "border-l-4 border-amber-400"
+    else:
+        card_border = ""
+
+    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
+    growth_label, growth_style = get_growth_signal(growth_rate)
+
+    # === INFO STRIP DATA ===
+    custom_url = safe_get_value(creator, "custom_url", "")
+    language = safe_get_value(creator, "default_language", "")
+    country_code = safe_get_value(creator, "country_code", "")
+    primary_category = safe_get_value(creator, "primary_category", "general") or "general"
+    monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
+
+    # Tier 1 recent performance fields
+    avg_views_10_raw = safe_get_value(creator, "avg_views_10", None)
+    avg_views_10 = int(avg_views_10_raw) if avg_views_10_raw is not None else None
+    avg_days_raw = safe_get_value(creator, "avg_days_between_uploads", None)
+    avg_days_between_uploads = float(avg_days_raw) if avg_days_raw is not None else None
+    is_made_for_kids = bool(safe_get_value(creator, "is_made_for_kids", False))
+    has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status", False))
+
+    # v4 revenue model — uses country + niche for accurate CPM, Shorts split, sponsorships
+    _rev = estimate_monthly_revenue_v4(
+        total_subs=current_subs,
+        total_views=current_views,
+        video_count=current_videos,
+        country_code=country_code or "US",
+        niche=primary_category,
+    )
+    # Round to the nearest whole dollar instead of truncating to avoid systematic under-reporting
+    estimated_revenue = round(_rev["est_monthly_total"])
+    keywords = safe_get_value(creator, "keywords", "")
+
+    info_strip = _build_info_strip(
+        language, country_code, channel_age_days, monthly_uploads, custom_url
+    )
+
+    # === COMPOSE CARD ===
+    # Sync status banner — inline at the top of the body (not a MonsterUI header=
+    # slot) so it doesn't inherit uk-card-header border/padding styling.
+    sync_banner = (
+        Div(
+            f"{sync_badge_info[0]} {sync_badge_info[1]}",
+            cls=f"text-xs font-semibold text-center py-1 px-3 rounded-md {sync_badge_info[2]}",
+        )
+        if sync_badge_info
+        else None
+    )
+
+    # All content goes into the Card body as positional args — including the
+    # channel header block.  This matches the MonsterUI team-card pattern (ex_card3)
+    # where DivLAligned(avatar, info) is the first body child, not a header= slot.
+    # Using header= caused uk-card-header to apply its own border/padding, which
+    # visually hid the body metric sections.
+    card = Card(
+        # ── Identity ──────────────────────────────────────────────────────────
+        sync_banner,
+        _build_card_header(
+            thumbnail_url,
+            channel_name,
+            channel_url,
+            custom_url,
+            current_subs,
+            current_videos,
+            rank,
+            grade_icon,
+            grade_label,
+            grade_bg,
+            quality_grade,
+            channel_age_days,
+        ),
+        # ── Context ───────────────────────────────────────────────────────────
+        # Topic categories rendered as clean emoji pills with Wikipedia links, plus
+        _render_topic_categories(safe_get_value(creator, "topic_categories")),
+        _render_bio(
+            safe_get_value(creator, "bio") or safe_get_value(creator, "channel_description")
+        ),
+        # ── Metrics ───────────────────────────────────────────────────────────
+        _build_primary_metrics(current_subs, subs_change, current_views, views_change),
+        # Performance metrics grid: avg views/video, total videos, views/sub, est. revenue
+        _build_performance_metrics(
+            avg_views_per_video, current_videos, estimated_revenue, views_per_sub
+        ),
+        # Tier 1 — Recent Performance microcard (reach bar, cadence, brand safety)
+        _build_recent_performance(
+            avg_views_10=avg_views_10,
+            current_subs=current_subs,
+            avg_days_between_uploads=avg_days_between_uploads,
+            is_made_for_kids=is_made_for_kids,
+            has_long_upload_status=has_long_upload_status,
+        ),
+        # Growth trend (pass subs_change to determine if tracking is initializing)
+        _build_growth_trend(growth_rate, growth_label, growth_style, subs_change),
+        # Keywords if available, rendered as a single line of small italic text (not a full tag cloud)
+        (
+            P(
+                keywords,
+                cls="text-xs text-muted-foreground italic line-clamp-1 text-center",
+            )
+            if keywords
+            else None
+        ),
+        # Info strp at bottom of the card body, showing language, country, channel age, and activity badges as emojis with tooltips
+        info_strip,
+        # ── Footer slot (only the action row — no body content here) ──────────
+        footer=_build_card_footer(
+            last_updated,
+            channel_url,
+            creator_id=safe_get_value(creator, "id", ""),
+            is_favourited=is_favourited,
+            last_synced=last_synced_card,
+        ),
+        body_cls="space-y-3",
+        cls=(
+            CardT.hover,
+            f"min-w-0 overflow-hidden w-full cursor-pointer {card_border}",
+        ),
+    )
+
+    # Single outer <a> — the only link wrapping the card.
+    # No <a> tags exist inside the card body; the YouTube button uses onclick.
+    creator_uuid = safe_get_value(creator, "id", "")
+    if not creator_uuid:
+        return card
+    return A(
+        card,
+        href=f"/creator/{creator_uuid}?name={quote(channel_name)}",
+        cls="block no-underline group min-w-0 w-full",
+    )
+
+
+def _render_pagination(
+    page: int,
+    total_pages: int,
+    search: str,
+    sort: str,
+    grade_filter: str,
+    language_filter: str,
+    activity_filter: str,
+    age_filter: str,
+    country_filter: str,
+    category_filter: str,
+    per_page: int,
+    total_count: int,
+) -> Div:
+    """
+    Render pagination controls with smart page button display.
+
+    Pattern inspired by FastHTML best practices:
+    - Shows first, last, and current pages
+    - Uses ellipsis (...) for skipped ranges
+    - Highlights current page
+    - Preserves all filter state in URLs
+    """
+    if total_pages <= 1:
+        return Div()  # No pagination needed
+
+    def page_link(page_num: int, label: str = None, is_current: bool = False):
+        """Generate a page link button."""
+        if label is None:
+            label = str(page_num)
+
+        url = _build_filter_url(
+            sort=sort,
+            search=search,
+            grade=grade_filter,
+            language=language_filter,
+            activity=activity_filter,
+            age=age_filter,
+            country=country_filter,
+            category=category_filter,
+            page=page_num,
+            per_page=per_page,
+        )
+
+        if is_current:
+            return Span(
+                label,
+                cls="px-3 py-2 bg-purple-600 text-white font-semibold rounded-lg cursor-default",
+            )
+        else:
+            return A(
+                label,
+                href=url,
+                cls="px-3 py-2 bg-background border border-border text-foreground font-medium rounded-lg hover:bg-accent transition-colors no-underline",
+            )
+
+    def ellipsis():
+        """Render ellipsis for skipped pages."""
+        return Span("...", cls="px-2 text-muted-foreground")
+
+    # Smart page button display logic (like the FastHTML example)
+    buttons = []
+
+    if total_pages <= 7:
+        # Show all pages if 7 or fewer
+        buttons = [page_link(p, is_current=(p == page)) for p in range(1, total_pages + 1)]
+    elif page <= 3:
+        # Near start: [1] [2] [3] [4] ... [last]
+        buttons = [page_link(p, is_current=(p == page)) for p in range(1, 5)]
+        buttons.append(ellipsis())
+        buttons.append(page_link(total_pages))
+    elif page >= total_pages - 2:
+        # Near end: [1] ... [last-3] [last-2] [last-1] [last]
+        buttons.append(page_link(1))
+        buttons.append(ellipsis())
+        buttons.extend(
+            [page_link(p, is_current=(p == page)) for p in range(total_pages - 3, total_pages + 1)]
+        )
+    else:
+        # Middle: [1] ... [current-1] [current] [current+1] ... [last]
+        buttons.append(page_link(1))
+        buttons.append(ellipsis())
+        buttons.extend([page_link(p, is_current=(p == page)) for p in range(page - 1, page + 2)])
+        buttons.append(ellipsis())
+        buttons.append(page_link(total_pages))
+
+    # Previous/Next buttons
+    prev_button = (
+        A(
+            "← Previous",
+            href=_build_filter_url(
+                sort=sort,
+                search=search,
+                grade=grade_filter,
+                language=language_filter,
+                activity=activity_filter,
+                age=age_filter,
+                country=country_filter,
+                category=category_filter,
+                page=page - 1,
+                per_page=per_page,
+            ),
+            cls="px-4 py-2 bg-background border border-border text-foreground font-medium rounded-lg hover:bg-accent transition-colors no-underline",
+        )
+        if page > 1
+        else Span(
+            "← Previous",
+            cls="px-4 py-2 bg-accent text-muted-foreground font-medium rounded-lg cursor-not-allowed",
+        )
+    )
+
+    next_button = (
+        A(
+            "Next →",
+            href=_build_filter_url(
+                sort=sort,
+                search=search,
+                grade=grade_filter,
+                language=language_filter,
+                activity=activity_filter,
+                age=age_filter,
+                country=country_filter,
+                category=category_filter,
+                page=page + 1,
+                per_page=per_page,
+            ),
+            cls="px-4 py-2 bg-background border border-border text-foreground font-medium rounded-lg hover:bg-accent transition-colors no-underline",
+        )
+        if page < total_pages
+        else Span(
+            "Next →",
+            cls="px-4 py-2 bg-accent text-muted-foreground font-medium rounded-lg cursor-not-allowed",
+        )
+    )
+
+    # Results info
+    start_result = (page - 1) * per_page + 1
+    end_result = min(page * per_page, total_count)
+
+    return Div(
+        # Results summary
+        Div(
+            P(
+                f"Showing {start_result:,}–{end_result:,} of {total_count:,} creators",
+                cls=_CLS_MUTED_SM,
+            ),
+            cls="text-center mb-4",
+        ),
+        # Pagination controls
+        Div(
+            prev_button,
+            Div(*buttons, cls="flex gap-1"),
+            next_button,
+            cls="flex items-center justify-center gap-4 flex-wrap",
+        ),
+        cls="py-8",
+    )
+
+
+def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
+    """
+    Compact banner shown above the results grid when a @handle search
+    returned no exact DB match — even if related creators are shown below.
+    Reuses the same HTMX endpoint as the empty-state Flow 1.
+    """
+    result_slot = Div(id="creator-add-result", cls="mt-2")
+
+    if is_authenticated:
+        action = Form(
+            Input(type="hidden", name="q", value=search),
+            Button(
+                UkIcon("plus-circle", cls=_CLS_ICON_SM),
+                f"Add {search}",
+                type="submit",
+                cls="flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
+                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0",
+            ),
+            result_slot,
+            hx_post="/creators/request",
+            hx_target="#creator-add-result",
+            cls="flex flex-col items-start gap-0",
+        )
+    else:
+        action = A(
+            UkIcon("log-in", cls=_CLS_ICON_SM),
+            "Sign in with Google to add",
+            href=_login_href(f"/creators?search={quote_plus(search)}" if search else "/creators"),
+            cls="inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
+            "border border-border hover:bg-accent transition-colors shrink-0",
+        )
+
+    return Div(
+        Div(
+            Div(
+                UkIcon("info", cls="size-4 text-blue-500 shrink-0 mt-0.5"),
+                P(
+                    "We don’t have ",
+                    Span(
+                        search if search.startswith("@") else f"@{search}",
+                        cls="font-semibold",
+                    ),
+                    " exactly. Closest matches below — or add it to the database.",
+                    cls="text-sm text-foreground",
+                ),
+                cls="flex items-start gap-2 flex-1",
+            ),
+            action,
+            cls="flex items-start justify-between gap-4 flex-wrap",
+        ),
+        cls="mb-4 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 "
+        "dark:bg-blue-950/30 dark:border-blue-800",
+    )
+
+
+def _render_empty_state(
+    search: str,
+    grade_filter: str,
+    has_active_filters: bool,
+    is_authenticated: bool = False,
+) -> Div:
+    """Empty state when no creators found.
+
+    Three progressive-disclosure flows:
+    1. @handle typed → one-click "Add to ViralVibes" CTA (handle pre-filled)
+    2. Name search / filters, no results → inline handle submit form
+    3. Truly empty DB → encourage playlist analysis
+    """
+
+    # ── shared submit result target (HTMX drops response here) ──────────────
+    result_slot = Div(id="creator-add-result", cls="mt-3")
+
+    # ── shared "back to all" link ────────────────────────────────────────────
+    back_link = A(
+        "← Browse all creators",
+        href="/creators",
+        cls="text-sm text-muted-foreground hover:underline",
+    )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 1 — @handle typed, no match in DB
+    # Known handle → pre-fill the form so user needs only one click
+    # ────────────────────────────────────────────────────────────────────────
+    if search and search.startswith("@"):
+        if is_authenticated:
+            add_cta = Form(
+                Input(type="hidden", name="q", value=search),
+                Button(
+                    UkIcon("plus-circle", cls=_CLS_ICON_SM),
+                    f"Add {search} to ViralVibes",
+                    type="submit",
+                    cls="flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
+                    "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
+                ),
+                result_slot,
+                hx_post="/creators/request",
+                hx_target="#creator-add-result",
+                cls="flex flex-col items-center gap-0",
+            )
+        else:
+            add_cta = A(
+                UkIcon("log-in", cls=_CLS_ICON_SM),
+                "Sign in with Google to add this creator",
+                href=_login_href(f"/creators?search={quote_plus(search)}"),
+                cls="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
+                "border border-border hover:bg-accent transition-colors",
+            )
+
+        return Card(
+            Div(
+                Span("👀", cls="text-5xl block text-center mb-3"),
+                H2(
+                    f"{search} isn't in our database yet",
+                    cls="text-center text-xl font-bold mb-1",
+                ),
+                P(
+                    "We'll sync their stats automatically once added.",
+                    cls="text-center text-sm text-muted-foreground mb-5",
+                ),
+                Div(add_cta, cls="flex justify-center"),
+                Div(back_link, cls="flex justify-center mt-5"),
+                cls="p-10 space-y-0",
+            ),
+            cls="bg-background border border-border max-w-sm mx-auto",
+        )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 2 — name/filter search, no results
+    # Surface the submit form inline — no need to scroll anywhere
+    # ────────────────────────────────────────────────────────────────────────
+    if has_active_filters:
+        label = f'No creators match "{search}"' if search else "No creators match these filters"
+        if is_authenticated:
+            submit_area = Form(
+                Div(
+                    Input(
+                        type="text",
+                        name="q",
+                        placeholder="@handle or channel ID…",
+                        autocomplete="off",
+                        cls="flex-1 px-3 py-2 text-sm rounded-lg border border-border "
+                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
+                    ),
+                    Button(
+                        "Submit",
+                        type="submit",
+                        cls="px-4 py-2 text-sm font-semibold rounded-lg "
+                        "bg-primary text-primary-foreground hover:bg-primary/90 "
+                        "transition-colors shrink-0",
+                    ),
+                    cls="flex gap-2",
+                ),
+                result_slot,
+                hx_post="/creators/request",
+                hx_target="#creator-add-result",
+            )
+        else:
+            submit_area = P(
+                A(
+                    "Sign in with Google",
+                    href=_login_href(
+                        f"/creators?search={quote_plus(search)}" if search else "/creators"
+                    ),
+                    cls="text-primary hover:underline font-medium",
+                ),
+                " to submit a creator by @handle.",
+                cls=_CLS_MUTED_SM,
+            )
+
+        return Card(
+            Div(
+                Span("🔍", cls="text-5xl block text-center mb-3"),
+                H2(label, cls="text-center text-xl font-bold mb-1"),
+                P(
+                    "Know their @handle? Submit it and they'll be added automatically.",
+                    cls="text-center text-sm text-muted-foreground mb-5",
+                ),
+                submit_area,
+                Div(
+                    A(
+                        "Clear filters",
+                        href="/creators",
+                        cls="text-sm text-muted-foreground hover:underline",
+                    ),
+                    cls="flex justify-center mt-4",
+                ),
+                cls="p-10 space-y-3",
+            ),
+            cls="bg-accent max-w-md mx-auto",
+        )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 3 — truly empty DB
+    # ────────────────────────────────────────────────────────────────────────
+    return Card(
+        Div(
+            Span("🚀", cls="text-6xl block text-center mb-4"),
+            H2(
+                "No creators discovered yet",
+                cls="text-center text-2xl font-bold mb-2",
+            ),
+            P(
+                "Analyze YouTube playlists to automatically discover and track creators.",
+                cls="text-center text-muted-foreground mb-2",
+            ),
+            Div(
+                A(
+                    Button("📊 Analyze Your First Playlist", cls=ButtonT.primary),
+                    href="/#analyze-section",
+                ),
+                cls="flex justify-center",
+            ),
+            cls="space-y-4 p-12",
+        ),
+        cls="bg-background max-w-md mx-auto border border-border",
+    )
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+
+def _count_by_grade(creators: list[dict]) -> dict:
+    """Count creators by quality grade for filter pills."""
+    counts = {"all": len(creators), "A+": 0, "A": 0, "B+": 0, "B": 0, "C": 0}
+    for creator in creators:
+        grade = safe_get_value(creator, "quality_grade", "C")
+        if grade in counts:
+            counts[grade] += 1
+    return counts
+
+
+# NOTE: Helper functions moved to utils/creator_metrics.py for better organization
+# - get_language_emoji, get_language_name, get_activity_badge
+# - estimate_monthly_revenue_v4 (revenue model)
+
+
+# ============================================================================
+# CREATOR PROFILE PAGE
+# ============================================================================
+
+
+def _render_similar_creators(
+    creators: list[dict],
+    category: str,
+    country_code: str,
+    current_creator_id: str = "",
+    title: str = "You may also like",
+) -> Div | None:
+    """
+    Horizontal Apple-Music-style scroll rail of similar creators.
+
+    Each tile is a fixed-width card with a square avatar, channel name,
+    subscriber count, and quality grade. The rail uses scroll-snap so
+    swiping feels native on mobile.
+
+    ``title`` controls the section heading so the same component can serve
+    both the category-based "You may also like" and the embedding-based
+    "Similar creators" rails.
+
+    Returns None when the list is empty so callers can safely omit it.
     """
     if not creators:
-        return {
-            "total_creators": 0,
-            "avg_engagement": 0,
-            "growing_creators": 0,
-            "premium_creators": 0,
-            "total_subscribers": 0,
-            "total_videos": 0,
-        }
-
-    try:
-        stats_source = creators
-        total_creators = len(creators)
-
-        # Calculate average engagement (walrus operator := stores value and uses it in condition)
-        # This avoids calling safe_get_value twice per creator (once for check, once for list)
-        engagement_scores = [
-            score for c in stats_source if (score := safe_get_value(c, "engagement_score", 0)) > 0
-        ]
-        avg_engagement = sum(engagement_scores) / len(engagement_scores) if engagement_scores else 0
-        has_engagement_data = len(engagement_scores) > 0
-
-        # Count growing creators (use walrus operator to avoid duplicate calls)
-        growing_creators = sum(
-            1
-            for c in stats_source
-            if (change := safe_get_value(c, "subscribers_change_30d", 0)) > 0
-        )
-
-        # Count premium creators (use walrus operator)
-        premium_creators = sum(
-            1
-            for c in stats_source
-            if (grade := safe_get_value(c, "quality_grade", "C")) in ["A+", "A"]
-        )
-
-        # Sum for secondary metrics (use walrus operator)
-        total_subscribers = sum(
-            subs for c in stats_source if (subs := safe_get_value(c, "current_subscribers", 0))
-        )
-        total_videos = sum(
-            vids for c in stats_source if (vids := safe_get_value(c, "current_video_count", 0))
-        )
-
-        # ═══════════════════════════════════════════════════════════════
-        # NEW AGENCY-FOCUSED METRICS - SINGLE PASS COLLECTION
-        # ═══════════════════════════════════════════════════════════════
-        # Consolidate all metric collection into one pass for performance
-        countries = set()
-        languages = set()
-        categories = set()
-        grade_counts = {}
-        country_counts = {}
-        language_counts = {}
-        category_counts = {}
-        verified_count = 0
-        active_count = 0
-
-        for c in stats_source:
-            # Geographic diversity
-            if country := safe_get_value(c, "country_code", None):
-                countries.add(country)
-                country_counts[country] = country_counts.get(country, 0) + 1
-
-            # Linguistic diversity
-            if lang := safe_get_value(c, "default_language", None):
-                languages.add(lang)
-                language_counts[lang] = language_counts.get(lang, 0) + 1
-
-            # Content categories (can be list or comma-separated string)
-            if cats := safe_get_value(c, "topic_categories", None):
-                if isinstance(cats, list):
-                    for cat in cats:
-                        categories.add(cat)
-                        category_counts[cat] = category_counts.get(cat, 0) + 1
-                elif isinstance(cats, str):
-                    for cat in (cat.strip() for cat in cats.split(",") if cat.strip()):
-                        categories.add(cat)
-                        category_counts[cat] = category_counts.get(cat, 0) + 1
-
-            # Grade distribution
-            grade = safe_get_value(c, "quality_grade", "C")
-            grade_counts[grade] = grade_counts.get(grade, 0) + 1
-
-            # Verification and activity
-            if safe_get_value(c, "official", False):
-                verified_count += 1
-            if safe_get_value(c, "monthly_uploads", 0) > 5:
-                active_count += 1
-
-        # Calculate percentages and top lists
-        total_countries = len(countries)
-        total_languages = len(languages)
-        total_categories = len(categories)
-        verified_percentage = (verified_count / len(stats_source)) * 100 if stats_source else 0
-        active_percentage = (active_count / len(stats_source)) * 100 if stats_source else 0
-        top_countries = sorted(country_counts.items(), key=lambda x: x[1], reverse=True)[:8]
-        top_languages = sorted(language_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-        top_categories = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-
-        return {
-            # Original metrics (keep for backward compatibility)
-            "total_creators": int(total_creators),
-            "avg_engagement": round(avg_engagement, 2),
-            "has_engagement_data": has_engagement_data,
-            "growing_creators": int(growing_creators),
-            "premium_creators": int(premium_creators),
-            "total_subscribers": int(total_subscribers),
-            "total_videos": int(total_videos),
-            # New agency-focused metrics
-            "total_countries": int(total_countries),
-            "total_languages": int(total_languages),
-            "total_categories": int(total_categories),
-            "grade_counts": grade_counts,
-            "verified_percentage": round(verified_percentage, 1),
-            "active_percentage": round(active_percentage, 1),
-            "top_countries": top_countries,
-            "top_languages": top_languages,
-            "top_categories": top_categories,
-        }
-
-    except Exception as e:
-        logger.exception(f"Error calculating creator stats: {e}")
-        return {
-            "total_creators": 0,
-            "avg_engagement": 0,
-            "has_engagement_data": False,
-            "growing_creators": 0,
-            "premium_creators": 0,
-            "total_subscribers": 0,
-            "total_videos": 0,
-        }
-
-
-# ============================================================================
-# 🔐 Admin Access
-# ============================================================================
-
-
-def is_admin(user_id: str | None) -> bool:
-    """Return True if user_id exists in the admin_users table."""
-    if not user_id or not supabase_client:
-        return False
-    try:
-        resp = (
-            supabase_client.table("admin_users")
-            .select("id")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
-        return bool(resp.data)
-    except Exception as e:
-        logger.exception("[Admin] Error checking admin status for %s: %s", user_id, e)
-        return False
-
-
-def get_creator_hero_stats() -> dict:
-    """
-    Fetch global aggregate creator stats from DB via RPC (zero row transfer).
-
-    Uses mv_hero_stats materialized view (migration 007) for sub-millisecond response
-    time regardless of creator count. View is refreshed by bootstrap_creators.py Pass 5.
-
-    Returns a *partial* stats dict whose keys take precedence when merged
-    with a page-level ``calculate_creator_stats(creators)`` result::
-
-        page_stats = calculate_creator_stats(creators)   # distribution keys
-        hero_stats = get_creator_hero_stats()             # global counts (RPC)
-        stats = {**page_stats, **hero_stats}              # RPC wins on overlap
-
-    Keys returned:
-        total_creators, avg_engagement, has_engagement_data,
-        growing_creators, premium_creators
-
-    Falls back to ``{}`` on any error so callers can degrade gracefully.
-    """
-    if not supabase_client:
-        return {}
-    try:
-        resp = _db_execute(lambda: supabase_client.rpc("get_creator_hero_stats").execute())
-        if not resp.data:
-            logger.warning("get_creator_hero_stats RPC returned no data")
-            return {}
-        data = resp.data[0]
-        avg_engagement = float(data.get("avg_engagement") or 0)
-
-        # total_countries and total_languages live in mv_lists_meta, not mv_hero_stats.
-        # Fetch them from get_lists_meta() rather than hoping they appear here.
-        lists_meta: dict = {}
-        try:
-            meta_resp = _db_execute(lambda: supabase_client.rpc("get_lists_meta").execute())
-            if meta_resp.data:
-                meta_row = meta_resp.data[0] if isinstance(meta_resp.data, list) else meta_resp.data
-                lists_meta = meta_row or {}
-        except Exception:
-            logger.warning(
-                "get_lists_meta failed inside get_creator_hero_stats — countries/languages will be 0"
-            )
-
-        return {
-            "total_creators": int(data.get("total_creators") or 0),
-            "total_db_creators": int(data.get("total_db_creators") or 0),
-            "avg_engagement": round(avg_engagement, 2),
-            "has_engagement_data": avg_engagement > 0,
-            "growing_creators": int(data.get("growing_creators") or 0),
-            "premium_creators": int(data.get("premium_creators") or 0),
-            # Sourced from mv_lists_meta via get_lists_meta() RPC
-            "total_countries": int(lists_meta.get("total_countries") or 0),
-            "total_languages": int(lists_meta.get("total_languages") or 0),
-        }
-    except Exception:
-        logger.exception("Failed to fetch creator hero stats")
-        return {}
-
-
-# ==============================================================
-# 📊 Category Box Plot Stats Cache
-# ==============================================================
-# Write path: refresh_category_stats_cache() — called by bootstrap_creators.py
-# Read path:  get_cached_category_box_stats() — called on creator profile pages
-# Table:      category_stats_cache (PK: category)
-
-CATEGORY_STATS_CACHE_TABLE = "category_stats_cache"
-RPC_DISTINCT_SYNCED_CATEGORIES = "get_distinct_synced_categories"
-
-
-def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
-    """
-    Read pre-aggregated box plot stats for a category from the cache table.
-
-    Called on every creator profile page — designed to be fast (PK lookup, <1ms).
-    Returns None if the category hasn't been cached yet (worker hasn't run)
-    or on any error — callers should degrade gracefully and hide the chart.
-
-    Keys in the returned dict: count (total creators in category),
-    subscribers, views, engagement, monthly_uploads.
-    Each metric maps to {min, p25, median, p75, max}; count is top-level.
-    """
-    if not supabase_client or not category:
-        return None
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
-            .select("stats_json")
-            .eq("category", category)
-            .limit(1)
-            .execute()
-        )
-        # .single() raises PGRST116 on 0 rows; use .limit(1) + list check instead.
-        if not resp.data:
-            return None
-        return resp.data[0].get("stats_json")
-    except Exception:
-        logger.exception("Error reading category_stats_cache for '%s'", category)
         return None
 
-
-def refresh_category_stats_cache() -> int:
-    """
-    Recompute box plot percentile stats for every distinct category and upsert
-    into category_stats_cache. Called by worker/bootstrap_creators.py (Pass 4).
-
-    Strategy: 1 query to fetch all distinct categories, then 1 RPC call per
-    category (percentile math stays in Postgres), then 1 bulk upsert at the end.
-
-    Returns:
-        Number of categories successfully refreshed.
-    """
-    if not supabase_client:
-        return 0
-
-    try:
-        # Fetch all distinct categories via RPC — avoids the PostgREST server-side
-        # row limit (default 1,000) that silently truncated results when using a
-        # plain table query against 100k+ qualifying rows.
-        # Uses the RPC_DISTINCT_SYNCED_CATEGORIES RPC (migration 020) which does
-        # a DB-side SELECT DISTINCT backed by idx_creators_category_synced.
-        cats_resp = supabase_client.rpc(RPC_DISTINCT_SYNCED_CATEGORIES).execute()
-        categories = [
-            row["primary_category"] for row in (cats_resp.data or []) if row.get("primary_category")
-        ]
-
-        if not categories:
-            logger.warning("refresh_category_stats_cache: no synced categories found")
-            return 0
-
-        logger.info("refresh_category_stats_cache: refreshing %d categories", len(categories))
-
-        rows_to_upsert = []
-        failed = []
-
-        for category in categories:
-            try:
-                resp = supabase_client.rpc(
-                    "get_category_box_stats", {"p_category": category}
-                ).execute()
-
-                stats = resp.data[0] if isinstance(resp.data, list) else resp.data
-                if not stats:
-                    logger.warning(
-                        "refresh_category_stats_cache: empty RPC response for '%s'",
-                        category,
-                    )
-                    failed.append(category)
-                    continue
-
-                rows_to_upsert.append(
-                    {
-                        "category": category,
-                        "stats_json": stats,
-                        "creator_count": stats.get("count", 0),
-                        "refreshed_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-
-            except Exception:
-                logger.exception("refresh_category_stats_cache: RPC failed for '%s'", category)
-                failed.append(category)
-
-        if rows_to_upsert:
-            supabase_client.table(CATEGORY_STATS_CACHE_TABLE).upsert(
-                rows_to_upsert, on_conflict="category"
-            ).execute()
-            logger.info("refresh_category_stats_cache: upserted %d rows", len(rows_to_upsert))
-
-        if failed:
-            logger.warning(
-                "refresh_category_stats_cache: %d categories failed: %s",
-                len(failed),
-                failed,
-            )
-
-        return len(rows_to_upsert)
-
-    except Exception:
-        logger.exception("refresh_category_stats_cache: unexpected error")
-        return 0
-
-
-# ==============================================================
-# 📊 Total Categories — app_stats cache
-# ==============================================================
-
-
-def refresh_total_categories() -> int:
-    """
-    Recompute COUNT(DISTINCT category) via the slow jsonb unnest and store
-    the result in app_stats(key='total_categories').
-
-    This is intentionally a separate function from refresh_hero_stats_cache()
-    because the jsonb scan over topic_categories takes ~4s and would cause a
-    PostgREST statement timeout if bundled with the fast mv_lists_meta refresh.
-
-    Called by bootstrap_creators.py as a standalone pass (Pass 6) so it can
-    run on a less frequent schedule without blocking any other refresh.
-
-    Returns:
-        The refreshed total_categories count, or 0 on failure.
-    """
-    if not supabase_client:
-        logger.warning("refresh_total_categories: Supabase client not available")
-        return 0
-    try:
-        resp = supabase_client.rpc("refresh_total_categories").execute()
-        # RPC returns a scalar bigint, but Supabase may wrap it as a list with
-        # one element or a bare value depending on the client version.
-        data = resp.data
-        if isinstance(data, list):
-            data = data[0] if data else 0
-        count = int(data or 0)
-        logger.info("refresh_total_categories: %d distinct categories", count)
-        try:
-            from db_lists import clear_lists_meta_cache
-
-            clear_lists_meta_cache()
-        except Exception:
-            logger.debug(
-                "refresh_total_categories: failed to clear lists meta cache", exc_info=True
-            )
-        return count
-    except Exception:
-        logger.exception("refresh_total_categories: RPC failed")
-        return 0
-
-
-# ==============================================================
-# 📊 Hero Stats Materialized View Refresh (NEW - Migration 007)
-# ==============================================================
-
-
-def refresh_hero_stats_cache() -> dict[str, Any]:
-    """
-    Refresh mv_hero_stats and mv_lists_meta via two separate RPC calls.
-
-    Split from a single call because mv_lists_meta previously contained a slow
-    jsonb scan (total_categories) that caused PostgREST statement timeouts.
-    total_categories has been moved to app_stats and is refreshed separately
-    by refresh_total_categories() (bootstrap Pass 6).
-
-    Each RPC is called independently — a failure in one does not prevent the
-    other from running.
-
-    Returns:
-        {
-            "success": bool,          # True if at least one view refreshed
-            "materialized_views": [
-                {"name": str, "rows": int, "duration_ms": int},
-                ...
-            ],
-            "error": Optional[str]    # set only when both views fail
-        }
-    """
-    if not supabase_client:
-        return {
-            "success": False,
-            "materialized_views": [],
-            "error": "Supabase client not available",
-        }
-
-    logger.info("[Hero Stats Cache] Refreshing materialized views...")
-
-    results = []
-    errors = []
-
-    for rpc_name, view_label in [
-        ("refresh_mv_hero_stats", "mv_hero_stats"),
-        ("refresh_mv_lists_meta", "mv_lists_meta"),
-    ]:
-        try:
-            resp = supabase_client.rpc(rpc_name).execute()
-            # Track rows added by *this* RPC only, so the log below always
-            # references the current view — not a previous view's entry via
-            # results[-1] when resp.data is empty.
-            start_len = len(results)
-            for row in resp.data or []:
-                results.append(
-                    {
-                        "name": row.get("materialized_view", view_label),
-                        "rows": row.get("rows_refreshed", 0),
-                        "duration_ms": row.get("refresh_duration_ms", 0),
-                    }
-                )
-            rpc_results = results[start_len:]
-            if rpc_results:
-                logger.info(
-                    "[Hero Stats Cache] ✅ %s refreshed — %d rows in %dms",
-                    view_label,
-                    rpc_results[0]["rows"],
-                    rpc_results[0]["duration_ms"],
-                )
-            else:
-                logger.warning("[Hero Stats Cache] ⚠️ %s RPC returned no rows", view_label)
-            if view_label == "mv_lists_meta":
-                try:
-                    from db_lists import clear_lists_meta_cache
-
-                    clear_lists_meta_cache()
-                except Exception:
-                    logger.debug(
-                        "[Hero Stats Cache] failed to clear lists meta cache",
-                        exc_info=True,
-                    )
-        except Exception as e:
-            logger.error("[Hero Stats Cache] ❌ %s failed: %s", view_label, e)
-            errors.append({"view": view_label, "error": str(e)})
-
-    total_duration = sum(r["duration_ms"] for r in results)
-    if results:
-        logger.info(
-            "[Hero Stats Cache] ✅ Refreshed %d materialized view(s) in %dms total",
-            len(results),
-            total_duration,
-        )
-
-    # Surface partial failures even when success=True so callers can inspect them.
-    partial_errors = "; ".join(f"{e['view']}: {e['error']}" for e in errors) or None
-
-    if errors and not results:
-        return {
-            "success": False,
-            "materialized_views": [],
-            "error": partial_errors,
-        }
-
-    return {
-        "success": True,
-        "materialized_views": results,
-        "error": partial_errors,  # non-null when one view failed but the other succeeded
+    _chip_cls = {
+        "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+        "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+        "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+        "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
     }
 
+    def _tile(c: dict):
+        cid = c.get("id", "")
+        name = c.get("channel_name") or "Creator"
+        thumb = c.get("channel_thumbnail_url") or ""
+        subs = int(c.get("current_subscribers") or 0)
+        grade = c.get("quality_grade") or ""
+        grade_cls = _chip_cls.get(grade, "bg-accent text-muted-foreground")
 
-# ============================================================================
-# 📨 Contact form inquiries  (migration 041)
-# ============================================================================
-# System of record for /contact submissions. Transactional-email forwarding
-# (Resend / Postmark) is layered on top in a subsequent change — keeping the
-# DB write authoritative means an outbound send failure never loses an
-# inquiry, and an admin retry view can drain the queue.
+        avatar = (
+            Img(
+                src=thumb,
+                alt=name,
+                cls="w-full aspect-square object-cover rounded-xl",
+                loading="lazy",
+            )
+            if thumb
+            else Div(
+                Span(name[:1].upper(), cls="text-xl font-bold text-muted-foreground"),
+                cls="w-full aspect-square rounded-xl bg-accent flex items-center justify-center",
+            )
+        )
 
-CONTACT_INQUIRIES_TABLE = "contact_inquiries"
+        return Div(
+            A(
+                Div(
+                    avatar,
+                    Div(
+                        P(
+                            name,
+                            cls="text-xs font-semibold text-foreground leading-tight line-clamp-2 mt-2",
+                        ),
+                        Div(
+                            Span(
+                                format_number(subs),
+                                cls=_CLS_MUTED_XS,
+                            ),
+                            *(
+                                [
+                                    Span(
+                                        grade,
+                                        cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {grade_cls}",
+                                    )
+                                ]
+                                if grade
+                                else []
+                            ),
+                            cls="flex items-center gap-1.5 mt-0.5",
+                        ),
+                    ),
+                    cls="flex flex-col",
+                ),
+                href=f"/creator/{cid}",
+                cls="no-underline",
+            ),
+            # ⇄ Compare link below the tile
+            *(
+                [
+                    A(
+                        UkIcon("git-compare", cls="w-3 h-3 mr-0.5"),
+                        "Compare",
+                        href=f"/compare?a={current_creator_id}&b={cid}",
+                        cls="text-[10px] text-muted-foreground hover:text-primary no-underline flex items-center justify-center mt-1 transition-colors",
+                    )
+                ]
+                if current_creator_id
+                else []
+            ),
+            cls="flex-shrink-0 w-28 sm:w-32 snap-start flex flex-col",
+        )
 
-# Allowlisted inquiry types — single source of truth for both the
-# ``<select>`` rendered in ``routes/contact.py`` and the server-side
-# validator. KEEP IN SYNC with the ``contact_inquiries_type_allowed``
-# CHECK constraint in ``db/migrations/041_contact_inquiries.sql``;
-# ``insert_contact_inquiry`` defends against drift by falling back to
-# ``"general"`` for unknown slugs, so a stale list here cannot 500 the
-# form — it can only mis-categorise.
-CONTACT_INQUIRY_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("general", "General inquiry"),
-    ("sales", "Sales / Pricing question"),
-    ("feedback", "Product feedback"),
-    ("support", "Support / Bug report"),
-    ("partnership", "Partnership opportunity"),
-    ("careers", "Career / Jobs"),
-)
-CONTACT_INQUIRY_TYPES: frozenset[str] = frozenset(slug for slug, _label in CONTACT_INQUIRY_OPTIONS)
+    tiles = [_tile(c) for c in creators]
+
+    # Determine the "See all" link — prefer category, fall back to country
+    if category:
+        see_all_href = f"/lists/category/{slugify(category)}"
+        see_all_label = f"{get_topic_category_emoji(category)} {category}"
+    elif country_code:
+        see_all_href = f"/lists/country/{country_code.upper()}"
+        see_all_label = f"{get_country_flag(country_code)} {country_code.upper()}"
+    else:
+        see_all_href = "/creators"
+        see_all_label = "All creators"
+
+    rail_id = f"similar-rail-{current_creator_id or 'x'}"
+    return Card(
+        Div(
+            H2(title, cls=_CLS_HEADING),
+            A(
+                see_all_label + " →",
+                href=see_all_href,
+                cls="text-xs font-medium text-primary hover:underline no-underline shrink-0",
+            ),
+            cls="flex items-center justify-between mb-3",
+        ),
+        Div(
+            *tiles,
+            id=rail_id,
+            cls=(
+                "flex gap-3 overflow-x-auto pb-2"
+                " snap-x snap-mandatory"
+                " scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
+                " -mx-1 px-1"
+            ),
+        ),
+        body_cls="p-5",
+        cls="mb-6",
+    )
 
 
-def insert_contact_inquiry(
-    *,
-    name: str,
-    email: str,
-    inquiry_type: str,
-    message: str,
-    client_ip: Optional[str] = None,
-    user_agent: Optional[str] = None,
-) -> Optional[int]:
-    """Persist a /contact form submission and return the new row id.
-
-    Returns ``None`` on any failure (no Supabase client, network error,
-    constraint violation). The caller \u2014 ``routes/contact.py:post_contact``
-    \u2014 always returns the success page regardless, so a DB hiccup never
-    leaks to the visitor; the failure is captured in the application log
-    for operator follow-up.
+def render_creator_profile_page(
+    creator: dict,
+    back_url: str = "/creators",
+    context_ranks: dict | None = None,
+    category_stats: dict | None = None,
+    is_favourited: bool = False,
+    similar_creators: list[dict] | None = None,
+    peer_engagement_p75: float = 0.0,
+    niche_leaderboard: list[dict] | None = None,
+    recent_upload: dict | None = None,
+    embedding_peers: list[dict] | None = None,
+    embedding_peer_total: int = 0,
+) -> Div:
+    """
+    Full-page creator profile — award-showcase design.
 
     Args:
-        name:         Visitor's name (1-200 chars after caller-side trim).
-        email:        Visitor's email (3-320 chars; format checked by caller).
-        inquiry_type: One of the allowlisted slugs (see ``_CONTACT_INQUIRY_TYPES``).
-                      Falls back to ``"general"`` if unknown so a stale option
-                      value can't 500 the form.
-        message:      Free-form body (1-10000 chars; caller enforces the cap).
-        client_ip:    Best-effort source IP for rate limiting; ``None`` is fine.
-        user_agent:   Best-effort UA string for triage; ``None`` is fine.
+        creator:         Creator dict from get_creator_stats().
+        back_url:        Href for the ← Back button.
+        context_ranks:   Optional {country_rank, language_rank, category_rank}
+                         ints from _get_context_ranks() in routes/creators.py.
+        category_stats:  Optional pre-aggregated box plot stats from
+                         get_cached_category_box_stats() — passed through to
+                         render_category_box_plots(). None = show placeholder.
+        is_favourited:   Whether the current user has already favourited this
+                         creator.  Drives the initial heart-button state.
+                         Pass False (default) for unauthenticated visitors.
+
+    Layout:
+      1. Cinematic banner + overlapping avatar + identity strip
+      2. 4-up stat cards with 30d deltas
+      3. Two-column body:
+           Left  — About + Channel Info + Social Links + Featured Channels
+           Right — Performance + trend bar + Topics (with rank chips) +
+                   Rankings card + Category breakdown
+      4. Similar creators horizontal scroll rail
+      5. Sync / freshness footer
     """
-    if not supabase_client:
-        logger.warning("insert_contact_inquiry: no supabase_client; dropping inquiry")
-        return None
+    context_ranks = context_ranks or {}
+    # ── identity ──────────────────────────────────────────────────────────────
+    creator_id = safe_get_value(creator, "id", "")
+    channel_id = safe_get_value(creator, "channel_id", "")
+    channel_name = safe_get_value(creator, "channel_name", "Unknown Creator")
+    custom_url = safe_get_value(creator, "custom_url", "")
+    channel_url = (
+        safe_get_value(creator, "channel_url") or f"https://www.youtube.com/channel/{channel_id}"
+    )
+    thumbnail_url = safe_get_value(creator, "channel_thumbnail_url") or "/static/favicon.jpeg"
+    banner_url = safe_get_value(creator, "banner_image_url", "")
+    bio = (
+        safe_get_value(creator, "channel_description")
+        or safe_get_value(creator, "description", "")
+        or safe_get_value(creator, "bio", "")
+    )
+    keywords = safe_get_value(creator, "keywords", "")
+    country_code = safe_get_value(creator, "country_code", "")
+    language = safe_get_value(creator, "default_language", "")
+    quality_grade = safe_get_value(creator, "quality_grade", None)
+    official = safe_get_value(creator, "official", False)
+    hidden_subs = safe_get_value(creator, "hidden_subscriber_count", False)
+    primary_category = safe_get_value(creator, "primary_category", "")
+    published_at = safe_get_value(creator, "published_at", "")
+    channel_age_days = safe_get_value(creator, "channel_age_days", 0) or 0
+    monthly_uploads = safe_get_value(creator, "monthly_uploads", 0) or 0
+    topic_categories_raw = safe_get_value(creator, "topic_categories")
+    category_distribution = safe_get_value(creator, "category_distribution")
+    transcript_keywords = safe_get_value(creator, "transcript_keywords")
+    featured_channels_raw = safe_get_value(creator, "featured_channels_urls", "")
+    last_updated = safe_get_value(creator, "last_updated_at", "")
+    last_synced = safe_get_value(creator, "last_synced_at", "")
+    sync_status = safe_get_value(creator, "sync_status", "pending")
 
-    payload: Dict[str, Any] = {
-        "name": name,
-        "email": email,
-        "inquiry_type": inquiry_type if inquiry_type in CONTACT_INQUIRY_TYPES else "general",
-        "message": message,
-    }
-    if client_ip:
-        payload["client_ip"] = client_ip
-    if user_agent:
-        payload["user_agent"] = user_agent
+    # ── numeric stats ─────────────────────────────────────────────────────────
+    current_subs = int(safe_get_value(creator, "current_subscribers", 0) or 0)
+    current_views = int(safe_get_value(creator, "current_view_count", 0) or 0)
+    current_videos = int(safe_get_value(creator, "current_video_count", 0) or 0)
+    # Treat 0 as None — the DB DEFAULT is 0 and the worker writes NULL when the
+    # baseline hasn't matured yet (< 7 days).  A "+0 30d" badge is misleading
+    # noise: if change is genuinely 0 the stat cards already show that.
+    subs_change_raw = safe_get_value(creator, "subscribers_change_30d", None)
+    subs_change = (int(subs_change_raw) or None) if subs_change_raw is not None else None
+    views_change_raw = safe_get_value(creator, "views_change_30d", None)
+    views_change = (int(views_change_raw) or None) if views_change_raw is not None else None
+    videos_change_raw = safe_get_value(creator, "videos_change_30d", None)
+    videos_change = (int(videos_change_raw) or None) if videos_change_raw is not None else None
+    engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
 
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE).insert(payload).execute()
-        )
-    except Exception:
-        logger.exception("insert_contact_inquiry: insert failed for <%s>", email)
-        return None
+    # ── per-video stats (last 10 uploads — better signal than lifetime avg) ───
+    # Populated by worker._fetch_recent_performance_stats on every sync.
+    # Treat 0 as None — the schema has no DEFAULT so 0 means "not yet computed",
+    # not "genuinely zero views/likes".  Using 0 would replace a valid lifetime
+    # average with a trust-destroying zero on the profile.
+    avg_views_10_raw = safe_get_value(creator, "avg_views_10")
+    avg_views_10 = int(avg_views_10_raw) if avg_views_10_raw else None
+    avg_likes_10_raw = safe_get_value(creator, "avg_likes_10")
+    avg_likes_10 = int(avg_likes_10_raw) if avg_likes_10_raw else None
+    avg_comments_10_raw = safe_get_value(creator, "avg_comments_10")
+    avg_comments_10 = int(avg_comments_10_raw) if avg_comments_10_raw else None
+    avg_days_raw = safe_get_value(creator, "avg_days_between_uploads")
+    avg_days_between_uploads = float(avg_days_raw) if avg_days_raw else None
+    recent_views_median_raw = safe_get_value(creator, "recent_views_median")
+    recent_views_median = int(recent_views_median_raw) if recent_views_median_raw else None
+    recent_video_sample_raw = safe_get_value(creator, "recent_video_sample_size")
+    recent_video_sample_size = int(recent_video_sample_raw) if recent_video_sample_raw else 0
+    outlier_count_raw = safe_get_value(creator, "outlier_count")
+    outlier_count = int(outlier_count_raw) if outlier_count_raw else 0
+    outlier_videos = safe_get_value(creator, "outlier_videos") or []
+    if isinstance(outlier_videos, str):
+        try:
+            outlier_videos = json.loads(outlier_videos)
+        except Exception:
+            outlier_videos = []
+    if not isinstance(outlier_videos, list):
+        outlier_videos = []
+    if not outlier_count and outlier_videos:
+        outlier_count = len(outlier_videos)
 
-    rows = resp.data or []
-    if not rows:
-        logger.warning("insert_contact_inquiry: insert returned no rows for <%s>", email)
-        return None
-    return rows[0].get("id")
+    # ── content flags (brand safety + format) ────────────────────────────────
+    # Written by worker from channels.list status.madeForKids / longUploadsStatus
+    is_made_for_kids = bool(safe_get_value(creator, "is_made_for_kids") or False)
+    has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status") or False)
 
+    # ── derived ───────────────────────────────────────────────────────────────
+    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
+    growth_rate = calculate_growth_rate(subs_change, current_subs)
+    growth_label, growth_style = get_growth_signal(growth_rate)
+    # Prefer last-10-video average (recent performance) over lifetime average.
+    # Fall back to lifetime calc when per-video data isn't populated yet.
+    if avg_views_10 is not None:
+        avg_views = avg_views_10
+        avg_views_label = "Avg Views / Video (last 10)"
+    else:
+        avg_views = calculate_avg_views_per_video(current_views, current_videos)
+        avg_views_label = "Avg Views / Video"
+    views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
+    momentum_score = calculate_momentum_score(views_change, subs_change, current_subs)
+    if momentum_score is not None:
+        momentum_label, momentum_style = get_momentum_label(momentum_score)
+    else:
+        momentum_label, momentum_style = None, ""
+    # Upload cadence as human-readable "every X days" string
+    if avg_days_between_uploads and avg_days_between_uploads > 0:
+        upload_cadence = f"every {format_float(avg_days_between_uploads, 1)} days"
+    elif monthly_uploads and monthly_uploads > 0:
+        upload_cadence = f"every {format_float(30.0 / monthly_uploads, 1)} days"
+    else:
+        upload_cadence = None
+    # v4 revenue model — country + niche-aware, Shorts-split, sponsorships included
+    _rev = estimate_monthly_revenue_v4(
+        total_subs=current_subs,
+        total_views=current_views,
+        video_count=current_videos,
+        country_code=country_code or "US",
+        niche=primary_category or "general",
+    )
+    estimated_revenue = int(_rev["est_monthly_total"])
+    revenue_split = _rev["revenue_split"]
+    assumed_shorts_pct = _rev["assumed_shorts_pct"]
+    handle_display = f"@{custom_url.lstrip('@')}" if custom_url else ""
+    country_flag = get_country_flag(country_code) if country_code else ""
+    lang_emoji = get_language_emoji(language) if language else ""
+    lang_name = get_language_name(language) if language else ""
 
-def count_contact_inquiries_from_ip(client_ip: str, *, within_minutes: int = 60) -> int:
-    """Return how many inquiries the given IP submitted in the recent window.
+    # ── parsed extras ─────────────────────────────────────────────────────────
+    social_links = _extract_socials(bio or "", keywords or "")
+    featured_ch_urls = _parse_featured_channels(featured_channels_raw or "")
 
-    Used by ``post_contact`` to short-circuit obvious flooders before doing
-    a write. Returns ``0`` on any error so a transient DB blip can never
-    block a legitimate user (worst case: rate limit briefly under-counts).
+    # ── context ranks (from route layer) ──────────────────────────────────────
+    country_rank = context_ranks.get("country_rank")
+    language_rank = context_ranks.get("language_rank")
+    category_rank = context_ranks.get("category_rank")
 
-    The lookup is index-supported by
-    ``idx_contact_inquiries_client_ip_created_at``.
-    """
-    if not supabase_client or not client_ip:
-        return 0
+    # ── small helpers (private to this call) ─────────────────────────────────
+    def _delta_badge(val: int | None, pct: float | None = None) -> Span | None:
+        """Inline +/- badge for 30-day delta next to a stat value.
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=within_minutes)).isoformat()
-
-    try:
-        resp = _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
-            .select("id", count="exact")
-            .eq("client_ip", client_ip)
-            .gte("created_at", cutoff)
-            .execute()
-        )
-    except Exception:
-        logger.exception("count_contact_inquiries_from_ip: lookup failed for %s", client_ip)
-        return 0
-
-    return int(getattr(resp, "count", 0) or 0)
-
-
-def mark_contact_inquiry_forwarded(inquiry_id: int) -> bool:
-    """Record a successful transactional-email send. Returns True on update."""
-    if not supabase_client or not inquiry_id:
-        return False
-    try:
-        _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
-            .update(
-                {
-                    "forwarded_at": datetime.now(timezone.utc).isoformat(),
-                    "forward_error": None,
-                }
+        When pct is provided (subscribers only) renders e.g. "+280K 30d  ↑6.7%".
+        pct == 0 is treated as neutral (no arrow, grey) to avoid implying growth.
+        """
+        if val is None:
+            return None
+        colour = (
+            "text-green-600 bg-green-50 dark:bg-green-900/30"
+            if val > 0
+            else (
+                "text-red-600 bg-red-50 dark:bg-red-900/30"
+                if val < 0
+                else "text-muted-foreground bg-accent"
             )
-            .eq("id", inquiry_id)
-            .execute()
         )
-        return True
-    except Exception:
-        logger.exception("mark_contact_inquiry_forwarded: update failed for id=%s", inquiry_id)
-        return False
+        text = f"{format_number(val, signed=True)} 30d"
+        if pct is not None and pct != 0:
+            arrow = "↑" if pct > 0 else "↓"
+            text += f"  {arrow}{format_percentage(abs(pct) / 100)}"
+        return Span(
+            text,
+            cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {colour} ml-1.5",
+        )
+
+    def _info_row(icon: str, label: str, value: str):
+        """One metadata row: UkIcon | label / value."""
+        return Div(
+            UkIcon(icon, cls="w-4 h-4 text-muted-foreground shrink-0 mt-0.5"),
+            Div(
+                Span(label, cls="text-xs text-muted-foreground block leading-none"),
+                Span(value, cls="text-sm font-medium text-foreground leading-snug"),
+            ),
+            cls="flex items-start gap-2.5",
+        )
+
+    def _perf_row(label: str, value: str, value_cls: str = "text-foreground"):
+        return Div(
+            Span(label, cls=_CLS_MUTED_SM),
+            Span(value, cls=f"text-sm font-semibold {value_cls}"),
+            cls=_CLS_ROW_DIVIDED,
+        )
+
+    def _rank_chip(text: str, href: str, title: str):
+        """Linked pill chip for rank badges in the identity strip."""
+        return A(
+            text,
+            href=href,
+            title=title,
+            cls="text-xs font-semibold px-2 py-0.5 rounded-full bg-accent text-foreground hover:bg-accent/80 no-underline transition-colors",
+        )
+
+    def _safe_for_kids_badge():
+        """Badge backed by the worker-collected YouTube status.madeForKids field."""
+        return Span(
+            UkIcon("shield-check", cls="w-3.5 h-3.5 mr-1 inline"),
+            "Safe for Kids",
+            title="YouTube marks this channel as Made for Kids. This signal comes from the worker sync.",
+            cls=(
+                "inline-flex items-center text-xs font-semibold "
+                "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 "
+                "px-2 py-0.5 rounded-full shrink-0"
+            ),
+        )
+
+    def _stat_card(label, value, delta_val, number_cls, bg_cls, *, delta_pct=None, rank_line=None):
+        return Card(
+            Div(
+                P(
+                    label,
+                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+                ),
+                Div(
+                    Span(value, cls=f"text-3xl font-bold {number_cls}"),
+                    _delta_badge(delta_val, pct=delta_pct),
+                    cls="flex items-baseline flex-wrap mt-1",
+                ),
+                rank_line,
+            ),
+            cls=f"{bg_cls} border-0",
+            body_cls="p-4",
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — Cinematic banner + overlapping avatar + identity strip
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Banner layer
+    banner_layer = (
+        Div(
+            # Dark gradient overlay — ensures text legibility on any banner image
+            Div(
+                cls="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"
+            ),
+            style=(
+                f"background-image:url('{banner_url}');"
+                "background-size:cover;background-position:center top;"
+                "height:220px;"
+            ),
+            cls="relative w-full rounded-t-xl",
+        )
+        if banner_url
+        else Div(
+            cls="w-full rounded-t-xl bg-gradient-to-br from-blue-700 via-violet-700 to-pink-600",
+            style="height:220px;",
+        )
+    )
+
+    # Identity strip — sits below the banner, avatar overlaps upward
+    identity_strip = Div(
+        # ── Row 1: avatar (overlapping banner) + CTA buttons flush right ─────
+        # Keeping avatar and buttons in the same row ensures buttons are always
+        # reachable and never clip off-screen on narrow viewports.
+        Div(
+            Img(
+                src=thumbnail_url,
+                alt=channel_name,
+                # Smaller avatar on mobile so the negative-margin lift stays proportional
+                cls="w-20 h-20 sm:w-28 sm:h-28 rounded-2xl object-cover ring-4 ring-background shadow-xl -mt-10 sm:-mt-14",
+            ),
+            Div(
+                A(
+                    UkIcon("youtube", cls="w-4 h-4 mr-1.5"),
+                    "YouTube",
+                    href=channel_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                render_favourite_button(creator_id, is_favourited=is_favourited),
+                A(
+                    UkIcon("git-compare", cls="w-4 h-4 mr-1"),
+                    "Compare",
+                    href=f"/compare?a={creator_id}&b=",
+                    id="compare-btn",
+                    title="Compare with another creator — paste a creator profile URL as ?b=<id>",
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                A(
+                    UkIcon("map", cls="w-4 h-4 mr-1"),
+                    "Blueprint",
+                    href=f"/creator/{creator_id}/blueprint?from=/creator/{creator_id}&name={quote_plus(channel_name)}",
+                    title="Growth Blueprint — Studio-grounded actions ranked by confidence",
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                A(
+                    UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
+                    "Back",
+                    href=back_url,
+                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                ),
+                cls="flex gap-2 ml-auto items-center flex-wrap justify-end",
+            ),
+            cls="flex items-end justify-between px-4 sm:px-5 pt-3",
+        ),
+        # ── Row 2: name + meta — full width so tags can wrap freely ──────────
+        Div(
+            # Name + badges
+            Div(
+                H1(
+                    channel_name,
+                    cls="text-xl sm:text-2xl lg:text-3xl font-bold text-foreground leading-tight",
+                ),
+                (
+                    Span(
+                        UkIcon("badge-check", cls="w-4 h-4 mr-1 inline"),
+                        "Official",
+                        cls="inline-flex items-center text-xs font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full shrink-0",
+                    )
+                    if official
+                    else None
+                ),
+                (_safe_for_kids_badge() if is_made_for_kids else None),
+                cls="flex items-center gap-2 flex-wrap",
+            ),
+            # Rank chips — grade + subscriber rank badges, links to list pages
+            *(
+                [
+                    Div(
+                        (
+                            Span(
+                                f"{grade_icon} {grade_label}",
+                                cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {grade_bg}",
+                            )
+                            if quality_grade
+                            else None
+                        ),
+                        (
+                            _rank_chip(
+                                f"#{country_rank} {country_flag} {country_code.upper()}",
+                                href=f"/lists/country/{country_code.upper()}",
+                                title=f"#{country_rank} by subscribers in {country_code.upper()}",
+                            )
+                            if country_rank is not None and country_code
+                            else None
+                        ),
+                        (
+                            _rank_chip(
+                                f"#{category_rank} {get_topic_category_emoji(primary_category)} {primary_category[:20]}",
+                                href=f"/lists/category/{slugify(primary_category)}",
+                                title=f"#{category_rank} by subscribers in {primary_category}",
+                            )
+                            if category_rank is not None and primary_category
+                            else None
+                        ),
+                        cls="flex flex-wrap items-center gap-1.5 mt-1",
+                    )
+                ]
+                if (quality_grade or country_rank is not None or category_rank is not None)
+                else []
+            ),
+            # Handle + country + language + age tags
+            # Previously these were width-starved inside a flex child with no
+            # declared width, forcing each tag onto its own line. Now they sit
+            # in a full-width block and wrap naturally.
+            Div(
+                (
+                    Span(handle_display, cls="text-sm text-muted-foreground font-mono")
+                    if handle_display
+                    else None
+                ),
+                (
+                    Span(
+                        f"{country_flag} {country_code.upper()}",
+                        cls=_CLS_MUTED_SM,
+                        title=country_code.upper(),
+                    )
+                    if country_code
+                    else None
+                ),
+                (Span(f"{lang_emoji} {lang_name}", cls=_CLS_MUTED_SM) if language else None),
+                (
+                    Span(
+                        f"📅 {format_channel_age(channel_age_days)}",
+                        cls="text-xs text-muted-foreground px-2 py-0.5 bg-accent rounded-full",
+                    )
+                    if channel_age_days
+                    else None
+                ),
+                (
+                    Span(
+                        f"📹 {monthly_uploads:.1f}/mo",
+                        cls="text-xs text-muted-foreground px-2 py-0.5 bg-accent rounded-full",
+                    )
+                    if monthly_uploads
+                    else None
+                ),
+                cls="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1.5",
+            ),
+            cls="px-4 sm:px-5 pb-4 sm:pb-5 pt-3",
+        ),
+        cls="bg-background",
+    )
+
+    banner_section = Div(
+        banner_layer,
+        identity_strip,
+        cls="bg-background rounded-xl border border-border shadow-sm mb-6 overflow-hidden",
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — 4-up stat cards (dark-mode safe)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Rank line for Subscribers card — prefer country, fall back to category
+    _subs_rank_line = None
+    if not hidden_subs:
+        if country_rank is not None and country_code:
+            _subs_rank_line = Div(
+                Span(f"#{country_rank}", cls="text-xs font-bold text-blue-500 dark:text-blue-400"),
+                Span(
+                    f" in {country_flag} {country_code.upper()}",
+                    cls=_CLS_MUTED_XS,
+                ),
+                cls="mt-2",
+            )
+        elif category_rank is not None and primary_category:
+            _subs_rank_line = Div(
+                Span(f"#{category_rank}", cls="text-xs font-bold text-blue-500 dark:text-blue-400"),
+                Span(f" in {primary_category}", cls=_CLS_MUTED_XS),
+                cls="mt-2",
+            )
+
+    stats_row = Grid(
+        _stat_card(
+            "Subscribers",
+            format_number(current_subs) if not hidden_subs else "Hidden",
+            subs_change,
+            "text-blue-600 dark:text-blue-400",
+            "bg-blue-50 dark:bg-blue-950/40",
+            delta_pct=growth_rate if subs_change is not None else None,
+            rank_line=_subs_rank_line,
+        ),
+        _stat_card(
+            "Total Views",
+            format_number(current_views),
+            views_change,
+            "text-violet-600 dark:text-violet-400",
+            "bg-violet-50 dark:bg-violet-950/40",
+        ),
+        _stat_card(
+            "Videos Published",
+            format_number(current_videos),
+            videos_change,
+            "text-foreground",
+            "bg-accent",
+        ),
+        _stat_card(
+            "Est. Revenue",
+            f"${format_number(estimated_revenue)}/mo",
+            None,
+            "text-emerald-600 dark:text-emerald-400",
+            "bg-emerald-50 dark:bg-emerald-950/40",
+        ),
+        cols_sm=2,
+        cols_lg=4,
+        cls="mb-6",
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — Two-column body
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # ── Left column: About + Channel Info ─────────────────────────────────────
+    keyword_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
+    keyword_pills = (
+        Div(
+            *[
+                Span(
+                    kw,
+                    cls="text-xs px-2.5 py-1 bg-accent text-muted-foreground rounded-full",
+                )
+                for kw in keyword_list[:15]
+            ],
+            cls="flex flex-wrap gap-1.5 mt-3",
+        )
+        if keyword_list
+        else None
+    )
+
+    about_card = Card(
+        H2("About", cls="text-base font-bold text-foreground mb-3"),
+        (
+            P(
+                bio,
+                cls="text-sm text-muted-foreground leading-relaxed whitespace-pre-line",
+            )
+            if bio
+            else P("No description available.", cls="text-sm text-muted-foreground italic")
+        ),
+        keyword_pills,
+        body_cls="p-5",
+    )
+
+    channel_info_items = [
+        _info_row("link", "Handle", handle_display) if handle_display else None,
+        _info_row("calendar", "Founded", published_at[:10] if published_at else "Unknown"),
+        _info_row(
+            "clock",
+            "Channel Age",
+            format_channel_age(channel_age_days) if channel_age_days else "Unknown",
+        ),
+        _info_row(
+            "globe",
+            "Country",
+            f"{country_flag} {country_code.upper()}" if country_code else "Unknown",
+        ),
+        _info_row(
+            "languages",
+            "Language",
+            f"{lang_emoji} {lang_name}" if language else "Unknown",
+        ),
+        _info_row("tag", "Category", primary_category) if primary_category else None,
+        _info_row("video", "Total Videos", format_number(current_videos)),
+        _info_row(
+            "upload",
+            "Upload Rate",
+            (
+                (
+                    f"{format_float(monthly_uploads, 1)} videos/month"
+                    + (f" ({upload_cadence})" if upload_cadence else "")
+                )
+                if monthly_uploads
+                else "—"
+            ),
+        ),
+        # Content format signals — useful for brand safety and deal type
+        (
+            _info_row("film", "Content Format", "Long-form uploads eligible")
+            if has_long_upload_status
+            else None
+        ),
+        (
+            _info_row(
+                "alert-triangle",
+                "Audience",
+                "Made for Kids — lower AdSense, no brand deals",
+            )
+            if is_made_for_kids
+            else None
+        ),
+        (_info_row("eye-off", "Subscriber Count", "Hidden on YouTube") if hidden_subs else None),
+    ]
+
+    channel_info_card = Card(
+        H2("Channel Info", cls="text-base font-bold text-foreground mb-4"),
+        Div(*[i for i in channel_info_items if i], cls="space-y-3"),
+        body_cls="p-5",
+    )
+
+    # ── Recent Upload card ─────────────────────────────────────────────────────
+    # Use the parameter if explicitly provided, otherwise fall back to the
+    # cached value stored in the creator row.
+    _ru = recent_upload or safe_get_value(creator, "recent_upload")
+    if isinstance(_ru, str):
+        try:
+            _ru = json.loads(_ru)
+        except Exception:
+            _ru = None
+    recent_upload_card = None
+    if isinstance(_ru, dict) and _ru.get("video_id"):
+        ru_vid_id = _ru["video_id"]
+        ru_title = _ru.get("title") or "Untitled"
+        ru_thumb = _ru.get("thumbnail_url") or ""
+        ru_views = int(_ru.get("view_count") or 0)
+        ru_pub = _ru.get("published_at") or ""
+        ru_dur_sec = int(_ru.get("duration_sec") or 0)
+        ru_is_short = bool(_ru.get("is_short"))
+        ru_url = f"https://www.youtube.com/watch?v={ru_vid_id}"
+        ru_dur_str = f"{ru_dur_sec // 60}:{ru_dur_sec % 60:02d}" if ru_dur_sec > 0 else ""
+        recent_upload_card = Card(
+            Div(
+                UkIcon("play-circle", cls="w-4 h-4 text-red-500 mr-2"),
+                H2("Latest Upload", cls=_CLS_HEADING),
+                *(
+                    [
+                        Span(
+                            "#Shorts",
+                            cls="text-xs font-semibold text-purple-600 dark:text-purple-400 ml-auto",
+                        )
+                    ]
+                    if ru_is_short
+                    else []
+                ),
+                cls="flex items-center mb-3",
+            ),
+            A(
+                Div(
+                    *(
+                        [
+                            Img(
+                                src=ru_thumb,
+                                alt=ru_title,
+                                cls="w-full rounded-lg object-cover aspect-video",
+                                loading="lazy",
+                            )
+                        ]
+                        if ru_thumb
+                        else []
+                    ),
+                    cls="relative",
+                ),
+                P(
+                    ru_title,
+                    cls="text-sm font-semibold text-foreground mt-2 line-clamp-2 hover:underline",
+                ),
+                href=ru_url,
+                target="_blank",
+                rel="noopener noreferrer",
+                cls="no-underline block",
+            ),
+            Div(
+                Span(
+                    f"{format_number(ru_views)} views",
+                    cls=_CLS_MUTED_XS,
+                ),
+                *(
+                    [
+                        Span("·", cls=_CLS_SEPARATOR),
+                        Span(ru_dur_str, cls=_CLS_MUTED_XS),
+                    ]
+                    if ru_dur_str
+                    else []
+                ),
+                *(
+                    [
+                        Span("·", cls=_CLS_SEPARATOR),
+                        Span(format_date_relative(ru_pub), cls=_CLS_MUTED_XS),
+                    ]
+                    if ru_pub
+                    else []
+                ),
+                cls="flex items-center flex-wrap mt-2",
+            ),
+            body_cls="p-5",
+        )
+
+    # Default left_col — overridden below if social/featured cards are present
+    left_col = Div(
+        about_card,
+        channel_info_card,
+        *([recent_upload_card] if recent_upload_card else []),
+        cls="flex flex-col gap-4",
+    )
+
+    # ── Social links card ──────────────────────────────────────────────────────
+    if social_links:
+        social_card = Card(
+            Div(
+                UkIcon("share-2", cls="w-4 h-4 text-muted-foreground mr-2"),
+                H2("Connect", cls=_CLS_HEADING),
+                cls="flex items-center mb-4",
+            ),
+            Div(
+                *[
+                    A(
+                        UkIcon(icon, cls="w-4 h-4 shrink-0"),
+                        # For email show the address; for social show the label
+                        Span(
+                            label if icon != "mail" else href.replace("mailto:", ""),
+                            cls="text-sm font-medium truncate",
+                        ),
+                        href=href,
+                        target=None if href.startswith("mailto:") else "_blank",
+                        rel=(None if href.startswith("mailto:") else "noopener noreferrer"),
+                        cls=f"inline-flex items-center gap-2 no-underline transition-colors {_SOCIAL_COLOURS.get(icon, 'text-foreground hover:text-primary')}",
+                    )
+                    for icon, label, href in social_links
+                ],
+                cls="flex flex-col gap-2.5",
+            ),
+            body_cls="p-5",
+        )
+        left_col = Div(
+            about_card,
+            channel_info_card,
+            social_card,
+            *([recent_upload_card] if recent_upload_card else []),
+            cls="flex flex-col gap-4",
+        )
+
+    # ── Featured channels card ─────────────────────────────────────────────────
+    if featured_ch_urls:
+        featured_card = Card(
+            Div(
+                UkIcon("users", cls="w-4 h-4 text-muted-foreground mr-2"),
+                H2("Featured Channels", cls=_CLS_HEADING),
+                cls="flex items-center mb-4",
+            ),
+            Div(
+                *[
+                    A(
+                        UkIcon("external-link", cls="w-3.5 h-3.5 shrink-0"),
+                        Span(
+                            urlparse(url).path.lstrip("/@").split("?")[0] or url,
+                            cls="text-sm truncate",
+                        ),
+                        href=url,
+                        target="_blank",
+                        rel="noopener noreferrer",
+                        cls="inline-flex items-center gap-2 text-primary hover:underline no-underline",
+                    )
+                    for url in featured_ch_urls
+                ],
+                cls="flex flex-col gap-2",
+            ),
+            body_cls="p-5",
+        )
+        left_col = Div(
+            about_card,
+            channel_info_card,
+            *([social_card] if social_links else []),
+            featured_card,
+            *([recent_upload_card] if recent_upload_card else []),
+            cls="flex flex-col gap-4",
+        )
+
+    # ── Right column: Performance + Growth trend ───────────────────────────────
+    # Hero-level secondary metrics
+    # ── engagement comparison vs category peers ───────────────────────────────
+    if peer_engagement_p75 > 0 and engagement_score > 0:
+        eng_ratio = engagement_score / peer_engagement_p75
+        if eng_ratio >= 1.1:
+            eng_vs = f"{format_float(eng_ratio, 1)}× category avg"
+            eng_vs_cls = "text-emerald-600 dark:text-emerald-400"
+        elif eng_ratio <= 0.75:
+            eng_vs = f"{format_float(eng_ratio, 1)}× category avg"
+            eng_vs_cls = "text-red-500"
+        else:
+            eng_vs = "≈ category avg"
+            eng_vs_cls = "text-muted-foreground"
+    else:
+        eng_vs = None
+        eng_vs_cls = ""
+
+    secondary_metrics = Div(
+        _perf_row(avg_views_label, format_number(avg_views)),
+        # Per-video engagement detail — only shown when last-10 data is available
+        *(
+            [
+                _perf_row(
+                    "Avg Likes / Video (last 10)",
+                    format_number(avg_likes_10),
+                    "text-pink-600 dark:text-pink-400",
+                ),
+                _perf_row(
+                    "Avg Comments / Video (last 10)",
+                    format_number(avg_comments_10),
+                    "text-violet-600 dark:text-violet-400",
+                ),
+            ]
+            if avg_likes_10 is not None and avg_comments_10 is not None
+            else []
+        ),
+        _perf_row("Views / Subscriber", f"{format_float(views_per_sub, 2)}x"),
+        _perf_row(
+            "Upload Rate",
+            (
+                (
+                    f"{format_float(monthly_uploads, 1)} / month"
+                    + (f" ({upload_cadence})" if upload_cadence else "")
+                )
+                if monthly_uploads
+                else "—"
+            ),
+        ),
+        Div(
+            Div(
+                Span(
+                    "Engagement Score",
+                    cls=_CLS_MUTED_SM,
+                ),
+                Div(
+                    Span(
+                        f"{format_float(engagement_score)} / 10",
+                        cls="text-sm font-semibold "
+                        + ("text-blue-600" if engagement_score >= 7 else "text-foreground"),
+                    ),
+                    *([Span(eng_vs, cls=f"text-xs ml-2 {eng_vs_cls}")] if eng_vs else []),
+                    cls="flex items-center gap-1",
+                ),
+                cls=_CLS_ROW_PY,
+            ),
+        ),
+        *(
+            [
+                Div(
+                    Span("Momentum", cls=_CLS_MUTED_SM),
+                    Div(
+                        Span(
+                            format_float(momentum_score, 0),
+                            cls="text-sm font-bold text-foreground",
+                        ),
+                        Span(
+                            momentum_label,
+                            cls=f"text-xs font-semibold px-2 py-0.5 rounded-full border ml-2 {momentum_style}",
+                        ),
+                        cls="flex items-center",
+                    ),
+                    cls=_CLS_ROW_PY,
+                )
+            ]
+            if momentum_label
+            else []
+        ),
+    )
+
+    # ── Creator insight callout — "what does this mean for me?" ───────────────
+    # Surfaces one high-signal, actionable sentence below the metrics table.
+    _insight_text = None
+    _insight_cls = "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+    _insight_icon = "lightbulb"
+    _insight_icon_cls = "w-4 h-4 text-blue-500 shrink-0 mt-0.5"
+
+    if avg_views_10 is not None and avg_views_10 > 0:
+        if avg_views_10 >= 1_000_000:
+            _insight_text = (
+                f"Your last 10 videos averaged {format_number(avg_views_10)} views — "
+                "a strong signal for premium brand partnership pitches."
+            )
+            _insight_cls = (
+                "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+            )
+            _insight_icon_cls = "w-4 h-4 text-emerald-500 shrink-0 mt-0.5"
+        elif avg_views_10 >= 100_000:
+            _insight_text = (
+                f"Your last 10 videos averaged {format_number(avg_views_10)} views — "
+                "mid-tier reach. Consistency here unlocks higher CPM advertisers."
+            )
+        else:
+            _insight_text = (
+                f"Your recent videos average {format_number(avg_views_10)} views. "
+                "Growing this number is the fastest path to higher ad and deal revenue."
+            )
+    elif engagement_score > 0 and eng_vs:
+        _insight_text = f"Engagement is {eng_vs}. Brands pay a premium for channels whose audiences actually interact."
+
+    if is_made_for_kids and _insight_text is None:
+        _insight_text = (
+            "This channel is designated Made for Kids. "
+            "AdSense CPM is ~90% lower than standard content and brand sponsorships are unavailable."
+        )
+        _insight_cls = "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
+        _insight_icon = "alert-triangle"
+        _insight_icon_cls = "w-4 h-4 text-yellow-500 shrink-0 mt-0.5"
+
+    creator_insight = (
+        Div(
+            UkIcon(_insight_icon, cls=_insight_icon_cls),
+            P(_insight_text, cls="text-xs text-foreground leading-relaxed"),
+            cls=f"flex items-start gap-2 p-3 rounded-lg border {_insight_cls} mt-3",
+        )
+        if _insight_text
+        else None
+    )
+    has_growth_data = subs_change is not None
+    if has_growth_data:
+        bar_width = min(100, max(2, abs(growth_rate) * 5))
+        bar_colour = "bg-emerald-500" if growth_rate >= 0 else "bg-red-500"
+        trend_bg = (
+            "bg-emerald-50 dark:bg-emerald-950/30"
+            if growth_rate >= 0
+            else "bg-red-50 dark:bg-red-950/30"
+        )
+        trend_section = Div(
+            DivFullySpaced(
+                P(
+                    "30-Day Growth",
+                    cls=_CLS_LABEL,
+                ),
+                Div(
+                    Span(f"{growth_rate:+.1f}%", cls="text-sm font-bold text-foreground"),
+                    Span(
+                        growth_label,
+                        cls=f"text-xs font-semibold px-2 py-0.5 rounded-full border {growth_style} ml-2",
+                    ),
+                    cls="flex items-center",
+                ),
+            ),
+            Div(
+                Div(
+                    cls=f"h-2 {bar_colour} rounded-full transition-all",
+                    style=f"width:{bar_width}%",
+                ),
+                cls="w-full h-2 bg-border rounded-full overflow-hidden mt-2",
+            ),
+            cls=f"{trend_bg} rounded-xl p-4 mt-4",
+        )
+    else:
+        trend_section = Div(
+            UkIcon("bar-chart-2", cls="w-6 h-6 text-muted-foreground mb-1"),
+            P(
+                "Growth tracking initializing",
+                cls=_CLS_VALUE_SM,
+            ),
+            P(
+                "A baseline was just set — come back in 7+ days to see your 30-day growth rate.",
+                cls="text-xs text-muted-foreground mt-0.5",
+            ),
+            cls="flex flex-col items-center text-center bg-accent rounded-xl p-4 mt-4",
+        )
+
+    performance_card = Card(
+        H2("Performance", cls="text-base font-bold text-foreground mb-1"),
+        secondary_metrics,
+        *([creator_insight] if creator_insight else []),
+        trend_section,
+        # ── Revenue breakdown (v4 model) ─────────────────────────────────────
+        Div(
+            DivFullySpaced(
+                Div(
+                    UkIcon("circle-dollar-sign", cls="w-4 h-4 text-emerald-500 mr-1.5"),
+                    Span(
+                        "Est. Monthly Revenue",
+                        cls=_CLS_LABEL,
+                    ),
+                    cls="flex items-center",
+                ),
+                Span(
+                    f"${format_number(estimated_revenue)}",
+                    cls="text-sm font-bold text-emerald-600 dark:text-emerald-400",
+                ),
+                cls="mb-2",
+            ),
+            Div(
+                _perf_row(
+                    "AdSense — long-form",
+                    f"${format_number(revenue_split['adsense_long'])}",
+                    "text-emerald-600 dark:text-emerald-400",
+                ),
+                _perf_row(
+                    "AdSense — Shorts",
+                    f"${format_number(revenue_split['adsense_shorts'])}",
+                    "text-emerald-600 dark:text-emerald-400",
+                ),
+                _perf_row(
+                    "Brand deals (est.)",
+                    f"${format_number(revenue_split['brand_deals'])}",
+                    "text-emerald-600 dark:text-emerald-400",
+                ),
+                _perf_row(
+                    "Assumed Shorts mix",
+                    assumed_shorts_pct,
+                ),
+            ),
+            # Kids content warning — AdSense CPM drops ~90%; brand deals unavailable
+            *(
+                [
+                    Div(
+                        UkIcon("alert-triangle", cls="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-0.5"),
+                        P(
+                            "Made for Kids content earns ~90% less via AdSense and "
+                            "is ineligible for brand sponsorships. These estimates assume standard rates.",
+                            cls="text-xs text-yellow-800 dark:text-yellow-300 leading-relaxed",
+                        ),
+                        cls="flex items-start gap-2 mt-2 p-2.5 rounded-lg "
+                        "bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800",
+                    )
+                ]
+                if is_made_for_kids
+                else []
+            ),
+            cls="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 mt-4",
+        ),
+        body_cls="p-5",
+    )
+
+    # ── Outlier discovery card (viral pattern identification) ────────────────
+    outlier_card = None
+    if recent_video_sample_size > 0:
+        outlier_rows = []
+        for video in outlier_videos[:3]:
+            if not isinstance(video, dict) or not video.get("video_id"):
+                continue
+            vid_id = video.get("video_id", "")
+            vid_title = video.get("title") or "Untitled"
+            vid_thumb = video.get("thumbnail_url") or ""
+            vid_views = int(video.get("view_count") or 0)
+            vid_likes = int(video.get("like_count") or 0)
+            vid_pub = video.get("published_at") or ""
+            vid_multiplier = float(video.get("view_multiplier") or 0)
+            vid_url = f"https://www.youtube.com/watch?v={vid_id}"
+            outlier_rows.append(
+                A(
+                    *(
+                        [
+                            Img(
+                                src=vid_thumb,
+                                alt=vid_title,
+                                cls="w-20 sm:w-24 aspect-video rounded-lg object-cover shrink-0 bg-accent",
+                                loading="lazy",
+                            )
+                        ]
+                        if vid_thumb
+                        else [
+                            Div(
+                                UkIcon("play", cls="w-5 h-5 text-muted-foreground"),
+                                cls="w-20 sm:w-24 aspect-video rounded-lg bg-accent flex items-center justify-center shrink-0",
+                            )
+                        ]
+                    ),
+                    Div(
+                        Div(
+                            P(
+                                vid_title,
+                                cls="text-sm font-semibold text-foreground line-clamp-2 leading-snug",
+                            ),
+                            Span(
+                                f"{format_float(vid_multiplier, 1)}x",
+                                cls="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 shrink-0",
+                                title="Views compared with this channel's recent median",
+                            ),
+                            cls="flex items-start gap-2",
+                        ),
+                        Div(
+                            Span(f"{format_number(vid_views)} views", cls=_CLS_MUTED_XS),
+                            *(
+                                [
+                                    Span("·", cls=_CLS_SEPARATOR),
+                                    Span(f"{format_number(vid_likes)} likes", cls=_CLS_MUTED_XS),
+                                ]
+                                if vid_likes
+                                else []
+                            ),
+                            *(
+                                [
+                                    Span("·", cls=_CLS_SEPARATOR),
+                                    Span(format_date_relative(vid_pub), cls=_CLS_MUTED_XS),
+                                ]
+                                if vid_pub
+                                else []
+                            ),
+                            cls="flex items-center flex-wrap mt-1",
+                        ),
+                        cls="min-w-0 flex-1",
+                    ),
+                    href=vid_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/70 no-underline transition-colors",
+                )
+            )
+
+        outlier_card = Card(
+            Div(
+                UkIcon("sparkles", cls="w-4 h-4 text-amber-500 mr-2"),
+                H2("Viral Pattern", cls=_CLS_HEADING),
+                Span(
+                    f"{outlier_count} outlier" + ("" if outlier_count == 1 else "s"),
+                    cls=(
+                        "text-xs font-semibold px-2 py-0.5 rounded-full ml-auto "
+                        + (
+                            "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                            if outlier_count
+                            else "bg-accent text-muted-foreground"
+                        )
+                    ),
+                ),
+                cls="flex items-center mb-4",
+            ),
+            Grid(
+                Div(
+                    Span("Median views", cls=_CLS_MUTED_XS),
+                    Span(
+                        format_number(recent_views_median) if recent_views_median else "—",
+                        cls="block text-sm font-bold text-foreground mt-0.5",
+                    ),
+                    cls="rounded-lg bg-accent/70 p-3",
+                ),
+                Div(
+                    Span("Sample", cls=_CLS_MUTED_XS),
+                    Span(
+                        f"Last {recent_video_sample_size}",
+                        cls="block text-sm font-bold text-foreground mt-0.5",
+                    ),
+                    cls="rounded-lg bg-accent/70 p-3",
+                ),
+                cols_sm=2,
+                cls="mb-3",
+            ),
+            (
+                Div(*outlier_rows, cls="space-y-1")
+                if outlier_rows
+                else Div(
+                    UkIcon("check-circle", cls="w-4 h-4 text-emerald-500 shrink-0"),
+                    P(
+                        f"No 3x breakouts in the last {recent_video_sample_size} uploads.",
+                        cls="text-xs text-muted-foreground leading-relaxed",
+                    ),
+                    cls="flex items-start gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800",
+                )
+            ),
+            body_cls="p-5",
+        )
+
+    # ── Rankings card (country / language / category) ─────────────────────────
+    ranking_rows = []
+    if country_rank is not None and country_code:
+        ranking_rows.append(
+            Div(
+                Span(
+                    f"{country_flag} {country_code.upper()}",
+                    cls=_CLS_MUTED_SM,
+                ),
+                Div(
+                    A(
+                        f"#{country_rank}",
+                        href=f"/lists/country/{country_code.upper()}",
+                        cls="text-sm font-bold text-primary hover:underline no-underline",
+                        title=f"Ranked #{country_rank} in {country_code.upper()} by subscribers",
+                    ),
+                    Span("in country", cls="text-xs text-muted-foreground ml-1"),
+                    cls="flex items-center",
+                ),
+                cls=_CLS_ROW_DIVIDED,
+            )
+        )
+    if language_rank is not None and language:
+        ranking_rows.append(
+            Div(
+                Span(f"{lang_emoji} {lang_name}", cls=_CLS_MUTED_SM),
+                Div(
+                    A(
+                        f"#{language_rank}",
+                        href=f"/lists/language/{language.lower()}",
+                        cls="text-sm font-bold text-primary hover:underline no-underline",
+                        title=f"Ranked #{language_rank} in {lang_name} by subscribers",
+                    ),
+                    Span("in language", cls="text-xs text-muted-foreground ml-1"),
+                    cls="flex items-center",
+                ),
+                cls=_CLS_ROW_DIVIDED,
+            )
+        )
+    if category_rank is not None and primary_category:
+        ranking_rows.append(
+            Div(
+                Span(
+                    f"{get_topic_category_emoji(primary_category)} {primary_category}",
+                    cls=_CLS_MUTED_SM,
+                ),
+                Div(
+                    A(
+                        f"#{category_rank}",
+                        href=f"/lists/category/{slugify(primary_category)}",
+                        cls="text-sm font-bold text-primary hover:underline no-underline",
+                        title=f"Ranked #{category_rank} in {primary_category} by subscribers",
+                    ),
+                    Span("in category", cls="text-xs text-muted-foreground ml-1"),
+                    cls="flex items-center",
+                ),
+                cls=_CLS_ROW_DIVIDED,
+            )
+        )
+
+    rankings_card = (
+        Card(
+            Div(
+                UkIcon("trophy", cls="w-4 h-4 text-amber-500 mr-2"),
+                H2("Rankings", cls=_CLS_HEADING),
+                cls="flex items-center mb-3",
+            ),
+            Div(*ranking_rows),
+            body_cls="p-5",
+        )
+        if ranking_rows
+        else None
+    )
+
+    # Topic categories card — pills link to list pages; primary cat shows rank chip
+    topic_pill_section = None
+    if topic_categories_raw:
+        parsed_cats = []
+        try:
+            parsed = json.loads(topic_categories_raw)
+            raw_list = parsed if isinstance(parsed, list) else [str(parsed)]
+        except (json.JSONDecodeError, TypeError):
+            raw_list = [c.strip() for c in str(topic_categories_raw).split(",") if c.strip()]
+        for item in raw_list:
+            if "wikipedia.org/wiki/" in str(item):
+                try:
+                    slug = str(item).split("/wiki/")[-1].rstrip("/")
+                    name = unquote(slug).replace("_", " ")
+                    if name:
+                        parsed_cats.append(name)
+                except Exception:
+                    pass
+            else:
+                clean = str(item).strip("\"'[]").strip()
+                if clean:
+                    parsed_cats.append(clean)
+
+        if parsed_cats:
+            pill_palette = [
+                "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300",
+                "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300",
+                "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300",
+                "bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300",
+                "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300",
+            ]
+            pills = [
+                A(
+                    f"{get_topic_category_emoji(cat)} {cat}",
+                    href=f"/lists/category/{slugify(cat)}",
+                    cls=f"text-xs font-medium no-underline hover:underline inline-flex items-center px-3 py-1 rounded-full {pill_palette[i % len(pill_palette)]}",
+                )
+                for i, cat in enumerate(parsed_cats)
+            ]
+            topic_pill_section = Card(
+                H2("Topics", cls="text-base font-bold text-foreground mb-3"),
+                Div(*pills, cls="flex flex-wrap gap-2"),
+                body_cls="p-5",
+            )
+
+    # Category distribution bars
+    cat_dist_card = None
+    if category_distribution:
+        try:
+            dist = (
+                json.loads(category_distribution)
+                if isinstance(category_distribution, str)
+                else category_distribution
+            )
+            if isinstance(dist, dict) and dist:
+                total_dist = sum(dist.values()) or 1
+                bar_colours = [
+                    "bg-blue-400",
+                    "bg-violet-400",
+                    "bg-emerald-400",
+                    "bg-pink-400",
+                    "bg-amber-400",
+                    "bg-indigo-400",
+                    "bg-teal-400",
+                    "bg-rose-400",
+                ]
+                bars = [
+                    Div(
+                        Span(
+                            f"{get_topic_category_emoji(cat)} {cat}",
+                            cls="text-sm text-foreground w-44 shrink-0 truncate",
+                        ),
+                        Div(
+                            Div(
+                                cls=f"h-4 {bar_colours[i % len(bar_colours)]} rounded-r-full transition-all",
+                                style=f"width:{min(100, round(count / total_dist * 100))}%",
+                            ),
+                            cls="flex-1 h-4 bg-accent rounded-full overflow-hidden",
+                        ),
+                        Span(
+                            f"{round(count / total_dist * 100)}%",
+                            cls="text-xs font-semibold text-muted-foreground w-10 text-right shrink-0",
+                        ),
+                        cls="flex items-center gap-3",
+                    )
+                    for i, (cat, count) in enumerate(sorted(dist.items(), key=lambda x: -x[1])[:8])
+                ]
+                cat_dist_card = Card(
+                    H2(
+                        "Content Breakdown",
+                        cls="text-base font-bold text-foreground mb-4",
+                    ),
+                    Div(*bars, cls="space-y-3"),
+                    body_cls="p-5",
+                )
+        except Exception:
+            pass
+
+    # ── Niche Leaderboard card ──────────────────────────────────────────────
+    leaderboard_card = None
+    if niche_leaderboard and primary_category:
+        lb_rows = []
+        for i, peer in enumerate(niche_leaderboard):
+            peer_id = peer.get("id", "")
+            peer_name = peer.get("channel_name", "Unknown")
+            peer_thumb = peer.get("channel_thumbnail_url") or "/static/favicon.jpeg"
+            peer_eng = float(peer.get("engagement_score") or 0)
+            peer_subs = int(peer.get("current_subscribers") or 0)
+            is_self = peer_id == creator_id
+            row_cls = (
+                "flex items-center gap-3 py-2 px-2 rounded-lg bg-primary/10 border border-primary/30"
+                if is_self
+                else "flex items-center gap-3 py-2"
+            )
+            lb_rows.append(
+                Div(
+                    Span(f"{i + 1}", cls="text-xs font-bold text-muted-foreground w-4 shrink-0"),
+                    Img(
+                        src=peer_thumb,
+                        alt=peer_name,
+                        cls="size-7 rounded-full object-cover shrink-0",
+                    ),
+                    Div(
+                        A(
+                            peer_name,
+                            href=f"/creator/{peer_id}" if peer_id else "#",
+                            cls="text-xs font-semibold text-foreground hover:underline line-clamp-1"
+                            + (" text-primary" if is_self else ""),
+                        ),
+                        Span(
+                            format_number(peer_subs),
+                            cls=_CLS_MUTED_XS,
+                        ),
+                        cls="flex-1 min-w-0",
+                    ),
+                    Span(
+                        format_float(peer_eng),
+                        cls="text-xs font-bold text-blue-600 shrink-0",
+                        title="Engagement score",
+                    ),
+                    cls=row_cls,
+                )
+            )
+        leaderboard_card = Card(
+            Div(
+                UkIcon("flame", cls="w-4 h-4 text-orange-500 mr-2"),
+                H2(
+                    f"Top {primary_category}",
+                    cls=_CLS_HEADING,
+                ),
+                Span(
+                    "by engagement",
+                    cls="text-xs text-muted-foreground ml-auto",
+                ),
+                cls="flex items-center mb-3",
+            ),
+            Div(*lb_rows, cls="space-y-0.5"),
+            A(
+                f"See all {primary_category} creators →",
+                href=f"/lists/category/{slugify(primary_category)}",
+                cls="mt-3 block text-xs text-primary hover:underline text-right",
+            ),
+            body_cls="p-5",
+        )
+
+    right_col = Div(
+        performance_card,
+        *([outlier_card] if outlier_card else []),
+        rankings_card,
+        *([leaderboard_card] if leaderboard_card else []),
+        render_mentions_placeholder(creator_id),
+        topic_pill_section,
+        cat_dist_card,
+        *(
+            [content_dna]
+            if (content_dna := _render_content_dna_preview(transcript_keywords)) is not None
+            else []
+        ),
+        cls="flex flex-col gap-4",
+    )
+
+    body_cols = Grid(left_col, right_col, cols_sm=1, cols_lg=2, cls="mb-6")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 4 — Similar creators rail
+    # ═══════════════════════════════════════════════════════════════════════════
+    similar_section = _render_similar_creators(
+        similar_creators or [],
+        primary_category,
+        country_code,
+        current_creator_id=creator_id,
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 4b — Embedding-based peers rail ("Similar creators")
+    # Only rendered when embedding_peers is a non-empty list.
+    # Passing None means the caller found no row in creator_peers → hide section.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # When embedding peers exist we also offer a one-click jump to the full
+    # /creators/like/{handle} landing page (shareable URL + optional CSV
+    # contact export when peers have contact info). Handle slug is sourced
+    # from custom_url so it matches the public URL shape; custom_url is
+    # stored lowercase without "@", which is exactly what the route expects.
+    # CTA copy surfaces the additional peers available on the landing page
+    # (embedding_peer_total counts the full peer list; the rail is a slice)
+    # so users get real information scent for clicking through.
+    # ═══════════════════════════════════════════════════════════════════════════
+    _peer_handle_slug = (custom_url or "").lstrip("@").lower()
+    _extra_peers = max(0, embedding_peer_total - len(embedding_peers or []))
+    _noun = "lookalike" if _extra_peers == 1 else "lookalikes"
+    _cta_label = (
+        f"See {_extra_peers} more {_noun} for {channel_name} →"
+        if _extra_peers > 0
+        else f"Open the lookalike page for {channel_name} →"
+    )
+    _lookalike_cta = (
+        Div(
+            A(
+                _cta_label,
+                href=f"/creators/like/{_peer_handle_slug}",
+                cls=(
+                    "inline-flex items-center gap-1 text-sm font-medium "
+                    "text-primary hover:underline no-underline"
+                ),
+            ),
+            cls="mt-3 px-1",
+        )
+        if embedding_peers and _peer_handle_slug
+        else None
+    )
+
+    embedding_peers_section = (
+        Div(
+            _render_similar_creators(
+                embedding_peers,
+                primary_category,
+                country_code,
+                current_creator_id=creator_id,
+                title="Similar creators",
+            ),
+            _lookalike_cta,
+        )
+        if embedding_peers  # None or [] → section is suppressed
+        else None
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — Sync / freshness footer
+    # ═══════════════════════════════════════════════════════════════════════════
+    sync_colour = {
+        "synced": "text-emerald-600",
+        "synced_partial": "text-amber-500",
+        "pending": "text-amber-600",
+        "failed": "text-red-600",
+        "invalid": "text-red-500",
+        "not_found": "text-muted-foreground",
+    }.get(sync_status, "text-muted-foreground")
+
+    sync_icon_map = {
+        "synced": "check-circle",
+        "synced_partial": "check-circle-2",
+        "pending": "clock",
+        "failed": "x-circle",
+        "invalid": "alert-circle",
+        "not_found": "search-x",
+    }
+
+    sync_uk_icon = sync_icon_map.get(sync_status, "circle")
+
+    footer_section = Div(
+        UkIcon(sync_uk_icon, cls=f"w-3.5 h-3.5 {sync_colour}"),
+        Span(sync_status.title(), cls=f"text-xs font-semibold {sync_colour}"),
+        Span("·", cls=_CLS_SEPARATOR),
+        Span(
+            f"Updated {format_date_relative(last_updated)}",
+            cls=_CLS_MUTED_XS,
+        ),
+        Span("·", cls=_CLS_SEPARATOR),
+        Span(
+            f"Synced {format_date_relative(last_synced)}",
+            cls=_CLS_MUTED_XS,
+        ),
+        Span("·", cls=_CLS_SEPARATOR),
+        Span(
+            f"ID {creator_id[:8]}…",
+            cls="text-xs text-muted-foreground font-mono",
+            title=creator_id,
+        ),
+        cls="flex items-center justify-center flex-wrap gap-1 py-4 text-center",
+    )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — Category comparison box plots
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Combine "you may also like" (similar_creators) and embedding peers into
+    # one deduplicated pool so all peer scatter points come from faces the
+    # viewer already sees elsewhere on the page.
+    _peer_pool = (similar_creators or []) + (embedding_peers or [])
+    _peers_deduped = list(
+        {p["id"]: p for p in _peer_pool if p.get("id") and p.get("id") != creator_id}.values()
+    )
+    box_plot_section = render_category_box_plots(creator, category_stats, peers=_peers_deduped)
+
+    return Div(
+        banner_section,
+        stats_row,
+        body_cols,
+        similar_section,
+        embedding_peers_section,
+        box_plot_section,
+        footer_section,
+        cls="max-w-5xl mx-auto px-4 pb-16 pt-6",
+    )
 
 
-def mark_contact_inquiry_forward_error(inquiry_id: int, error: str) -> bool:
-    """Record a failed transactional-email send. Returns True on update.
+# ============================================================================
+# HANDLE SEARCH PREVIEW CARD
+# ============================================================================
 
-    ``error`` is truncated to a sane length so a multi-MB stack trace can't
-    bloat the row \u2014 detailed traces belong in the log, not the DB.
+
+def render_creator_preview(handle: str, channel_info: dict, search: str = "") -> Container:
+    """Render preview card for new creator found via handle search.
+
+    Shows basic info from YouTube API with "Add to Database" button.
     """
-    if not supabase_client or not inquiry_id:
-        return False
-    try:
-        _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
-            .update({"forward_error": (error or "")[:1000]})
-            .eq("id", inquiry_id)
-            .execute()
+    channel_id = channel_info.get("channel_id")
+    title = channel_info.get("title", "Unknown Creator")
+    custom_url = channel_info.get("custom_url", handle.lstrip("@"))
+    thumbnail = channel_info.get("thumbnail", "")
+    description = channel_info.get("description", "")
+    subs = channel_info.get("subscriber_count", 0)
+    views = channel_info.get("view_count", 0)
+    videos = channel_info.get("video_count", 0)
+    country = channel_info.get("country")
+
+    return Container(
+        # Hero banner
+        Div(
+            H1(
+                "📍 Creator Found on YouTube",
+                cls="text-4xl font-bold text-foreground mb-2",
+            ),
+            P(
+                f"Found {handle} on YouTube. Add them to your database to track their stats.",
+                cls="text-lg text-muted-foreground",
+            ),
+            cls="mb-8",
+        ),
+        # Preview card
+        Card(
+            # Channel header with avatar
+            Div(
+                Div(
+                    Img(
+                        src=thumbnail or "/static/favicon.jpeg",
+                        alt=title,
+                        cls="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg",
+                    ),
+                    cls="flex-shrink-0",
+                ),
+                Div(
+                    H2(title, cls="text-2xl font-bold text-foreground"),
+                    P(
+                        handle,
+                        cls="text-lg text-muted-foreground font-mono",
+                    ),
+                    (
+                        Div(
+                            get_country_flag(country),
+                            Span(
+                                country.upper(),
+                                cls="ml-2 text-sm text-muted-foreground",
+                            ),
+                            cls="flex items-center mt-2",
+                        )
+                        if country
+                        else None
+                    ),
+                    cls="ml-6",
+                ),
+                cls="flex items-center mb-6",
+            ),
+            # Stats grid
+            Div(
+                Div(
+                    P("Subscribers", cls="text-xs text-muted-foreground uppercase"),
+                    P(
+                        format_number(subs),
+                        cls="text-2xl font-bold text-foreground mt-1",
+                    ),
+                    cls="text-center bg-blue-50 rounded-lg p-4",
+                ),
+                Div(
+                    P("Total Views", cls="text-xs text-muted-foreground uppercase"),
+                    P(
+                        format_number(views),
+                        cls="text-2xl font-bold text-foreground mt-1",
+                    ),
+                    cls="text-center bg-green-50 rounded-lg p-4",
+                ),
+                Div(
+                    P("Videos", cls="text-xs text-muted-foreground uppercase"),
+                    P(
+                        format_number(videos),
+                        cls="text-2xl font-bold text-foreground mt-1",
+                    ),
+                    cls="text-center bg-purple-50 rounded-lg p-4",
+                ),
+                cls="grid grid-cols-3 gap-4 mb-6",
+            ),
+            # Description
+            (
+                Div(
+                    P("About", cls="text-sm font-semibold text-foreground mb-2"),
+                    P(
+                        description[:200] + ("..." if len(description) > 200 else ""),
+                        cls="text-sm text-muted-foreground leading-relaxed",
+                    ),
+                    cls="mb-6",
+                )
+                if description
+                else None
+            ),
+            # Action buttons
+            Div(
+                Form(
+                    Input(type="hidden", name="handle", value=handle),
+                    Input(type="hidden", name="channel_id", value=channel_id),
+                    Input(type="hidden", name="channel_name", value=title),
+                    Input(type="hidden", name="custom_url", value=custom_url),
+                    Input(type="hidden", name="thumbnail", value=thumbnail),
+                    Button(
+                        "✅ Add to Database & Track Stats",
+                        type="submit",
+                        cls="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-blue-700 hover:to-blue-600 transition-all shadow-md hover:shadow-lg",
+                    ),
+                    method="POST",
+                    action="/creators/add",
+                ),
+                A(
+                    "← Back to Search",
+                    href="/creators",
+                    cls="block text-center text-muted-foreground hover:text-foreground font-medium mt-4 no-underline",
+                ),
+                cls="border-t pt-6 mt-6",
+            ),
+            cls="max-w-2xl mx-auto",
+        ),
+        cls=ContainerT.xl,
+    )
+
+
+# =============================================================================
+# /creators/top — A+ tier SEO landing pages
+# =============================================================================
+
+
+def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, str, str]:
+    """Return (h1, lede, meta_description) tuned for SEO + readability.
+
+    Editorial tone matches routes/about.py — lead paragraph, concrete numbers,
+    no marketing fluff. Used for both ``<title>``/``<meta description>`` and
+    on-page H1/intro.
+    """
+    if category_label is None:
+        h1 = "Top YouTube Creators"
+        lede = (
+            f"A hand-graded shortlist of {format_number(total_count)} A+ creators "
+            "ranked by engagement quality, not subscriber count. Every channel "
+            "below has cleared ViralVibes' top-tier threshold for viewer retention, "
+            "comment velocity, and like-to-view ratio."
         )
-        return True
-    except Exception:
-        logger.exception("mark_contact_inquiry_forward_error: update failed for id=%s", inquiry_id)
-        return False
+        desc = (
+            f"Browse {format_number(total_count)} A+ rated YouTube creators across "
+            "every niche. Ranked by engagement quality and audience signal — "
+            "updated daily."
+        )
+        return h1, lede, desc
+
+    h1 = f"Top {category_label} YouTube Creators"
+    lede = (
+        f"The {format_number(total_count)} A+ rated {category_label} channels on "
+        "YouTube — ranked by engagement quality. This is the shortlist agencies, "
+        "sponsors and researchers start with before drilling into individual "
+        "creator profiles."
+    )
+    desc = (
+        f"Discover {format_number(total_count)} top {category_label.lower()} "
+        "YouTube creators. A+ engagement grade only, ranked by reach — updated daily."
+    )
+    return h1, lede, desc
+
+
+def _render_top_pagination(
+    *,
+    page: int,
+    total_pages: int,
+    base_path: str,
+) -> Div | None:
+    """Minimal Prev / Next pagination for the landing pages."""
+    if total_pages <= 1:
+        return None
+
+    prev_page = page - 1 if page > 1 else None
+    next_page = page + 1 if page < total_pages else None
+
+    def _link(label: str, target_page: int | None) -> A:
+        if target_page is None:
+            return A(
+                label,
+                cls=(
+                    "px-4 py-2 rounded-md text-sm font-medium "
+                    "text-muted-foreground/50 cursor-not-allowed border border-border"
+                ),
+                aria_disabled="true",
+            )
+        href = base_path if target_page == 1 else f"{base_path}?page={target_page}"
+        return A(
+            label,
+            href=href,
+            cls=(
+                "px-4 py-2 rounded-md text-sm font-medium border border-border "
+                "hover:bg-accent transition-colors no-underline text-foreground"
+            ),
+        )
+
+    return Div(
+        _link("← Previous", prev_page),
+        Span(
+            f"Page {page} of {total_pages}",
+            cls="text-sm text-muted-foreground",
+        ),
+        _link("Next →", next_page),
+        cls="flex items-center justify-between gap-4 mt-12 max-w-2xl mx-auto",
+    )
+
+
+def render_creators_top_page(
+    *,
+    creators: list[dict],
+    category_slug: str | None,
+    category_label: str | None,
+    total_count: int,
+    page: int,
+    page_size: int,
+) -> Div:
+    """Editorial landing-page renderer for ``/creators/top`` and category variants.
+
+    Note: The outer Titled() / NavComponent wrapping is done by main.py so the
+    nav and footer stay consistent. SEO ``<head>`` tags (canonical, OG, JSON-LD)
+    are emitted via ``creators_top_head()`` which main.py inserts into hdrs.
+    """
+    base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
+    h1, lede, _ = _top_intro_copy(category_label, total_count)
+    total_pages = max(1, (total_count + page_size - 1) // page_size) if total_count else 1
+
+    # Hero: gradient H1 + mono eyebrow + lede — matches the StaticPage rhythm
+    # without dragging in the full helper (we need a grid below, not prose).
+    eyebrow = "A+ Tier" if category_label is None else f"A+ Tier · {category_label}"
+    hero = Div(
+        Div(
+            Span(
+                eyebrow.upper(),
+                cls=(
+                    "inline-block text-xs font-mono font-medium tracking-[0.18em] "
+                    "text-muted-foreground mb-4"
+                ),
+            ),
+            H1(
+                h1,
+                cls=(
+                    "text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight "
+                    "bg-gradient-to-r from-foreground to-foreground/70 "
+                    "bg-clip-text text-transparent mb-6"
+                ),
+            ),
+            P(
+                lede,
+                cls="text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-3xl",
+            ),
+            Div(cls="h-px w-24 bg-primary/40 mt-10"),
+            cls="max-w-4xl",
+        ),
+        cls="py-16 sm:py-20 lg:py-24",
+    )
+
+    if not creators:
+        body = Div(
+            P(
+                "No A+ creators in this slice yet. Check back as the catalogue grows.",
+                cls="text-muted-foreground text-center py-16",
+            ),
+            cls="max-w-2xl mx-auto",
+        )
+    else:
+        # Reuse the standard 3-up grid + creator card so this page stays
+        # visually consistent with /creators. No favourites context here —
+        # these pages render the same to authenticated and anonymous users.
+        body = Div(
+            _render_creators_grid(creators, favourite_ids=None),
+            _render_top_pagination(
+                page=page,
+                total_pages=total_pages,
+                base_path=base_path,
+            ),
+            _render_top_drill_in_cta(category_label=category_label),
+        )
+
+    return Container(
+        hero,
+        body,
+        cls=ContainerT.xl,
+    )
+
+
+def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
+    """Reciprocal link back into the /creators research tool.
+
+    Closes the discovery → research loop: a user who's browsed the curated
+    A+ cut can drill into the full filter UI with the same constraints
+    pre-applied. Encoded with ``quote`` because ``A+`` contains a reserved
+    character.
+    """
+    from urllib.parse import urlencode
+
+    params = {"grade": "A+"}
+    if category_label is not None:
+        params["category"] = category_label
+    href = f"/creators?{urlencode(params)}"
+
+    label = (
+        "Open the full A+ filter on /creators"
+        if category_label is None
+        else f"Open all {category_label} A+ creators on /creators"
+    )
+
+    return Div(
+        Div(
+            Span(
+                "OR DIG DEEPER",
+                cls=(
+                    "block text-[10px] font-mono tracking-[0.22em] " "text-muted-foreground/70 mb-2"
+                ),
+            ),
+            P(
+                "Want to combine A+ with country, language, or growth filters? "
+                "Open the same set in the search tool — sortable, paginated, exportable.",
+                cls="text-sm text-muted-foreground leading-relaxed",
+            ),
+            A(
+                label + " →",
+                href=href,
+                cls=(
+                    "inline-flex items-center mt-4 text-sm font-medium "
+                    "text-primary hover:underline no-underline"
+                ),
+            ),
+            cls="max-w-2xl",
+        ),
+        cls="mt-16 pt-10 border-t border-border/60",
+    )
+
+
+def creators_top_page_title(category_label: str | None) -> str:
+    """Single source for the ``<title>`` and visible chrome title.
+
+    Used by both ``creators_top_head`` (for ``<title>`` + OG) and ``main.py``
+    (for ``Titled(...)``) so the two can never drift.
+    """
+    if category_label is None:
+        return "Top YouTube Creators — ViralVibes"
+    return f"Top {category_label} YouTube Creators — ViralVibes"
+
+
+def creators_top_head(
+    *,
+    category_slug: str | None,
+    category_label: str | None,
+    total_count: int,
+) -> tuple:
+    """Return ``<head>`` tags for the A+ landing page.
+
+    Returned as a tuple so main.py can splat them next to the existing
+    NavComponent wrapping: ``Titled(title, Container(...), *head_tags)``.
+    """
+    from components.seo import Canonical, MetaDescription, OgTags
+
+    base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
+    _, _, meta_desc = _top_intro_copy(category_label, total_count)
+    page_title = creators_top_page_title(category_label)
+
+    tags: list = [
+        Canonical(base_path),
+        MetaDescription(meta_desc),
+        *OgTags(title=page_title, description=meta_desc, path=base_path),
+    ]
+    return tuple(tags)
+
+
+# =============================================================================
+# /creators/like/{handle} — embedding-based lookalike landing pages
+# =============================================================================
+# Programmatic SEO surface backed by the `creator_peers` table. Each page is
+# anonymous-friendly, shows ≤20 similar creators (in similarity order), and
+# offers a free CSV download with verified business contacts inline.
+
+
+def _lookalike_seed_handle(seed: dict) -> str:
+    """Best-effort @handle for display ("MrBeast" → "@mrbeast")."""
+    raw = (seed.get("custom_url") or "").strip().lstrip("@")
+    return f"@{raw}" if raw else (seed.get("channel_name") or "this creator")
+
+
+def _format_contact_summary(contact_count: int, peer_count: int) -> str:
+    """Numeric badge copy for the hero — "12 of 20 with verified contacts"."""
+    if not peer_count:
+        return ""
+    if not contact_count:
+        return "Contacts being extracted — check back soon."
+    if contact_count == peer_count:
+        return f"All {peer_count} have verified business contacts."
+    return f"{contact_count} of {peer_count} have verified business contacts."
+
+
+def _render_lookalike_contact_strip(peer: dict) -> Div | None:
+    """Thin contact bar shown under each peer card.
+
+    Only renders when the peer actually has at least one extractable signal.
+    Designed to be visually subordinate to the card itself — the card is the
+    creator, the strip is the data attached to them.
+    """
+    email = peer.get("extracted_email")
+    website = peer.get("extracted_website")
+    instagram = peer.get("extracted_instagram")
+    x_url = peer.get("extracted_x")
+
+    if not any((email, website, instagram, x_url)):
+        return None
+
+    chips: list = []
+    if email:
+        chips.append(
+            A(
+                "📩 ",
+                Span(email, cls="font-mono text-xs"),
+                href=f"mailto:{email}",
+                cls=(
+                    "inline-flex items-center gap-1 px-2 py-1 rounded-md "
+                    "bg-primary/[0.06] text-primary text-xs font-medium "
+                    "hover:bg-primary/10 transition-colors no-underline truncate max-w-full"
+                ),
+            )
+        )
+    if website:
+        chips.append(
+            A(
+                "🔗 Website",
+                href=website,
+                target="_blank",
+                rel="nofollow noopener",
+                cls=(
+                    "inline-flex items-center gap-1 px-2 py-1 rounded-md "
+                    "bg-accent/40 text-foreground/80 text-xs font-medium "
+                    "hover:bg-accent transition-colors no-underline"
+                ),
+            )
+        )
+    if instagram:
+        chips.append(
+            A(
+                "Instagram",
+                href=instagram,
+                target="_blank",
+                rel="nofollow noopener",
+                cls=(
+                    "inline-flex items-center px-2 py-1 rounded-md "
+                    "bg-accent/40 text-foreground/80 text-xs font-medium "
+                    "hover:bg-accent transition-colors no-underline"
+                ),
+            )
+        )
+    if x_url:
+        chips.append(
+            A(
+                "X",
+                href=x_url,
+                target="_blank",
+                rel="nofollow noopener",
+                cls=(
+                    "inline-flex items-center px-2 py-1 rounded-md "
+                    "bg-accent/40 text-foreground/80 text-xs font-medium "
+                    "hover:bg-accent transition-colors no-underline"
+                ),
+            )
+        )
+
+    return Div(
+        *chips,
+        cls="flex flex-wrap gap-1.5 mt-2 px-1",
+    )
+
+
+def _render_lookalike_grid(peers: list[dict]) -> Div:
+    """3-up grid: each cell wraps the standard creator card + contact strip.
+
+    Re-uses ``_render_creator_card`` so spacing, hover, and dark-mode tokens
+    match the rest of the discovery surfaces. The strip is a sibling, never
+    nested inside the card's anchor.
+    """
+    # Inject _rank so the standard card shows a sane "#N" badge per peer
+    # (peer order is similarity-ranked; rank 1 = closest).
+    cells = []
+    for i, p in enumerate(peers, start=1):
+        peer_with_rank = {**p, "_rank": str(i)}
+        cells.append(
+            Div(
+                _render_creator_card(peer_with_rank, is_favourited=False),
+                _render_lookalike_contact_strip(p),
+                cls="flex flex-col",
+            )
+        )
+    return Div(
+        *cells,
+        cls="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5",
+    )
+
+
+def render_creators_like_page(
+    *,
+    seed: dict,
+    peers: list[dict],
+    contact_count: int,
+) -> Div:
+    """Editorial layout for ``/creators/like/{handle}``.
+
+    Layout
+    ------
+    * Hero — gradient H1 ("Creators like @handle"), eyebrow, lede with
+      contact-count badge, accent rule.
+    * Action bar — CSV download (anonymous-friendly) + breadcrumb back
+      to the seed creator's profile.
+    * 3-up grid of similarity-ordered peers, each with a contact strip.
+    * Footer CTA — link into ``/creators`` filter UI for deeper research.
+    """
+    handle = _lookalike_seed_handle(seed)
+    seed_name = seed.get("channel_name") or handle
+    seed_id = seed.get("id") or ""
+    peer_count = len(peers)
+    summary = _format_contact_summary(contact_count, peer_count)
+
+    hero = Div(
+        Div(
+            Span(
+                "LOOKALIKE LIST",
+                cls=(
+                    "inline-block text-xs font-mono font-medium tracking-[0.18em] "
+                    "text-muted-foreground mb-4"
+                ),
+            ),
+            H1(
+                Span("Creators like ", cls="text-foreground/70"),
+                Span(
+                    seed_name,
+                    cls=(
+                        "bg-gradient-to-r from-foreground to-foreground/70 "
+                        "bg-clip-text text-transparent"
+                    ),
+                ),
+                cls="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6",
+            ),
+            P(
+                f"{peer_count} channels ranked by audience-overlap similarity to " f"{handle}. ",
+                Span(summary, cls="font-medium text-foreground") if summary else None,
+                cls="text-lg sm:text-xl text-muted-foreground leading-relaxed max-w-3xl",
+            ),
+            Div(cls="h-px w-24 bg-primary/40 mt-10"),
+            cls="max-w-4xl",
+        ),
+        cls="py-16 sm:py-20 lg:py-24",
+    )
+
+    action_bar = Div(
+        A(
+            "← Back to ",
+            Span(handle, cls="font-medium"),
+            href=f"/creator/{seed_id}",
+            cls=(
+                "inline-flex items-center text-sm text-muted-foreground "
+                "hover:text-foreground transition-colors no-underline"
+            ),
+        ),
+        (
+            A(
+                "⬇ Export contacts (CSV)",
+                href=f"/creators/like/{seed.get('custom_url', '').lstrip('@').lower() or handle.lstrip('@')}/export",
+                cls=(
+                    "inline-flex items-center px-4 py-2 rounded-md text-sm font-medium "
+                    "bg-primary text-primary-foreground hover:bg-primary/90 "
+                    "transition-colors no-underline shadow-sm"
+                ),
+            )
+            if contact_count > 0
+            else Span(
+                "CSV export will be available once contacts are extracted",
+                cls="text-sm text-muted-foreground italic",
+            )
+        ),
+        cls="flex items-center justify-between gap-4 mb-8 flex-wrap",
+    )
+
+    grid = _render_lookalike_grid(peers)
+
+    footer_cta = Div(
+        Div(
+            Span(
+                "OR DIG DEEPER",
+                cls=(
+                    "block text-[10px] font-mono tracking-[0.22em] " "text-muted-foreground/70 mb-2"
+                ),
+            ),
+            P(
+                f"Want to filter {handle}-style creators by country, growth, "
+                "or category? Open the full search to combine signals.",
+                cls="text-sm text-muted-foreground leading-relaxed",
+            ),
+            A(
+                "Open the creator search →",
+                href="/creators",
+                cls=(
+                    "inline-flex items-center mt-4 text-sm font-medium "
+                    "text-primary hover:underline no-underline"
+                ),
+            ),
+            cls="max-w-2xl",
+        ),
+        cls="mt-16 pt-10 border-t border-border/60",
+    )
+
+    return Container(
+        hero,
+        action_bar,
+        grid,
+        footer_cta,
+        cls=ContainerT.xl,
+    )
+
+
+def creators_like_page_title(seed: dict) -> str:
+    """Single source for the ``<title>`` and visible chrome title."""
+    name = seed.get("channel_name") or _lookalike_seed_handle(seed)
+    return f"Creators like {name} — ViralVibes"
+
+
+def creators_like_head(*, seed: dict, peer_count: int, contact_count: int) -> tuple:
+    """Return ``<head>`` tags for the lookalike landing page."""
+    from components.seo import Canonical, MetaDescription, OgTags
+
+    handle = (seed.get("custom_url") or "").lstrip("@").lower()
+    path = f"/creators/like/{handle}" if handle else "/creators"
+    title = creators_like_page_title(seed)
+    name = seed.get("channel_name") or _lookalike_seed_handle(seed)
+
+    if contact_count:
+        desc = (
+            f"{peer_count} creators similar to {name} on YouTube — ranked by "
+            f"audience overlap. {contact_count} include verified business "
+            "contacts. Free CSV download."
+        )
+    else:
+        desc = (
+            f"{peer_count} YouTube channels similar to {name}, ranked by "
+            "audience overlap. Updated as new creators are discovered."
+        )
+
+    return (
+        Canonical(path),
+        MetaDescription(desc),
+        *OgTags(title=title, description=desc, path=path),
+    )
