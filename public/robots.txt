@@ -20,7 +20,6 @@ Disallow: /update-steps
 Disallow: /submit-job
 Disallow: /check-job-status
 Disallow: /job-progress
-Disallow: /static/
 Disallow: /me/
 Disallow: /billing/
 Disallow: /webhook
@@ -28,4 +27,4 @@ Disallow: /login
 Disallow: /logout
 
 # Sitemap location
-Sitemap: https://viralvibes.fyi/sitemap.xml
+Sitemap: https://www.viralvibes.fyi/sitemap.xml

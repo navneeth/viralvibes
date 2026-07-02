@@ -108,6 +108,7 @@ from views.lists import _list_heart_btn
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
+    CreatorProfileResult,
     blueprint_route,
     compare_creators_route,
     creator_add_status_route,
@@ -1506,17 +1507,26 @@ def creator_profile(req, sess, creator_id: str):
                ├─ 404 Div if not found
                └─ render_creator_profile_page(creator, ...)    ← views/creators.py
     """
-    page_content = creator_profile_route(
-        req, creator_id, user_id=sess.get("user_id") if sess else None
-    )
-    # Best-effort: extract channel name from the content for the title.
-    # Fall back to a generic title if the creator was not found.
-    channel_name = req.query_params.get("name", "Creator Profile")
+    result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
+
+    if isinstance(result, CreatorProfileResult):
+        from views.creators import creator_profile_head, creator_profile_page_title
+
+        head_tags = creator_profile_head(result.creator)
+        return Titled(
+            creator_profile_page_title(result.creator),
+            Container(
+                NavComponent(oauth, req, sess),
+                result.body,
+            ),
+            *head_tags,
+        )
+
     return Titled(
-        f"{channel_name} - ViralVibes",
+        "Creator Profile - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
-            page_content,
+            result,
         ),
     )
 

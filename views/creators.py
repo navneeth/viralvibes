@@ -4600,6 +4600,50 @@ def render_creator_profile_page(
     )
 
 
+def creator_profile_page_title(creator: dict) -> str:
+    """Single source for creator profile ``<title>`` text."""
+    name = safe_get_value(creator, "channel_name", "Creator")
+    return f"{name} YouTube Stats - ViralVibes"
+
+
+def creator_profile_head(creator: dict) -> tuple:
+    """Return canonical, description, and social tags for a creator profile."""
+    from components.seo import Canonical, MetaDescription, OgTags
+
+    creator_id = safe_get_value(creator, "id", "")
+    path = f"/creator/{creator_id}" if creator_id else "/creators"
+    title = creator_profile_page_title(creator)
+    name = safe_get_value(creator, "channel_name", "this creator")
+    category = safe_get_value(creator, "primary_category", "")
+    country_code = safe_get_value(creator, "country_code", "")
+    subscribers = int(safe_get_value(creator, "current_subscribers", 0) or 0)
+    views = int(safe_get_value(creator, "current_view_count", 0) or 0)
+    thumbnail = safe_get_value(creator, "channel_thumbnail_url", "")
+
+    descriptors = []
+    if subscribers:
+        descriptors.append(f"{format_number(subscribers)} subscribers")
+    if views:
+        descriptors.append(f"{format_number(views)} views")
+    if category:
+        descriptors.append(f"{category} creator")
+    if country_code:
+        descriptors.append(f"based in {country_code}")
+
+    if descriptors:
+        desc = f"Explore {name}'s YouTube stats: {', '.join(descriptors)}."
+    else:
+        desc = f"Explore {name}'s YouTube growth, audience, engagement, and similar creators."
+    desc = f"{desc} Updated creator intelligence from ViralVibes."
+
+    image = thumbnail if thumbnail.startswith(("http://", "https://")) else None
+    return (
+        Canonical(path),
+        MetaDescription(desc),
+        *OgTags(title=title, description=desc, path=path, image=image),
+    )
+
+
 # ============================================================================
 # HANDLE SEARCH PREVIEW CARD
 # ============================================================================
