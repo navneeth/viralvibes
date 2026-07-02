@@ -3433,6 +3433,28 @@ def get_creators(
                         return CreatorsResult([], 0)
                     return []
 
+            if _is_statement_timeout_error(e):
+                # A filter+sort combination hit a statement timeout — most likely
+                # a multi-filter query whose index coverage was insufficient.
+                # Apply migration 048 (grade_sort_composite_indexes) to fix the root
+                # cause. Return empty gracefully so the UI shows "no results" rather
+                # than a 500 error.
+                logger.warning(
+                    "get_creators timed out (57014) — returning empty. "
+                    "Sort: %s, Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
+                    "country=%s, category=%s]. Apply migration 048 to fix.",
+                    sort,
+                    grade_filter,
+                    language_filter,
+                    activity_filter,
+                    age_filter,
+                    country_filter,
+                    category_filter,
+                )
+                if return_count:
+                    return CreatorsResult([], 0)
+                return []
+
             logger.error(
                 f"Query execution failed: {type(e).__name__}: {str(e)}\n"
                 f"Sort: {sort}, Search: {search!r}, Filters: "
