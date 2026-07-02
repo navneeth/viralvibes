@@ -61,6 +61,15 @@ from utils.creator_metrics import get_country_flag, get_language_emoji, get_lang
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(frozen=True)
+class CreatorProfileResult:
+    """Bundle a rendered profile with the creator row used for SEO tags."""
+
+    body: object
+    creator: dict
+
+
 # ---------------------------------------------------------------------------
 # Natural-language country extraction
 # ---------------------------------------------------------------------------
@@ -509,7 +518,8 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
                     will show the correct initial state for the favourite button.
 
     Returns:
-        FT component with full profile, or a 404 message Div.
+        CreatorProfileResult with the rendered profile and creator row, or a
+        friendly 404 message Div for unknown creators.
     """
     creator = get_creator_stats(creator_id)
 
@@ -545,7 +555,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     embedding_peers = embedding_peers_full[:_PROFILE_PEER_RAIL_LIMIT] or None
     embedding_peer_total = len(embedding_peers_full)
 
-    return render_creator_profile_page(
+    body = render_creator_profile_page(
         creator,
         back_url=back_url,
         context_ranks=context_ranks,
@@ -557,6 +567,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         embedding_peers=embedding_peers,
         embedding_peer_total=embedding_peer_total,
     )
+    return CreatorProfileResult(body=body, creator=creator)
 
 
 def toggle_favourite_route(request, sess, creator_id: str):

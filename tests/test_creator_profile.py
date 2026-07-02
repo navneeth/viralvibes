@@ -196,6 +196,19 @@ class TestCreatorProfile:
         assert r.status_code == 200
         assert "Test Channel" in r.text
 
+    def test_known_creator_has_profile_seo_tags(self, client, monkeypatch):
+        """Profile pages should expose unique crawler-visible SEO metadata."""
+        self._patch_profile_db(monkeypatch)
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+        assert r.status_code == 200
+        assert "<title>Test Channel YouTube Stats - ViralVibes</title>" in r.text
+        assert 'rel="canonical"' in r.text
+        assert f'href="https://www.viralvibes.fyi/creator/{FAKE_CREATOR_UUID}"' in r.text
+        assert "Explore Test Channel" in r.text
+        assert "YouTube stats:" in r.text
+        assert 'property="og:image"' in r.text
+        assert 'content="https://example.com/thumb.jpg"' in r.text
+
     def test_unknown_creator_returns_200_not_500(self, client, monkeypatch):
         """Unknown UUIDs must return a friendly component, not raise a server error."""
         self._patch_profile_db(monkeypatch, creator=None)
