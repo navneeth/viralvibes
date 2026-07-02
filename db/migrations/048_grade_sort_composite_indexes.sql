@@ -27,6 +27,15 @@
 -- Mirrors the two-index pattern from migration 045 (synced + synced_partial) so
 -- the BitmapOr(idx_synced, idx_synced_partial) plan from migration 045 still works.
 --
+-- Why not a 3-column composite (quality_grade, current_view_count DESC, monthly_uploads)?
+-- monthly_uploads appears only as a trailing range predicate (< 1 / > 5). In PostgreSQL
+-- a range predicate on a trailing index column does not extend the ordered scan: once
+-- Postgres begins walking the index in current_view_count order it cannot constrain
+-- monthly_uploads from the index key. Additionally, get_creators() always selects all
+-- columns (SELECT *), so heap fetches happen regardless — there is no index-only scan
+-- benefit. Adding monthly_uploads would increase the size of all 6 indexes with no
+-- planner gain for the common filter patterns.
+--
 -- Uses plain CREATE INDEX (not CONCURRENTLY) so it can run inside a Supabase
 -- SQL editor transaction. Run during low-traffic if the creators table is large.
 --
