@@ -8,6 +8,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import urlencode
 
 import pycountry
@@ -66,7 +67,7 @@ logger = logging.getLogger(__name__)
 class CreatorProfileResult:
     """Bundle a rendered profile with the creator row used for SEO tags."""
 
-    body: object
+    body: Any  # FT element tree from render_creator_profile_page()
     creator: dict
 
 
@@ -888,14 +889,16 @@ class CreatorsTopResult:
     """Bundles everything main.py needs to wrap the page in Titled() + <head>.
 
     Returning structured metadata lets the SEO ``<head>`` tags know the real
-    ``total_count`` without main.py having to re-query the DB.
+    ``total_count`` without main.py having to re-query the DB, and ``creators``
+    lets ``creators_top_head`` build the JSON-LD ItemList structured data.
     """
 
-    body: object  # FT tree from render_creators_top_page()
+    body: Any  # FT element tree from render_creators_top_page()
     category_slug: str | None
     category_label: str | None
     total_count: int
     page: int
+    creators: list  # current-page creator rows, used for JSON-LD
 
 
 def creators_top_route(request, *, category_slug: str | None = None):
@@ -960,6 +963,7 @@ def creators_top_route(request, *, category_slug: str | None = None):
         category_label=category_label,
         total_count=total_count,
         page=page,
+        creators=creators,
     )
 
 

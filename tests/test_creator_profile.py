@@ -227,6 +227,23 @@ class TestCreatorProfile:
         r = client.get("/creator/00000000-0000-0000-0000-000000000000")
         assert "/creators" in r.text
 
+    def test_unknown_creator_has_generic_seo(self, client, monkeypatch):
+        """Unknown creator must use generic title and must NOT leak SEO tags
+        from the FAKE_CREATOR fixture (no og:image, no canonical to uuid URL,
+        no 'Explore Test Channel' description)."""
+        self._patch_profile_db(monkeypatch, creator=None)
+        r = client.get("/creator/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 200
+        # Generic Titled wrapper — no per-creator title
+        assert "<title>Creator Profile - ViralVibes</title>" in r.text
+        # No creator-specific OG/canonical tags from the known-creator fixture
+        assert "https://example.com/thumb.jpg" not in r.text
+        assert "Explore Test Channel" not in r.text
+        assert (
+            'href="https://www.viralvibes.fyi/creator/00000000-0000-0000-0000-000000000000"'
+            not in r.text
+        )
+
     def test_profile_from_query_param_does_not_crash(self, client, monkeypatch):
         """?from= back-nav query param must pass through without errors."""
         self._patch_profile_db(monkeypatch)

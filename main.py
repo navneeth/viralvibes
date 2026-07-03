@@ -135,7 +135,7 @@ from routes.stripe_checkout import (
     billing_portal,
 )
 from services.plan_gate import gate_plan
-from services.sitemap import build_sitemap_xml
+from services.sitemap import build_sitemap_xml, fetch_aplus_creators, fetch_synced_creators
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -1273,6 +1273,7 @@ def _render_creators_top(req, sess, category_slug: str | None):
         category_slug=result.category_slug,
         category_label=result.category_label,
         total_count=result.total_count,
+        creators=result.creators,
     )
 
     return Titled(
@@ -2079,44 +2080,25 @@ def admin_outreach_export(req, sess):
 # ============================================================================
 
 _SITEMAP_CACHE: dict = {"xml": None, "generated_at": None}
-_SITEMAP_CACHE_TTL = 86_400  # 24 hours
+_SITEMAP_CACHE_TTL = 21_600  # 6 hours — aligns with worker cycle
 
 
 def _build_sitemap_xml() -> str:
     """Fetch sitemap cohorts from Supabase and delegate to services.sitemap.
 
-    Single source of truth for XML construction lives in
-    ``services.sitemap.build_sitemap_xml`` so the live route and the CI-
-    generated ``public/sitemap.xml`` stay in lockstep.
+    Query logic lives in ``services.sitemap.fetch_synced_creators`` /
+    ``fetch_aplus_creators`` — same definitions used by the deploy-time script
+    so the live route and ``public/sitemap.xml`` always stay in lockstep.
     """
-    try:
-        resp = (
-            supabase_client.table("creators")
-            .select("id, last_updated_at")
-            .eq("sync_status", "synced")
-            .execute()
-        )
-        creators = resp.data or []
-    except Exception:
-        logger.warning("sitemap: could not fetch creators from Supabase", exc_info=True)
-        creators = []
+    creators: list = []
+    aplus_creators: list = []
 
-    # Lookalike landing pages are scoped to A+ tier to stay well under the
-    # 50k URL ceiling and focus Google's crawl budget on the highest-quality
-    # cohort. Requires custom_url because the URL is /creators/like/{handle}.
-    try:
-        aplus_resp = (
-            supabase_client.table("creators")
-            .select("custom_url, last_updated_at")
-            .eq("sync_status", "synced")
-            .eq("quality_grade", "A+")
-            .not_.is_("custom_url", "null")
-            .execute()
-        )
-        aplus_creators = aplus_resp.data or []
-    except Exception:
-        logger.warning("sitemap: could not fetch A+ creators for lookalikes", exc_info=True)
-        aplus_creators = []
+    if supabase_client is not None:
+        creators = fetch_synced_creators(supabase_client)
+        if not creators:
+            logger.warning("sitemap: fetch_synced_creators returned empty — check Supabase")
+
+        aplus_creators = fetch_aplus_creators(supabase_client)
 
     return build_sitemap_xml(creators, aplus_creators=aplus_creators)
 

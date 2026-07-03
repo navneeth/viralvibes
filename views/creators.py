@@ -56,6 +56,7 @@ from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
+from components.seo import Canonical, ItemListJsonLd, MetaDescription, OgTags
 
 logger = logging.getLogger(__name__)
 
@@ -4606,16 +4607,57 @@ def creator_profile_page_title(creator: dict) -> str:
     return f"{name} YouTube Stats - ViralVibes"
 
 
+# Minimal country-code → display name mapping for SEO descriptions.
+# Covers the creators that appear most often; falls back to the code itself
+# for countries not listed (e.g. "NG", "TH") rather than suppressing the
+# location signal entirely.
+_COUNTRY_DISPLAY_NAMES: dict[str, str] = {
+    "US": "the United States",
+    "GB": "the United Kingdom",
+    "CA": "Canada",
+    "AU": "Australia",
+    "DE": "Germany",
+    "FR": "France",
+    "IN": "India",
+    "BR": "Brazil",
+    "MX": "Mexico",
+    "ES": "Spain",
+    "IT": "Italy",
+    "JP": "Japan",
+    "KR": "South Korea",
+    "RU": "Russia",
+    "PH": "the Philippines",
+    "ID": "Indonesia",
+    "NL": "the Netherlands",
+    "PL": "Poland",
+    "TR": "Turkey",
+    "SE": "Sweden",
+}
+
+
+def _creator_country_display_name(country_code: str) -> str:
+    """Return a human-readable name for an ISO 3166-1 alpha-2 country code.
+
+    Returns an empty string for blank or malformed input so callers can
+    safely do ``if name: descriptors.append(...)``.
+    """
+    if not country_code:
+        return ""
+    code = country_code.strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        return ""
+    return _COUNTRY_DISPLAY_NAMES.get(code, code)
+
+
 def creator_profile_head(creator: dict) -> tuple:
     """Return canonical, description, and social tags for a creator profile."""
-    from components.seo import Canonical, MetaDescription, OgTags
-
     creator_id = safe_get_value(creator, "id", "")
     path = f"/creator/{creator_id}" if creator_id else "/creators"
     title = creator_profile_page_title(creator)
     name = safe_get_value(creator, "channel_name", "this creator")
     category = safe_get_value(creator, "primary_category", "")
     country_code = safe_get_value(creator, "country_code", "")
+    country_name = _creator_country_display_name(country_code)
     subscribers = int(safe_get_value(creator, "current_subscribers", 0) or 0)
     views = int(safe_get_value(creator, "current_view_count", 0) or 0)
     thumbnail = safe_get_value(creator, "channel_thumbnail_url", "")
@@ -4627,8 +4669,8 @@ def creator_profile_head(creator: dict) -> tuple:
         descriptors.append(f"{format_number(views)} views")
     if category:
         descriptors.append(f"{category} creator")
-    if country_code:
-        descriptors.append(f"based in {country_code}")
+    if country_name:
+        descriptors.append(f"based in {country_name}")
 
     if descriptors:
         desc = f"Explore {name}'s YouTube stats: {', '.join(descriptors)}."
@@ -5008,14 +5050,16 @@ def creators_top_head(
     category_slug: str | None,
     category_label: str | None,
     total_count: int,
+    creators: list | None = None,
 ) -> tuple:
     """Return ``<head>`` tags for the A+ landing page.
 
     Returned as a tuple so main.py can splat them next to the existing
     NavComponent wrapping: ``Titled(title, Container(...), *head_tags)``.
-    """
-    from components.seo import Canonical, MetaDescription, OgTags
 
+    When ``creators`` is supplied an ``ItemList`` JSON-LD block is appended
+    so Google can produce rich snippets for the ranked list.
+    """
     base_path = "/creators/top" if category_slug is None else f"/creators/top/{category_slug}"
     _, _, meta_desc = _top_intro_copy(category_label, total_count)
     page_title = creators_top_page_title(category_label)
@@ -5025,6 +5069,14 @@ def creators_top_head(
         MetaDescription(meta_desc),
         *OgTags(title=page_title, description=meta_desc, path=base_path),
     ]
+
+    if creators:
+        items = [
+            (c.get("channel_name") or "", f"/creator/{c['id']}") for c in creators if c.get("id")
+        ]
+        if items:
+            tags.append(ItemListJsonLd(name=page_title, description=meta_desc, items=items))
+
     return tuple(tags)
 
 
@@ -5284,8 +5336,6 @@ def creators_like_page_title(seed: dict) -> str:
 
 def creators_like_head(*, seed: dict, peer_count: int, contact_count: int) -> tuple:
     """Return ``<head>`` tags for the lookalike landing page."""
-    from components.seo import Canonical, MetaDescription, OgTags
-
     handle = (seed.get("custom_url") or "").lstrip("@").lower()
     path = f"/creators/like/{handle}" if handle else "/creators"
     title = creators_like_page_title(seed)

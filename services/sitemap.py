@@ -37,6 +37,47 @@ STATIC_ROUTES: list[tuple[str, str, str]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Supabase fetch helpers — shared by the deploy-time script and live route
+# so the query definition has a single location.  Both callers supply their
+# own Supabase client (script uses init_supabase(); app uses supabase_client).
+# ---------------------------------------------------------------------------
+
+
+def fetch_synced_creators(client) -> list:
+    """Return ``{id, last_updated_at}`` rows for all synced creators."""
+    try:
+        resp = (
+            client.table("creators")
+            .select("id, last_updated_at")
+            .eq("sync_status", "synced")
+            .execute()
+        )
+        return resp.data or []
+    except Exception:
+        return []
+
+
+def fetch_aplus_creators(client) -> list:
+    """Return ``{custom_url, last_updated_at}`` for A+ synced creators with a handle.
+
+    Scoped to A+ so the sitemap stays well under Google's 50k-URL ceiling and
+    crawl budget focuses on the highest-quality cohort.
+    """
+    try:
+        resp = (
+            client.table("creators")
+            .select("custom_url, last_updated_at")
+            .eq("sync_status", "synced")
+            .eq("quality_grade", "A+")
+            .not_.is_("custom_url", "null")
+            .execute()
+        )
+        return resp.data or []
+    except Exception:
+        return []
+
+
 def _prettify(elem: ET.Element) -> str:
     rough = ET.tostring(elem, "utf-8")
     return minidom.parseString(rough).toprettyxml(indent="  ")
