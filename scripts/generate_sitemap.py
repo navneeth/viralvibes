@@ -22,49 +22,12 @@ from secrets_loader import load_secrets  # noqa: E402
 load_secrets()
 
 from db import init_supabase  # noqa: E402
-from services.sitemap import STATIC_ROUTES, build_sitemap_xml  # noqa: E402
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _fetch_synced_creators(client) -> list:
-    """Return list of {id, last_updated_at} dicts for all synced creators."""
-    try:
-        resp = (
-            client.table("creators")
-            .select("id, last_updated_at")
-            .eq("sync_status", "synced")
-            .execute()
-        )
-        return resp.data or []
-    except Exception as e:
-        print(f"Warning: could not fetch creators from Supabase: {e}")
-        return []
-
-
-def _fetch_aplus_creators(client) -> list:
-    """Return {custom_url, last_updated_at} for synced A+ creators with a handle.
-
-    Used to emit /creators/like/{handle} lookalike landing pages. Scoped to
-    A+ tier so the sitemap stays well under the 50k URL ceiling and focuses
-    crawl budget on the highest-quality cohort.
-    """
-    try:
-        resp = (
-            client.table("creators")
-            .select("custom_url, last_updated_at")
-            .eq("sync_status", "synced")
-            .eq("quality_grade", "A+")
-            .not_.is_("custom_url", "null")
-            .execute()
-        )
-        return resp.data or []
-    except Exception as e:
-        print(f"Warning: could not fetch A+ creators from Supabase: {e}")
-        return []
+from services.sitemap import (
+    STATIC_ROUTES,
+    build_sitemap_xml,
+    fetch_aplus_creators,
+    fetch_synced_creators,
+)  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +46,9 @@ def generate_sitemap() -> bool:
         creators = []
         aplus_creators = []
     else:
-        creators = _fetch_synced_creators(client)
+        creators = fetch_synced_creators(client)
         print(f"Found {len(creators)} synced creators.")
-        aplus_creators = _fetch_aplus_creators(client)
+        aplus_creators = fetch_aplus_creators(client)
         print(f"Found {len(aplus_creators)} A+ creators for lookalike pages.")
 
     xml_content = build_sitemap_xml(creators, aplus_creators=aplus_creators)
