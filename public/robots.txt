@@ -4,6 +4,8 @@ Allow: /
 
 # Crawlable content — explicit for clarity
 Allow: /creators
+Allow: /creators/top/
+Allow: /creators/like/
 Allow: /creator/
 Allow: /lists
 Allow: /analysis
