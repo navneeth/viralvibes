@@ -53,12 +53,15 @@ from components import (
     how_it_works_section,
 )
 from components.modals import ExportModal, ShareModal
+from components.seo import JsonLd
 from constants import (
+    CONTACT_EMAIL,
     JobStatus,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
     SIGNUPS_TABLE,
+    SITE_BASE_URL,
 )
 from controllers.auth_routes import (
     build_auth_redirect_page,
@@ -366,6 +369,27 @@ def index(req, sess):
                 *sections,
                 cls=f"{ContainerT.xl} uk-container-expand",
             ),
+        ),
+        JsonLd(
+            {
+                "@context": "https://schema.org",
+                "@type": "Organization",
+                "name": "ViralVibes",
+                "url": SITE_BASE_URL,
+                "logo": {
+                    "@type": "ImageObject",
+                    "url": f"{SITE_BASE_URL}/static/favicon.jpeg",
+                },
+                "description": (
+                    "YouTube creator intelligence platform — discover, analyse and rank "
+                    "creators by engagement, growth and audience quality."
+                ),
+                "contactPoint": {
+                    "@type": "ContactPoint",
+                    "email": CONTACT_EMAIL,
+                    "contactType": "customer support",
+                },
+            }
         ),
     )
 

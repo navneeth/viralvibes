@@ -56,7 +56,7 @@ from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
-from components.seo import Canonical, ItemListJsonLd, MetaDescription, OgTags
+from components.seo import Canonical, canonical_url, ItemListJsonLd, JsonLd, MetaDescription, OgTags
 
 logger = logging.getLogger(__name__)
 
@@ -4679,10 +4679,49 @@ def creator_profile_head(creator: dict) -> tuple:
     desc = f"{desc} Updated creator intelligence from ViralVibes."
 
     image = thumbnail if thumbnail.startswith(("http://", "https://")) else None
+
+    # ── schema.org/Person JSON-LD ─────────────────────────────────────────────
+    # sameAs links to the creator's YouTube channel(s); critical for
+    # Google Knowledge Panel eligibility and rich-result association.
+    channel_url = safe_get_value(creator, "channel_url", "")
+    channel_id = safe_get_value(creator, "channel_id", "")
+    custom_url_raw = safe_get_value(creator, "custom_url", "")
+
+    same_as: list[str] = []
+    if channel_url and channel_url.startswith("http"):
+        same_as.append(channel_url)
+    elif channel_id:
+        same_as.append(f"https://www.youtube.com/channel/{channel_id}")
+    if custom_url_raw:
+        handle = custom_url_raw.lstrip("@").lower()
+        handle_url = f"https://www.youtube.com/@{handle}"
+        if handle_url not in same_as:
+            same_as.append(handle_url)
+
+    person_ld: dict = {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": name,
+        "url": canonical_url(path),
+    }
+    if same_as:
+        person_ld["sameAs"] = same_as[0] if len(same_as) == 1 else same_as
+    if image:
+        person_ld["image"] = image
+    if category:
+        person_ld["knowsAbout"] = category
+    if subscribers:
+        person_ld["interactionStatistic"] = {
+            "@type": "InteractionCounter",
+            "interactionType": "https://schema.org/SubscribeAction",
+            "userInteractionCount": subscribers,
+        }
+
     return (
         Canonical(path),
         MetaDescription(desc),
         *OgTags(title=title, description=desc, path=path, image=image),
+        JsonLd(person_ld),
     )
 
 
