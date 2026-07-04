@@ -1625,17 +1625,21 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
+        # Use .limit(1) + list check rather than .single() — the latter sends
+        # Accept: application/vnd.pgrst.object+json which PostgREST answers
+        # with 406/PGRST116 when 0 rows are returned, causing a noisy
+        # exception log for every legitimate "creator not found" case.
         response = _db_execute(
             lambda: supabase_client.table(CREATOR_TABLE)
             .select("*")
             .eq("id", creator_id)
-            .single()
+            .limit(1)
             .execute()
         )
 
         if response.data:
             logger.info(f"Retrieved stats for creator {creator_id}")
-            return response.data
+            return response.data[0]
         else:
             logger.debug(f"No stats found for creator {creator_id}")
             return None

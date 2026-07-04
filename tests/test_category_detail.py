@@ -194,9 +194,10 @@ def test_get_topic_category_creators_empty_category_returns_empty(monkeypatch):
     assert result.total_count == 0
 
 
-def test_get_topic_category_creators_exact_failure_falls_back_once(monkeypatch):
+def test_get_topic_category_creators_always_uses_ilike_directly(monkeypatch):
+    # cs. containment filter always fails on the text column; the function
+    # now skips the exact attempt and goes straight to the ilike path.
     fake_client = _FakeSupabaseClient(
-        RuntimeError("jsonb path failed"),
         {
             "data": [{"channel_name": "Fallback Channel", "current_subscribers": 123}],
             "count": 1,
@@ -212,14 +213,13 @@ def test_get_topic_category_creators_exact_failure_falls_back_once(monkeypatch):
 
     assert result.total_count == 1
     assert result.creators[0]["channel_name"] == "Fallback Channel"
-    assert len(fake_client.calls) == 2
-    assert "filter" in fake_client.calls[0]
-    assert "ilike" in fake_client.calls[1]
+    assert len(fake_client.calls) == 1
+    assert "ilike" in fake_client.calls[0]
+    assert "filter" not in fake_client.calls[0]
 
 
-def test_get_topic_category_creators_empty_exact_result_uses_text_fallback(monkeypatch):
+def test_get_topic_category_creators_ilike_returns_count_and_creators(monkeypatch):
     fake_client = _FakeSupabaseClient(
-        {"data": [], "count": 0},
         {
             "data": [{"channel_name": "Legacy Match", "current_subscribers": 456}],
             "count": 1,
@@ -231,9 +231,8 @@ def test_get_topic_category_creators_empty_exact_result_uses_text_fallback(monke
 
     assert result.total_count == 1
     assert result.creators[0]["channel_name"] == "Legacy Match"
-    assert len(fake_client.calls) == 2
-    assert "filter" in fake_client.calls[0]
-    assert "ilike" in fake_client.calls[1]
+    assert len(fake_client.calls) == 1
+    assert "ilike" in fake_client.calls[0]
 
 
 def test_get_topic_category_creators_applies_offset_to_rank(monkeypatch):
