@@ -368,24 +368,18 @@ def get_topic_category_creators(
         return query.execute()
 
     response = None
+    # topic_categories is a text column (not jsonb/text[]), so the PostgREST
+    # containment operator cs. always fails with 42883 ("operator does not
+    # exist: text @> unknown"). Skip the exact attempt entirely and go straight
+    # to the ilike fallback to avoid a guaranteed-failed round-trip.
     try:
-        response = _run()
+        response = _run(use_text_fallback=True)
     except Exception:
-        logger.info(
-            "Exact topic category query failed for %r; trying text fallback",
+        logger.exception(
+            "Error fetching topic category creators for %r via text fallback",
             category_label,
-            exc_info=True,
         )
-
-    if response is None or not response.data:
-        try:
-            response = _run(use_text_fallback=True)
-        except Exception:
-            logger.exception(
-                "Error fetching topic category creators for %r via text fallback",
-                category_label,
-            )
-            response = None
+        response = None
 
     creators = response.data if response and response.data else []
     total_count = (getattr(response, "count", 0) or 0) if return_count and response else 0
