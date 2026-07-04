@@ -24,6 +24,7 @@ __all__ = [
     "Canonical",
     "OgTags",
     "JsonLd",
+    "BreadcrumbList",
     "ItemListJsonLd",
     "MetaDescription",
 ]
@@ -90,6 +91,40 @@ def JsonLd(data: dict[str, Any]) -> Script:
     """
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     return Script(payload, type="application/ld+json")
+
+
+def BreadcrumbList(items: list[tuple[str, str | None]]) -> Script:
+    """Emit a ``BreadcrumbList`` JSON-LD block.
+
+    ``items`` is an ordered list of ``(name, url)`` pairs representing the
+    navigation trail from the site root to the current page.  The last item
+    is conventionally the current page and may omit the URL (pass ``None``).
+
+    Example::
+
+        BreadcrumbList([
+            ("Home",          "/"),
+            ("Top Creators",  "/creators/top"),
+            ("MrBeast",       None),   # current page — no URL required
+        ])
+    """
+    elements = []
+    for position, (name, url) in enumerate(items, start=1):
+        entry: dict[str, Any] = {
+            "@type": "ListItem",
+            "position": position,
+            "name": name,
+        }
+        if url is not None:
+            entry["item"] = canonical_url(url)
+        elements.append(entry)
+    return JsonLd(
+        {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": elements,
+        }
+    )
 
 
 def ItemListJsonLd(

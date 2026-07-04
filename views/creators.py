@@ -56,7 +56,15 @@ from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
-from components.seo import Canonical, canonical_url, ItemListJsonLd, JsonLd, MetaDescription, OgTags
+from components.seo import (
+    BreadcrumbList,
+    Canonical,
+    canonical_url,
+    ItemListJsonLd,
+    JsonLd,
+    MetaDescription,
+    OgTags,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -4717,11 +4725,20 @@ def creator_profile_head(creator: dict) -> tuple:
             "userInteractionCount": subscribers,
         }
 
+    breadcrumb = BreadcrumbList(
+        [
+            ("Home", "/"),
+            ("Top Creators", "/creators/top"),
+            (name, None),
+        ]
+    )
+
     return (
         Canonical(path),
         MetaDescription(desc),
         *OgTags(title=title, description=desc, path=path, image=image),
         JsonLd(person_ld),
+        breadcrumb,
     )
 
 
@@ -5103,10 +5120,24 @@ def creators_top_head(
     _, _, meta_desc = _top_intro_copy(category_label, total_count)
     page_title = creators_top_page_title(category_label)
 
+    if category_slug is None:
+        crumb_items: list[tuple[str, str | None]] = [
+            ("Home", "/"),
+            ("Top Creators", None),
+        ]
+    else:
+        crumb_label = category_label or category_slug
+        crumb_items = [
+            ("Home", "/"),
+            ("Top Creators", "/creators/top"),
+            (crumb_label, None),
+        ]
+
     tags: list = [
         Canonical(base_path),
         MetaDescription(meta_desc),
         *OgTags(title=page_title, description=meta_desc, path=base_path),
+        BreadcrumbList(crumb_items),
     ]
 
     if creators:
