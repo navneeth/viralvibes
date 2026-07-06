@@ -1557,7 +1557,13 @@ def creator_profile(req, sess, creator_id: str):
     if not _CREATOR_UUID_RE.match(creator_id):
         creator = find_creator_by_handle(creator_id)
         if not creator:
-            return Titled(
+            from starlette.responses import HTMLResponse
+            from fasthtml.common import to_xml
+
+            # Normalise handle for display: strip any leading '@' then re-add
+            # it so the message always shows the canonical "@handle" shape.
+            display_handle = f"@{creator_id.lstrip('@')}"
+            page = Titled(
                 "Creator Not Found - ViralVibes",
                 Container(
                     NavComponent(oauth, req, sess),
@@ -1568,7 +1574,7 @@ def creator_profile(req, sess, creator_id: str):
                             cls="text-2xl font-bold text-foreground mb-2",
                         ),
                         P(
-                            f"No creator with handle {creator_id!r} could be found.",
+                            f"No creator with handle {display_handle!r} could be found.",
                             cls="text-muted-foreground",
                         ),
                         A(
@@ -1580,6 +1586,7 @@ def creator_profile(req, sess, creator_id: str):
                     ),
                 ),
             )
+            return HTMLResponse(to_xml(page), status_code=404)
         canonical_id = creator["id"]
         return RedirectResponse(f"/creator/{canonical_id}", status_code=301)
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
