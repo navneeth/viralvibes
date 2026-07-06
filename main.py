@@ -97,6 +97,7 @@ from db import (
     supabase_client,
     upsert_playlist_stats,
     add_creator_by_handle,
+    find_creator_by_handle,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
 from utils import compute_dashboard_id, get_columns, get_language_name, sort_dataframe
@@ -1519,19 +1520,68 @@ def lists_language_detail(req, sess, language_code: str):
 # Wire mentions route (must come before generic /creator/{creator_id} for path resolution)
 rt("/creator/{creator_id}/mentions")(mentions_route)
 
+# Matches the standard UUID hyphenated format (8-4-4-4-12 hex chars).
+# Used to distinguish UUID-based profile requests from handle-based ones.
+_CREATOR_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
 
 @rt("/creator/{creator_id}")
 def creator_profile(req, sess, creator_id: str):
-    """Full creator profile page — /creator/{uuid}
+    """Full creator profile page — /creator/{uuid}, /creator/@handle, or /creator/handle
 
-    Call chain:
+    When ``creator_id`` is not a UUID the value is treated as a YouTube handle
+    (with or without the leading ``@``).  The handler looks up the creator and
+    issues a permanent 301 redirect to the canonical UUID URL so the UUID form
+    always remains the authoritative address.
+
+    Call chain (UUID path):
         main.py  @rt("/creator/{creator_id}")
           └─ creator_profile_route(req, creator_id, user_id)  ← routes/creators.py
                ├─ get_creator_stats(creator_id)                ← db.py
                ├─ is_creator_favourited(user_id, creator_id)   ← db.py (if logged in)
                ├─ 404 Div if not found
                └─ render_creator_profile_page(creator, ...)    ← views/creators.py
+
+    Call chain (handle path):
+        main.py  @rt("/creator/{creator_id}")
+          └─ find_creator_by_handle(creator_id)               ← db.py
+               └─ 301 RedirectResponse → /creator/{uuid}
     """
+    # Handle-based access: any path segment that doesn't look like a UUID is
+    # treated as a creator handle.  Both "@mrbeast" and "mrbeast" are accepted;
+    # _normalize_creator_handle (inside find_creator_by_handle) strips "@" and
+    # lower-cases before the DB lookup.
+    if not _CREATOR_UUID_RE.match(creator_id):
+        creator = find_creator_by_handle(creator_id)
+        if not creator:
+            return Titled(
+                "Creator Not Found - ViralVibes",
+                Container(
+                    NavComponent(oauth, req, sess),
+                    Div(
+                        UkIcon("user-x", cls="w-12 h-12 text-muted-foreground mx-auto mb-4"),
+                        H2(
+                            "Creator not found",
+                            cls="text-2xl font-bold text-foreground mb-2",
+                        ),
+                        P(
+                            f"No creator with handle {creator_id!r} could be found.",
+                            cls="text-muted-foreground",
+                        ),
+                        A(
+                            "← Browse Creators",
+                            href="/creators",
+                            cls="mt-4 inline-flex items-center text-sm font-medium text-primary hover:underline",
+                        ),
+                        cls="max-w-2xl mx-auto px-4 py-24 text-center",
+                    ),
+                ),
+            )
+        canonical_id = creator["id"]
+        return RedirectResponse(f"/creator/{canonical_id}", status_code=301)
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
 
     if isinstance(result, CreatorProfileResult):
