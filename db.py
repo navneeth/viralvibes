@@ -3256,7 +3256,11 @@ def get_creators(
             "views": ("current_view_count", True),
             "videos": ("current_video_count", True),
             "engagement": ("engagement_score", True),
-            "quality": ("quality_grade", False),
+            # quality_grade_rank: 1=A+, 2=A, 3=B+, 4=B, 5=C, 99=ungraded
+            # ASC (desc=False) gives A+ first — correct quality-tier order.
+            # Requires migration 052 to be applied before this code is deployed;
+            # the column is GENERATED ALWAYS AS STORED so PostgREST can order by it.
+            "quality": ("quality_grade_rank", False),
             "recent": ("last_updated_at", True),
             "consistency": ("monthly_uploads", True),
             "newest_channel": ("published_at", True),
