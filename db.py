@@ -3258,9 +3258,8 @@ def get_creators(
             "engagement": ("engagement_score", True),
             # quality_grade_rank: 1=A+, 2=A, 3=B+, 4=B, 5=C, 99=ungraded
             # ASC (desc=False) gives A+ first — correct quality-tier order.
-            # Added by migration 052. Falls back to quality_grade text sort
-            # on databases that have not yet applied the migration (quality_grade
-            # text ASC gives A, A+, B, B+, C — A+ is second, still near top).
+            # Requires migration 052 to be applied before this code is deployed;
+            # the column is GENERATED ALWAYS AS STORED so PostgREST can order by it.
             "quality": ("quality_grade_rank", False),
             "recent": ("last_updated_at", True),
             "consistency": ("monthly_uploads", True),

@@ -18,8 +18,8 @@
 -- After migration 052 is applied the planner still evaluates the same logic,
 -- just from the generated column in the heap rather than recalculating.
 --
--- This is a DROP + CREATE OR REPLACE because the function body changed; the
--- signature (argument names/types) is unchanged so no callers break.
+-- Uses CREATE OR REPLACE FUNCTION — sufficient because the signature
+-- (argument names/types/defaults) is unchanged. No DROP is needed.
 
 CREATE OR REPLACE FUNCTION public.search_creators_ranked(
     p_search text,
