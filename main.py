@@ -22,7 +22,7 @@ from fasthtml.common import *
 from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
 from monsterui.all import *
-from starlette.responses import Response as StarletteResponse, StreamingResponse
+from starlette.responses import HTMLResponse, Response as StarletteResponse, StreamingResponse
 
 from auth.auth_service import (
     AUTH_SKIP_ROUTE_PATTERNS,
@@ -53,7 +53,7 @@ from components import (
     how_it_works_section,
 )
 from components.modals import ExportModal, ShareModal
-from components.seo import JsonLd
+from components.seo import Canonical, JsonLd, MetaDescription, OgTags
 from constants import (
     CONTACT_EMAIL,
     JobStatus,
@@ -113,6 +113,8 @@ from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
     CreatorProfileResult,
+    CreatorsLikeResult,
+    CreatorsTopResult,
     blueprint_route,
     compare_creators_route,
     creator_add_status_route,
@@ -124,6 +126,14 @@ from routes.creators import (
     creators_suggest_route,
     creators_top_route,
     toggle_favourite_route,
+)
+from views.creators import (
+    creator_profile_head,
+    creator_profile_page_title,
+    creators_like_head,
+    creators_like_page_title,
+    creators_top_head,
+    creators_top_page_title,
 )
 from routes.mentions import mentions_route
 from routes.about import about_page_content
@@ -361,8 +371,13 @@ def index(req, sess):
     # Filter out any None/False values
     sections = [s for s in sections if s is not None and s is not False]
 
+    _homepage_title = "YouTube Creator Intelligence for Brands & Agencies | ViralVibes"
+    _homepage_desc = (
+        "Discover and vet YouTube creators at scale. Filter by engagement rate, niche, "
+        "country and audience quality. Built for brands and agencies."
+    )
     return Titled(
-        "ViralVibes",
+        _homepage_title,
         Container(
             TopAlertBar(),
             NavComponent(oauth, req, sess),
@@ -371,6 +386,9 @@ def index(req, sess):
                 cls=f"{ContainerT.xl} uk-container-expand",
             ),
         ),
+        Canonical("/"),
+        MetaDescription(_homepage_desc),
+        *OgTags(title=_homepage_title, description=_homepage_desc, path="/"),
         JsonLd(
             {
                 "@context": "https://schema.org",
@@ -1198,13 +1216,21 @@ def export_json(dashboard_id: str, req, sess):
 def analysis(req, sess):
     """Playlist analysis page — PUBLIC route"""
     user_id = sess.get("user_id") if sess else None
+    _analysis_title = "YouTube Playlist Analyzer — Instant Engagement & Viral Score | ViralVibes"
+    _analysis_desc = (
+        "Paste any YouTube playlist URL and instantly see engagement rate, viral score, "
+        "view distribution and top-performing videos. Free, no sign-up required."
+    )
     return Titled(
-        "Analyze a Playlist - ViralVibes",
+        _analysis_title,
         Container(
             NavComponent(oauth, req, sess),
             analysis_page_content(user_id=user_id),
             cls=ContainerT.xl,
         ),
+        Canonical("/analysis"),
+        MetaDescription(_analysis_desc),
+        *OgTags(title=_analysis_title, description=_analysis_desc, path="/analysis"),
     )
 
 
@@ -1223,13 +1249,21 @@ def creators(req, sess):
     if isinstance(page_content, RedirectResponse):
         return page_content
 
+    _creators_title = "Find YouTube Creators by Engagement Rate, Niche & Country | ViralVibes"
+    _creators_desc = (
+        "Browse 700,000+ verified YouTube creators. Filter by engagement rate, category, "
+        "country and language. Export contacts and build outreach lists in minutes."
+    )
     # Render with navigation
     response = Titled(
-        "Top Creators - YouTube",
+        _creators_title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        Canonical("/creators"),
+        MetaDescription(_creators_desc),
+        *OgTags(title=_creators_title, description=_creators_desc, path="/creators"),
     )
 
     # Cache at the CDN edge for logged-out visitors (no search query) only.
@@ -1241,9 +1275,6 @@ def creators(req, sess):
         or req.query_params.get("language")
     )
     if not sess.get("auth") and not is_filtered:
-        from starlette.responses import HTMLResponse
-        from fasthtml.common import to_xml
-
         return HTMLResponse(
             to_xml(response),
             headers={
@@ -1282,13 +1313,8 @@ def creators_suggest(req):
 
 def _render_creators_top(req, sess, category_slug: str | None):
     """Shared body for the global and category-scoped A+ landing pages."""
-    from starlette.responses import Response as _Response
-
-    from routes.creators import CreatorsTopResult
-    from views.creators import creators_top_head, creators_top_page_title
-
     result = creators_top_route(req, category_slug=category_slug)
-    if isinstance(result, _Response):
+    if isinstance(result, StarletteResponse):
         return result  # 404 for unknown slug or 302 redirect for out-of-range page
     if not isinstance(result, CreatorsTopResult):
         # Defensive: any future redirect/response shape passes through.
@@ -1336,13 +1362,8 @@ def creators_top_category(req, sess, slug: str):
 @rt("/creators/like/{handle}")
 def creators_like(req, sess, handle: str):
     """GET /creators/like/{handle} — 20 most-similar creators + contacts."""
-    from starlette.responses import Response as _Response
-
-    from routes.creators import CreatorsLikeResult
-    from views.creators import creators_like_head, creators_like_page_title
-
     result = creators_like_route(req, handle=handle)
-    if isinstance(result, _Response):
+    if isinstance(result, StarletteResponse):
         return result  # 404 for unknown handle or missing peer list
     if not isinstance(result, CreatorsLikeResult):
         return result  # defensive passthrough for future redirect shapes
@@ -1377,22 +1398,27 @@ def lists(req, sess):
     # Call the route handler
     page_content = lists_route(req)
 
+    _lists_title = "Top YouTube Creator Lists by Country, Category & Language | ViralVibes"
+    _lists_desc = (
+        "Curated YouTube creator rankings organised by country, category and language. "
+        "Find the right creators for your campaign with one click."
+    )
     # Render with navigation
     response = Titled(
-        "Creator Lists - YouTube",
+        _lists_title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        Canonical("/lists"),
+        MetaDescription(_lists_desc),
+        *OgTags(title=_lists_title, description=_lists_desc, path="/lists"),
     )
 
     # Cache at the CDN edge for logged-out visitors only.
     # Vary: Cookie tells the CDN to keep separate cache entries per
     # cookie presence, so logged-in users always get a fresh response.
     if not sess.get("auth"):
-        from starlette.responses import HTMLResponse
-        from fasthtml.common import to_xml
-
         return HTMLResponse(
             to_xml(response),
             headers={
@@ -1557,9 +1583,6 @@ def creator_profile(req, sess, creator_id: str):
     if not _CREATOR_UUID_RE.match(creator_id):
         creator = find_creator_by_handle(creator_id)
         if not creator:
-            from starlette.responses import HTMLResponse
-            from fasthtml.common import to_xml
-
             # Normalise handle for display: strip any leading '@' then re-add
             # it so the message always shows the canonical "@handle" shape.
             display_handle = f"@{creator_id.lstrip('@')}"
@@ -1592,8 +1615,6 @@ def creator_profile(req, sess, creator_id: str):
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
 
     if isinstance(result, CreatorProfileResult):
-        from views.creators import creator_profile_head, creator_profile_page_title
-
         head_tags = creator_profile_head(result.creator)
         return Titled(
             creator_profile_page_title(result.creator),
