@@ -5050,8 +5050,6 @@ def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
     pre-applied. Encoded with ``quote`` because ``A+`` contains a reserved
     character.
     """
-    from urllib.parse import urlencode
-
     params = {"grade": "A+"}
     if category_label is not None:
         params["category"] = category_label
