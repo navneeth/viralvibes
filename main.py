@@ -100,7 +100,13 @@ from db import (
     find_creator_by_handle,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
-from utils import compute_dashboard_id, get_columns, get_language_name, sort_dataframe
+from utils import (
+    compute_dashboard_id,
+    get_columns,
+    get_country_name,
+    get_language_name,
+    sort_dataframe,
+)
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.favourites import render_favourites_page
@@ -108,7 +114,7 @@ from views.my_dashboards import (
     render_my_dashboards_page,
     render_dashboard_page_partial,
 )
-from views.lists import _list_heart_btn, get_country_name
+from views.lists import _list_heart_btn
 from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
 from routes.creators import (
@@ -177,6 +183,16 @@ from views.lists import _unslugify
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+
+def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
+    """Return (Canonical, MetaDescription, *OgTags) head tags for list detail pages."""
+    return (
+        Canonical(path),
+        MetaDescription(desc),
+        *OgTags(title=title, description=desc, path=path),
+    )
+
 
 # ============================================================================
 # Safety Constants
@@ -1451,7 +1467,7 @@ def lists_more_languages(req, sess):
 @rt("/lists/country/{country_code}")
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
-    country_name = get_country_name(country_code.upper())
+    country_name = get_country_name(country_code)
     _title = f"Top YouTube Creators from {country_name} | ViralVibes"
     _desc = (
         f"Browse the top YouTube creators from {country_name}, ranked by subscriber count. "
@@ -1464,9 +1480,7 @@ def lists_country_detail(req, sess, country_code: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical(f"/lists/country/{country_code.upper()}"),
-        MetaDescription(_desc),
-        *OgTags(title=_title, description=_desc, path=f"/lists/country/{country_code.upper()}"),
+        *_list_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
     )
 
 
@@ -1493,9 +1507,7 @@ def lists_categories_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/lists/categories"),
-        MetaDescription(_desc),
-        *OgTags(title=_title, description=_desc, path="/lists/categories"),
+        *_list_seo_tags(_title, _desc, "/lists/categories"),
     )
 
 
@@ -1514,9 +1526,7 @@ def lists_countries_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/lists/countries"),
-        MetaDescription(_desc),
-        *OgTags(title=_title, description=_desc, path="/lists/countries"),
+        *_list_seo_tags(_title, _desc, "/lists/countries"),
     )
 
 
@@ -1535,9 +1545,7 @@ def lists_languages_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/lists/languages"),
-        MetaDescription(_desc),
-        *OgTags(title=_title, description=_desc, path="/lists/languages"),
+        *_list_seo_tags(_title, _desc, "/lists/languages"),
     )
 
 
@@ -1557,9 +1565,7 @@ def lists_category_detail(req, sess, category_slug: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical(f"/lists/category/{category_slug}"),
-        MetaDescription(_desc),
-        *OgTags(title=_title, description=_desc, path=f"/lists/category/{category_slug}"),
+        *_list_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
     )
 
 
@@ -1586,9 +1592,7 @@ def lists_language_detail(req, sess, language_code: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical(f"/lists/language/{language_code.lower()}"),
-        MetaDescription(_desc),
-        *OgTags(title=_title, description=_desc, path=f"/lists/language/{language_code.lower()}"),
+        *_list_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
     )
 
 
