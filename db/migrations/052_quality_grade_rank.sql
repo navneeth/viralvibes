@@ -21,9 +21,26 @@
 -- Implementation note: GENERATED ALWAYS AS STORED causes a full table rewrite
 -- which times out on large tables via the Supabase SQL editor. Instead we use:
 --   1. ADD COLUMN (instant — no rewrite)
---   2. Batched UPDATE to backfill existing rows
---   3. BEFORE INSERT/UPDATE trigger to keep it in sync going forward
---   4. Partial indexes for the ORDER BY query plans
+--   2. BEFORE INSERT/UPDATE trigger to keep new rows in sync going forward
+--   3. Partial indexes for the ORDER BY query plans
+--
+-- Out-of-band backfill required (not part of this migration):
+--   After applying this file, populate existing NULL rows by running the
+--   following statement in batches until 0 rows are affected:
+--
+--   UPDATE public.creators
+--   SET quality_grade_rank = CASE quality_grade
+--       WHEN 'A+' THEN 1 WHEN 'A'  THEN 2
+--       WHEN 'B+' THEN 3 WHEN 'B'  THEN 4
+--       WHEN 'C'  THEN 5 ELSE 99
+--   END
+--   WHERE id IN (
+--       SELECT id FROM public.creators
+--       WHERE quality_grade_rank IS NULL
+--       LIMIT 5000
+--   );
+--
+--   Verify with: SELECT COUNT(*) FROM public.creators WHERE quality_grade_rank IS NULL;
 --
 -- db.py sort_map uses quality_grade_rank.
 --
@@ -33,20 +50,7 @@
 ALTER TABLE public.creators
     ADD COLUMN IF NOT EXISTS quality_grade_rank INT2;
 
--- Step 2: Backfill existing rows in batches.
--- Run this statement repeatedly in the Supabase SQL editor until it reports
--- "0 rows affected" (each run updates up to 5 000 rows).
---
--- UPDATE public.creators
--- SET quality_grade_rank = CASE quality_grade
---     WHEN 'A+' THEN 1 WHEN 'A'  THEN 2
---     WHEN 'B+' THEN 3 WHEN 'B'  THEN 4
---     WHEN 'C'  THEN 5 ELSE 99
--- END
--- WHERE quality_grade_rank IS NULL
--- LIMIT 5000;
-
--- Step 3: Trigger to keep quality_grade_rank in sync on every INSERT/UPDATE.
+-- Step 2: Trigger to keep quality_grade_rank in sync on every INSERT/UPDATE.
 CREATE OR REPLACE FUNCTION public.sync_quality_grade_rank()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -63,7 +67,7 @@ CREATE OR REPLACE TRIGGER trg_sync_quality_grade_rank
 BEFORE INSERT OR UPDATE OF quality_grade ON public.creators
 FOR EACH ROW EXECUTE FUNCTION public.sync_quality_grade_rank();
 
--- Step 4: Partial indexes (run after the backfill in Step 2 is complete).
+-- Step 3: Partial indexes for the ORDER BY query plans.
 
 -- Partial index for synced creators sorted by quality rank
 CREATE INDEX IF NOT EXISTS idx_creators_quality_rank_synced
@@ -79,10 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_creators_quality_rank_synced_partial
       AND channel_name IS NOT NULL
       AND current_subscribers > 0;
 
--- Verification (run after backfill):
+-- Verification query:
 -- SELECT quality_grade, quality_grade_rank, COUNT(*)
 -- FROM public.creators
 -- WHERE sync_status = 'synced'
 -- GROUP BY quality_grade, quality_grade_rank
--- ORDER BY quality_grade_rank;
 -- ORDER BY quality_grade_rank;
