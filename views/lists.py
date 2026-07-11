@@ -12,6 +12,7 @@ from urllib.parse import quote, urlencode
 from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     get_country_flag,
+    get_country_name,
     get_grade_info,
     get_language_emoji,
     get_language_name,
@@ -56,53 +57,6 @@ def get_country_flag_emoji(country_code: str) -> str:
     """Get flag emoji for country code, fallback to 🌐 if not found."""
     flag = get_country_flag(country_code)
     return flag if flag else "🌐"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ISO 3166-1 country code → display name (via pycountry)
-# ─────────────────────────────────────────────────────────────────────────────
-# Override entries where the official ISO name is too verbose or non-standard
-# for a UI context.  Everything else falls through to pycountry.
-_COUNTRY_NAME_OVERRIDES: dict[str, str] = {
-    "AE": "UAE",
-    "BO": "Bolivia",
-    "CD": "DR Congo",
-    "CF": "C. African Rep.",
-    "CZ": "Czech Republic",
-    "DO": "Dominican Rep.",
-    "GB": "United Kingdom",
-    "IR": "Iran",
-    "KP": "North Korea",
-    "KR": "South Korea",
-    "LA": "Laos",
-    "MD": "Moldova",
-    "MK": "North Macedonia",
-    "PS": "Palestine",
-    "RU": "Russia",
-    "SY": "Syria",
-    "TW": "Taiwan",
-    "TZ": "Tanzania",
-    "US": "United States",
-    "VA": "Vatican",
-    "VE": "Venezuela",
-    "VN": "Vietnam",
-}
-
-
-def get_country_name(country_code: str) -> str:
-    """Return a UI-friendly country name for a two-letter ISO 3166-1 alpha-2 code.
-
-    Checks a small overrides dict first (for cases where the official ISO name
-    is too verbose), then falls back to pycountry's database, preferring
-    ``common_name`` over the formal ``name`` when available.
-    """
-    code = country_code.upper()
-    if code in _COUNTRY_NAME_OVERRIDES:
-        return _COUNTRY_NAME_OVERRIDES[code]
-    country = pycountry.countries.get(alpha_2=code)
-    if not country:
-        return code
-    return getattr(country, "common_name", country.name)
 
 
 def _unslugify(slug: str) -> str:

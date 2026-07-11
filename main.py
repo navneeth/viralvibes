@@ -100,7 +100,13 @@ from db import (
     find_creator_by_handle,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
-from utils import compute_dashboard_id, get_columns, get_language_name, sort_dataframe
+from utils import (
+    compute_dashboard_id,
+    get_columns,
+    get_country_name,
+    get_language_name,
+    sort_dataframe,
+)
 from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.dashboard import render_full_dashboard
 from views.favourites import render_favourites_page
@@ -177,6 +183,16 @@ from views.lists import _unslugify
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+
+def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
+    """Return (Canonical, MetaDescription, *OgTags) head tags for list detail pages."""
+    return (
+        Canonical(path),
+        MetaDescription(desc),
+        *OgTags(title=title, description=desc, path=path),
+    )
+
 
 # ============================================================================
 # Safety Constants
@@ -1451,13 +1467,20 @@ def lists_more_languages(req, sess):
 @rt("/lists/country/{country_code}")
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
+    country_name = get_country_name(country_code)
+    _title = f"Top YouTube Creators from {country_name} | ViralVibes"
+    _desc = (
+        f"Browse the top YouTube creators from {country_name}, ranked by subscriber count. "
+        "Discover channels, engagement rates and contact info."
+    )
     page_content = country_detail_route(req, country_code)
     return Titled(
-        f"{country_code} Creators - YouTube",
+        _title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        *_list_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
     )
 
 
@@ -1472,39 +1495,57 @@ def lists_country_more(req, sess, country_code: str):
 @rt("/lists/categories")
 def lists_categories_explorer(req, sess):
     """Visual bar-chart explorer of all content categories."""
+    _title = "YouTube Creators by Category | ViralVibes"
+    _desc = (
+        "Explore YouTube creators across every content category. "
+        "Find top channels by niche, ranked by subscriber count."
+    )
     page_content = categories_explorer_route()
     return Titled(
-        "Category Explorer - ViralVibes",
+        _title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        *_list_seo_tags(_title, _desc, "/lists/categories"),
     )
 
 
 @rt("/lists/countries")
 def lists_countries_explorer(req, sess):
     """Visual bar-chart explorer of all countries with creator statistics."""
+    _title = "YouTube Creators by Country | ViralVibes"
+    _desc = (
+        "Explore YouTube creators from every country, ranked by audience size. "
+        "Find the top channels from any region."
+    )
     page_content = countries_explorer_route()
     return Titled(
-        "Country Explorer - ViralVibes",
+        _title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        *_list_seo_tags(_title, _desc, "/lists/countries"),
     )
 
 
 @rt("/lists/languages")
 def lists_languages_explorer(req, sess):
     """Visual bar-chart explorer of all content languages."""
+    _title = "YouTube Creators by Language | ViralVibes"
+    _desc = (
+        "Explore YouTube creators who make content in any language. "
+        "Find top channels by language, ranked by subscriber count."
+    )
     page_content = languages_explorer_route()
     return Titled(
-        "Language Explorer - ViralVibes",
+        _title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        *_list_seo_tags(_title, _desc, "/lists/languages"),
     )
 
 
@@ -1512,13 +1553,19 @@ def lists_languages_explorer(req, sess):
 def lists_category_detail(req, sess, category_slug: str):
     """Detailed creator rankings for a specific topic category."""
     display_name = resolve_category_slug(category_slug) or _unslugify(category_slug).title()
+    _title = f"Top {display_name} YouTube Channels | ViralVibes"
+    _desc = (
+        f"Browse the top {display_name} YouTube creators, ranked by subscriber count. "
+        "Discover channels, engagement rates and contact info."
+    )
     page_content = category_detail_route(req, category_slug)
     return Titled(
-        f"{display_name} Creators - YouTube",
+        _title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        *_list_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
     )
 
 
@@ -1533,13 +1580,19 @@ def lists_category_more(req, sess, category_slug: str):
 def lists_language_detail(req, sess, language_code: str):
     """Detailed creator rankings for a specific content language."""
     language_name = get_language_name(language_code.lower())
+    _title = f"Top {language_name}-Language YouTube Creators | ViralVibes"
+    _desc = (
+        f"Browse the top {language_name}-language YouTube creators, ranked by subscriber count. "
+        "Discover channels, engagement rates and contact info."
+    )
     page_content = language_detail_route(req, language_code)
     return Titled(
-        f"{language_name} Creators - YouTube",
+        _title,
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
+        *_list_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
     )
 
 
