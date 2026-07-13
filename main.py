@@ -194,6 +194,39 @@ def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
     )
 
 
+# ---------------------------------------------------------------------------
+# Page rendering helper — used when a route must return HTMLResponse directly
+# (e.g. to attach Cache-Control headers) while still producing a complete HTML
+# document that includes the app-level CSS/JS headers (hdrs).
+#
+# Root-cause note: Titled() returns a *tuple* of FT nodes.  FastHTML's internal
+# _resp() assembles these into Html(Head(*hdrs, *head_nodes), Body(*body_nodes))
+# before serialising.  Calling to_xml() on the raw tuple bypasses that step, so
+# the output lacks all CSS and JS from hdrs — non-authenticated users receive a
+# bare HTML fragment with no styles.
+# ---------------------------------------------------------------------------
+_HEAD_ELEM_TYPES = (Title, Meta, Link, Script, Style)
+
+
+def _render_page(ft_response) -> str:
+    """Convert a Titled() result to a complete, standalone HTML page string.
+
+    Replicates what FastHTML's response pipeline does internally so that
+    CDN-cached HTMLResponse objects are structurally identical to responses
+    served through the normal FastHTML path.
+    """
+    if not isinstance(ft_response, tuple):
+        ft_response = (ft_response,)
+    head_items = [x for x in ft_response if isinstance(x, _HEAD_ELEM_TYPES)]
+    body_items = [x for x in ft_response if not isinstance(x, _HEAD_ELEM_TYPES)]
+    return "<!DOCTYPE html>" + to_xml(
+        Html(
+            Head(*hdrs, *head_items),
+            Body(*body_items),
+        )
+    )
+
+
 # ============================================================================
 # Safety Constants
 # ============================================================================
@@ -1292,7 +1325,7 @@ def creators(req, sess):
     )
     if not sess.get("auth") and not is_filtered:
         return HTMLResponse(
-            to_xml(response),
+            _render_page(response),
             headers={
                 "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
                 "Vary": "Cookie",
@@ -1436,7 +1469,7 @@ def lists(req, sess):
     # cookie presence, so logged-in users always get a fresh response.
     if not sess.get("auth"):
         return HTMLResponse(
-            to_xml(response),
+            _render_page(response),
             headers={
                 "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
                 "Vary": "Cookie",
