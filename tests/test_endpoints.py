@@ -107,6 +107,39 @@ class TestPublicEndpoints:
 
 
 # ============================================================
+# Test Class: CDN caching paths produce complete HTML pages
+# ============================================================
+
+
+class TestCachingPaths:
+    """Guard against the HTMLResponse(to_xml(...)) regression.
+
+    Titled() returns a tuple of FT nodes.  FastHTML's response pipeline
+    assembles these into Html(Head(*hdrs, ...), Body(...)) before serialising,
+    which is what injects the app-level CSS/JS.  When a route bypasses the
+    pipeline by calling HTMLResponse(to_xml(response)) directly it must use
+    _render_page() instead of to_xml() — otherwise non-authenticated visitors
+    receive a bare HTML fragment with no stylesheets.
+    """
+
+    def test_creators_anon_returns_complete_html(self, client):
+        """Non-authenticated GET /creators must be a full HTML page, not a fragment."""
+        r = client.get("/creators")
+        assert r.status_code == 200
+        html = r.text.lower()
+        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
+        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+
+    def test_lists_anon_returns_complete_html(self, client):
+        """Non-authenticated GET /lists must be a full HTML page, not a fragment."""
+        r = client.get("/lists")
+        assert r.status_code == 200
+        html = r.text.lower()
+        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
+        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+
+
+# ============================================================
 # Test Class 2: URL Validation & Preview
 # ============================================================
 
