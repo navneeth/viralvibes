@@ -205,7 +205,14 @@ def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
 # the output lacks all CSS and JS from hdrs — non-authenticated users receive a
 # bare HTML fragment with no styles.
 # ---------------------------------------------------------------------------
-_HEAD_ELEM_TYPES = (Title, Meta, Link, Script, Style)
+# Tag names that belong in <head>, not <body>.
+# FastHTML elements are all instances of FT (not their own classes), so we
+# identify them by their .tag string rather than with isinstance().
+_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
+
+
+def _is_head_elem(x) -> bool:
+    return hasattr(x, "tag") and isinstance(x.tag, str) and x.tag.lower() in _HEAD_TAG_NAMES
 
 
 def _render_page(ft_response) -> str:
@@ -217,8 +224,8 @@ def _render_page(ft_response) -> str:
     """
     if not isinstance(ft_response, tuple):
         ft_response = (ft_response,)
-    head_items = [x for x in ft_response if isinstance(x, _HEAD_ELEM_TYPES)]
-    body_items = [x for x in ft_response if not isinstance(x, _HEAD_ELEM_TYPES)]
+    head_items = [x for x in ft_response if _is_head_elem(x)]
+    body_items = [x for x in ft_response if not _is_head_elem(x)]
     return "<!DOCTYPE html>" + to_xml(
         Html(
             Head(*hdrs, *head_items),
