@@ -31,6 +31,13 @@ from utils import compute_dashboard_id
 # Use a real playlist URL from constants for testing
 TEST_PLAYLIST_URL = KNOWN_PLAYLISTS[0]["url"]
 
+NAVBAR_MAIN_ENDPOINTS = [
+    ("/creators", "Creators"),
+    ("/lists", "Lists"),
+    ("/analysis", "Analyze"),
+    ("/", "Why ViralVibes"),
+]
+
 
 # ============================================================
 # Fixtures
@@ -107,6 +114,26 @@ class TestPublicEndpoints:
 
 
 # ============================================================
+# Test Class: Navbar endpoint smoke tests
+# ============================================================
+
+
+class TestNavbarEndpoints:
+    """Smoke-test the primary public destinations linked from NavComponent."""
+
+    @pytest.mark.parametrize(("path", "link_label"), NAVBAR_MAIN_ENDPOINTS)
+    def test_navbar_main_endpoint_renders(self, client, path, link_label):
+        r = client.get(path)
+
+        assert r.status_code == 200
+        assert "ViralVibes" in r.text
+        assert link_label in r.text
+        assert 'href="/creators"' in r.text
+        assert 'href="/lists"' in r.text
+        assert 'href="/analysis"' in r.text
+
+
+# ============================================================
 # Test Class: CDN caching paths produce complete HTML pages
 # ============================================================
 
@@ -116,27 +143,31 @@ class TestCachingPaths:
 
     Titled() returns a tuple of FT nodes.  FastHTML's response pipeline
     assembles these into Html(Head(*hdrs, ...), Body(...)) before serialising,
-    which is what injects the app-level CSS/JS.  When a route bypasses the
-    pipeline by calling HTMLResponse(to_xml(response)) directly it must use
-    _render_page() instead of to_xml() — otherwise non-authenticated visitors
-    receive a bare HTML fragment with no stylesheets.
+    which is what injects the app-level CSS/JS and default FastHTML head tags
+    such as the mobile viewport.  When a route bypasses the pipeline by
+    returning HTMLResponse directly it must use _render_page() with app.hdrs;
+    otherwise non-authenticated visitors can receive a page that is styled but
+    missing the viewport tag.
     """
+
+    def _assert_full_mobile_html(self, html: str):
+        html = html.lower()
+        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
+        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+        assert 'name="viewport"' in html, "Response missing viewport meta — mobile layout zooms out"
+        assert "width=device-width" in html, "Viewport meta must use the device width"
 
     def test_creators_anon_returns_complete_html(self, client):
         """Non-authenticated GET /creators must be a full HTML page, not a fragment."""
         r = client.get("/creators")
         assert r.status_code == 200
-        html = r.text.lower()
-        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
-        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+        self._assert_full_mobile_html(r.text)
 
     def test_lists_anon_returns_complete_html(self, client):
         """Non-authenticated GET /lists must be a full HTML page, not a fragment."""
         r = client.get("/lists")
         assert r.status_code == 200
-        html = r.text.lower()
-        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
-        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+        self._assert_full_mobile_html(r.text)
 
 
 # ============================================================

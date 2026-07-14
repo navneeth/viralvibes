@@ -6,6 +6,7 @@ Includes Google OAuth with token revocation support.
 
 import csv
 import io
+import inspect
 import json
 import logging
 import mimetypes
@@ -189,59 +190,16 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Page rendering helper — used when a route must return an HTMLResponse
-# (e.g. to attach Cache-Control headers) while still producing a complete page
-# that includes the app-level CSS/JS from hdrs.
-#
-# Root-cause: Titled() returns a *tuple* of FT nodes. FastHTML's internal
-# _resp() assembles Html(Head(*hdrs, *head_nodes), Body(*body_nodes)) before
-# serialising. Calling to_xml() directly on the raw tuple skips that step,
-# so the output is a bare fragment with no CSS or JS.
-#
-# FastHTML elements are factory functions, NOT classes — use .tag string,
-# never isinstance(x, Title).
-# ---------------------------------------------------------------------------
-_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
-
-
-def _is_head_elem(x) -> bool:
-    return hasattr(x, "tag") and isinstance(x.tag, str) and x.tag.lower() in _HEAD_TAG_NAMES
-
-
-def _render_page(ft_response) -> str:
-    """Assemble a complete HTML page from a Titled() result.
-
-    Replicates FastHTML's response pipeline so that HTMLResponse objects
-    produced for CDN caching are structurally identical to pages served
-    through the normal FastHTML path.
-    """
-    if not isinstance(ft_response, tuple):
-        ft_response = (ft_response,)
-    head_items = [x for x in ft_response if _is_head_elem(x)]
-    body_items = [x for x in ft_response if not _is_head_elem(x)]
-    return "<!DOCTYPE html>" + to_xml(
-        Html(
-            Head(*hdrs, *head_items),
-            Body(*body_items),
-        )
-    )
-
-
-# ---------------------------------------------------------------------------
 # Page rendering helper — used when a route must return HTMLResponse directly
-# (e.g. to attach Cache-Control headers) while still producing a complete HTML
-# document that includes the app-level CSS/JS headers (hdrs).
+# (e.g. to attach Cache-Control headers) while still producing the same full
+# document FastHTML would emit for a returned Titled() tuple.
 #
-# Root-cause note: Titled() returns a *tuple* of FT nodes.  FastHTML's internal
-# _resp() assembles these into Html(Head(*hdrs, *head_nodes), Body(*body_nodes))
-# before serialising.  Calling to_xml() on the raw tuple bypasses that step, so
-# the output lacks all CSS and JS from hdrs — non-authenticated users receive a
-# bare HTML fragment with no styles.
+# Root-cause note: Titled() returns a tuple of FT nodes. FastHTML's response
+# pipeline partitions route-level head tags, then appends app.hdrs, which also
+# contains default FastHTML headers like charset and viewport. Using the local
+# pre-app `hdrs` tuple here preserves theme CSS but drops the viewport meta tag.
 # ---------------------------------------------------------------------------
-# Tag names that belong in <head>, not <body>.
-# FastHTML elements are all instances of FT (not their own classes), so we
-# identify them by their .tag string rather than with isinstance().
-_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
+_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "style", "base"})
 
 
 def _is_head_elem(x) -> bool:
@@ -259,10 +217,18 @@ def _render_page(ft_response) -> str:
         ft_response = (ft_response,)
     head_items = [x for x in ft_response if _is_head_elem(x)]
     body_items = [x for x in ft_response if not _is_head_elem(x)]
+    body_wrap = getattr(app, "body_wrap", None)
+    if body_wrap is not None:
+        params = inspect.signature(body_wrap).parameters
+        body_items = (
+            body_wrap(tuple(body_items), None) if len(params) > 1 else body_wrap(tuple(body_items))
+        )
+
     return "<!DOCTYPE html>" + to_xml(
         Html(
-            Head(*hdrs, *head_items),
-            Body(*body_items),
+            Head(*head_items, *getattr(app, "hdrs", ())),
+            Body(*body_items, *getattr(app, "ftrs", ()), **getattr(app, "bodykw", {})),
+            **getattr(app, "htmlkw", {}),
         )
     )
 
