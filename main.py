@@ -53,7 +53,7 @@ from components import (
     how_it_works_section,
 )
 from components.modals import ExportModal, ShareModal
-from components.seo import Canonical, JsonLd, MetaDescription, OgTags
+from components.seo import Canonical, JsonLd, MetaDescription, OgTags, page_seo_tags
 from constants import (
     CONTACT_EMAIL,
     JobStatus,
@@ -188,12 +188,42 @@ from views.lists import _unslugify
 logger = logging.getLogger(__name__)
 
 
-def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
-    """Return (Canonical, MetaDescription, *OgTags) head tags for list detail pages."""
-    return (
-        Canonical(path),
-        MetaDescription(desc),
-        *OgTags(title=title, description=desc, path=path),
+# ---------------------------------------------------------------------------
+# Page rendering helper — used when a route must return an HTMLResponse
+# (e.g. to attach Cache-Control headers) while still producing a complete page
+# that includes the app-level CSS/JS from hdrs.
+#
+# Root-cause: Titled() returns a *tuple* of FT nodes. FastHTML's internal
+# _resp() assembles Html(Head(*hdrs, *head_nodes), Body(*body_nodes)) before
+# serialising. Calling to_xml() directly on the raw tuple skips that step,
+# so the output is a bare fragment with no CSS or JS.
+#
+# FastHTML elements are factory functions, NOT classes — use .tag string,
+# never isinstance(x, Title).
+# ---------------------------------------------------------------------------
+_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
+
+
+def _is_head_elem(x) -> bool:
+    return hasattr(x, "tag") and isinstance(x.tag, str) and x.tag.lower() in _HEAD_TAG_NAMES
+
+
+def _render_page(ft_response) -> str:
+    """Assemble a complete HTML page from a Titled() result.
+
+    Replicates FastHTML's response pipeline so that HTMLResponse objects
+    produced for CDN caching are structurally identical to pages served
+    through the normal FastHTML path.
+    """
+    if not isinstance(ft_response, tuple):
+        ft_response = (ft_response,)
+    head_items = [x for x in ft_response if _is_head_elem(x)]
+    body_items = [x for x in ft_response if not _is_head_elem(x)]
+    return "<!DOCTYPE html>" + to_xml(
+        Html(
+            Head(*hdrs, *head_items),
+            Body(*body_items),
+        )
     )
 
 
@@ -1247,9 +1277,7 @@ def analysis(req, sess):
             analysis_page_content(user_id=user_id),
             cls=ContainerT.xl,
         ),
-        Canonical("/analysis"),
-        MetaDescription(_analysis_desc),
-        *OgTags(title=_analysis_title, description=_analysis_desc, path="/analysis"),
+        *page_seo_tags(_analysis_title, _analysis_desc, "/analysis"),
     )
 
 
@@ -1280,9 +1308,7 @@ def creators(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/creators"),
-        MetaDescription(_creators_desc),
-        *OgTags(title=_creators_title, description=_creators_desc, path="/creators"),
+        *page_seo_tags(_creators_title, _creators_desc, "/creators"),
     )
 
     # Cache at the CDN edge for logged-out visitors (no search query) only.
@@ -1295,7 +1321,7 @@ def creators(req, sess):
     )
     if not sess.get("auth") and not is_filtered:
         return HTMLResponse(
-            to_xml(response),
+            _render_page(response),
             headers={
                 "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
                 "Vary": "Cookie",
@@ -1429,9 +1455,7 @@ def lists(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/lists"),
-        MetaDescription(_lists_desc),
-        *OgTags(title=_lists_title, description=_lists_desc, path="/lists"),
+        *page_seo_tags(_lists_title, _lists_desc, "/lists"),
     )
 
     # Cache at the CDN edge for logged-out visitors only.
@@ -1439,7 +1463,7 @@ def lists(req, sess):
     # cookie presence, so logged-in users always get a fresh response.
     if not sess.get("auth"):
         return HTMLResponse(
-            to_xml(response),
+            _render_page(response),
             headers={
                 "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
                 "Vary": "Cookie",
@@ -1483,7 +1507,7 @@ def lists_country_detail(req, sess, country_code: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
+        *page_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
     )
 
 
@@ -1510,7 +1534,7 @@ def lists_categories_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, "/lists/categories"),
+        *page_seo_tags(_title, _desc, "/lists/categories"),
     )
 
 
@@ -1529,7 +1553,7 @@ def lists_countries_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, "/lists/countries"),
+        *page_seo_tags(_title, _desc, "/lists/countries"),
     )
 
 
@@ -1548,7 +1572,7 @@ def lists_languages_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, "/lists/languages"),
+        *page_seo_tags(_title, _desc, "/lists/languages"),
     )
 
 
@@ -1568,7 +1592,7 @@ def lists_category_detail(req, sess, category_slug: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
+        *page_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
     )
 
 
@@ -1608,7 +1632,7 @@ def rankings_category_country(req, sess, category_slug: str, country_slug: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, canonical_path),
+        *page_seo_tags(_title, _desc, canonical_path),
     )
 
 
@@ -1636,7 +1660,7 @@ def lists_language_detail(req, sess, language_code: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
+        *page_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
     )
 
 
@@ -1706,7 +1730,7 @@ def creator_profile(req, sess, creator_id: str):
                     ),
                 ),
             )
-            return HTMLResponse(to_xml(page), status_code=404)
+            return HTMLResponse(_render_page(page), status_code=404)
         canonical_id = creator["id"]
         return RedirectResponse(f"/creator/{canonical_id}", status_code=301)
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)

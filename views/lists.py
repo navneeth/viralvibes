@@ -1512,7 +1512,7 @@ def render_country_creators_rows(
     total_pages: int = 1,
     total_count: int = 0,
     page_size: int = 20,
-) -> Div:
+) -> tuple:
     """
     Render just the creator rows for the HTMX load-more endpoint.
 
@@ -1652,7 +1652,7 @@ def render_category_creators_rows(
     total_count: int = 0,
     page_size: int = 20,
     category_name: str | None = None,
-) -> Div:
+) -> tuple:
     """
     Render just the creator rows for the HTMX load-more endpoint.
 
@@ -1790,7 +1790,7 @@ def render_ranking_creators_rows(
     page_size: int = 20,
     category_name: str | None = None,
     country_code: str | None = None,
-) -> Div:
+) -> tuple:
     """Render just creator rows for /rankings/{category}/{country}/more."""
     start_rank = (page - 1) * page_size + 1
     rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
@@ -1911,7 +1911,7 @@ def render_language_creators_rows(
     total_pages: int = 1,
     total_count: int = 0,
     page_size: int = 20,
-) -> Div:
+) -> tuple:
     """
     Render just the creator rows for the HTMX load-more endpoint.
 

@@ -27,6 +27,7 @@ __all__ = [
     "BreadcrumbList",
     "ItemListJsonLd",
     "MetaDescription",
+    "page_seo_tags",
 ]
 
 
@@ -162,3 +163,22 @@ def ItemListJsonLd(
 def MetaDescription(description: str) -> Meta:
     """Standard ``<meta name="description">``."""
     return Meta(name="description", content=description)
+
+
+def page_seo_tags(title: str, description: str, path: str) -> tuple:
+    """Return the standard (Canonical, MetaDescription, OgTags) bundle for a page.
+
+    Splat into ``Titled()`` so every route that needs SEO head tags calls one
+    function instead of repeating the three-item pattern::
+
+        return Titled(
+            _title,
+            Container(...),
+            *page_seo_tags(_title, _desc, "/my-page"),
+        )
+    """
+    return (
+        Canonical(path),
+        MetaDescription(description),
+        *OgTags(title=title, description=description, path=path),
+    )
