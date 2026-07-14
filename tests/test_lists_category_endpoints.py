@@ -203,6 +203,36 @@ def test_category_detail_route_renders_with_slug_resolution(monkeypatch):
     assert total_count == 21
 
 
+def test_country_detail_route_returns_tuple(monkeypatch):
+    """country_detail_route must return (page_content, total_count).
+
+    Mirrors test_category_detail_route_renders_with_slug_resolution to
+    confirm both detail routes share the same tuple-return contract.
+    """
+    monkeypatch.setattr(
+        lists_routes,
+        "_fetch_country_page",
+        lambda code, page: ([{"channel_name": "A"}], 47, 2),
+    )
+
+    captured = {}
+
+    def _render(**kwargs):
+        captured.update(kwargs)
+        return captured
+
+    monkeypatch.setattr(lists_routes, "render_country_detail_page", _render)
+
+    page_content, total_count = lists_routes.country_detail_route(
+        _req(query_params={"page": "1"}), "LT"
+    )
+
+    assert page_content["country_code"] == "LT"
+    assert page_content["total_count"] == 47
+    assert page_content["total_pages"] == 2
+    assert total_count == 47
+
+
 def test_category_detail_more_route_requires_slug(monkeypatch):
     monkeypatch.setattr(lists_routes, "Div", lambda text, cls=None: {"text": text, "cls": cls})
 

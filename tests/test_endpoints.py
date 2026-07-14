@@ -107,6 +107,90 @@ class TestPublicEndpoints:
 
 
 # ============================================================
+# Test Class: CDN caching paths produce complete HTML pages
+# ============================================================
+
+
+class TestCachingPaths:
+    """Guard against the HTMLResponse(to_xml(...)) regression.
+
+    Titled() returns a tuple of FT nodes.  FastHTML's response pipeline
+    assembles these into Html(Head(*hdrs, ...), Body(...)) before serialising,
+    which is what injects the app-level CSS/JS.  When a route bypasses the
+    pipeline by calling HTMLResponse(to_xml(response)) directly it must use
+    _render_page() instead of to_xml() — otherwise non-authenticated visitors
+    receive a bare HTML fragment with no stylesheets.
+    """
+
+    def test_creators_anon_returns_complete_html(self, client):
+        """Non-authenticated GET /creators must be a full HTML page, not a fragment."""
+        r = client.get("/creators")
+        assert r.status_code == 200
+        html = r.text.lower()
+        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
+        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+
+    def test_lists_anon_returns_complete_html(self, client):
+        """Non-authenticated GET /lists must be a full HTML page, not a fragment."""
+        r = client.get("/lists")
+        assert r.status_code == 200
+        html = r.text.lower()
+        assert "<html" in html, "Response missing <html> — to_xml() fragment path active"
+        assert "stylesheet" in html, "Response missing CSS link — app hdrs not injected"
+
+
+# ============================================================
+# Test Class: Country/category detail page title count suffix
+# ============================================================
+
+
+class TestListPageTitleCounts:
+    """Guard the conditional count-suffix in country and category detail titles.
+
+    The route handlers inject ' (N,NNN channels)' into the <title> when the
+    DB returns a non-zero creator count, and omit it entirely when the count
+    is zero.  These tests monkeypatch the route functions to control the
+    returned count without hitting the database.
+    """
+
+    def test_country_title_includes_count_when_nonzero(self, client, monkeypatch):
+        """Title must contain the comma-formatted count when route returns > 0."""
+        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 233))
+        r = client.get("/lists/country/LT")
+        assert r.status_code == 200
+        assert "233" in r.text
+        assert "Lithuania" in r.text
+
+    def test_country_title_omits_suffix_when_count_zero(self, client, monkeypatch):
+        """Title must NOT include '(0 channels)' when route returns 0."""
+        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 0))
+        r = client.get("/lists/country/LT")
+        assert r.status_code == 200
+        assert "(0 channels)" not in r.text
+
+    def test_country_title_formats_count_with_commas(self, client, monkeypatch):
+        """Thousands separator must be applied — 4821 renders as '4,821'."""
+        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 4821))
+        r = client.get("/lists/country/US")
+        assert r.status_code == 200
+        assert "4,821" in r.text
+
+    def test_category_title_includes_count_when_nonzero(self, client, monkeypatch):
+        """Category title must contain count suffix when route returns > 0."""
+        monkeypatch.setattr(main, "category_detail_route", lambda req, slug: ("", 1500))
+        r = client.get("/lists/category/gaming")
+        assert r.status_code == 200
+        assert "1,500" in r.text
+
+    def test_category_title_omits_suffix_when_count_zero(self, client, monkeypatch):
+        """Category title must NOT include '(0 channels)' when route returns 0."""
+        monkeypatch.setattr(main, "category_detail_route", lambda req, slug: ("", 0))
+        r = client.get("/lists/category/gaming")
+        assert r.status_code == 200
+        assert "(0 channels)" not in r.text
+
+
+# ============================================================
 # Test Class 2: URL Validation & Preview
 # ============================================================
 
