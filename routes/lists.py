@@ -21,6 +21,7 @@ from db_lists import (
     get_top_categories_with_counts,
     get_top_countries_with_counts,
     get_top_languages_with_counts,
+    get_topic_category_country_creators,
     get_top_rated_creators,
     get_topic_category_creators,
     get_veteran_creators,
@@ -41,8 +42,11 @@ from views.lists import (
     render_category_creators_rows,
     render_language_detail_page,
     render_language_creators_rows,
+    render_ranking_detail_page,
+    render_ranking_creators_rows,
     _unslugify,
 )
+from services.rankings import resolve_country_slug, resolve_ranking_category_slug
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +399,93 @@ def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int,
         (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
     return creators, total_count, total_pages, category_name
+
+
+def _fetch_ranking_page(
+    category_slug: str,
+    country_slug: str,
+    page: int,
+) -> tuple[list, int, int, str, str | None]:
+    """Fetch creators for a public category/country ranking landing page."""
+    decoded_slug = unquote(category_slug)
+    category_name = (
+        resolve_ranking_category_slug(decoded_slug)
+        or resolve_category_slug(decoded_slug)
+        or _unslugify(decoded_slug)
+    )
+    country_code = resolve_country_slug(country_slug)
+    if not country_code:
+        return [], 0, 1, category_name, None
+
+    result = get_topic_category_country_creators(
+        category_name,
+        country_code,
+        limit=DETAIL_PAGE_LIMIT,
+        offset=(page - 1) * DETAIL_PAGE_LIMIT,
+        return_count=True,
+    )
+    creators = result.creators if result else []
+    total_count = result.total_count if result else 0
+    total_pages = (
+        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
+    )
+    return creators, total_count, total_pages, category_name, country_code
+
+
+def ranking_detail_route(request, category_slug: str, country_slug: str):
+    """GET /rankings/{category}/{country} — SEO category/country ranking page."""
+    category_slug = category_slug.lower()
+    country_slug = country_slug.lower()
+    page = _parse_page(request)
+
+    creators, total_count, total_pages, category_name, country_code = _fetch_ranking_page(
+        category_slug,
+        country_slug,
+        page,
+    )
+
+    return render_ranking_detail_page(
+        category_slug=category_slug,
+        country_slug=country_slug,
+        category_name=category_name,
+        country_code=country_code,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
+
+
+def ranking_detail_more_route(request):
+    """GET /rankings/{category}/{country}/more?page=N — HTMX creator rows."""
+    category_slug = getattr(request, "category_slug", "")
+    country_slug = getattr(request, "country_slug", "")
+    category_slug = category_slug.lower() if category_slug else ""
+    country_slug = country_slug.lower() if country_slug else ""
+
+    if not category_slug or not country_slug:
+        logger.warning("Missing category_slug/country_slug for ranking_detail_more_route")
+        return Div("Error: Invalid ranking", cls="text-red-500")
+
+    page = _parse_page(request)
+    creators, total_count, total_pages, category_name, country_code = _fetch_ranking_page(
+        category_slug,
+        country_slug,
+        page,
+    )
+
+    return render_ranking_creators_rows(
+        category_slug=category_slug,
+        country_slug=country_slug,
+        category_name=category_name,
+        country_code=country_code,
+        creators=creators,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=DETAIL_PAGE_LIMIT,
+    )
 
 
 def category_detail_route(request, category_slug: str):

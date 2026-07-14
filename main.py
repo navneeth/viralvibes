@@ -156,6 +156,7 @@ from routes.stripe_checkout import (
 )
 from services.plan_gate import gate_plan
 from services.sitemap import build_sitemap_xml, fetch_aplus_creators, fetch_synced_creators
+from services.rankings import ranking_path, resolve_country_slug, resolve_ranking_category_slug
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -170,6 +171,8 @@ from routes.lists import (
     lists_more_countries_route,
     lists_more_languages_route,
     lists_route,
+    ranking_detail_more_route,
+    ranking_detail_route,
 )
 from routes.outreach import outreach_export_route, outreach_import_list_route, outreach_route
 from routes.admin import (
@@ -1574,6 +1577,47 @@ def lists_category_more(req, sess, category_slug: str):
     """HTMX partial — load more creators for a specific category."""
     req.category_slug = category_slug.lower()
     return category_detail_more_route(req)
+
+
+@rt("/rankings/{category_slug}/{country_slug}")
+def rankings_category_country(req, sess, category_slug: str, country_slug: str):
+    """Public SEO landing page for a category/country creator ranking."""
+    display_name = (
+        resolve_ranking_category_slug(category_slug)
+        or resolve_category_slug(category_slug)
+        or _unslugify(category_slug).title()
+    )
+    country_code = resolve_country_slug(country_slug)
+    country_name = (
+        get_country_name(country_code) if country_code else _unslugify(country_slug).title()
+    )
+    canonical_path = (
+        ranking_path(display_name, country_code)
+        if country_code
+        else f"/rankings/{category_slug.lower()}/{country_slug.lower()}"
+    )
+    _title = f"Top {display_name} YouTube Creators in {country_name} | ViralVibes"
+    _desc = (
+        f"Find top {display_name} YouTube creators in {country_name}, ranked by subscriber count. "
+        "Compare channels, engagement signals and creator stats for outreach."
+    )
+    page_content = ranking_detail_route(req, category_slug, country_slug)
+    return Titled(
+        _title,
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+        *_list_seo_tags(_title, _desc, canonical_path),
+    )
+
+
+@rt("/rankings/{category_slug}/{country_slug}/more")
+def rankings_category_country_more(req, sess, category_slug: str, country_slug: str):
+    """HTMX partial — load more creators for a category/country ranking."""
+    req.category_slug = category_slug.lower()
+    req.country_slug = country_slug.lower()
+    return ranking_detail_more_route(req)
 
 
 @rt("/lists/language/{language_code}")

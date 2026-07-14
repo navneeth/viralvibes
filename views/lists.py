@@ -1682,6 +1682,128 @@ def render_category_creators_rows(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Programmatic Ranking Detail Page View
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def render_ranking_detail_page(
+    category_slug: str,
+    country_slug: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+    page_size: int = 20,
+    category_name: str | None = None,
+    country_code: str | None = None,
+) -> Div:
+    """Render a public category/country creator ranking landing page."""
+    display_name = category_name or _unslugify(category_slug).title()
+    country_name = (
+        get_country_name(country_code) if country_code else _unslugify(country_slug).title()
+    )
+    emoji = get_topic_category_emoji(display_name)
+    flag = get_country_flag(country_code) if country_code else ""
+
+    start_rank = (page - 1) * page_size + 1
+    end_rank = min(page * page_size, total_count)
+
+    return Div(
+        Div(
+            Div(
+                Span(emoji, cls="text-5xl mr-3"),
+                Span(flag or "", cls="text-5xl mr-4"),
+                Div(
+                    H1(
+                        f"Top {display_name} YouTube Creators in {country_name}",
+                        cls="text-3xl sm:text-4xl font-bold text-foreground",
+                    ),
+                    P(
+                        f"{format_number(total_count)} {display_name} creators in {country_name}, ranked by subscriber count.",
+                        cls="text-muted-foreground mt-1",
+                    ),
+                    cls="flex-1 min-w-0",
+                ),
+                cls="flex items-center gap-2 mb-6",
+            ),
+            Div(
+                A(
+                    "Browse category",
+                    href=f"/lists/category/{category_slug}",
+                    cls="text-sm text-primary hover:underline",
+                ),
+                Span("·", cls="text-muted-foreground"),
+                A(
+                    "Browse country",
+                    href=f"/lists/country/{country_code.lower()}" if country_code else "/lists",
+                    cls="text-sm text-primary hover:underline",
+                ),
+                cls="flex items-center gap-2",
+            ),
+            cls="pt-6 pb-4 border-b border-border",
+        ),
+        (
+            _empty_detail_state(f"No {display_name} creators in {country_name} yet.")
+            if not total_count
+            else Div(
+                P(
+                    f"Showing {format_number(start_rank)}-{format_number(end_rank)} of {format_number(total_count)} creators",
+                    cls="text-sm text-muted-foreground mb-6",
+                ),
+                Div(
+                    *[
+                        _creator_row(creator, rank=start_rank + i)
+                        for i, creator in enumerate(creators)
+                    ],
+                    id="ranking-creators-list",
+                    cls="space-y-3",
+                ),
+                cls="mt-6",
+            )
+        ),
+        (
+            Div(
+                Button(
+                    "Load More Creators",
+                    hx_get=f"/rankings/{category_slug}/{country_slug}/more?page={page + 1}",
+                    hx_target="#ranking-creators-list",
+                    hx_swap="beforeend",
+                    cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
+                ),
+                id="ranking-load-more-btn",
+                cls="mt-8 text-center",
+            )
+            if page < total_pages
+            else None
+        ),
+        cls="max-w-4xl mx-auto px-4 pb-16",
+    )
+
+
+def render_ranking_creators_rows(
+    category_slug: str,
+    country_slug: str,
+    creators: list[dict],
+    page: int = 1,
+    total_pages: int = 1,
+    total_count: int = 0,
+    page_size: int = 20,
+    category_name: str | None = None,
+    country_code: str | None = None,
+) -> Div:
+    """Render just creator rows for /rankings/{category}/{country}/more."""
+    start_rank = (page - 1) * page_size + 1
+    rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
+    next_btn = _page_based_load_more_button(
+        endpoint_url=f"/rankings/{category_slug}/{country_slug}/more",
+        section_type="ranking",
+        page=page,
+        total_pages=total_pages,
+    )
+    return (*rows, next_btn)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Language Detail Page View
 # ─────────────────────────────────────────────────────────────────────────────
 

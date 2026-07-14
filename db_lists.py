@@ -392,6 +392,59 @@ def get_topic_category_creators(
     return creators
 
 
+def get_topic_category_country_creators(
+    category: str,
+    country_code: str,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    return_count: bool = False,
+) -> list[dict] | TopicCategoryPageResult:
+    """Paginated creator listing for a topic category within one country."""
+    if not category or not str(category).strip() or not country_code:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    category_label = _topic_category_label(category)
+    normalized_country = str(country_code or "").strip().upper()
+    if not category_label or len(normalized_country) != 2:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    try:
+        query = supabase_client.table("creators").select(
+            "*", count="exact" if return_count else None
+        )
+        query = _apply_topic_category_text_filters(query, category_label)
+        query = (
+            query.eq("country_code", normalized_country)
+            .order("current_subscribers", desc=True)
+            .limit(limit)
+        )
+        if offset:
+            query = query.offset(offset)
+        response = query.execute()
+    except Exception:
+        logger.exception(
+            "Error fetching topic category creators for %r in %s",
+            category_label,
+            normalized_country,
+        )
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    creators = response.data if response and response.data else []
+    total_count = (getattr(response, "count", 0) or 0) if return_count and response else 0
+
+    for idx, creator in enumerate(creators, 1):
+        creator["_rank"] = offset + idx
+
+    if return_count:
+        return TopicCategoryPageResult(creators, total_count)
+    return creators
+
+
 # ---------------------------------------------------------------------------
 # Transient-transport retry for Supabase RPC calls
 # ---------------------------------------------------------------------------

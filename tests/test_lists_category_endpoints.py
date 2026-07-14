@@ -19,6 +19,16 @@ sys.modules.setdefault("monsterui.all", monsterui_all)
 db_stub = types.ModuleType("db")
 db_stub.get_creators = lambda *args, **kwargs: None
 db_stub.get_user_favourite_list_keys = lambda *args, **kwargs: frozenset()
+db_stub.get_latest_playlist_job = lambda *args, **kwargs: None
+db_stub.get_or_create_creator_from_playlist = lambda *args, **kwargs: None
+db_stub.init_supabase = lambda *args, **kwargs: None
+db_stub.setup_logging = lambda *args, **kwargs: None
+db_stub.supabase_client = None
+db_stub.upsert_playlist_stats = lambda *args, **kwargs: None
+db_stub.get_cached_playlist_stats = lambda *args, **kwargs: None
+db_stub.get_dashboard_event_counts = lambda *args, **kwargs: {}
+db_stub.record_dashboard_event = lambda *args, **kwargs: None
+db_stub.PLAYLIST_STATS_TABLE = "playlist_stats"
 sys.modules.setdefault("db", db_stub)
 
 views_lists_stub = types.ModuleType("views.lists")
@@ -36,6 +46,8 @@ for _name in [
     "render_category_creators_rows",
     "render_language_detail_page",
     "render_language_creators_rows",
+    "render_ranking_detail_page",
+    "render_ranking_creators_rows",
 ]:
     setattr(views_lists_stub, _name, lambda *args, **kwargs: None)
 views_lists_stub._unslugify = lambda slug: slug.replace("-", " ").title()
@@ -53,6 +65,13 @@ def _req(*, query_params=None, session=None, category_slug=None):
     )
     if category_slug is not None:
         req.category_slug = category_slug
+    return req
+
+
+def _ranking_req(*, query_params=None, session=None, category_slug=None, country_slug=None):
+    req = _req(query_params=query_params, session=session, category_slug=category_slug)
+    if country_slug is not None:
+        req.country_slug = country_slug
     return req
 
 
@@ -231,5 +250,85 @@ def test_category_detail_more_route_happy_path(monkeypatch):
 
     assert out["category_slug"] == "lifestyle-sociology"
     assert out["category_name"] == "Lifestyle (sociology)"
+    assert out["page"] == 1
+    assert out["total_pages"] == 2
+
+
+def test_ranking_detail_route_renders_category_country_page(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "_fetch_ranking_page",
+        lambda category_slug, country_slug, page: (
+            [{"channel_name": "A"}],
+            21,
+            2,
+            "Video game culture",
+            "US",
+        ),
+    )
+
+    captured = {}
+
+    def _render(**kwargs):
+        captured.update(kwargs)
+        return captured
+
+    monkeypatch.setattr(lists_routes, "render_ranking_detail_page", _render)
+
+    out = lists_routes.ranking_detail_route(
+        _req(query_params={"page": "1"}),
+        "gaming",
+        "united-states",
+    )
+
+    assert out["category_slug"] == "gaming"
+    assert out["country_slug"] == "united-states"
+    assert out["category_name"] == "Video game culture"
+    assert out["country_code"] == "US"
+    assert out["total_count"] == 21
+    assert out["total_pages"] == 2
+
+
+def test_ranking_detail_more_route_requires_slugs(monkeypatch):
+    monkeypatch.setattr(lists_routes, "Div", lambda text, cls=None: {"text": text, "cls": cls})
+
+    out = lists_routes.ranking_detail_more_route(_req())
+
+    assert out["text"] == "Error: Invalid ranking"
+
+
+def test_ranking_detail_more_route_happy_path(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "_fetch_ranking_page",
+        lambda category_slug, country_slug, page: (
+            [{"channel_name": "A"}],
+            21,
+            2,
+            "Video game culture",
+            "US",
+        ),
+    )
+
+    captured = {}
+
+    def _render(**kwargs):
+        captured.update(kwargs)
+        return captured
+
+    monkeypatch.setattr(lists_routes, "render_ranking_creators_rows", _render)
+
+    out = lists_routes.ranking_detail_more_route(
+        _ranking_req(
+            query_params={"page": "1"},
+            category_slug="gaming",
+            country_slug="united-states",
+        )
+    )
+
+    assert out["category_slug"] == "gaming"
+    assert out["country_slug"] == "united-states"
+    assert out["category_name"] == "Video game culture"
+    assert out["country_code"] == "US"
     assert out["page"] == 1
     assert out["total_pages"] == 2

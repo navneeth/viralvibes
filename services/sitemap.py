@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 from xml.dom import minidom
 
 from constants import SITE_BASE_URL
+from services.rankings import iter_ranking_sitemap_paths
 
 BASE_URL = SITE_BASE_URL
 
@@ -116,6 +117,13 @@ def build_sitemap_xml(
         ET.SubElement(url_el, "lastmod").text = today
         ET.SubElement(url_el, "changefreq").text = changefreq
         ET.SubElement(url_el, "priority").text = priority
+
+    for path in iter_ranking_sitemap_paths():
+        url_el = ET.SubElement(urlset, "url")
+        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, path)
+        ET.SubElement(url_el, "lastmod").text = today
+        ET.SubElement(url_el, "changefreq").text = "weekly"
+        ET.SubElement(url_el, "priority").text = "0.7"
 
     for creator in creators:
         creator_id = creator.get("id")
