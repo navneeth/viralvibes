@@ -194,6 +194,46 @@ def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
     )
 
 
+# ---------------------------------------------------------------------------
+# Page rendering helper — used when a route must return HTMLResponse directly
+# (e.g. to attach Cache-Control headers) while still producing a complete HTML
+# document that includes the app-level CSS/JS headers (hdrs).
+#
+# Root-cause note: Titled() returns a *tuple* of FT nodes.  FastHTML's internal
+# _resp() assembles these into Html(Head(*hdrs, *head_nodes), Body(*body_nodes))
+# before serialising.  Calling to_xml() on the raw tuple bypasses that step, so
+# the output lacks all CSS and JS from hdrs — non-authenticated users receive a
+# bare HTML fragment with no styles.
+# ---------------------------------------------------------------------------
+# Tag names that belong in <head>, not <body>.
+# FastHTML elements are all instances of FT (not their own classes), so we
+# identify them by their .tag string rather than with isinstance().
+_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
+
+
+def _is_head_elem(x) -> bool:
+    return hasattr(x, "tag") and isinstance(x.tag, str) and x.tag.lower() in _HEAD_TAG_NAMES
+
+
+def _render_page(ft_response) -> str:
+    """Convert a Titled() result to a complete, standalone HTML page string.
+
+    Replicates what FastHTML's response pipeline does internally so that
+    CDN-cached HTMLResponse objects are structurally identical to responses
+    served through the normal FastHTML path.
+    """
+    if not isinstance(ft_response, tuple):
+        ft_response = (ft_response,)
+    head_items = [x for x in ft_response if _is_head_elem(x)]
+    body_items = [x for x in ft_response if not _is_head_elem(x)]
+    return "<!DOCTYPE html>" + to_xml(
+        Html(
+            Head(*hdrs, *head_items),
+            Body(*body_items),
+        )
+    )
+
+
 # ============================================================================
 # Safety Constants
 # ============================================================================
@@ -1292,7 +1332,7 @@ def creators(req, sess):
     )
     if not sess.get("auth") and not is_filtered:
         return HTMLResponse(
-            to_xml(response),
+            _render_page(response),
             headers={
                 "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
                 "Vary": "Cookie",
@@ -1436,7 +1476,7 @@ def lists(req, sess):
     # cookie presence, so logged-in users always get a fresh response.
     if not sess.get("auth"):
         return HTMLResponse(
-            to_xml(response),
+            _render_page(response),
             headers={
                 "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
                 "Vary": "Cookie",
@@ -1468,12 +1508,13 @@ def lists_more_languages(req, sess):
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
     country_name = get_country_name(country_code)
-    _title = f"Top YouTube Creators from {country_name} | ViralVibes"
+    page_content, total_count = country_detail_route(req, country_code)
+    _count_suffix = f" ({total_count:,} channels)" if total_count else ""
+    _title = f"Top YouTube Creators from {country_name}{_count_suffix} | ViralVibes"
     _desc = (
         f"Browse the top YouTube creators from {country_name}, ranked by subscriber count. "
         "Discover channels, engagement rates and contact info."
     )
-    page_content = country_detail_route(req, country_code)
     return Titled(
         _title,
         Container(
@@ -1553,12 +1594,13 @@ def lists_languages_explorer(req, sess):
 def lists_category_detail(req, sess, category_slug: str):
     """Detailed creator rankings for a specific topic category."""
     display_name = resolve_category_slug(category_slug) or _unslugify(category_slug).title()
-    _title = f"Top {display_name} YouTube Channels | ViralVibes"
+    page_content, total_count = category_detail_route(req, category_slug)
+    _count_suffix = f" ({total_count:,} channels)" if total_count else ""
+    _title = f"Top {display_name} YouTube Channels{_count_suffix} | ViralVibes"
     _desc = (
         f"Browse the top {display_name} YouTube creators, ranked by subscriber count. "
         "Discover channels, engagement rates and contact info."
     )
-    page_content = category_detail_route(req, category_slug)
     return Titled(
         _title,
         Container(

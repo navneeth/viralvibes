@@ -255,26 +255,30 @@ LISTS_FEATURE_TABS = [
 # =============================================================================
 # TESTIMONIALS
 # =============================================================================
+# TODO: Replace these with verified quotes from real users before launch.
 TESTIMONIALS = [
     (
-        "ViralVibes helped me decode my channel's growth patterns. The dashboard is a game changer!",
+        "We cut our creator shortlisting time from two days to under an hour. "
+        "The engagement-rate filtering alone changed how we evaluate campaigns.",
         "Alex Kim",
-        "YouTube Creator",
-        "TechExplained",
+        "Brand Partnerships Lead",
+        "CampaignHQ",
         "/static/testimonials/alex-kim.png",
     ),
     (
-        "The playlist analytics are incredibly detailed and easy to understand. Highly recommended.",
+        "Finally a tool that surfaces ROAS-relevant signals, not just subscriber counts. "
+        "We found three mid-tier creators from the country lists that outperformed our usual picks.",
         "Priya Singh",
-        "Content Strategist",
-        "MediaPulse",
+        "Paid Social Manager",
+        "Outreach Co.",
         "/static/testimonials/priya-singh.png",
     ),
     (
-        "I love how ViralVibes visualizes engagement and controversy. It's a must-have for creators.",
+        "The country and category lists are how I now start every brief. "
+        "233 creators from Germany sorted by engagement \u2014 that\u2019s the first 30 minutes of my old research done instantly.",
         "Jordan Lee",
-        "Growth Hacker",
-        "ViralBoost",
+        "Influencer Marketing Consultant",
+        "IndieAgency",
         "/static/testimonials/jordan-lee.png",
     ),
 ]

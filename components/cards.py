@@ -234,9 +234,9 @@ def _product_switcher() -> Div:
             Span("🇺🇸 United States", style="font-size:0.65rem;color:rgba(255,255,255,0.3);"),
             style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;",
         ),
-        _creator_row(1, "Creator A", "Entertainment", 9.4),
-        _creator_row(2, "Creator B", "Science", 8.1),
-        _creator_row(3, "Creator C", "Tech", 7.6),
+        _creator_row(1, "MrBeast", "Entertainment", 9.4),
+        _creator_row(2, "Mark Rober", "Science", 8.1),
+        _creator_row(3, "Marques Brownlee", "Tech", 7.6),
         Div(
             UkIcon("trending-up", cls="w-3 h-3"),
             Span("Updated 2h ago"),
@@ -261,7 +261,7 @@ def _product_switcher() -> Div:
 
     creator_panel = Div(
         Div(
-            Div("Creator B", style="font-size:0.85rem;font-weight:700;color:#fff;"),
+            Div("Veritasium", style="font-size:0.85rem;font-weight:700;color:#fff;"),
             Span(
                 "Science & Education",
                 style="font-size:0.6rem;background:rgba(239,68,68,0.15);color:#f87171;border-radius:9999px;padding:0.15rem 0.5rem;",

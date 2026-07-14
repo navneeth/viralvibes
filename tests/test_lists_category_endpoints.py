@@ -192,14 +192,15 @@ def test_category_detail_route_renders_with_slug_resolution(monkeypatch):
 
     monkeypatch.setattr(lists_routes, "render_category_detail_page", _render)
 
-    out = lists_routes.category_detail_route(
+    page_content, total_count = lists_routes.category_detail_route(
         _req(query_params={"page": "1"}), "lifestyle-sociology"
     )
 
-    assert out["category_slug"] == "lifestyle-sociology"
-    assert out["category_name"] == "Lifestyle (sociology)"
-    assert out["total_count"] == 21
-    assert out["total_pages"] == 2
+    assert page_content["category_slug"] == "lifestyle-sociology"
+    assert page_content["category_name"] == "Lifestyle (sociology)"
+    assert page_content["total_count"] == 21
+    assert page_content["total_pages"] == 2
+    assert total_count == 21
 
 
 def test_category_detail_more_route_requires_slug(monkeypatch):
