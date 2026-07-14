@@ -53,7 +53,7 @@ from components import (
     how_it_works_section,
 )
 from components.modals import ExportModal, ShareModal
-from components.seo import Canonical, JsonLd, MetaDescription, OgTags
+from components.seo import Canonical, JsonLd, MetaDescription, OgTags, page_seo_tags
 from constants import (
     CONTACT_EMAIL,
     JobStatus,
@@ -156,6 +156,7 @@ from routes.stripe_checkout import (
 )
 from services.plan_gate import gate_plan
 from services.sitemap import build_sitemap_xml, fetch_aplus_creators, fetch_synced_creators
+from services.rankings import ranking_path, resolve_country_slug, resolve_ranking_category_slug
 from routes.lists import (
     categories_explorer_route,
     countries_explorer_route,
@@ -170,6 +171,8 @@ from routes.lists import (
     lists_more_countries_route,
     lists_more_languages_route,
     lists_route,
+    ranking_detail_more_route,
+    ranking_detail_route,
 )
 from routes.outreach import outreach_export_route, outreach_import_list_route, outreach_route
 from routes.admin import (
@@ -185,12 +188,42 @@ from views.lists import _unslugify
 logger = logging.getLogger(__name__)
 
 
-def _list_seo_tags(title: str, desc: str, path: str) -> tuple:
-    """Return (Canonical, MetaDescription, *OgTags) head tags for list detail pages."""
-    return (
-        Canonical(path),
-        MetaDescription(desc),
-        *OgTags(title=title, description=desc, path=path),
+# ---------------------------------------------------------------------------
+# Page rendering helper — used when a route must return an HTMLResponse
+# (e.g. to attach Cache-Control headers) while still producing a complete page
+# that includes the app-level CSS/JS from hdrs.
+#
+# Root-cause: Titled() returns a *tuple* of FT nodes. FastHTML's internal
+# _resp() assembles Html(Head(*hdrs, *head_nodes), Body(*body_nodes)) before
+# serialising. Calling to_xml() directly on the raw tuple skips that step,
+# so the output is a bare fragment with no CSS or JS.
+#
+# FastHTML elements are factory functions, NOT classes — use .tag string,
+# never isinstance(x, Title).
+# ---------------------------------------------------------------------------
+_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
+
+
+def _is_head_elem(x) -> bool:
+    return hasattr(x, "tag") and isinstance(x.tag, str) and x.tag.lower() in _HEAD_TAG_NAMES
+
+
+def _render_page(ft_response) -> str:
+    """Assemble a complete HTML page from a Titled() result.
+
+    Replicates FastHTML's response pipeline so that HTMLResponse objects
+    produced for CDN caching are structurally identical to pages served
+    through the normal FastHTML path.
+    """
+    if not isinstance(ft_response, tuple):
+        ft_response = (ft_response,)
+    head_items = [x for x in ft_response if _is_head_elem(x)]
+    body_items = [x for x in ft_response if not _is_head_elem(x)]
+    return "<!DOCTYPE html>" + to_xml(
+        Html(
+            Head(*hdrs, *head_items),
+            Body(*body_items),
+        )
     )
 
 
@@ -1284,9 +1317,7 @@ def analysis(req, sess):
             analysis_page_content(user_id=user_id),
             cls=ContainerT.xl,
         ),
-        Canonical("/analysis"),
-        MetaDescription(_analysis_desc),
-        *OgTags(title=_analysis_title, description=_analysis_desc, path="/analysis"),
+        *page_seo_tags(_analysis_title, _analysis_desc, "/analysis"),
     )
 
 
@@ -1317,9 +1348,7 @@ def creators(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/creators"),
-        MetaDescription(_creators_desc),
-        *OgTags(title=_creators_title, description=_creators_desc, path="/creators"),
+        *page_seo_tags(_creators_title, _creators_desc, "/creators"),
     )
 
     # Cache at the CDN edge for logged-out visitors (no search query) only.
@@ -1466,9 +1495,7 @@ def lists(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        Canonical("/lists"),
-        MetaDescription(_lists_desc),
-        *OgTags(title=_lists_title, description=_lists_desc, path="/lists"),
+        *page_seo_tags(_lists_title, _lists_desc, "/lists"),
     )
 
     # Cache at the CDN edge for logged-out visitors only.
@@ -1521,7 +1548,7 @@ def lists_country_detail(req, sess, country_code: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
+        *page_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
     )
 
 
@@ -1548,7 +1575,7 @@ def lists_categories_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, "/lists/categories"),
+        *page_seo_tags(_title, _desc, "/lists/categories"),
     )
 
 
@@ -1567,7 +1594,7 @@ def lists_countries_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, "/lists/countries"),
+        *page_seo_tags(_title, _desc, "/lists/countries"),
     )
 
 
@@ -1586,7 +1613,7 @@ def lists_languages_explorer(req, sess):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, "/lists/languages"),
+        *page_seo_tags(_title, _desc, "/lists/languages"),
     )
 
 
@@ -1607,7 +1634,7 @@ def lists_category_detail(req, sess, category_slug: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
+        *page_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
     )
 
 
@@ -1616,6 +1643,47 @@ def lists_category_more(req, sess, category_slug: str):
     """HTMX partial — load more creators for a specific category."""
     req.category_slug = category_slug.lower()
     return category_detail_more_route(req)
+
+
+@rt("/rankings/{category_slug}/{country_slug}")
+def rankings_category_country(req, sess, category_slug: str, country_slug: str):
+    """Public SEO landing page for a category/country creator ranking."""
+    display_name = (
+        resolve_ranking_category_slug(category_slug)
+        or resolve_category_slug(category_slug)
+        or _unslugify(category_slug).title()
+    )
+    country_code = resolve_country_slug(country_slug)
+    country_name = (
+        get_country_name(country_code) if country_code else _unslugify(country_slug).title()
+    )
+    canonical_path = (
+        ranking_path(display_name, country_code)
+        if country_code
+        else f"/rankings/{category_slug.lower()}/{country_slug.lower()}"
+    )
+    _title = f"Top {display_name} YouTube Creators in {country_name} | ViralVibes"
+    _desc = (
+        f"Find top {display_name} YouTube creators in {country_name}, ranked by subscriber count. "
+        "Compare channels, engagement signals and creator stats for outreach."
+    )
+    page_content = ranking_detail_route(req, category_slug, country_slug)
+    return Titled(
+        _title,
+        Container(
+            NavComponent(oauth, req, sess),
+            page_content,
+        ),
+        *page_seo_tags(_title, _desc, canonical_path),
+    )
+
+
+@rt("/rankings/{category_slug}/{country_slug}/more")
+def rankings_category_country_more(req, sess, category_slug: str, country_slug: str):
+    """HTMX partial — load more creators for a category/country ranking."""
+    req.category_slug = category_slug.lower()
+    req.country_slug = country_slug.lower()
+    return ranking_detail_more_route(req)
 
 
 @rt("/lists/language/{language_code}")
@@ -1634,7 +1702,7 @@ def lists_language_detail(req, sess, language_code: str):
             NavComponent(oauth, req, sess),
             page_content,
         ),
-        *_list_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
+        *page_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
     )
 
 
@@ -1704,7 +1772,7 @@ def creator_profile(req, sess, creator_id: str):
                     ),
                 ),
             )
-            return HTMLResponse(to_xml(page), status_code=404)
+            return HTMLResponse(_render_page(page), status_code=404)
         canonical_id = creator["id"]
         return RedirectResponse(f"/creator/{canonical_id}", status_code=301)
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)

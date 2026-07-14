@@ -19,6 +19,16 @@ sys.modules.setdefault("monsterui.all", monsterui_all)
 db_stub = types.ModuleType("db")
 db_stub.get_creators = lambda *args, **kwargs: None
 db_stub.get_user_favourite_list_keys = lambda *args, **kwargs: frozenset()
+db_stub.get_latest_playlist_job = lambda *args, **kwargs: None
+db_stub.get_or_create_creator_from_playlist = lambda *args, **kwargs: None
+db_stub.init_supabase = lambda *args, **kwargs: None
+db_stub.setup_logging = lambda *args, **kwargs: None
+db_stub.supabase_client = None
+db_stub.upsert_playlist_stats = lambda *args, **kwargs: None
+db_stub.get_cached_playlist_stats = lambda *args, **kwargs: None
+db_stub.get_dashboard_event_counts = lambda *args, **kwargs: {}
+db_stub.record_dashboard_event = lambda *args, **kwargs: None
+db_stub.PLAYLIST_STATS_TABLE = "playlist_stats"
 sys.modules.setdefault("db", db_stub)
 
 views_lists_stub = types.ModuleType("views.lists")
@@ -36,6 +46,8 @@ for _name in [
     "render_category_creators_rows",
     "render_language_detail_page",
     "render_language_creators_rows",
+    "render_ranking_detail_page",
+    "render_ranking_creators_rows",
 ]:
     setattr(views_lists_stub, _name, lambda *args, **kwargs: None)
 views_lists_stub._unslugify = lambda slug: slug.replace("-", " ").title()
@@ -260,6 +272,30 @@ def test_get_topic_category_creators_applies_offset_to_rank(monkeypatch):
     assert result.creators[1]["_rank"] == 12
 
 
+def test_get_topic_category_country_creators_filters_country_and_category(monkeypatch):
+    fake_client = _FakeSupabaseClient(
+        {
+            "data": [{"channel_name": "US Gaming", "current_subscribers": 100}],
+            "count": 1,
+        }
+    )
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+
+    result = db_lists.get_topic_category_country_creators(
+        "Video game culture",
+        "us",
+        limit=10,
+        return_count=True,
+    )
+
+    assert result.total_count == 1
+    assert result.creators[0]["_rank"] == 1
+    call = fake_client.calls[0]
+    assert call["ilike"][0] == "topic_categories"
+    assert ("country_code", "US") in call["eq"]
+    assert call["order"]["args"] == ("current_subscribers",)
+
+
 def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypatch):
     page_result = db_lists.TopicCategoryPageResult(
         creators=[{"channel_name": "Test Channel", "current_subscribers": 1000}],
@@ -282,5 +318,41 @@ def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypa
         "Lifestyle (sociology)",
         limit=20,
         offset=0,
+        return_count=True,
+    )
+
+
+def test_fetch_ranking_page_uses_topic_category_country_query(monkeypatch):
+    page_result = db_lists.TopicCategoryPageResult(
+        creators=[{"channel_name": "Gaming Channel", "current_subscribers": 1000}],
+        total_count=41,
+    )
+
+    monkeypatch.setattr(
+        lists_routes,
+        "resolve_ranking_category_slug",
+        lambda slug: "Video game culture" if slug == "gaming" else None,
+    )
+    mock_get = MagicMock(return_value=page_result)
+    monkeypatch.setattr(lists_routes, "get_topic_category_country_creators", mock_get)
+
+    creators, total_count, total_pages, category_name, country_code = (
+        lists_routes._fetch_ranking_page(
+            "gaming",
+            "united-states",
+            page=2,
+        )
+    )
+
+    assert category_name == "Video game culture"
+    assert country_code == "US"
+    assert total_count == 41
+    assert total_pages == 3
+    assert creators[0]["channel_name"] == "Gaming Channel"
+    mock_get.assert_called_once_with(
+        "Video game culture",
+        "US",
+        limit=20,
+        offset=20,
         return_count=True,
     )
