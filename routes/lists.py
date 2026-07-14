@@ -315,7 +315,7 @@ def country_detail_route(request, country_code: str):
 
     creators, total_count, total_pages = _fetch_country_page(country_code, page)
 
-    return render_country_detail_page(
+    page_content = render_country_detail_page(
         country_code=country_code,
         creators=creators,
         page=page,
@@ -323,6 +323,7 @@ def country_detail_route(request, country_code: str):
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
     )
+    return page_content, total_count
 
 
 def country_detail_more_route(request):
@@ -417,7 +418,7 @@ def category_detail_route(request, category_slug: str):
 
     creators, total_count, total_pages, category_name = _fetch_category_page(category_slug, page)
 
-    return render_category_detail_page(
+    page_content = render_category_detail_page(
         category_slug=category_slug,
         category_name=category_name,
         creators=creators,
@@ -426,6 +427,7 @@ def category_detail_route(request, category_slug: str):
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
     )
+    return page_content, total_count
 
 
 def category_detail_more_route(request):

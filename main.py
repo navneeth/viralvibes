@@ -1508,12 +1508,13 @@ def lists_more_languages(req, sess):
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
     country_name = get_country_name(country_code)
-    _title = f"Top YouTube Creators from {country_name} | ViralVibes"
+    page_content, total_count = country_detail_route(req, country_code)
+    _count_suffix = f" ({total_count:,} channels)" if total_count else ""
+    _title = f"Top YouTube Creators from {country_name}{_count_suffix} | ViralVibes"
     _desc = (
         f"Browse the top YouTube creators from {country_name}, ranked by subscriber count. "
         "Discover channels, engagement rates and contact info."
     )
-    page_content = country_detail_route(req, country_code)
     return Titled(
         _title,
         Container(
@@ -1593,12 +1594,13 @@ def lists_languages_explorer(req, sess):
 def lists_category_detail(req, sess, category_slug: str):
     """Detailed creator rankings for a specific topic category."""
     display_name = resolve_category_slug(category_slug) or _unslugify(category_slug).title()
-    _title = f"Top {display_name} YouTube Channels | ViralVibes"
+    page_content, total_count = category_detail_route(req, category_slug)
+    _count_suffix = f" ({total_count:,} channels)" if total_count else ""
+    _title = f"Top {display_name} YouTube Channels{_count_suffix} | ViralVibes"
     _desc = (
         f"Browse the top {display_name} YouTube creators, ranked by subscriber count. "
         "Discover channels, engagement rates and contact info."
     )
-    page_content = category_detail_route(req, category_slug)
     return Titled(
         _title,
         Container(
