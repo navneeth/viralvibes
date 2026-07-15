@@ -541,11 +541,20 @@ NEW_CHANNEL_MAX_AGE_DAYS = 365
 _LISTS_META_TTL_SECONDS = 600  # 10 min — data changes at most a few times/day
 _lists_meta_cache: tuple[float, dict[str, int]] | None = None
 
+_TOP_CATEGORIES_TTL_SECONDS = 600  # 10 min — category counts change only on worker runs
+_top_categories_cache: tuple[float, list[tuple[str, int]]] | None = None
+
 
 def clear_lists_meta_cache() -> None:
     """Clear this process's short-lived lists metadata cache."""
     global _lists_meta_cache
     _lists_meta_cache = None
+
+
+def clear_top_categories_cache() -> None:
+    """Clear this process's short-lived top-categories cache."""
+    global _top_categories_cache
+    _top_categories_cache = None
 
 
 def _get_supabase_client():
@@ -1526,8 +1535,18 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     Returns list of (category_name, creator_count) tuples.
     Used for the "By Category" tab and the /creators filter dropdown.
     """
+    global _top_categories_cache
+
     if limit <= 0:
         return []
+
+    # Return from process-level cache when fresh (avoids repeated DB round-trips
+    # on a warm Vercel function instance between worker refresh cycles).
+    now = time.monotonic()
+    if _top_categories_cache is not None:
+        cached_at, cached_result = _top_categories_cache
+        if now - cached_at < _TOP_CATEGORIES_TTL_SECONDS:
+            return cached_result[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
     # Fetch enough rows to cover the full fixed taxonomy before projection.
     fetch_limit = max(limit, TOTAL_TOPIC_CATEGORIES)
@@ -1538,7 +1557,12 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         fetch_limit,
     )
     merged = _merge_with_fixed_topic_categories(raw_counts)
-    return merged[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+    full = merged[:TOTAL_TOPIC_CATEGORIES]
+
+    # Cache the full taxonomy-sized result; individual callers slice from it.
+    _top_categories_cache = (now, full)
+
+    return full[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
 
 def suggest_primary_categories(q: str, limit: int = 8) -> list[tuple[str, int]]:

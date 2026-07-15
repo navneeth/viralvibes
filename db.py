@@ -3965,6 +3965,7 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
     for rpc_name, view_label in [
         ("refresh_mv_hero_stats", "mv_hero_stats"),
         ("refresh_mv_lists_meta", "mv_lists_meta"),
+        ("refresh_mv_category_counts", "mv_category_counts"),
     ]:
         try:
             resp = supabase_client.rpc(rpc_name).execute()
@@ -3998,6 +3999,16 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                 except Exception:
                     logger.debug(
                         "[Hero Stats Cache] failed to clear lists meta cache",
+                        exc_info=True,
+                    )
+            if view_label == "mv_category_counts":
+                try:
+                    from db_lists import clear_top_categories_cache
+
+                    clear_top_categories_cache()
+                except Exception:
+                    logger.debug(
+                        "[Hero Stats Cache] failed to clear top categories cache",
                         exc_info=True,
                     )
         except Exception as e:
