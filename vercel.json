@@ -1,5 +1,6 @@
 {
   "buildCommand": "python scripts/generate_sitemap.py",
+  "regions": ["sin1", "iad1"],
   "github": {
     "deploymentEnabled": {
       "gh-pages": false
