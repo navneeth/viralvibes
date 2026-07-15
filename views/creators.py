@@ -1782,7 +1782,7 @@ def _build_primary_metrics(
             ),
             H2(
                 format_number(current_subs),
-                cls="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-1",
+                cls="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400 mt-1 truncate",
             ),
             P(
                 (
@@ -1792,7 +1792,7 @@ def _build_primary_metrics(
                 ),
                 cls="text-xs text-muted-foreground mt-1",
             ),
-            cls="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center",
+            cls="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         # Views
         Div(
@@ -1802,7 +1802,7 @@ def _build_primary_metrics(
             ),
             H2(
                 format_number(current_views),
-                cls="text-3xl font-bold text-purple-600 dark:text-purple-400 mt-1",
+                cls="text-2xl sm:text-3xl font-bold text-purple-600 dark:text-purple-400 mt-1 truncate",
             ),
             P(
                 (
@@ -1812,7 +1812,7 @@ def _build_primary_metrics(
                 ),
                 cls="text-xs text-muted-foreground mt-1",
             ),
-            cls="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 text-center",
+            cls="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         cls="grid grid-cols-2 gap-3 mb-4",
     )
@@ -1833,10 +1833,10 @@ def _build_performance_metrics(
             ),
             P(
                 format_number(avg_views_per_video),
-                cls="text-lg font-bold text-foreground mt-1",
+                cls="text-lg font-bold text-foreground mt-1 truncate",
             ),
             P("per video", cls=_CLS_MUTED_XS),
-            cls="bg-accent rounded-lg p-3 text-center",
+            cls="bg-accent rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         Div(
             P(
@@ -1845,10 +1845,10 @@ def _build_performance_metrics(
             ),
             P(
                 format_number(current_videos),
-                cls="text-lg font-bold text-foreground mt-1",
+                cls="text-lg font-bold text-foreground mt-1 truncate",
             ),
             P("published", cls=_CLS_MUTED_XS),
-            cls="bg-accent rounded-lg p-3 text-center",
+            cls="bg-accent rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         Div(
             P(
@@ -1857,10 +1857,10 @@ def _build_performance_metrics(
             ),
             P(
                 f"{format_float(views_per_sub, 1)}x",
-                cls="text-lg font-bold text-indigo-600 dark:text-indigo-400 mt-1",
+                cls="text-lg font-bold text-indigo-600 dark:text-indigo-400 mt-1 truncate",
             ),
             P("audience reach", cls="text-xs text-indigo-500 dark:text-indigo-400"),
-            cls="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-3 text-center",
+            cls="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         Div(
             P(
@@ -1869,12 +1869,12 @@ def _build_performance_metrics(
             ),
             P(
                 f"${format_number(estimated_revenue)}",
-                cls="text-lg font-bold text-green-600 dark:text-green-400 mt-1",
+                cls="text-lg font-bold text-green-600 dark:text-green-400 mt-1 truncate",
             ),
             P("/month est.", cls="text-xs text-green-600 dark:text-green-400"),
-            cls="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center",
+            cls="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
-        cls="grid grid-cols-2 gap-3 mb-4",
+        cls="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4",
     )
 
 
