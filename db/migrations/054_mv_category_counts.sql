@@ -42,8 +42,8 @@ $$;
 -- 1. Materialized view
 -- ─────────────────────────────────────────────────────────────────────────────
 -- The aggregation logic is identical to the LATERAL unnest in migration 053;
--- running it once at refresh time means serving requests costs only an index
--- seek.  Refresh is triggered by the worker's bootstrap pass (via
+-- running it once at refresh time means serving requests costs only a seq scan
+-- over ~60 rows.  Refresh is triggered by the worker's bootstrap pass (via
 -- refresh_mv_category_counts() RPC added to db.py's refresh_hero_stats_cache
 -- loop) so data is always at most one worker cycle out of date.
 CREATE MATERIALIZED VIEW IF NOT EXISTS public.mv_category_counts AS
@@ -86,7 +86,10 @@ GROUP BY cat
 ORDER BY creator_count DESC
 WITH DATA;
 
--- Unique index lets the function ORDER BY + LIMIT use an index-only scan.
+-- Unique index: enforces one row per category and enables
+-- REFRESH MATERIALIZED VIEW CONCURRENTLY (requires a unique index).
+-- ORDER BY creator_count DESC LIMIT uses a seq scan — the MV has at most
+-- ~60 rows (fixed YouTube topic taxonomy) so a seq scan is always faster.
 CREATE UNIQUE INDEX IF NOT EXISTS mv_category_counts_category_idx
     ON public.mv_category_counts (category);
 
@@ -146,6 +149,6 @@ $$;
 
 COMMENT ON FUNCTION public.get_top_categories_with_counts(integer) IS
     'Returns (category, creator_count) from mv_category_counts. '
-    'O(p_limit) index scan — was O(n_creators × avg_categories) LATERAL unnest. '
+    'O(p_limit) seq scan on ~60 rows — was O(n_creators × avg_categories) LATERAL unnest. '
     'Fixes 57014 statement timeout (migration 054). '
     'MV is refreshed by refresh_mv_category_counts() in the worker bootstrap.';
