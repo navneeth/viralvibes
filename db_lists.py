@@ -544,6 +544,12 @@ _lists_meta_cache: tuple[float, dict[str, int]] | None = None
 _TOP_CATEGORIES_TTL_SECONDS = 600  # 10 min — category counts change only on worker runs
 _top_categories_cache: tuple[float, list[tuple[str, int]]] | None = None
 
+_TOP_COUNTRIES_TTL_SECONDS = 600  # 10 min — same change cadence as categories
+_top_countries_cache: tuple[float, list[tuple[str, int]]] | None = None
+
+_TOP_LANGUAGES_TTL_SECONDS = 600  # 10 min — same change cadence as categories
+_top_languages_cache: tuple[float, list[tuple[str, int]]] | None = None
+
 
 def clear_lists_meta_cache() -> None:
     """Clear this process's short-lived lists metadata cache."""
@@ -555,6 +561,18 @@ def clear_top_categories_cache() -> None:
     """Clear this process's short-lived top-categories cache."""
     global _top_categories_cache
     _top_categories_cache = None
+
+
+def clear_top_countries_cache() -> None:
+    """Clear this process's short-lived top-countries cache."""
+    global _top_countries_cache
+    _top_countries_cache = None
+
+
+def clear_top_languages_cache() -> None:
+    """Clear this process's short-lived top-languages cache."""
+    global _top_languages_cache
+    _top_languages_cache = None
 
 
 def _get_supabase_client():
@@ -1362,13 +1380,25 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     Delegates to the ``get_top_countries_with_counts`` Supabase RPC
     (see db/migrations/002_lists_page_rpc_functions.sql) with a
     client-side column-scan fallback if the RPC is unavailable.
+
+    Results are cached in-process for ``_TOP_COUNTRIES_TTL_SECONDS`` seconds
+    so repeated requests (e.g. filter-bar renders) don't each hit the DB.
     """
-    return _fetch_top_counts(
+    global _top_countries_cache
+    now = time.monotonic()
+    if _top_countries_cache is not None:
+        ts, full = _top_countries_cache
+        if now - ts < _TOP_COUNTRIES_TTL_SECONDS:
+            return full[:limit]
+
+    full = _fetch_top_counts(
         "get_top_countries_with_counts",
         "country_code",
         lambda lim: _scan_column_counts("country_code", lim),
-        limit,
+        200,  # fetch all so any limit can be served from cache
     )
+    _top_countries_cache = (now, full)
+    return full[:limit]
 
 
 def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
@@ -1383,13 +1413,24 @@ def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     client-side column-scan fallback.  Note: the DB column is
     ``default_language`` while the RPC returns it as ``language_code``;
     the fallback scans the raw column name directly.
+
+    Results are cached in-process for ``_TOP_LANGUAGES_TTL_SECONDS`` seconds.
     """
-    return _fetch_top_counts(
+    global _top_languages_cache
+    now = time.monotonic()
+    if _top_languages_cache is not None:
+        ts, full = _top_languages_cache
+        if now - ts < _TOP_LANGUAGES_TTL_SECONDS:
+            return full[:limit]
+
+    full = _fetch_top_counts(
         "get_top_languages_with_counts",
         "language_code",
         lambda lim: _scan_column_counts("default_language", lim),
-        limit,
+        300,  # fetch all so any limit can be served from cache
     )
+    _top_languages_cache = (now, full)
+    return full[:limit]
 
 
 def get_lists_meta() -> dict:
