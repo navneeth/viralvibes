@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="kaggle_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.1">coverage.py v7.15.1</a>,
-            created at 2026-07-14 07:19 +0000
+            created at 2026-07-15 03:24 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1681,7 +1681,7 @@
     <p class="mis show_mis"><span class="n"><a id="t1597" href="#t1597">1597</a></span><span class="t">        <span class="nam">response</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1598" href="#t1598">1598</a></span><span class="t">            <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="str">"creators"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1599" href="#t1599">1599</a></span><span class="t">            <span class="op">.</span><span class="nam">select</span><span class="op">(</span><span class="str">"topic_categories"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1600" href="#t1600">1600</a></span><span class="t">            <span class="op">.</span><span class="nam">eq</span><span class="op">(</span><span class="str">"sync_status"</span><span class="op">,</span> <span class="str">"synced"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t1600" href="#t1600">1600</a></span><span class="t">            <span class="op">.</span><span class="nam">in_</span><span class="op">(</span><span class="str">"sync_status"</span><span class="op">,</span> <span class="op">[</span><span class="str">"synced"</span><span class="op">,</span> <span class="str">"synced_partial"</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1601" href="#t1601">1601</a></span><span class="t">            <span class="op">.</span><span class="nam">not_</span><span class="op">.</span><span class="nam">is_</span><span class="op">(</span><span class="str">"channel_name"</span><span class="op">,</span> <span class="str">"null"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1602" href="#t1602">1602</a></span><span class="t">            <span class="op">.</span><span class="nam">not_</span><span class="op">.</span><span class="nam">is_</span><span class="op">(</span><span class="str">"topic_categories"</span><span class="op">,</span> <span class="str">"null"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t1603" href="#t1603">1603</a></span><span class="t">            <span class="op">.</span><span class="nam">gt</span><span class="op">(</span><span class="str">"current_subscribers"</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -1879,7 +1879,7 @@
             <a class="nav" href="kaggle_worker_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.1">coverage.py v7.15.1</a>,
-            created at 2026-07-14 07:19 +0000
+            created at 2026-07-15 03:24 +0000
         </p>
     </div>
 </footer>
