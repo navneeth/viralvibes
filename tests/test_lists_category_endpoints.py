@@ -76,6 +76,7 @@ def _ranking_req(*, query_params=None, session=None, category_slug=None, country
 
 
 def test_get_top_categories_with_counts_projects_onto_fixed_taxonomy(monkeypatch):
+    monkeypatch.setattr(db_lists, "_top_categories_cache", None)  # bypass process-level cache
     monkeypatch.setattr(
         db_lists,
         "_fetch_top_counts",
@@ -95,6 +96,7 @@ def test_get_top_categories_with_counts_projects_onto_fixed_taxonomy(monkeypatch
 
 
 def test_get_top_categories_with_counts_respects_smaller_limit_and_tie_order(monkeypatch):
+    monkeypatch.setattr(db_lists, "_top_categories_cache", None)  # bypass process-level cache
     monkeypatch.setattr(
         db_lists,
         "_fetch_top_counts",
@@ -111,6 +113,7 @@ def test_get_top_categories_with_counts_respects_smaller_limit_and_tie_order(mon
 
 
 def test_get_top_categories_with_counts_zero_limit_returns_empty(monkeypatch):
+    monkeypatch.setattr(db_lists, "_top_categories_cache", None)  # bypass process-level cache
     monkeypatch.setattr(
         db_lists,
         "_fetch_top_counts",
