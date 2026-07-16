@@ -13,7 +13,7 @@ import random
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Protocol, NamedTuple
+from typing import Any, Dict, List, Optional, Protocol, NamedTuple, Tuple
 
 from supabase import Client, create_client
 from tenacity import (
@@ -2581,7 +2581,7 @@ def get_embedding_peers(
     *,
     hydrate_limit: Optional[int] = None,
     include_contacts: bool = False,
-) -> Optional[List[Dict[str, Any]]]:
+) -> Optional[Tuple[List[Dict[str, Any]], int]]:
     """Return hydrated creator dicts for the embedding-based peer list.
 
     Two-query pattern:
@@ -2631,11 +2631,17 @@ def get_embedding_peers(
 
         total = len(all_peer_ids)  # count before the hydrate_limit slice
 
+        # Clamp hydrate_limit to a valid range so unexpected inputs don't
+        # cause confusing behaviour or unnecessary extra batching work.
+        effective_hydrate = (
+            max(0, min(hydrate_limit, total)) if hydrate_limit is not None else total
+        )
+        fetch_ids = all_peer_ids[:effective_hydrate]
+
         # Step 2: hydrate creator rows for the IDs we actually need to display.
         # Batched in chunks of _HYDRATION_BATCH_SIZE to keep the PostgREST
         # IN() query URL well under Cloudflare's WAF length limit (50 UUIDs
         # × 36 chars ≈ 2 kB → HTTP 400; 20 UUIDs ≈ 900 B → always safe).
-        fetch_ids = all_peer_ids[: hydrate_limit if hydrate_limit is not None else limit]
         fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
         creators_by_id: dict[str, dict] = {}
         for i in range(0, len(fetch_ids), _HYDRATION_BATCH_SIZE):

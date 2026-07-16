@@ -1067,8 +1067,8 @@ def creators_like_route(request, *, handle: str):
         limit=LOOKALIKE_LIMIT,
         include_contacts=True,
     )
-    if not peers_result:
-        # No peer row → don't render an empty SEO page Google can crawl.
+    if not peers_result or not peers_result[0]:
+        # No peer row or all peer IDs were deleted → don't serve an empty SEO page.
         return Response("No lookalikes available for this creator", status_code=404)
 
     peers, _total = peers_result
@@ -1112,7 +1112,7 @@ def creators_like_export_route(request, *, handle: str):
         limit=LOOKALIKE_LIMIT,
         include_contacts=True,
     )
-    if not peers_result:
+    if not peers_result or not peers_result[0]:
         return Response("No lookalikes available for this creator", status_code=404)
 
     peers, _total = peers_result
