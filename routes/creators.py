@@ -37,11 +37,11 @@ from db import (
     remove_favourite_creator,
 )
 from db_lists import (
-    get_lists_meta,
     get_top_categories_with_counts,
     get_top_countries_with_counts,
     get_top_languages_with_counts,
     suggest_primary_categories,
+    TOTAL_TOPIC_CATEGORIES,
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
@@ -61,6 +61,13 @@ from views.blueprint import render_blueprint_page
 from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
+
+# Number of entries shown in the hero sidebar strips and filter dropdowns.
+# Defined once so both the handle_not_found path and the parallel fan-out
+# path always request the same slice.
+_HERO_COUNTRIES_LIMIT = 8
+_HERO_LANGUAGES_LIMIT = 7
+_HERO_CATEGORIES_LIMIT = 9
 
 
 @dataclass(frozen=True)
@@ -305,30 +312,57 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         per_page = 50
 
     if handle_not_found:
-        # Exact @handle intent already missed the normalized-handle lookup.
-        # Do not fall through to the broad OR-ILIKE discovery query: it is more
-        # expensive, lower precision, and can time out for long-tail handles.
-        # The view has a dedicated @handle empty state with an add-creator CTA.
         creators = []
         total_count = 0
-    else:
-        # Fetch creators (db.py handles all logic)
-        # Using pagination to keep page load performant as creator count grows
-        result = get_creators(
-            search=search,
-            sort=sort,
-            grade_filter=grade_filter,
-            language_filter=language_filter,
-            activity_filter=activity_filter,
-            age_filter=age_filter,
-            country_filter=country_filter,
-            category_filter=category_filter,
-            limit=per_page,
-            offset=(page - 1) * per_page,
-            return_count=True,
+        hero_stats: dict = get_creator_hero_stats()
+        top_countries = get_top_countries_with_counts(limit=_HERO_COUNTRIES_LIMIT)
+        top_languages = get_top_languages_with_counts(limit=_HERO_LANGUAGES_LIMIT)
+        top_categories = get_top_categories_with_counts(limit=_HERO_CATEGORIES_LIMIT)
+        favourite_ids: set[str] = (
+            get_user_favourite_creator_ids(user_id) if is_authenticated and user_id else set()
         )
+    else:
+        # ── Fan out all independent DB calls in parallel ─────────────────────
+        # get_creators(), hero stats, sidebar counts, and favourites are fully
+        # independent.  Running them concurrently cuts wall-clock latency from
+        # Σ(individual times) to max(individual times).
+        _futures: dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=5) as _pool:
+            _futures["creators"] = _pool.submit(
+                get_creators,
+                search=search,
+                sort=sort,
+                grade_filter=grade_filter,
+                language_filter=language_filter,
+                activity_filter=activity_filter,
+                age_filter=age_filter,
+                country_filter=country_filter,
+                category_filter=category_filter,
+                limit=per_page,
+                offset=(page - 1) * per_page,
+                return_count=True,
+            )
+            _futures["hero"] = _pool.submit(get_creator_hero_stats)
+            _futures["countries"] = _pool.submit(
+                get_top_countries_with_counts, _HERO_COUNTRIES_LIMIT
+            )
+            _futures["languages"] = _pool.submit(
+                get_top_languages_with_counts, _HERO_LANGUAGES_LIMIT
+            )
+            _futures["categories"] = _pool.submit(
+                get_top_categories_with_counts, _HERO_CATEGORIES_LIMIT
+            )
+            if is_authenticated and user_id:
+                _futures["favs"] = _pool.submit(get_user_favourite_creator_ids, user_id)
+
+        result = _futures["creators"].result()
         creators = result.creators
         total_count = result.total_count
+        hero_stats = _futures["hero"].result()
+        top_countries = _futures["countries"].result()
+        top_languages = _futures["languages"].result()
+        top_categories = _futures["categories"].result()
+        favourite_ids = _futures["favs"].result() if "favs" in _futures else set()
 
     # Calculate total pages
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
@@ -359,7 +393,6 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # The three top_* lists are then replaced with full-DB RPC results so the
     # hero flags and filter dropdowns are consistent across both pages.
     page_stats = calculate_creator_stats(creators)
-    hero_stats = get_creator_hero_stats()
     stats = {**page_stats, **hero_stats}
 
     # Bug fix: calculate_creator_stats() sets total_creators = len(creators) = page
@@ -386,16 +419,14 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     )
     if not has_active_filters:
         stats["total_creators"] = total_count
-    stats["top_countries"] = get_top_countries_with_counts(limit=8)
-    stats["top_languages"] = get_top_languages_with_counts(limit=7)
-    stats["top_categories"] = get_top_categories_with_counts(limit=9)
-    stats["total_categories"] = get_lists_meta().get("total_categories", 0)
-
-    # Fetch the authenticated user's favourites so cards can show the heart state.
-    # One lightweight query (only creator_id column) per page load — acceptable.
-    favourite_ids: set[str] = (
-        get_user_favourite_creator_ids(user_id) if is_authenticated and user_id else set()
-    )
+    stats["top_countries"] = top_countries
+    stats["top_languages"] = top_languages
+    stats["top_categories"] = top_categories
+    # total_categories is already fetched by get_creator_hero_stats() (via the
+    # internal get_lists_meta() call it makes) and merged into stats above.
+    # Fall back to TOTAL_TOPIC_CATEGORIES constant if the RPC didn't return it.
+    if "total_categories" not in stats:
+        stats["total_categories"] = TOTAL_TOPIC_CATEGORIES
 
     # Render page
     return render_creators_page(

@@ -113,7 +113,6 @@ class TestCreatorsPage:
         monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
         monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=5: [])
         monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
-        monkeypatch.setattr(rc, "get_lists_meta", lambda: {"total_categories": 0})
 
     def test_browse_page_returns_200(self, client, monkeypatch):
         self._patch_creators_db(monkeypatch)
