@@ -3743,12 +3743,33 @@ def is_admin(user_id: str | None) -> bool:
         return False
 
 
+# Process-level cache for hero stats.  The materialized view is refreshed by
+# background workers every few minutes; 5 min TTL balances freshness vs. RPC
+# load.  On a statement-timeout the *stale* entry is returned so the hero
+# section shows real numbers instead of zeroes.
+_HERO_STATS_TTL_SECONDS = 300
+_hero_stats_cache: tuple[float, dict] | None = None
+
+
+def clear_hero_stats_cache() -> None:
+    """Invalidate the in-process hero stats cache (called after mv_hero_stats refresh)."""
+    global _hero_stats_cache
+    _hero_stats_cache = None
+
+
 def get_creator_hero_stats() -> dict:
     """
     Fetch global aggregate creator stats from DB via RPC (zero row transfer).
 
     Uses mv_hero_stats materialized view (migration 007) for sub-millisecond response
     time regardless of creator count. View is refreshed by bootstrap_creators.py Pass 5.
+
+    Results are cached in-process for ``_HERO_STATS_TTL_SECONDS`` seconds.
+    On a transient RPC failure (e.g. statement timeout) the last known value
+    is returned so the hero section never shows all-zeroes due to a momentary
+    DB hiccup.  ``clear_hero_stats_cache()`` is called by
+    ``refresh_hero_stats_cache()`` so a fresh value is fetched after each
+    materialized-view refresh.
 
     Returns a *partial* stats dict whose keys take precedence when merged
     with a page-level ``calculate_creator_stats(creators)`` result::
@@ -3761,15 +3782,30 @@ def get_creator_hero_stats() -> dict:
         total_creators, avg_engagement, has_engagement_data,
         growing_creators, premium_creators
 
-    Falls back to ``{}`` on any error so callers can degrade gracefully.
+    Falls back to stale cache (then ``{}``) on any error so callers degrade
+    gracefully.
     """
+    global _hero_stats_cache
+    import time as _time
+
+    now = _time.monotonic()
+    if _hero_stats_cache is not None:
+        ts, cached = _hero_stats_cache
+        if now - ts < _HERO_STATS_TTL_SECONDS:
+            return cached
+
     if not supabase_client:
+        if _hero_stats_cache:
+            logger.warning(
+                "Supabase client unavailable in get_creator_hero_stats — serving stale cache"
+            )
+            return _hero_stats_cache[1]
         return {}
     try:
         resp = _db_execute(lambda: supabase_client.rpc("get_creator_hero_stats").execute())
         if not resp.data:
-            logger.warning("get_creator_hero_stats RPC returned no data")
-            return {}
+            logger.warning("get_creator_hero_stats RPC returned no data — serving stale cache")
+            return _hero_stats_cache[1] if _hero_stats_cache else {}
         data = resp.data[0]
         avg_engagement = float(data.get("avg_engagement") or 0)
 
@@ -3788,7 +3824,7 @@ def get_creator_hero_stats() -> dict:
                 "get_lists_meta failed inside get_creator_hero_stats — countries/languages will be 0"
             )
 
-        return {
+        result = {
             "total_creators": int(data.get("total_creators") or 0),
             "total_db_creators": int(data.get("total_db_creators") or 0),
             "avg_engagement": round(avg_engagement, 2),
@@ -3802,7 +3838,15 @@ def get_creator_hero_stats() -> dict:
             "total_languages": int(lists_meta.get("total_languages") or 0),
             "total_categories": int(lists_meta.get("total_categories") or _TOTAL_TOPIC_CATEGORIES),
         }
+        _hero_stats_cache = (now, result)
+        return result
     except Exception:
+        if _hero_stats_cache:
+            logger.warning(
+                "Failed to fetch creator hero stats — serving stale cache (age %.0fs)",
+                now - _hero_stats_cache[0],
+            )
+            return _hero_stats_cache[1]
         logger.exception("Failed to fetch creator hero stats")
         return {}
 
@@ -4045,6 +4089,15 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                 )
             else:
                 logger.warning("[Hero Stats Cache] ⚠️ %s RPC returned no rows", view_label)
+            if view_label == "mv_hero_stats":
+                try:
+                    clear_hero_stats_cache()
+                except Exception:
+                    logger.warning(
+                        "[Hero Stats Cache] ⚠️ failed to clear hero stats cache after %s refresh",
+                        view_label,
+                        exc_info=True,
+                    )
             if view_label == "mv_lists_meta":
                 try:
                     from db_lists import (
