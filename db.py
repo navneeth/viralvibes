@@ -20,6 +20,7 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
+    wait_exponential_jitter,
     retry_if_exception_type,
     retry_if_exception,
     before_sleep_log,
@@ -88,10 +89,27 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
+# ---------------------------------------------------------------------------
+# HTTP/2 disconnect retry configuration
+# Extracted as constants so the policy can be tuned without code changes if
+# Supabase connection-pool behaviour or service latency characteristics change.
+# ---------------------------------------------------------------------------
+_DISCONNECT_RETRY_ATTEMPTS = 3  # 1 original attempt + 2 retries
+_DISCONNECT_RETRY_INITIAL_S = 0.5  # min wait — gives httpcore time to evict the stale connection
+_DISCONNECT_RETRY_MAX_S = 2.0  # upper cap per retry interval
+_DISCONNECT_RETRY_JITTER_S = 0.5  # random addend to spread retries and avoid synchronized spikes
+
 _with_disconnect_retry = retry(
     retry=retry_if_exception(_is_transient_disconnect),
-    stop=stop_after_attempt(2),  # 1 original + 1 retry
-    wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
+    stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+    # Jittered exponential backoff: initial * 2^attempt + random(0, jitter).
+    # The 0.5 s floor gives the httpcore connection pool enough time to evict
+    # a broken HTTP/2 connection before the next attempt reuses the same pool.
+    wait=wait_exponential_jitter(
+        initial=_DISCONNECT_RETRY_INITIAL_S,
+        max=_DISCONNECT_RETRY_MAX_S,
+        jitter=_DISCONNECT_RETRY_JITTER_S,
+    ),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
