@@ -90,8 +90,12 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
 
 _with_disconnect_retry = retry(
     retry=retry_if_exception(_is_transient_disconnect),
-    stop=stop_after_attempt(2),  # 1 original + 1 retry
-    wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
+    stop=stop_after_attempt(3),  # 1 original + 2 retries
+    # min=0.5 s gives the httpcore connection pool enough time to evict the
+    # broken HTTP/2 connection before we retry.  With 0.1 s the pool still
+    # hands out the same stale connection on the first retry, causing a second
+    # identical failure from the stored _read_exception.
+    wait=wait_exponential(multiplier=0.3, min=0.5, max=2),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
