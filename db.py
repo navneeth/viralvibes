@@ -3795,11 +3795,16 @@ def get_creator_hero_stats() -> dict:
             return cached
 
     if not supabase_client:
-        return _hero_stats_cache[1] if _hero_stats_cache else {}
+        if _hero_stats_cache:
+            logger.warning(
+                "Supabase client unavailable in get_creator_hero_stats — serving stale cache"
+            )
+            return _hero_stats_cache[1]
+        return {}
     try:
         resp = _db_execute(lambda: supabase_client.rpc("get_creator_hero_stats").execute())
         if not resp.data:
-            logger.warning("get_creator_hero_stats RPC returned no data")
+            logger.warning("get_creator_hero_stats RPC returned no data — serving stale cache")
             return _hero_stats_cache[1] if _hero_stats_cache else {}
         data = resp.data[0]
         avg_engagement = float(data.get("avg_engagement") or 0)
@@ -4088,8 +4093,9 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                 try:
                     clear_hero_stats_cache()
                 except Exception:
-                    logger.debug(
-                        "[Hero Stats Cache] failed to clear hero stats cache",
+                    logger.warning(
+                        "[Hero Stats Cache] ⚠️ failed to clear hero stats cache after %s refresh",
+                        view_label,
                         exc_info=True,
                     )
             if view_label == "mv_lists_meta":
