@@ -41,6 +41,7 @@ from db_lists import (
     get_top_countries_with_counts,
     get_top_languages_with_counts,
     suggest_primary_categories,
+    TOTAL_TOPIC_CATEGORIES,
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
@@ -60,6 +61,13 @@ from views.blueprint import render_blueprint_page
 from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
+
+# Number of entries shown in the hero sidebar strips and filter dropdowns.
+# Defined once so both the handle_not_found path and the parallel fan-out
+# path always request the same slice.
+_HERO_COUNTRIES_LIMIT = 8
+_HERO_LANGUAGES_LIMIT = 7
+_HERO_CATEGORIES_LIMIT = 9
 
 
 @dataclass(frozen=True)
@@ -307,9 +315,9 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         creators = []
         total_count = 0
         hero_stats: dict = get_creator_hero_stats()
-        top_countries = get_top_countries_with_counts(limit=8)
-        top_languages = get_top_languages_with_counts(limit=7)
-        top_categories = get_top_categories_with_counts(limit=9)
+        top_countries = get_top_countries_with_counts(limit=_HERO_COUNTRIES_LIMIT)
+        top_languages = get_top_languages_with_counts(limit=_HERO_LANGUAGES_LIMIT)
+        top_categories = get_top_categories_with_counts(limit=_HERO_CATEGORIES_LIMIT)
         favourite_ids: set[str] = (
             get_user_favourite_creator_ids(user_id) if is_authenticated and user_id else set()
         )
@@ -335,9 +343,15 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                 return_count=True,
             )
             _futures["hero"] = _pool.submit(get_creator_hero_stats)
-            _futures["countries"] = _pool.submit(get_top_countries_with_counts, 8)
-            _futures["languages"] = _pool.submit(get_top_languages_with_counts, 7)
-            _futures["categories"] = _pool.submit(get_top_categories_with_counts, 9)
+            _futures["countries"] = _pool.submit(
+                get_top_countries_with_counts, _HERO_COUNTRIES_LIMIT
+            )
+            _futures["languages"] = _pool.submit(
+                get_top_languages_with_counts, _HERO_LANGUAGES_LIMIT
+            )
+            _futures["categories"] = _pool.submit(
+                get_top_categories_with_counts, _HERO_CATEGORIES_LIMIT
+            )
             if is_authenticated and user_id:
                 _futures["favs"] = _pool.submit(get_user_favourite_creator_ids, user_id)
 
@@ -412,8 +426,6 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # internal get_lists_meta() call it makes) and merged into stats above.
     # Fall back to TOTAL_TOPIC_CATEGORIES constant if the RPC didn't return it.
     if "total_categories" not in stats:
-        from db_lists import TOTAL_TOPIC_CATEGORIES
-
         stats["total_categories"] = TOTAL_TOPIC_CATEGORIES
 
     # Render page
