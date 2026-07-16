@@ -579,13 +579,14 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     niche_leaderboard = get_category_leaderboard(creator.get("primary_category", ""), limit=5)
     is_fav = is_creator_favourited(user_id, creator_id) if user_id else False
     similar_creators = _get_similar_creators(creator)
-    # Fetch the full peer list once (cheap: one JSONB read + one IN-list hydrate)
-    # then slice for the profile rail. The total length drives the CTA copy on
-    # the rail ("See N more lookalikes for X") so users know there's more on
-    # the dedicated landing page.
-    embedding_peers_full = get_embedding_peers(creator_id, limit=LOOKALIKE_LIMIT) or []
-    embedding_peers = embedding_peers_full[:_PROFILE_PEER_RAIL_LIMIT] or None
-    embedding_peer_total = len(embedding_peers_full)
+    # Fetch peer list once (cheap: one JSONB read + batched IN-list hydration).
+    # hydrate_limit caps step-2 to the rail size so each IN() URL stays well
+    # under Cloudflare's WAF length limit; total comes from step-1's raw count.
+    peers_result = get_embedding_peers(
+        creator_id, limit=LOOKALIKE_LIMIT, hydrate_limit=_PROFILE_PEER_RAIL_LIMIT
+    )
+    embedding_peers = peers_result[0] if peers_result else None
+    embedding_peer_total = peers_result[1] if peers_result else 0
 
     body = render_creator_profile_page(
         creator,
@@ -1061,15 +1062,16 @@ def creators_like_route(request, *, handle: str):
     if not seed_id:
         return Response("Creator not found", status_code=404)
 
-    peers = get_embedding_peers(
+    peers_result = get_embedding_peers(
         seed_id,
         limit=LOOKALIKE_LIMIT,
         include_contacts=True,
     )
-    if not peers:
-        # No peer row → don't render an empty SEO page Google can crawl.
+    if not peers_result or not peers_result[0]:
+        # No peer row or all peer IDs were deleted → don't serve an empty SEO page.
         return Response("No lookalikes available for this creator", status_code=404)
 
+    peers, _total = peers_result
     contact_count = sum(1 for p in peers if p.get("has_contact_info") or p.get("extracted_email"))
 
     body = render_creators_like_page(
@@ -1105,13 +1107,15 @@ def creators_like_export_route(request, *, handle: str):
     if not seed or not seed.get("id"):
         return Response("Creator not found", status_code=404)
 
-    peers = get_embedding_peers(
+    peers_result = get_embedding_peers(
         seed["id"],
         limit=LOOKALIKE_LIMIT,
         include_contacts=True,
     )
-    if not peers:
+    if not peers_result or not peers_result[0]:
         return Response("No lookalikes available for this creator", status_code=404)
+
+    peers, _total = peers_result
 
     # Build email-tool-friendly rows and filter to those with an email.
     # Pulling base_url from the live request keeps profile URLs portable

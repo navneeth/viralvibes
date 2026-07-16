@@ -13,7 +13,7 @@ import random
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Protocol, NamedTuple
+from typing import Any, Dict, List, Optional, Protocol, NamedTuple, Tuple
 
 from supabase import Client, create_client
 from tenacity import (
@@ -2544,6 +2544,12 @@ def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dic
 
 _CREATOR_PEERS_TABLE = "creator_peers"
 
+# Maximum number of IDs to include in a single PostgREST IN() query.
+# Cloudflare's WAF rejects URLs that are too long; 50 UUIDs × 36 chars ≈ 2 kB
+# which reliably triggers an HTTP 400.  Batching at 20 keeps each URL well
+# under 1 kB regardless of field-set size.
+_HYDRATION_BATCH_SIZE = 20
+
 # Fields fetched for each peer creator — same subset used by the similar-rail tiles
 _PEER_CREATOR_FIELDS = (
     "id, channel_name, channel_thumbnail_url, "
@@ -2573,32 +2579,40 @@ def get_embedding_peers(
     peer_type: str = "embedding_v1",
     limit: int = 20,
     *,
+    hydrate_limit: Optional[int] = None,
     include_contacts: bool = False,
-) -> Optional[List[Dict[str, Any]]]:
+) -> Optional[Tuple[List[Dict[str, Any]], int]]:
     """Return hydrated creator dicts for the embedding-based peer list.
 
     Two-query pattern:
       1. Fetch the peer_list (ordered UUID array) from creator_peers.
-      2. Fetch the matching creator rows, then re-order to match the ranked list.
+      2. Fetch the matching creator rows in batches, then re-order to match
+         the ranked list.
 
     Args:
-        creator_id: Seed creator UUID.
-        peer_type: Which embedding bucket to look up (default ``embedding_v1``).
-        limit: Maximum peers to return.
+        creator_id:    Seed creator UUID.
+        peer_type:     Which embedding bucket to look up (default ``embedding_v1``).
+        limit:         Maximum peers counted / returned.
+        hydrate_limit: When set, only this many peers are fetched from the DB
+                       in step 2 (useful when the caller only needs a small rail
+                       but still wants ``total`` for CTA copy).  Defaults to
+                       ``limit`` (hydrate everything counted).
         include_contacts: When True, fetches the wider field set that
-            ``ContactExtractorService.build_creator_contact_row`` needs
-            (extracted_* contact columns + growth deltas). Used by
-            ``/creators/like/{handle}``. Default keeps the cheap rail query.
+                       ``ContactExtractorService.build_creator_contact_row``
+                       needs (extracted_* contact columns + growth deltas).
+                       Used by ``/creators/like/{handle}``.
 
     Returns:
-        list[dict]  — peer creator rows in similarity order (best first)
-        None        — creator_id not present in creator_peers for this peer_type,
-                      so callers should suppress the "Similar creators" section.
+        ``(creators, total)`` tuple where ``creators`` is the hydrated list in
+        similarity order and ``total`` is the count of available peers (up to
+        ``limit``) before the ``hydrate_limit`` slice is applied.
+        Returns ``None`` when creator_id has no peer row for this peer_type so
+        callers can suppress the section entirely.
     """
     if not supabase_client or not creator_id:
         return None
     try:
-        # Step 1: look up peer list
+        # Step 1: fetch the full ranked peer_list (one lightweight JSONB read).
         resp = _db_execute(
             lambda: supabase_client.table(_CREATOR_PEERS_TABLE)
             .select("peer_list")
@@ -2609,24 +2623,41 @@ def get_embedding_peers(
         )
         rows = resp.data or []
         if not rows:
-            return None  # ← caller must hide the section
+            return None  # caller must hide the section
 
-        peer_ids: list[str] = (rows[0].get("peer_list") or [])[:limit]
-        if not peer_ids:
+        all_peer_ids: list[str] = (rows[0].get("peer_list") or [])[:limit]
+        if not all_peer_ids:
             return None
 
-        # Step 2: hydrate creator rows for those IDs
-        fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
-        creators_resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select(fields)
-            .in_("id", peer_ids)
-            .execute()
-        )
-        creators_by_id = {c["id"]: c for c in (creators_resp.data or [])}
+        total = len(all_peer_ids)  # count before the hydrate_limit slice
 
-        # Re-order to preserve similarity ranking from peer_list
-        return [creators_by_id[pid] for pid in peer_ids if pid in creators_by_id]
+        # Clamp hydrate_limit to a valid range so unexpected inputs don't
+        # cause confusing behaviour or unnecessary extra batching work.
+        effective_hydrate = (
+            max(0, min(hydrate_limit, total)) if hydrate_limit is not None else total
+        )
+        fetch_ids = all_peer_ids[:effective_hydrate]
+
+        # Step 2: hydrate creator rows for the IDs we actually need to display.
+        # Batched in chunks of _HYDRATION_BATCH_SIZE to keep the PostgREST
+        # IN() query URL well under Cloudflare's WAF length limit (50 UUIDs
+        # × 36 chars ≈ 2 kB → HTTP 400; 20 UUIDs ≈ 900 B → always safe).
+        fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
+        creators_by_id: dict[str, dict] = {}
+        for i in range(0, len(fetch_ids), _HYDRATION_BATCH_SIZE):
+            batch = fetch_ids[i : i + _HYDRATION_BATCH_SIZE]
+            batch_resp = _db_execute(
+                lambda b=batch: supabase_client.table(CREATOR_TABLE)
+                .select(fields)
+                .in_("id", b)
+                .execute()
+            )
+            for c in batch_resp.data or []:
+                creators_by_id[c["id"]] = c
+
+        # Re-order to preserve similarity ranking from peer_list.
+        creators = [creators_by_id[pid] for pid in fetch_ids if pid in creators_by_id]
+        return creators, total
 
     except Exception as exc:
         logger.exception("[EmbeddingPeers] get_embedding_peers failed for %s: %s", creator_id, exc)
