@@ -3726,6 +3726,8 @@ def get_creator_hero_stats() -> dict:
 
         # total_countries and total_languages live in mv_lists_meta, not mv_hero_stats.
         # Fetch them from get_lists_meta() rather than hoping they appear here.
+        from db_lists import TOTAL_TOPIC_CATEGORIES as _TOTAL_TOPIC_CATEGORIES
+
         lists_meta: dict = {}
         try:
             meta_resp = _db_execute(lambda: supabase_client.rpc("get_lists_meta").execute())
@@ -3744,9 +3746,12 @@ def get_creator_hero_stats() -> dict:
             "has_engagement_data": avg_engagement > 0,
             "growing_creators": int(data.get("growing_creators") or 0),
             "premium_creators": int(data.get("premium_creators") or 0),
-            # Sourced from mv_lists_meta via get_lists_meta() RPC
+            # Sourced from mv_lists_meta via get_lists_meta() RPC.
+            # total_categories falls back to the fixed YouTube taxonomy size (60)
+            # so the hero never shows "0 categories" when the inner RPC fails.
             "total_countries": int(lists_meta.get("total_countries") or 0),
             "total_languages": int(lists_meta.get("total_languages") or 0),
+            "total_categories": int(lists_meta.get("total_categories") or _TOTAL_TOPIC_CATEGORIES),
         }
     except Exception:
         logger.exception("Failed to fetch creator hero stats")
@@ -3993,9 +3998,15 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                 logger.warning("[Hero Stats Cache] ⚠️ %s RPC returned no rows", view_label)
             if view_label == "mv_lists_meta":
                 try:
-                    from db_lists import clear_lists_meta_cache
+                    from db_lists import (
+                        clear_lists_meta_cache,
+                        clear_top_countries_cache,
+                        clear_top_languages_cache,
+                    )
 
                     clear_lists_meta_cache()
+                    clear_top_countries_cache()
+                    clear_top_languages_cache()
                 except Exception:
                     logger.debug(
                         "[Hero Stats Cache] failed to clear lists meta cache",
