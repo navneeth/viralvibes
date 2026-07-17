@@ -233,14 +233,21 @@ class TopicCategoryPageResult(NamedTuple):
 # ---------------------------------------------------------------------------
 # Per-key TTL cache for category creator listings.
 # Key: (category_label, limit, offset, return_count)
-# Value: (monotonic_timestamp, TopicCategoryPageResult | list)
-# On a statement-timeout the stale entry is served so pages don't go blank.
+# Value: (monotonic_timestamp, TopicCategoryPageResult | list[dict])
+#
+# TTL governs when a *fresh* DB fetch is attempted, not when stale entries
+# are discarded.  An expired entry stays in the dict and is returned as-is
+# when the subsequent DB call fails (e.g. statement timeout), so pages
+# never go blank due to a transient DB hiccup.  Entries are only truly
+# evicted by clear_category_creators_cache() (called after a worker refresh).
 # ---------------------------------------------------------------------------
 _CATEGORY_CREATORS_TTL_SECONDS = 600  # 10 min
-_category_creators_cache: dict[tuple, tuple[float, object]] = {}
+_CategoryCreatorsValue = list[dict] | TopicCategoryPageResult
+
+_category_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
 
 # Key: (category_label, country_code, limit, offset, return_count)
-_category_country_creators_cache: dict[tuple, tuple[float, object]] = {}
+_category_country_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
 
 
 def clear_category_creators_cache() -> None:
