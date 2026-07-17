@@ -230,7 +230,25 @@ class TopicCategoryPageResult(NamedTuple):
     total_count: int
 
 
-# Slug → canonical category name (fixed labels plus live DB categories).
+# ---------------------------------------------------------------------------
+# Per-key TTL cache for category creator listings.
+# Key: (category_label, limit, offset, return_count)
+# Value: (monotonic_timestamp, TopicCategoryPageResult | list)
+# On a statement-timeout the stale entry is served so pages don't go blank.
+# ---------------------------------------------------------------------------
+_CATEGORY_CREATORS_TTL_SECONDS = 600  # 10 min
+_category_creators_cache: dict[tuple, tuple[float, object]] = {}
+
+# Key: (category_label, country_code, limit, offset, return_count)
+_category_country_creators_cache: dict[tuple, tuple[float, object]] = {}
+
+
+def clear_category_creators_cache() -> None:
+    """Invalidate both category-creators caches (called after mv_category_counts refresh)."""
+    _category_creators_cache.clear()
+    _category_country_creators_cache.clear()
+
+
 _CATEGORY_SLUG_CACHE_TTL_S = 60 * 60
 _category_slug_cache: dict[str, object] = {"expires_at": 0.0, "map": {}}
 
@@ -341,16 +359,38 @@ def get_topic_category_creators(
     Filters on ``topic_categories`` (same column as category counts / list
     cards), not ``primary_category`` — the latter holds YouTube video-level
     categories and does not match Wikipedia topic taxonomy.
+
+    Results are cached in-process for ``_CATEGORY_CREATORS_TTL_SECONDS``
+    seconds.  On a statement-timeout the last known value is returned so
+    pages never go blank.  ``clear_category_creators_cache()`` is called by
+    ``refresh_hero_stats_cache()`` after ``mv_category_counts`` is refreshed.
     """
+    import time as _time
+
     if not category or not str(category).strip():
         return TopicCategoryPageResult([], 0) if return_count else []
 
     supabase_client = _get_supabase_client()
-    if not supabase_client:
-        return TopicCategoryPageResult([], 0) if return_count else []
 
     category_label = _topic_category_label(category)
     if not category_label:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    cache_key = (category_label, limit, offset, return_count)
+    now = _time.monotonic()
+    cached_entry = _category_creators_cache.get(cache_key)
+    if cached_entry is not None:
+        ts, cached = cached_entry
+        if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
+            return cached  # type: ignore[return-value]
+
+    if not supabase_client:
+        if cached_entry:
+            logger.warning(
+                "Supabase client unavailable in get_topic_category_creators(%r) — serving stale cache",
+                category_label,
+            )
+            return cached_entry[1]  # type: ignore[return-value]
         return TopicCategoryPageResult([], 0) if return_count else []
 
     def _run(use_text_fallback: bool = False):
@@ -375,6 +415,13 @@ def get_topic_category_creators(
     try:
         response = _run(use_text_fallback=True)
     except Exception:
+        if cached_entry:
+            logger.warning(
+                "Error fetching topic category creators for %r — serving stale cache (age %.0fs)",
+                category_label,
+                now - cached_entry[0],
+            )
+            return cached_entry[1]  # type: ignore[return-value]
         logger.exception(
             "Error fetching topic category creators for %r via text fallback",
             category_label,
@@ -387,9 +434,16 @@ def get_topic_category_creators(
     for idx, creator in enumerate(creators, 1):
         creator["_rank"] = offset + idx
 
+    result: list[dict] | TopicCategoryPageResult
     if return_count:
-        return TopicCategoryPageResult(creators, total_count)
-    return creators
+        result = TopicCategoryPageResult(creators, total_count)
+    else:
+        result = creators
+
+    if response is not None:
+        _category_creators_cache[cache_key] = (now, result)
+
+    return result
 
 
 def get_topic_category_country_creators(
@@ -401,16 +455,34 @@ def get_topic_category_country_creators(
     return_count: bool = False,
 ) -> list[dict] | TopicCategoryPageResult:
     """Paginated creator listing for a topic category within one country."""
+    import time as _time
+
     if not category or not str(category).strip() or not country_code:
         return TopicCategoryPageResult([], 0) if return_count else []
 
     supabase_client = _get_supabase_client()
-    if not supabase_client:
-        return TopicCategoryPageResult([], 0) if return_count else []
 
     category_label = _topic_category_label(category)
     normalized_country = str(country_code or "").strip().upper()
     if not category_label or len(normalized_country) != 2:
+        return TopicCategoryPageResult([], 0) if return_count else []
+
+    cache_key = (category_label, normalized_country, limit, offset, return_count)
+    now = _time.monotonic()
+    cached_entry = _category_country_creators_cache.get(cache_key)
+    if cached_entry is not None:
+        ts, cached = cached_entry
+        if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
+            return cached  # type: ignore[return-value]
+
+    if not supabase_client:
+        if cached_entry:
+            logger.warning(
+                "Supabase client unavailable in get_topic_category_country_creators(%r, %s) — serving stale cache",
+                category_label,
+                normalized_country,
+            )
+            return cached_entry[1]  # type: ignore[return-value]
         return TopicCategoryPageResult([], 0) if return_count else []
 
     try:
@@ -427,6 +499,14 @@ def get_topic_category_country_creators(
             query = query.offset(offset)
         response = query.execute()
     except Exception:
+        if cached_entry:
+            logger.warning(
+                "Error fetching topic category creators for %r in %s — serving stale cache (age %.0fs)",
+                category_label,
+                normalized_country,
+                now - cached_entry[0],
+            )
+            return cached_entry[1]  # type: ignore[return-value]
         logger.exception(
             "Error fetching topic category creators for %r in %s",
             category_label,
@@ -440,9 +520,14 @@ def get_topic_category_country_creators(
     for idx, creator in enumerate(creators, 1):
         creator["_rank"] = offset + idx
 
+    result: list[dict] | TopicCategoryPageResult
     if return_count:
-        return TopicCategoryPageResult(creators, total_count)
-    return creators
+        result = TopicCategoryPageResult(creators, total_count)
+    else:
+        result = creators
+
+    _category_country_creators_cache[cache_key] = (now, result)
+    return result
 
 
 # ---------------------------------------------------------------------------

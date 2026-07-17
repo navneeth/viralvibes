@@ -4116,9 +4116,13 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                     )
             if view_label == "mv_category_counts":
                 try:
-                    from db_lists import clear_top_categories_cache
+                    from db_lists import (
+                        clear_top_categories_cache,
+                        clear_category_creators_cache,
+                    )
 
                     clear_top_categories_cache()
+                    clear_category_creators_cache()
                 except Exception:
                     logger.debug(
                         "[Hero Stats Cache] failed to clear top categories cache",
