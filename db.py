@@ -84,6 +84,15 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
         # connection; a retry gets a fresh one.
         if isinstance(e, RuntimeError) and "iteration" in str(e) and "dictionary" in str(e):
             return True
+        # httpcore HTTP/2 stream-bookkeeping bug: a non-200 response (e.g.
+        # 206 Partial Content) can cause _response_closed() to try to delete
+        # a stream_id that was already removed from self._events, raising
+        # KeyError(<stream_id>).  HTTP/2 stream IDs are always positive
+        # integers, so this combination is specific to httpcore's internal
+        # state machine.  The connection is corrupt after this; treat it as
+        # a transient disconnect so the retry opens a fresh connection.
+        if isinstance(e, KeyError) and e.args and isinstance(e.args[0], int) and e.args[0] > 0:
+            return True
         return False
 
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
