@@ -216,6 +216,7 @@ def test_get_topic_category_creators_always_uses_ilike_directly(monkeypatch):
         },
     )
     monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_category_creators_cache", {})
 
     result = db_lists.get_topic_category_creators(
         "Lifestyle (sociology)",
@@ -238,6 +239,7 @@ def test_get_topic_category_creators_ilike_returns_count_and_creators(monkeypatc
         },
     )
     monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_category_creators_cache", {})
 
     result = db_lists.get_topic_category_creators("Lifestyle (sociology)", return_count=True)
 
@@ -258,6 +260,7 @@ def test_get_topic_category_creators_applies_offset_to_rank(monkeypatch):
         }
     )
     monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_category_creators_cache", {})
 
     offset = 10
     result = db_lists.get_topic_category_creators(
@@ -280,6 +283,7 @@ def test_get_topic_category_country_creators_filters_country_and_category(monkey
         }
     )
     monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_category_country_creators_cache", {})
 
     result = db_lists.get_topic_category_country_creators(
         "Video game culture",
@@ -294,6 +298,79 @@ def test_get_topic_category_country_creators_filters_country_and_category(monkey
     assert call["ilike"][0] == "topic_categories"
     assert ("country_code", "US") in call["eq"]
     assert call["order"]["args"] == ("current_subscribers",)
+
+
+# ---------------------------------------------------------------------------
+# Cache behaviour tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_topic_category_creators_caches_result_on_second_call(monkeypatch):
+    """A second call with identical params is served from cache (no extra DB hit)."""
+    fake_client = _FakeSupabaseClient(
+        {"data": [{"channel_name": "Cached Channel", "current_subscribers": 999}], "count": 1}
+    )
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_category_creators_cache", {})
+
+    result1 = db_lists.get_topic_category_creators("Music", limit=5, return_count=True)
+    assert result1.total_count == 1
+    assert len(fake_client.calls) == 1
+
+    # Second call — same params → cache hit; no new .table() call.
+    result2 = db_lists.get_topic_category_creators("Music", limit=5, return_count=True)
+    assert result2.total_count == 1
+    assert len(fake_client.calls) == 1  # still 1
+
+
+def test_get_topic_category_creators_serves_stale_cache_on_exception(monkeypatch):
+    """When the DB raises (e.g. statement timeout), the last cached result is returned."""
+    stale_result = db_lists.TopicCategoryPageResult(
+        [{"channel_name": "Stale Channel", "current_subscribers": 100}], 1
+    )
+    label = db_lists._topic_category_label("Music")
+    # Insert an expired cache entry (timestamp 0.0 is in the distant past).
+    cache = {(label, 20, 0, True): (0.0, stale_result)}
+    monkeypatch.setattr(db_lists, "_category_creators_cache", cache)
+
+    error_client = _FakeSupabaseClient(Exception("canceling statement due to statement timeout"))
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: error_client)
+
+    result = db_lists.get_topic_category_creators("Music", return_count=True)
+
+    assert result.creators[0]["channel_name"] == "Stale Channel"
+    assert result.total_count == 1
+
+
+def test_get_topic_category_country_creators_serves_stale_cache_on_exception(monkeypatch):
+    """Country-scoped variant also returns stale cache on DB exception."""
+    stale_result = db_lists.TopicCategoryPageResult(
+        [{"channel_name": "Stale US Channel", "current_subscribers": 50}], 1
+    )
+    label = db_lists._topic_category_label("Video game culture")
+    cache = {(label, "US", 20, 0, True): (0.0, stale_result)}
+    monkeypatch.setattr(db_lists, "_category_country_creators_cache", cache)
+
+    error_client = _FakeSupabaseClient(Exception("canceling statement due to statement timeout"))
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: error_client)
+
+    result = db_lists.get_topic_category_country_creators(
+        "Video game culture", "US", return_count=True
+    )
+
+    assert result.creators[0]["channel_name"] == "Stale US Channel"
+    assert result.total_count == 1
+
+
+def test_clear_category_creators_cache_clears_both_dicts(monkeypatch):
+    """clear_category_creators_cache() empties both category cache dicts."""
+    monkeypatch.setattr(db_lists, "_category_creators_cache", {"key1": (0.0, [])})
+    monkeypatch.setattr(db_lists, "_category_country_creators_cache", {"key2": (0.0, [])})
+
+    db_lists.clear_category_creators_cache()
+
+    assert db_lists._category_creators_cache == {}
+    assert db_lists._category_country_creators_cache == {}
 
 
 def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypatch):
