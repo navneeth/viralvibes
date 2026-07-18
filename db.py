@@ -84,6 +84,15 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
         # connection; a retry gets a fresh one.
         if isinstance(e, RuntimeError) and "iteration" in str(e) and "dictionary" in str(e):
             return True
+        # httpcore HTTP/2 stream-bookkeeping bug: a non-200 response (e.g.
+        # 206 Partial Content) can cause _response_closed() to try to delete
+        # a stream_id that was already removed from self._events, raising
+        # KeyError(<stream_id>).  HTTP/2 stream IDs are always positive
+        # integers, so this combination is specific to httpcore's internal
+        # state machine.  The connection is corrupt after this; treat it as
+        # a transient disconnect so the retry opens a fresh connection.
+        if isinstance(e, KeyError) and e.args and isinstance(e.args[0], int) and e.args[0] > 0:
+            return True
         return False
 
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
@@ -3151,10 +3160,10 @@ def _find_creator_by_normalized_handle(
 
     for candidate in (normalized_handle, f"@{normalized_handle}"):
         try:
-            resp = (
-                supabase_client.table(CREATOR_TABLE)
+            resp = _db_execute(
+                lambda c=candidate: supabase_client.table(CREATOR_TABLE)
                 .select(select)
-                .ilike("custom_url", candidate)
+                .ilike("custom_url", c)
                 .limit(1)
                 .execute()
             )
@@ -4116,9 +4125,13 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                     )
             if view_label == "mv_category_counts":
                 try:
-                    from db_lists import clear_top_categories_cache
+                    from db_lists import (
+                        clear_top_categories_cache,
+                        clear_category_creators_cache,
+                    )
 
                     clear_top_categories_cache()
+                    clear_category_creators_cache()
                 except Exception:
                     logger.debug(
                         "[Hero Stats Cache] failed to clear top categories cache",

@@ -1716,6 +1716,21 @@ _CREATOR_UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Strings that are never valid YouTube handles but frequently appear in URLs
+# when JavaScript/template rendering emits an un-set variable (e.g. a JS `null`
+# serialised into a URL template before the value has loaded).
+_INVALID_HANDLE_SENTINELS: frozenset[str] = frozenset(
+    {
+        "null",
+        "undefined",
+        "none",
+        "nan",
+        "false",
+        "true",
+        "0",
+    }
+)
+
 
 @rt("/creator/{creator_id}")
 def creator_profile(req, sess, creator_id: str):
@@ -1744,6 +1759,38 @@ def creator_profile(req, sess, creator_id: str):
     # _normalize_creator_handle (inside find_creator_by_handle) strips "@" and
     # lower-cases before the DB lookup.
     if not _CREATOR_UUID_RE.match(creator_id):
+        # Reject JS/template sentinel strings immediately — no DB queries.
+        if creator_id.lower().lstrip("@") in _INVALID_HANDLE_SENTINELS:
+            return HTMLResponse(
+                _render_page(
+                    Titled(
+                        "Creator Not Found - ViralVibes",
+                        Container(
+                            NavComponent(oauth, req, sess),
+                            Div(
+                                UkIcon(
+                                    "user-x", cls="w-12 h-12 text-muted-foreground mx-auto mb-4"
+                                ),
+                                H2(
+                                    "Creator not found",
+                                    cls="text-2xl font-bold text-foreground mb-2",
+                                ),
+                                P(
+                                    "That handle is not valid.",
+                                    cls="text-muted-foreground",
+                                ),
+                                A(
+                                    "← Browse Creators",
+                                    href="/creators",
+                                    cls="mt-4 inline-flex items-center text-sm font-medium text-primary hover:underline",
+                                ),
+                                cls="max-w-2xl mx-auto px-4 py-24 text-center",
+                            ),
+                        ),
+                    )
+                ),
+                status_code=404,
+            )
         creator = find_creator_by_handle(creator_id)
         if not creator:
             # Normalise handle for display: strip any leading '@' then re-add
