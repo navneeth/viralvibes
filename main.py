@@ -267,6 +267,32 @@ def _render_page(ft_response) -> str:
     )
 
 
+def _creator_not_found_response(req, sess, message: str) -> HTMLResponse:
+    """Return a 404 HTMLResponse for the creator profile route.
+
+    Shared by the JS-sentinel guard and the handle-lookup-failed path so
+    both render identically without duplicating the page structure.
+    """
+    page = Titled(
+        "Creator Not Found - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            Div(
+                UkIcon("user-x", cls="w-12 h-12 text-muted-foreground mx-auto mb-4"),
+                H2("Creator not found", cls="text-2xl font-bold text-foreground mb-2"),
+                P(message, cls="text-muted-foreground"),
+                A(
+                    "← Browse Creators",
+                    href="/creators",
+                    cls="mt-4 inline-flex items-center text-sm font-medium text-primary hover:underline",
+                ),
+                cls="max-w-2xl mx-auto px-4 py-24 text-center",
+            ),
+        ),
+    )
+    return HTMLResponse(_render_page(page), status_code=404)
+
+
 # ============================================================================
 # Safety Constants
 # ============================================================================
@@ -1716,6 +1742,21 @@ _CREATOR_UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Strings that are never valid YouTube handles but frequently appear in URLs
+# when JavaScript/template rendering emits an un-set variable (e.g. a JS `null`
+# serialised into a URL template before the value has loaded).
+_INVALID_HANDLE_SENTINELS: frozenset[str] = frozenset(
+    {
+        "null",
+        "undefined",
+        "none",
+        "nan",
+        "false",
+        "true",
+        "0",
+    }
+)
+
 
 @rt("/creator/{creator_id}")
 def creator_profile(req, sess, creator_id: str):
@@ -1744,35 +1785,18 @@ def creator_profile(req, sess, creator_id: str):
     # _normalize_creator_handle (inside find_creator_by_handle) strips "@" and
     # lower-cases before the DB lookup.
     if not _CREATOR_UUID_RE.match(creator_id):
+        # Reject JS/template sentinel strings immediately — no DB queries.
+        normalized_creator_id = creator_id.strip().lower().lstrip("@")
+        if normalized_creator_id in _INVALID_HANDLE_SENTINELS:
+            return _creator_not_found_response(req, sess, "That handle is not valid.")
         creator = find_creator_by_handle(creator_id)
         if not creator:
             # Normalise handle for display: strip any leading '@' then re-add
             # it so the message always shows the canonical "@handle" shape.
             display_handle = f"@{creator_id.lstrip('@')}"
-            page = Titled(
-                "Creator Not Found - ViralVibes",
-                Container(
-                    NavComponent(oauth, req, sess),
-                    Div(
-                        UkIcon("user-x", cls="w-12 h-12 text-muted-foreground mx-auto mb-4"),
-                        H2(
-                            "Creator not found",
-                            cls="text-2xl font-bold text-foreground mb-2",
-                        ),
-                        P(
-                            f"No creator with handle {display_handle!r} could be found.",
-                            cls="text-muted-foreground",
-                        ),
-                        A(
-                            "← Browse Creators",
-                            href="/creators",
-                            cls="mt-4 inline-flex items-center text-sm font-medium text-primary hover:underline",
-                        ),
-                        cls="max-w-2xl mx-auto px-4 py-24 text-center",
-                    ),
-                ),
+            return _creator_not_found_response(
+                req, sess, f"No creator with handle {display_handle!r} could be found."
             )
-            return HTMLResponse(_render_page(page), status_code=404)
         canonical_id = creator["id"]
         return RedirectResponse(f"/creator/{canonical_id}", status_code=301)
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
