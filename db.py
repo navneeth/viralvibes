@@ -87,11 +87,19 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
         # httpcore HTTP/2 stream-bookkeeping bug: a non-200 response (e.g.
         # 206 Partial Content) can cause _response_closed() to try to delete
         # a stream_id that was already removed from self._events, raising
-        # KeyError(<stream_id>).  HTTP/2 stream IDs are always positive
-        # integers, so this combination is specific to httpcore's internal
-        # state machine.  The connection is corrupt after this; treat it as
-        # a transient disconnect so the retry opens a fresh connection.
-        if isinstance(e, KeyError) and e.args and isinstance(e.args[0], int) and e.args[0] > 0:
+        # KeyError(<stream_id>).  RFC 7540 §5.1.1: client-initiated HTTP/2
+        # stream IDs are always positive ODD integers (1, 3, 5, …).  No
+        # application dict key produced by our own code fits that shape, so
+        # the check is specific to httpcore's stream state machine.  The
+        # connection is corrupt after this; treat it as a transient disconnect
+        # so the retry opens a fresh connection.
+        if (
+            isinstance(e, KeyError)
+            and e.args
+            and isinstance(e.args[0], int)
+            and e.args[0] > 0
+            and e.args[0] % 2 == 1  # HTTP/2 client stream IDs are always odd
+        ):
             return True
         return False
 
@@ -4134,7 +4142,7 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
                     clear_category_creators_cache()
                 except Exception:
                     logger.debug(
-                        "[Hero Stats Cache] failed to clear top categories cache",
+                        "[Hero Stats Cache] failed to clear category caches (top_categories and/or category_creators)",
                         exc_info=True,
                     )
         except Exception as e:
