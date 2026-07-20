@@ -25,13 +25,15 @@
 -- The Python-side approach is also fine to keep — it is slightly less
 -- selective at the DB level but has no correctness impact.
 
-CREATE INDEX IF NOT EXISTS idx_creators_keyword_pipeline
+-- Drop first so a pre-existing index with a mismatched definition is not
+-- silently left in place by IF NOT EXISTS (which would cause hard-to-debug
+-- query-planner behaviour without any error).
+DROP INDEX IF EXISTS idx_creators_keyword_pipeline;
+
+CREATE INDEX idx_creators_keyword_pipeline
     ON public.creators (id)
     WHERE sync_status = 'synced'
       AND transcript_keywords_updated_at IS NULL;
 
 COMMENT ON INDEX public.idx_creators_keyword_pipeline IS
-    'Partial index for the Kaggle keyword extraction pipeline. '
-    'Supports: SELECT id … WHERE sync_status=''synced'' AND transcript_keywords_updated_at IS NULL ORDER BY id. '
-    'Eliminates statement timeout (57014) in notebooks/creator_keyword_poc.ipynb Cell 5. '
-    'Applied via migration 047.';
+    'Partial index for the Kaggle keyword extraction pipeline. Supports: SELECT id WHERE sync_status=''synced'' AND transcript_keywords_updated_at IS NULL ORDER BY id. Eliminates statement timeout (57014) in notebooks/creator_keyword_poc.ipynb Cell 5. Applied via migration 047.';

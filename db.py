@@ -1896,13 +1896,14 @@ def get_creator_rank(
                 .execute()
             )
         except Exception as exc:
-            # 400 = Cloudflare WAF rejection — triggered by (a) the now-removed
-            # `channel_name=not.is.null` PostgREST pattern, and (b) values like
+            # Narrow to PostgREST APIError only (matched by class name, consistent
+            # with the _is_transient_disconnect pattern used elsewhere in this file)
+            # so unexpected programming errors still surface via re-raise.
+            # 400 = Cloudflare WAF rejection — triggered by the now-removed
+            # `channel_name=not.is.null` PostgREST pattern and by values like
             # "Film & Animation" whose URL-encoded %26 trips parameter-pollution
-            # WAF rules. Not retryable; skip rank silently rather than spamming
-            # the error log with a full traceback for a non-critical field.
-            code = getattr(exc, "code", None)
-            if code == 400 or str(code) == "400":
+            # WAF rules. Not retryable; return None for this non-critical field.
+            if type(exc).__name__ == "APIError" and getattr(exc, "code", None) == 400:
                 logger.debug(
                     "[DB] get_creator_rank: 400 for %s=%r — skipping rank (%s)",
                     filter_key,
