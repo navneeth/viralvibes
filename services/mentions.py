@@ -140,10 +140,35 @@ def fetch_recent_videos(channel_id: str, limit: int = 6) -> list[VideoItem]:
         with httpx.Client(timeout=8.0) as client:
             resp = client.get(url, headers={"User-Agent": "ViralVibesBot/1.0"})
             resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 404:
+            # Channel deleted, private, or terminated — expected for churned channels.
+            # Not an error: log at DEBUG so error monitors stay clean.
+            logger.debug(
+                "YouTube RSS 404 for channel %s — channel may be deleted or private",
+                channel_id,
+            )
+        elif status == 429:
+            logger.warning(
+                "YouTube RSS rate-limited (429) for channel %s — backing off",
+                channel_id,
+            )
+        else:
+            logger.warning(
+                "YouTube RSS HTTP %d for channel %s",
+                status,
+                channel_id,
+            )
+        return []
+    except httpx.TimeoutException:
+        logger.warning("YouTube RSS request timed out for channel %s", channel_id)
+        return []
     except Exception as exc:
         logger.error(
-            "Failed to fetch YouTube RSS feed",
-            extra={"channel_id": channel_id, "exception": repr(exc)},
+            "Failed to fetch YouTube RSS feed for channel %s: %r",
+            channel_id,
+            exc,
         )
         return []
 
