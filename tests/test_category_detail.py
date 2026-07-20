@@ -79,6 +79,10 @@ class _FakeQuery:
         self._call.setdefault("eq", []).append(args)
         return self
 
+    def in_(self, *args):
+        self._call.setdefault("in_", []).append(args)
+        return self
+
     def is_(self, *args):
         self._call.setdefault("is", []).append(args)
         return self
