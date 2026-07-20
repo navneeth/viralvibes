@@ -328,17 +328,26 @@ def resolve_category_slug(slug: str) -> str | None:
     return fallback_label[0].upper() + fallback_label[1:]
 
 
-def _apply_topic_category_filters(query, category: str):
-    """Apply filters shared by category group cards and detail pages."""
-    label = _topic_category_label(category)
-    if label:
-        query = query.filter("topic_categories", "cs", json.dumps([label]))
+def _apply_browseable_constraints(query):
+    """Apply the four predicates shared by every topic-category query.
+
+    Centralised so that a change to BROWSEABLE_SYNC_STATUSES or the
+    standard row-quality filters only needs to happen in one place.
+    """
     return (
         query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
         .not_.is_("channel_name", "null")
         .not_.is_("topic_categories", "null")
         .gt("current_subscribers", 0)
     )
+
+
+def _apply_topic_category_filters(query, category: str):
+    """Apply filters shared by category group cards and detail pages."""
+    label = _topic_category_label(category)
+    if label:
+        query = query.filter("topic_categories", "cs", json.dumps([label]))
+    return _apply_browseable_constraints(query)
 
 
 def _apply_topic_category_text_filters(query, category: str):
@@ -346,12 +355,7 @@ def _apply_topic_category_text_filters(query, category: str):
     pattern = _topic_category_ilike_pattern(category)
     if pattern:
         query = query.ilike("topic_categories", pattern)
-    return (
-        query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
-        .not_.is_("channel_name", "null")
-        .not_.is_("topic_categories", "null")
-        .gt("current_subscribers", 0)
-    )
+    return _apply_browseable_constraints(query)
 
 
 def get_topic_category_creators(
