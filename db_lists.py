@@ -10,6 +10,7 @@ import time
 from typing import Callable, NamedTuple
 from urllib.parse import unquote, urlparse
 
+from constants import BROWSEABLE_SYNC_STATUSES
 from utils import normalize_category_name, safe_get_value, slugify
 
 logger = logging.getLogger(__name__)
@@ -333,7 +334,7 @@ def _apply_topic_category_filters(query, category: str):
     if label:
         query = query.filter("topic_categories", "cs", json.dumps([label]))
     return (
-        query.eq("sync_status", "synced")
+        query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
         .not_.is_("channel_name", "null")
         .not_.is_("topic_categories", "null")
         .gt("current_subscribers", 0)
@@ -346,7 +347,7 @@ def _apply_topic_category_text_filters(query, category: str):
     if pattern:
         query = query.ilike("topic_categories", pattern)
     return (
-        query.eq("sync_status", "synced")
+        query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
         .not_.is_("channel_name", "null")
         .not_.is_("topic_categories", "null")
         .gt("current_subscribers", 0)
