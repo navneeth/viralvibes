@@ -1885,16 +1885,32 @@ def get_creator_rank(
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def _fetch_rank():
-        resp = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id", count="estimated")
-            .eq("sync_status", "synced")
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", current_subscribers)
-            .eq(filter_key, filter_val)
-            .limit(1)
-            .execute()
-        )
+        try:
+            resp = (
+                supabase_client.table(CREATOR_TABLE)
+                .select("id", count="estimated")
+                .eq("sync_status", "synced")
+                .gt("current_subscribers", current_subscribers)
+                .eq(filter_key, filter_val)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:
+            # 400 = Cloudflare WAF rejection — triggered by (a) the now-removed
+            # `channel_name=not.is.null` PostgREST pattern, and (b) values like
+            # "Film & Animation" whose URL-encoded %26 trips parameter-pollution
+            # WAF rules. Not retryable; skip rank silently rather than spamming
+            # the error log with a full traceback for a non-critical field.
+            code = getattr(exc, "code", None)
+            if code == 400 or str(code) == "400":
+                logger.debug(
+                    "[DB] get_creator_rank: 400 for %s=%r — skipping rank (%s)",
+                    filter_key,
+                    filter_val,
+                    exc,
+                )
+                return None
+            raise
         above = getattr(resp, "count", None)
         return int(above) + 1 if above is not None else None
 
