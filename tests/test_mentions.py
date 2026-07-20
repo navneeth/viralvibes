@@ -7,6 +7,7 @@ All HTTP calls are stubbed — no network required.
 
 from __future__ import annotations
 
+import httpx
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
@@ -110,8 +111,6 @@ def test_fetch_recent_videos_respects_limit():
 
 
 def test_fetch_recent_videos_returns_empty_on_http_error():
-    import httpx
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
@@ -125,8 +124,6 @@ def test_fetch_recent_videos_returns_empty_on_http_error():
 
 def test_fetch_recent_videos_404_returns_empty_and_logs_debug():
     """404 is expected for deleted/private channels — must not log at ERROR."""
-    import httpx
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
@@ -143,8 +140,6 @@ def test_fetch_recent_videos_404_returns_empty_and_logs_debug():
 
 
 def test_fetch_recent_videos_timeout_returns_empty_and_logs_warning():
-    import httpx
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
@@ -214,8 +209,6 @@ def test_fetch_news_mentions_handles_title_without_source():
 
 
 def test_fetch_news_mentions_returns_empty_on_http_error():
-    import httpx
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)

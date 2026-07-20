@@ -164,7 +164,7 @@ def fetch_recent_videos(channel_id: str, limit: int = 6) -> list[VideoItem]:
     except httpx.TimeoutException:
         logger.warning("YouTube RSS request timed out for channel %s", channel_id)
         return []
-    except Exception as exc:
+    except httpx.RequestError as exc:
         logger.error(
             "Failed to fetch YouTube RSS feed for channel %s: %r",
             channel_id,
