@@ -7,6 +7,7 @@ All HTTP calls are stubbed — no network required.
 
 from __future__ import annotations
 
+import httpx
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
@@ -110,8 +111,19 @@ def test_fetch_recent_videos_respects_limit():
 
 
 def test_fetch_recent_videos_returns_empty_on_http_error():
-    import httpx
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.get.side_effect = httpx.HTTPStatusError(
+        "500", request=MagicMock(), response=MagicMock(status_code=500)
+    )
+    with patch("services.mentions.httpx.Client", return_value=mock_client):
+        videos = fetch_recent_videos("UCbad", limit=6)
+    assert videos == []
 
+
+def test_fetch_recent_videos_404_returns_empty_and_logs_debug():
+    """404 is expected for deleted/private channels — must not log at ERROR."""
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
@@ -119,8 +131,25 @@ def test_fetch_recent_videos_returns_empty_on_http_error():
         "404", request=MagicMock(), response=MagicMock(status_code=404)
     )
     with patch("services.mentions.httpx.Client", return_value=mock_client):
-        videos = fetch_recent_videos("UCbad", limit=6)
+        with patch("services.mentions.logger") as mock_logger:
+            videos = fetch_recent_videos("UCM0QeKc-ozt38Fw-0hhhAFw", limit=6)
     assert videos == []
+    mock_logger.error.assert_not_called()
+    mock_logger.debug.assert_called_once()
+    assert "404" in mock_logger.debug.call_args[0][0]
+
+
+def test_fetch_recent_videos_timeout_returns_empty_and_logs_warning():
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.get.side_effect = httpx.TimeoutException("timed out")
+    with patch("services.mentions.httpx.Client", return_value=mock_client):
+        with patch("services.mentions.logger") as mock_logger:
+            videos = fetch_recent_videos("UCtest", limit=6)
+    assert videos == []
+    mock_logger.error.assert_not_called()
+    mock_logger.warning.assert_called_once()
 
 
 def test_fetch_recent_videos_returns_empty_on_malformed_xml():
@@ -180,8 +209,6 @@ def test_fetch_news_mentions_handles_title_without_source():
 
 
 def test_fetch_news_mentions_returns_empty_on_http_error():
-    import httpx
-
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=False)
