@@ -255,10 +255,10 @@ _category_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
 # Key: (category_label, country_code, limit, offset, return_count)
 _category_country_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
 
-_CountryCreatorsValue = list[dict] | CountryPageResult
-
 # Key: (country_code, limit, offset, return_count)
-_country_creators_cache: dict[tuple, tuple[float, _CountryCreatorsValue]] = {}
+# Values are always stored as CountryPageResult (the canonical form).
+# When return_count=False, the list is extracted on return to match the function signature.
+_country_creators_cache: dict[tuple, tuple[float, CountryPageResult]] = {}
 
 
 def clear_category_creators_cache() -> None:
@@ -392,8 +392,6 @@ def get_topic_category_creators(
     pages never go blank.  ``clear_category_creators_cache()`` is called by
     ``refresh_hero_stats_cache()`` after ``mv_category_counts`` is refreshed.
     """
-    import time as _time
-
     if not category or not str(category).strip():
         return TopicCategoryPageResult([], 0) if return_count else []
 
@@ -404,7 +402,7 @@ def get_topic_category_creators(
         return TopicCategoryPageResult([], 0) if return_count else []
 
     cache_key = (category_label, limit, offset, return_count)
-    now = _time.monotonic()
+    now = time.monotonic()
     cached_entry = _category_creators_cache.get(cache_key)
     if cached_entry is not None:
         ts, cached = cached_entry
@@ -482,8 +480,6 @@ def get_topic_category_country_creators(
     return_count: bool = False,
 ) -> list[dict] | TopicCategoryPageResult:
     """Paginated creator listing for a topic category within one country."""
-    import time as _time
-
     if not category or not str(category).strip() or not country_code:
         return TopicCategoryPageResult([], 0) if return_count else []
 
@@ -495,7 +491,7 @@ def get_topic_category_country_creators(
         return TopicCategoryPageResult([], 0) if return_count else []
 
     cache_key = (category_label, normalized_country, limit, offset, return_count)
-    now = _time.monotonic()
+    now = time.monotonic()
     cached_entry = _category_country_creators_cache.get(cache_key)
     if cached_entry is not None:
         ts, cached = cached_entry
@@ -952,19 +948,18 @@ def get_country_creators(
     large countries that made public country pages look empty even though the
     country cards had creators.
     """
-    import time as _time
-
     normalized_country = str(country_code or "").strip().upper()
     if len(normalized_country) != 2:
         return CountryPageResult([], 0) if return_count else []
 
     cache_key = (normalized_country, limit, offset, return_count)
-    now = _time.monotonic()
+    now = time.monotonic()
     cached_entry = _country_creators_cache.get(cache_key)
     if cached_entry is not None:
-        ts, cached = cached_entry
+        ts, cached_result = cached_entry
         if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
-            return cached  # type: ignore[return-value]
+            # Cache always stores CountryPageResult; extract list if needed
+            return cached_result if return_count else cached_result.creators
 
     supabase_client = _get_supabase_client()
     if not supabase_client:
@@ -973,7 +968,8 @@ def get_country_creators(
                 "Supabase client unavailable in get_country_creators(%s) - serving stale cache",
                 normalized_country,
             )
-            return cached_entry[1]  # type: ignore[return-value]
+            cached_result = cached_entry[1]
+            return cached_result if return_count else cached_result.creators
         return CountryPageResult([], 0) if return_count else []
 
     try:
@@ -997,7 +993,8 @@ def get_country_creators(
                 normalized_country,
                 now - cached_entry[0],
             )
-            return cached_entry[1]  # type: ignore[return-value]
+            cached_result = cached_entry[1]
+            return cached_result if return_count else cached_result.creators
         logger.exception("Error fetching creators for country %s", normalized_country)
         return CountryPageResult([], 0) if return_count else []
 
@@ -1007,14 +1004,10 @@ def get_country_creators(
     for idx, creator in enumerate(creators, 1):
         creator["_rank"] = offset + idx
 
-    result: list[dict] | CountryPageResult
-    if return_count:
-        result = CountryPageResult(creators, total_count)
-    else:
-        result = creators
-
-    _country_creators_cache[cache_key] = (now, result)
-    return result
+    # Always store as CountryPageResult; extract on return to match function signature
+    cached_result = CountryPageResult(creators, total_count)
+    _country_creators_cache[cache_key] = (now, cached_result)
+    return cached_result if return_count else cached_result.creators
 
 
 def get_creators_by_category(category: str, limit: int = 10) -> list[dict]:
