@@ -82,7 +82,14 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
         # RuntimeErrors are NOT wrapped into RemoteProtocolError so they bypass
         # the check above.  After such a failure httpcore drops the broken
         # connection; a retry gets a fresh one.
-        if isinstance(e, RuntimeError) and "iteration" in str(e) and "dictionary" in str(e):
+        # Also covers hpack/table.py: the HPACK dynamic table is a deque shared
+        # across multiplexed HTTP/2 streams; concurrent header encoding produces
+        # "deque mutated during iteration" — same class of bug, same fix.
+        if (
+            isinstance(e, RuntimeError)
+            and "iteration" in str(e)
+            and ("dictionary" in str(e) or "deque" in str(e))
+        ):
             return True
         # httpcore HTTP/2 stream-bookkeeping bug: a non-200 response (e.g.
         # 206 Partial Content) can cause _response_closed() to try to delete
