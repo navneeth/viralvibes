@@ -231,6 +231,11 @@ class TopicCategoryPageResult(NamedTuple):
     total_count: int
 
 
+class CountryPageResult(NamedTuple):
+    creators: list[dict]
+    total_count: int
+
+
 # ---------------------------------------------------------------------------
 # Per-key TTL cache for category creator listings.
 # Key: (category_label, limit, offset, return_count)
@@ -250,11 +255,21 @@ _category_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
 # Key: (category_label, country_code, limit, offset, return_count)
 _category_country_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
 
+_CountryCreatorsValue = list[dict] | CountryPageResult
+
+# Key: (country_code, limit, offset, return_count)
+_country_creators_cache: dict[tuple, tuple[float, _CountryCreatorsValue]] = {}
+
 
 def clear_category_creators_cache() -> None:
     """Invalidate both category-creators caches (called after mv_category_counts refresh)."""
     _category_creators_cache.clear()
     _category_country_creators_cache.clear()
+
+
+def clear_country_creators_cache() -> None:
+    """Invalidate cached country detail pages."""
+    _country_creators_cache.clear()
 
 
 _CATEGORY_SLUG_CACHE_TTL_S = 60 * 60
@@ -664,6 +679,7 @@ def clear_top_countries_cache() -> None:
     """Clear this process's short-lived top-countries cache."""
     global _top_countries_cache
     _top_countries_cache = None
+    clear_country_creators_cache()
 
 
 def clear_top_languages_cache() -> None:
@@ -917,6 +933,88 @@ def get_creators_by_country(country_code: str, limit: int = 10) -> list[dict]:
     except Exception as e:
         logger.exception(f"Error fetching creators for country {country_code}: {e}")
         return []
+
+
+def get_country_creators(
+    country_code: str,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    return_count: bool = False,
+) -> list[dict] | CountryPageResult:
+    """
+    Paginated creator listing for a country detail page.
+
+    This intentionally mirrors the By Country preview cards: a creator is
+    listable when it has sync_status='synced', a country_code, channel_name,
+    and positive subscribers. The generic get_creators() path uses an IN() sync
+    filter and gracefully returns empty on filtered statement timeouts; for
+    large countries that made public country pages look empty even though the
+    country cards had creators.
+    """
+    import time as _time
+
+    normalized_country = str(country_code or "").strip().upper()
+    if len(normalized_country) != 2:
+        return CountryPageResult([], 0) if return_count else []
+
+    cache_key = (normalized_country, limit, offset, return_count)
+    now = _time.monotonic()
+    cached_entry = _country_creators_cache.get(cache_key)
+    if cached_entry is not None:
+        ts, cached = cached_entry
+        if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
+            return cached  # type: ignore[return-value]
+
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        if cached_entry:
+            logger.warning(
+                "Supabase client unavailable in get_country_creators(%s) - serving stale cache",
+                normalized_country,
+            )
+            return cached_entry[1]  # type: ignore[return-value]
+        return CountryPageResult([], 0) if return_count else []
+
+    try:
+        query = (
+            supabase_client.table("creators")
+            .select("*", count="exact" if return_count else None)
+            .eq("country_code", normalized_country)
+            .eq("sync_status", "synced")
+            .not_.is_("channel_name", "null")
+            .gt("current_subscribers", 0)
+            .order("current_subscribers", desc=True)
+            .limit(limit)
+        )
+        if offset:
+            query = query.offset(offset)
+        response = query.execute()
+    except Exception:
+        if cached_entry:
+            logger.warning(
+                "Error fetching creators for country %s - serving stale cache (age %.0fs)",
+                normalized_country,
+                now - cached_entry[0],
+            )
+            return cached_entry[1]  # type: ignore[return-value]
+        logger.exception("Error fetching creators for country %s", normalized_country)
+        return CountryPageResult([], 0) if return_count else []
+
+    creators = response.data if response and response.data else []
+    total_count = (getattr(response, "count", 0) or 0) if return_count and response else 0
+
+    for idx, creator in enumerate(creators, 1):
+        creator["_rank"] = offset + idx
+
+    result: list[dict] | CountryPageResult
+    if return_count:
+        result = CountryPageResult(creators, total_count)
+    else:
+        result = creators
+
+    _country_creators_cache[cache_key] = (now, result)
+    return result
 
 
 def get_creators_by_category(category: str, limit: int = 10) -> list[dict]:

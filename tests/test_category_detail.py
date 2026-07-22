@@ -304,6 +304,27 @@ def test_get_topic_category_country_creators_filters_country_and_category(monkey
     assert call["order"]["args"] == ("current_subscribers",)
 
 
+def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
+    fake_client = _FakeSupabaseClient(
+        {
+            "data": [{"channel_name": "US Channel", "current_subscribers": 100}],
+            "count": 1,
+        }
+    )
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_country_creators_cache", {})
+
+    result = db_lists.get_country_creators("us", limit=10, return_count=True)
+
+    assert result.total_count == 1
+    assert result.creators[0]["_rank"] == 1
+    call = fake_client.calls[0]
+    assert ("country_code", "US") in call["eq"]
+    assert ("sync_status", "synced") in call["eq"]
+    assert "in_" not in call
+    assert call["order"]["args"] == ("current_subscribers",)
+
+
 # ---------------------------------------------------------------------------
 # Cache behaviour tests
 # ---------------------------------------------------------------------------
@@ -377,6 +398,16 @@ def test_clear_category_creators_cache_clears_both_dicts(monkeypatch):
     assert db_lists._category_country_creators_cache == {}
 
 
+def test_clear_top_countries_cache_clears_country_detail_cache(monkeypatch):
+    monkeypatch.setattr(db_lists, "_top_countries_cache", (0.0, [("US", 1)]))
+    monkeypatch.setattr(db_lists, "_country_creators_cache", {"US": (0.0, [])})
+
+    db_lists.clear_top_countries_cache()
+
+    assert db_lists._top_countries_cache is None
+    assert db_lists._country_creators_cache == {}
+
+
 def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypatch):
     page_result = db_lists.TopicCategoryPageResult(
         creators=[{"channel_name": "Test Channel", "current_subscribers": 1000}],
@@ -399,6 +430,28 @@ def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypa
         "Lifestyle (sociology)",
         limit=20,
         offset=0,
+        return_count=True,
+    )
+
+
+def test_fetch_country_page_uses_country_specific_query(monkeypatch):
+    page_result = db_lists.CountryPageResult(
+        creators=[{"channel_name": "US Channel", "current_subscribers": 1000}],
+        total_count=42,
+    )
+
+    mock_get = MagicMock(return_value=page_result)
+    monkeypatch.setattr(lists_routes, "get_country_creators", mock_get)
+
+    creators, total_count, total_pages = lists_routes._fetch_country_page("us", page=2)
+
+    assert total_count == 42
+    assert total_pages == 3
+    assert len(creators) == 1
+    mock_get.assert_called_once_with(
+        "us",
+        limit=20,
+        offset=20,
         return_count=True,
     )
 

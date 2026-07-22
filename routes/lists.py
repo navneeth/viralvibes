@@ -11,6 +11,7 @@ from db import get_creators, get_user_favourite_list_keys
 from db_lists import (
     _count_distinct_languages,
     get_category_groups,
+    get_country_creators,
     get_country_groups,
     get_language_groups,
     get_lists_meta,
@@ -285,9 +286,8 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     Returns:
         ``(creators, total_count, total_pages)`` tuple.
     """
-    result = get_creators(
-        country_filter=country_code,
-        sort="subscribers",
+    result = get_country_creators(
+        country_code,
         limit=DETAIL_PAGE_LIMIT,
         offset=(page - 1) * DETAIL_PAGE_LIMIT,
         return_count=True,
