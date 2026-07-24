@@ -1759,16 +1759,16 @@ _INVALID_HANDLE_SENTINELS: frozenset[str] = frozenset(
 )
 
 
-def _slug_redirect(handle: str, req, status_code: int = 301) -> RedirectResponse:
-    """Return a redirect to the canonical /creators/@{handle} URL.
+def _qs_redirect(target: str, req, status_code: int = 301) -> RedirectResponse:
+    """Redirect to *target*, preserving any query params from the incoming request."""
+    qs = req.url.query  # raw, already URL-encoded
+    url = f"{target}?{qs}" if qs else target
+    return RedirectResponse(url, status_code=status_code)
 
-    Preserves any query-string parameters so tabs, back-links, etc. survive
-    the redirect transparently.
-    """
-    base = f"/creators/@{handle}"
-    qs = req.url.query  # raw query string, already URL-encoded
-    target = f"{base}?{qs}" if qs else base
-    return RedirectResponse(target, status_code=status_code)
+
+def _slug_redirect(handle: str, req, status_code: int = 301) -> RedirectResponse:
+    """Redirect to the canonical /creators/@{handle} URL, preserving query params."""
+    return _qs_redirect(f"/creators/@{handle}", req, status_code=status_code)
 
 
 # ── Canonical creator profile route ──────────────────────────────────────────
@@ -1941,14 +1941,10 @@ def creator_blueprint_by_handle(req, sess, handle: str):
     creator = find_creator_by_handle(handle)
     if not creator:
         return _creator_not_found_response(
-            req, sess, f"No creator with handle @{handle!r} could be found."
+            req, sess, f"No creator with handle '@{handle}' could be found."
         )
     creator_id = creator["id"]
-    qs = req.url.query
-    target = f"/creator/{creator_id}/blueprint"
-    if qs:
-        target += f"?{qs}"
-    return RedirectResponse(target, status_code=302)
+    return _qs_redirect(f"/creator/{creator_id}/blueprint", req, status_code=302)
 
 
 @rt("/creator/{creator_id}/blueprint")
