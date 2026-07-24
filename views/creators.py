@@ -4679,7 +4679,7 @@ def _creator_country_display_name(country_code: str) -> str:
 def creator_profile_head(creator: dict) -> tuple:
     """Return canonical, description, and social tags for a creator profile."""
     creator_id = safe_get_value(creator, "id", "")
-    path = creator_profile_url(creator) if creator_id else "/creators"
+    path = creator_profile_url(creator)
     title = creator_profile_page_title(creator)
     name = safe_get_value(creator, "channel_name", "this creator")
     category = safe_get_value(creator, "primary_category", "")
