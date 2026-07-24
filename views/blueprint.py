@@ -22,6 +22,7 @@ from monsterui.all import *
 
 from utils import format_number, safe_get_value
 from utils.blueprint import ActionResult, CreatorSignals
+from views.creators import creator_profile_url
 
 import logging
 
@@ -230,7 +231,7 @@ def render_blueprint_page(
     channel_name = safe_get_value(creator, "channel_name", "Creator")
     thumbnail = safe_get_value(creator, "channel_thumbnail_url") or "/static/favicon.jpeg"
     creator_id = safe_get_value(creator, "id", "")
-    profile_url = f"/creator/{creator_id}"
+    profile_url = creator_profile_url(creator)
 
     # Split actions: first scored action = free card; rest will be pro-gated.
     scored = [a for a in actions if a.score > 0]

@@ -202,7 +202,7 @@ class TestCreatorProfile:
         assert r.status_code == 200
         assert "<title>Test Channel YouTube Stats - ViralVibes</title>" in r.text
         assert 'rel="canonical"' in r.text
-        assert f'href="https://www.viralvibes.fyi/creator/{FAKE_CREATOR_UUID}"' in r.text
+        assert 'href="https://www.viralvibes.fyi/creators/@testchannel"' in r.text
         assert "Explore Test Channel" in r.text
         assert "YouTube stats:" in r.text
         assert 'property="og:image"' in r.text
