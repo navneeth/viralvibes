@@ -94,6 +94,19 @@ def _login_href(return_url: str = "/creators") -> str:
     return f"/login?{urlencode({'return_url': return_url})}"
 
 
+def creator_profile_url(creator: dict) -> str:
+    """Return the canonical profile URL for a creator.
+
+    Prefers /creators/@{handle} when custom_url is set; falls back to
+    /creator/{id} for creators without a YouTube handle.
+    """
+    handle = (creator.get("custom_url") or "").lstrip("@")
+    if handle:
+        return f"/creators/@{handle}"
+    creator_id = creator.get("id") or ""
+    return f"/creator/{creator_id}" if creator_id else "/creators"
+
+
 # Brand-accurate colours keyed by Lucide icon name
 _SOCIAL_COLOURS = {
     "instagram": "text-pink-500 hover:text-pink-600",
@@ -2552,7 +2565,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
         return card
     return A(
         card,
-        href=f"/creator/{creator_uuid}?name={quote(channel_name)}",
+        href=f"{creator_profile_url(creator)}?name={quote(channel_name)}",
         cls="block no-underline group min-w-0 w-full",
     )
 
@@ -3041,7 +3054,7 @@ def _render_similar_creators(
                     ),
                     cls="flex flex-col",
                 ),
-                href=f"/creator/{cid}",
+                href=creator_profile_url(c),
                 cls="no-underline",
             ),
             # ⇄ Compare link below the tile
@@ -3413,7 +3426,7 @@ def render_creator_profile_page(
                 A(
                     UkIcon("map", cls="w-4 h-4 mr-1"),
                     "Blueprint",
-                    href=f"/creator/{creator_id}/blueprint?from=/creator/{creator_id}&name={quote_plus(channel_name)}",
+                    href=f"/creator/{creator_id}/blueprint?from={creator_profile_url(creator)}&name={quote_plus(channel_name)}",
                     title="Growth Blueprint — Studio-grounded actions ranked by confidence",
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-primary/10 hover:bg-primary/20 text-primary text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
@@ -4666,7 +4679,7 @@ def _creator_country_display_name(country_code: str) -> str:
 def creator_profile_head(creator: dict) -> tuple:
     """Return canonical, description, and social tags for a creator profile."""
     creator_id = safe_get_value(creator, "id", "")
-    path = f"/creator/{creator_id}" if creator_id else "/creators"
+    path = creator_profile_url(creator) if creator_id else "/creators"
     title = creator_profile_page_title(creator)
     name = safe_get_value(creator, "channel_name", "this creator")
     category = safe_get_value(creator, "primary_category", "")

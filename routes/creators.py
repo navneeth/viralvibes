@@ -48,6 +48,7 @@ from db_lists import (
 from controllers.auth_routes import require_auth
 from views.compare import render_compare_page
 from views.creators import (
+    creator_profile_url,
     render_add_creator_result,
     render_add_creator_status_result,
     render_creator_preview,
@@ -730,7 +731,7 @@ def blueprint_route(request, creator_id: str):
         )
 
     category = creator.get("primary_category", "")
-    back_url = request.query_params.get("from", f"/creator/{creator_id}")
+    back_url = request.query_params.get("from", creator_profile_url(creator))
 
     benchmarks = get_category_peer_benchmarks(category)
     signals = signals_from_row(
