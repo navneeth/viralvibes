@@ -78,6 +78,7 @@ from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
 from db import (
     get_cached_playlist_stats,
+    get_creator_stats,
     get_estimated_stats,
     get_favourite_creators_with_stats,
     get_job_progress,
@@ -1758,47 +1759,135 @@ _INVALID_HANDLE_SENTINELS: frozenset[str] = frozenset(
 )
 
 
+def _slug_redirect(handle: str, req, status_code: int = 301) -> RedirectResponse:
+    """Return a redirect to the canonical /creators/@{handle} URL.
+
+    Preserves any query-string parameters so tabs, back-links, etc. survive
+    the redirect transparently.
+    """
+    base = f"/creators/@{handle}"
+    qs = req.url.query  # raw query string, already URL-encoded
+    target = f"{base}?{qs}" if qs else base
+    return RedirectResponse(target, status_code=status_code)
+
+
+# ── Canonical creator profile route ──────────────────────────────────────────
+#
+# /creators/@{handle} is the SEO-canonical form.  The bare /creator/{...}
+# routes below redirect here; this route renders the profile directly so
+# Google indexes the handle URL rather than an opaque UUID.
+
+
+@rt("/creators/@{handle}")
+def creator_profile_by_handle(req, sess, handle: str):
+    """Canonical creator profile page — /creators/@{handle}
+
+    The leading ``@`` is a literal path character that discriminates this route
+    from other /creators/* paths (top, like, suggest, …).  Starlette captures
+    the text *after* the ``@`` as ``handle``.
+
+    Call chain:
+        main.py  @rt("/creators/@{handle}")
+          └─ find_creator_by_handle(handle)               ← db.py
+          └─ creator_profile_route(req, uuid, user_id)    ← routes/creators.py
+               ├─ get_creator_stats(uuid)                  ← db.py
+               ├─ render_creator_profile_page(creator)     ← views/creators.py
+               └─ creator_profile_head(creator)            ← views/creators.py
+    """
+    normalized = handle.strip().lower()
+    if normalized in _INVALID_HANDLE_SENTINELS:
+        return _creator_not_found_response(req, sess, "That handle is not valid.")
+
+    creator = find_creator_by_handle(handle)
+    if not creator:
+        display_handle = f"@{handle}"
+        return _creator_not_found_response(
+            req, sess, f"No creator with handle {display_handle!r} could be found."
+        )
+
+    creator_id = creator["id"]
+    result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
+
+    if isinstance(result, CreatorProfileResult):
+        head_tags = creator_profile_head(result.creator)
+        return Titled(
+            creator_profile_page_title(result.creator),
+            Container(
+                NavComponent(oauth, req, sess),
+                result.body,
+            ),
+            *head_tags,
+        )
+
+    return Titled(
+        "Creator Profile - ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            result,
+        ),
+    )
+
+
 @rt("/creator/{creator_id}")
 def creator_profile(req, sess, creator_id: str):
-    """Full creator profile page — /creator/{uuid}, /creator/@handle, or /creator/handle
+    """Legacy /creator/{creator_id} path — issues 301 to the canonical handle URL.
 
-    When ``creator_id`` is not a UUID the value is treated as a YouTube handle
-    (with or without the leading ``@``).  The handler looks up the creator and
-    issues a permanent 301 redirect to the canonical UUID URL so the UUID form
-    always remains the authoritative address.
+    When ``creator_id`` is a UUID and the creator has a ``custom_url``, the
+    request is permanently redirected to ``/creators/@{handle}``.  This makes
+    the handle form the URL that Google indexes.
 
-    Call chain (UUID path):
+    When ``creator_id`` is a handle (with or without ``@``), it is resolved and
+    redirected to ``/creators/@{handle}`` directly.
+
+    Fallback: creators with no stored ``custom_url`` are still rendered at their
+    UUID URL so no profiles become inaccessible during migration.
+
+    Call chain (UUID with handle):
         main.py  @rt("/creator/{creator_id}")
-          └─ creator_profile_route(req, creator_id, user_id)  ← routes/creators.py
-               ├─ get_creator_stats(creator_id)                ← db.py
-               ├─ is_creator_favourited(user_id, creator_id)   ← db.py (if logged in)
-               ├─ 404 Div if not found
-               └─ render_creator_profile_page(creator, ...)    ← views/creators.py
+          └─ get_creator_stats(creator_id)               ← db.py
+               └─ 301 RedirectResponse → /creators/@{handle}
 
-    Call chain (handle path):
+    Call chain (handle):
         main.py  @rt("/creator/{creator_id}")
-          └─ find_creator_by_handle(creator_id)               ← db.py
-               └─ 301 RedirectResponse → /creator/{uuid}
+          └─ find_creator_by_handle(creator_id)          ← db.py
+               └─ 301 RedirectResponse → /creators/@{handle}
+
+    Call chain (UUID without handle — fallback):
+        main.py  @rt("/creator/{creator_id}")
+          └─ creator_profile_route(req, creator_id, ...)  ← routes/creators.py
     """
     # Handle-based access: any path segment that doesn't look like a UUID is
     # treated as a creator handle.  Both "@mrbeast" and "mrbeast" are accepted;
     # _normalize_creator_handle (inside find_creator_by_handle) strips "@" and
     # lower-cases before the DB lookup.
     if not _CREATOR_UUID_RE.match(creator_id):
-        # Reject JS/template sentinel strings immediately — no DB queries.
+        # Handle path: resolve, then redirect to canonical /creators/@{handle}.
+        # Both "@mrbeast" and "mrbeast" are accepted.
         normalized_creator_id = creator_id.strip().lower().lstrip("@")
         if normalized_creator_id in _INVALID_HANDLE_SENTINELS:
             return _creator_not_found_response(req, sess, "That handle is not valid.")
         creator = find_creator_by_handle(creator_id)
         if not creator:
-            # Normalise handle for display: strip any leading '@' then re-add
-            # it so the message always shows the canonical "@handle" shape.
             display_handle = f"@{creator_id.lstrip('@')}"
             return _creator_not_found_response(
                 req, sess, f"No creator with handle {display_handle!r} could be found."
             )
-        canonical_id = creator["id"]
-        return RedirectResponse(f"/creator/{canonical_id}", status_code=301)
+        handle = (creator.get("custom_url") or "").lstrip("@").lower()
+        if handle:
+            return _slug_redirect(handle, req)
+        # No handle stored yet — fall back to UUID URL.
+        return RedirectResponse(f"/creator/{creator['id']}", status_code=301)
+
+    # UUID path: redirect to canonical handle URL when one exists.
+    # get_creator_stats is a lightweight primary-key lookup that also gives us
+    # custom_url, avoiding a double-query on the rendering path for UUID→handle.
+    creator_row = get_creator_stats(creator_id)
+    if creator_row:
+        handle = (creator_row.get("custom_url") or "").lstrip("@").lower()
+        if handle:
+            return _slug_redirect(handle, req)
+
+    # Fallback: creator has no handle (or not found) — render at UUID URL.
     result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
 
     if isinstance(result, CreatorProfileResult):
@@ -1839,6 +1928,27 @@ def creator_favourite(req, sess, creator_id: str):
     Requires authentication — returns 401 if not logged in.
     """
     return toggle_favourite_route(req, sess, creator_id)
+
+
+@rt("/creators/@{handle}/blueprint")
+def creator_blueprint_by_handle(req, sess, handle: str):
+    """Redirect /creators/@{handle}/blueprint → /creator/{uuid}/blueprint.
+
+    Ensures blueprint URLs using the handle form work while the blueprint
+    renderer still operates on UUID paths.  Internal links will be updated
+    in PR2 to generate handle-form blueprint URLs directly.
+    """
+    creator = find_creator_by_handle(handle)
+    if not creator:
+        return _creator_not_found_response(
+            req, sess, f"No creator with handle @{handle!r} could be found."
+        )
+    creator_id = creator["id"]
+    qs = req.url.query
+    target = f"/creator/{creator_id}/blueprint"
+    if qs:
+        target += f"?{qs}"
+    return RedirectResponse(target, status_code=302)
 
 
 @rt("/creator/{creator_id}/blueprint")
