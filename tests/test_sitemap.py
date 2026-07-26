@@ -28,7 +28,8 @@ class TestBuildSitemapXml:
         locs = _parse_locs(build_sitemap_xml([]))
         assert "https://www.viralvibes.fyi/rankings/gaming/united-states" in locs
 
-    def test_creator_urls_included(self):
+    def test_creator_urls_included_fallback_to_uuid(self):
+        """Creators without custom_url fall back to /creator/{id} entries."""
         creators = [
             {"id": "abc123", "last_updated_at": "2026-01-01T00:00:00+00:00"},
             {"id": "def456", "last_updated_at": "2026-06-15T12:00:00+00:00"},
@@ -36,6 +37,30 @@ class TestBuildSitemapXml:
         locs = _parse_locs(build_sitemap_xml(creators))
         assert any("/creator/abc123" in loc for loc in locs)
         assert any("/creator/def456" in loc for loc in locs)
+
+    def test_creator_with_handle_uses_handle_url(self):
+        """Creators with custom_url must emit /creators/@handle, not /creator/{id}."""
+        creators = [
+            {"id": "abc123", "custom_url": "mychannel", "last_updated_at": "2026-01-01"},
+            {"id": "def456", "custom_url": "@another", "last_updated_at": "2026-01-01"},
+        ]
+        locs = _parse_locs(build_sitemap_xml(creators))
+        assert any("/creators/@mychannel" in loc for loc in locs)
+        assert any("/creators/@another" in loc for loc in locs)
+        # UUID form must NOT appear — would confuse Google's canonical election
+        assert not any("/creator/abc123" in loc for loc in locs)
+        assert not any("/creator/def456" in loc for loc in locs)
+
+    def test_creator_mixed_handle_and_no_handle(self):
+        """Mixed batch: handle → @handle URL, no-handle → UUID fallback."""
+        creators = [
+            {"id": "uuid-1", "custom_url": "withhandle", "last_updated_at": "2026-01-01"},
+            {"id": "uuid-2", "custom_url": None, "last_updated_at": "2026-01-01"},
+        ]
+        locs = _parse_locs(build_sitemap_xml(creators))
+        assert any("/creators/@withhandle" in loc for loc in locs)
+        assert any("/creator/uuid-2" in loc for loc in locs)
+        assert not any("/creator/uuid-1" in loc for loc in locs)
 
     def test_aplus_lookalike_urls_included(self):
         """A+ creator handles produce /creators/like/{handle} entries."""
