@@ -8,7 +8,7 @@ because generate_sitemap.py falls back to empty lists when DB creds are absent.
 import xml.etree.ElementTree as ET
 
 from services.rankings import iter_ranking_sitemap_paths
-from services.sitemap import STATIC_ROUTES, build_sitemap_xml
+from services.sitemap import STATIC_ROUTES, build_sitemap_xml, fetch_synced_creators
 
 _NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
 
@@ -107,3 +107,61 @@ class TestBuildSitemapXml:
         aplus = [{"custom_url": "@handle", "last_updated_at": "2026-06-01"}]
         xml = build_sitemap_xml(creators, aplus_creators=aplus)
         ET.fromstring(xml)  # raises if not well-formed
+
+
+class TestFetchSyncedCreators:
+    """Contract tests for fetch_synced_creators — no real Supabase connection needed."""
+
+    def _make_client(self, rows):
+        """Return a fake Supabase client that records the SELECT projection."""
+        recorded = {}
+
+        class _Exe:
+            data = rows
+
+        class _Query:
+            def select(self_, cols):
+                recorded["cols"] = cols
+                return self_
+
+            def eq(self_, *_):
+                return self_
+
+            def execute(self_):
+                return _Exe()
+
+        class _Client:
+            def table(self_, *_):
+                return _Query()
+
+        return _Client(), recorded
+
+    def test_select_projection_includes_custom_url(self):
+        """The SELECT must include custom_url — without it all creators silently
+        fall back to UUID URLs in the sitemap, defeating the handle migration."""
+        client, recorded = self._make_client([])
+        fetch_synced_creators(client)
+        assert "custom_url" in recorded["cols"], (
+            f"fetch_synced_creators projected {recorded['cols']!r}; "
+            "expected 'custom_url' to be present"
+        )
+
+    def test_returned_rows_retain_custom_url(self):
+        """Rows returned by the client must pass through with custom_url intact."""
+        rows = [
+            {"id": "u1", "custom_url": "mrbeast", "last_updated_at": "2026-01-01"},
+            {"id": "u2", "custom_url": None, "last_updated_at": "2026-01-01"},
+        ]
+        client, _ = self._make_client(rows)
+        result = fetch_synced_creators(client)
+        assert result[0]["custom_url"] == "mrbeast"
+        assert result[1]["custom_url"] is None
+
+    def test_exception_returns_empty_list(self):
+        """Any DB error must be swallowed and return []."""
+
+        class _BadClient:
+            def table(self_, *_):
+                raise RuntimeError("connection refused")
+
+        assert fetch_synced_creators(_BadClient()) == []
