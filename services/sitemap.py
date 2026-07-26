@@ -46,11 +46,11 @@ STATIC_ROUTES: list[tuple[str, str, str]] = [
 
 
 def fetch_synced_creators(client) -> list:
-    """Return ``{id, last_updated_at}`` rows for all synced creators."""
+    """Return ``{id, custom_url, last_updated_at}`` rows for all synced creators."""
     try:
         resp = (
             client.table("creators")
-            .select("id, last_updated_at")
+            .select("id, custom_url, last_updated_at")
             .eq("sync_status", "synced")
             .execute()
         )
@@ -98,9 +98,11 @@ def build_sitemap_xml(
     """Build and return the complete sitemap XML string.
 
     Args:
-        creators: List of ``{id, last_updated_at}`` dicts for synced creators.
-                  Each becomes a ``/creator/{id}`` entry. Pass an empty list
-                  to emit static routes only (e.g. in CI when DB is offline).
+        creators: List of ``{id, custom_url, last_updated_at}`` dicts for synced
+                  creators. Each becomes a ``/creators/@{handle}`` entry when
+                  ``custom_url`` is set, or ``/creator/{id}`` as a fallback.
+                  Pass an empty list to emit static routes only (e.g. in CI
+                  when DB is offline).
         aplus_creators: Optional list of ``{custom_url, last_updated_at}``
                   dicts for A+ creators with a usable handle. Each becomes a
                   ``/creators/like/{handle}`` lookalike-page entry. Scoped to
@@ -129,8 +131,10 @@ def build_sitemap_xml(
         creator_id = creator.get("id")
         if not creator_id:
             continue
+        handle = (creator.get("custom_url") or "").lstrip("@").lower()
+        path = f"/creators/@{handle}" if handle else f"/creator/{creator_id}"
         url_el = ET.SubElement(urlset, "url")
-        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/creator/{creator_id}")
+        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, path)
         ET.SubElement(url_el, "lastmod").text = _lastmod_or_today(creator, today)
         ET.SubElement(url_el, "changefreq").text = "weekly"
         ET.SubElement(url_el, "priority").text = "0.7"

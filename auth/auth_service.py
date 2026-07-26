@@ -48,6 +48,12 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     # Persistence (save/export) is soft-gated per-action, not at route level.
     "/creators",
     r"/creator/.*",
+    # Canonical handle-based creator profiles — must be crawlable by Google.
+    # re.search() means r"/creators/@" covers /creators/@handle and
+    # /creators/@handle/blueprint.  Without this, the OAuth middleware blocks
+    # unauthenticated access and Googlebot gets the login page instead of the
+    # canonical profile content, defeating the entire SEO URL migration.
+    r"/creators/@",
     "/lists",
     r"/lists/.*",
     "/analysis",
