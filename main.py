@@ -199,50 +199,30 @@ logger = logging.getLogger(__name__)
 # serialising. Calling to_xml() directly on the raw tuple skips that step,
 # so the output is a bare fragment with no CSS or JS.
 #
+# fast_app(meta=[...], head=Head(...)) items are injected by FastHTML's _resp()
+# pipeline — they are NOT part of hdrs. _render_page() bypasses _resp(), so
+# it must include them explicitly to produce structurally identical output.
+# The critical missing element is the viewport meta tag; without it mobile
+# browsers render the page at ~980px desktop width and scale it down.
+#
 # FastHTML elements are factory functions, NOT classes — use .tag string,
 # never isinstance(x, Title).
 # ---------------------------------------------------------------------------
 _HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
 
-
-def _is_head_elem(x) -> bool:
-    return hasattr(x, "tag") and isinstance(x.tag, str) and x.tag.lower() in _HEAD_TAG_NAMES
-
-
-def _render_page(ft_response) -> str:
-    """Assemble a complete HTML page from a Titled() result.
-
-    Replicates FastHTML's response pipeline so that HTMLResponse objects
-    produced for CDN caching are structurally identical to pages served
-    through the normal FastHTML path.
-    """
-    if not isinstance(ft_response, tuple):
-        ft_response = (ft_response,)
-    head_items = [x for x in ft_response if _is_head_elem(x)]
-    body_items = [x for x in ft_response if not _is_head_elem(x)]
-    return "<!DOCTYPE html>" + to_xml(
-        Html(
-            Head(*hdrs, *head_items),
-            Body(*body_items),
-        )
-    )
-
-
-# ---------------------------------------------------------------------------
-# Page rendering helper — used when a route must return HTMLResponse directly
-# (e.g. to attach Cache-Control headers) while still producing a complete HTML
-# document that includes the app-level CSS/JS headers (hdrs).
-#
-# Root-cause note: Titled() returns a *tuple* of FT nodes.  FastHTML's internal
-# _resp() assembles these into Html(Head(*hdrs, *head_nodes), Body(*body_nodes))
-# before serialising.  Calling to_xml() on the raw tuple bypasses that step, so
-# the output lacks all CSS and JS from hdrs — non-authenticated users receive a
-# bare HTML fragment with no styles.
-# ---------------------------------------------------------------------------
-# Tag names that belong in <head>, not <body>.
-# FastHTML elements are all instances of FT (not their own classes), so we
-# identify them by their .tag string rather than with isinstance().
-_HEAD_TAG_NAMES = frozenset({"title", "meta", "link", "script", "style"})
+# Meta tags and head elements that fast_app() injects via _resp() but that
+# _render_page() must include manually because it bypasses that pipeline.
+# Keep in sync with the fast_app(..., meta=[...], head=Head(...)) call below.
+_APP_META = (
+    Meta(charset="UTF-8"),
+    Meta(name="viewport", content="width=device-width, initial-scale=1.0"),
+)
+_APP_HEAD_LINKS = (
+    Link(
+        rel="stylesheet",
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap",
+    ),
+)
 
 
 def _is_head_elem(x) -> bool:
@@ -253,8 +233,12 @@ def _render_page(ft_response) -> str:
     """Convert a Titled() result to a complete, standalone HTML page string.
 
     Replicates what FastHTML's response pipeline does internally so that
-    CDN-cached HTMLResponse objects are structurally identical to responses
-    served through the normal FastHTML path.
+    HTMLResponse objects produced for CDN caching are structurally identical
+    to responses served through the normal FastHTML path.
+
+    Includes the meta/head elements that fast_app() normally injects via
+    _resp() — in particular the viewport meta tag required for correct mobile
+    rendering.
     """
     if not isinstance(ft_response, tuple):
         ft_response = (ft_response,)
@@ -262,7 +246,7 @@ def _render_page(ft_response) -> str:
     body_items = [x for x in ft_response if not _is_head_elem(x)]
     return "<!DOCTYPE html>" + to_xml(
         Html(
-            Head(*hdrs, *head_items),
+            Head(*_APP_META, *_APP_HEAD_LINKS, *hdrs, *head_items),
             Body(*body_items),
         )
     )
