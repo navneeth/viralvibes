@@ -106,8 +106,19 @@ class TestCreatorsPage:
     def _patch_creators_db(self, monkeypatch, creators=None):
         """Patch all DB calls made by creators_route."""
         import routes.creators as rc
+        from db import CreatorsResult
 
-        monkeypatch.setattr(rc, "get_creators", lambda **kw: make_creators_result(creators))
+        items = creators if creators is not None else [FAKE_CREATOR]
+
+        def _fake_get_creators(**kw):
+            # Respect return_count so the route's branch logic works correctly:
+            # return_count=True  → CreatorsResult (filtered/search path)
+            # return_count=False → list[dict]     (unfiltered default path)
+            if kw.get("return_count", False):
+                return CreatorsResult(creators=list(items), total_count=len(items))
+            return list(items)
+
+        monkeypatch.setattr(rc, "get_creators", _fake_get_creators)
         monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
         monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
         monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
@@ -155,8 +166,13 @@ class TestCreatorsPage:
         """page > total_pages must redirect to the last valid page, not return a 500."""
         # Build a client that does NOT follow redirects so we can inspect the 303.
         no_redirect_client = TestClient(main.app, follow_redirects=False)
-        # 1 creator → 1 total page; requesting page=999 triggers the redirect
+        # 1 creator → 1 total page; requesting page=999 triggers the redirect.
+        # The unfiltered path skips count=exact and reads total_creators from
+        # hero_stats, so the stub must supply it for total_pages to be computed.
         self._patch_creators_db(monkeypatch)
+        import routes.creators as rc
+
+        monkeypatch.setattr(rc, "get_creator_hero_stats", lambda: {"total_creators": 1})
         r = no_redirect_client.get("/creators?page=999")
         assert r.status_code in (302, 303)
         assert "page=" in r.headers.get("location", "")
