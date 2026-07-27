@@ -3,6 +3,7 @@ Lists route — curated creator list pages.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
 from fasthtml.common import Div
@@ -79,56 +80,69 @@ def lists_route(request):
     # Auth context for heart buttons
     user_id, authenticated, fav_keys = _auth_context(request)
 
-    # ── Fetch live DB meta (one combined aggregation scan) ──────────────────
-    meta = get_lists_meta()
+    # ── Fire all independent DB calls in parallel ────────────────────────────
+    # All tab data is loaded upfront to support UIkit's client-side tab switcher.
+    # Live meta (country + category counts) drives dynamic tab badges and
+    # load-more controls. All calls are independent — total latency = max(each).
+    with ThreadPoolExecutor(max_workers=11) as pool:
+        # Live DB meta: one combined aggregation scan
+        f_meta = pool.submit(get_lists_meta)
+        # Top Rated: quality-sorted creators
+        f_top_rated = pool.submit(get_top_rated_creators, 20)
+        # Most Active: upload-frequency leaders
+        f_most_active = pool.submit(get_most_active_creators, 20)
+        # By Country: first page of groups (offset=0)
+        f_country_rankings = pool.submit(get_country_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP)
+        # By Category: first page of groups (offset=0)
+        f_category_rankings = pool.submit(
+            get_category_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP
+        )
+        # Rising Stars: fastest growth rate
+        f_rising = pool.submit(get_rising_creators, 20)
+        # Veterans: 10+ year channels
+        f_veterans = pool.submit(get_veteran_creators, 20)
+        # New Channels: created within the last year, sorted by engagement
+        f_new_channels = pool.submit(get_new_channels, 20)
+        # Niche Heat Map: category-level aggregated momentum
+        f_heatmap = pool.submit(get_niche_heatmap_data)
+        # By Language: first page of groups (offset=0)
+        f_language_rankings = pool.submit(
+            get_language_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP
+        )
+        # Language count fallback: zero-row-transfer COUNT(DISTINCT) — cheap to
+        # pre-fetch; used only when meta["total_languages"] is absent (pre-003 DB)
+        f_total_languages = pool.submit(_count_distinct_languages)
 
-    # ── Load data for ALL tabs upfront ──────────────────────────────────────
-    tab_data = {}
+        meta = f_meta.result()
+        top_rated = f_top_rated.result()
+        most_active = f_most_active.result()
+        country_rankings = f_country_rankings.result()
+        category_rankings = f_category_rankings.result()
+        rising = f_rising.result()
+        veterans = f_veterans.result()
+        new_channels = f_new_channels.result()
+        heatmap = f_heatmap.result()
+        language_rankings = f_language_rankings.result()
+        total_languages_fallback = f_total_languages.result()
 
-    # Top Rated: quality-sorted creators
-    tab_data["top_rated"] = get_top_rated_creators(limit=20)
-
-    # Most Active: upload-frequency leaders
-    tab_data["most_active"] = get_most_active_creators(limit=20)
-
-    # By Country: first page of groups (offset=0)
-    tab_data["country_rankings"] = get_country_groups(
-        offset=0,
-        limit=INITIAL_GROUPS,
-        creators_per_group=CREATORS_PER_GROUP,
-    )
-    tab_data["total_countries"] = meta["total_countries"]
-
-    # By Category: first page of groups (offset=0)
-    tab_data["category_rankings"] = get_category_groups(
-        offset=0,
-        limit=INITIAL_GROUPS,
-        creators_per_group=CREATORS_PER_GROUP,
-    )
-    tab_data["total_categories"] = meta["total_categories"]
-
-    # Rising Stars: fastest growth rate
-    tab_data["rising"] = get_rising_creators(limit=20)
-
-    # Veterans: 10+ year channels
-    tab_data["veterans"] = get_veteran_creators(limit=20)
-
-    # New Channels: created within the last year, sorted by engagement
-    tab_data["new_channels"] = get_new_channels(limit=20)
-
-    # Niche Heat Map: category-level aggregated momentum
-    tab_data["heatmap"] = get_niche_heatmap_data()
-
-    # By Language: first page of groups (offset=0)
-    tab_data["language_rankings"] = get_language_groups(
-        offset=0,
-        limit=INITIAL_GROUPS,
-        creators_per_group=CREATORS_PER_GROUP,
-    )
-    # meta["total_languages"] comes from migration 003.  On older DB schemas
-    # that predate the RPC column, fall back to _count_distinct_languages() —
-    # a zero-row-transfer COUNT(DISTINCT) query that has no row cap.
-    tab_data["total_languages"] = meta.get("total_languages") or _count_distinct_languages()
+    # ── Assemble tab_data from parallel results ──────────────────────────────
+    tab_data = {
+        "top_rated": top_rated,
+        "most_active": most_active,
+        "country_rankings": country_rankings,
+        "total_countries": meta["total_countries"],
+        "category_rankings": category_rankings,
+        "total_categories": meta["total_categories"],
+        "rising": rising,
+        "veterans": veterans,
+        "new_channels": new_channels,
+        "heatmap": heatmap,
+        "language_rankings": language_rankings,
+        # meta["total_languages"] comes from migration 003.  On older DB schemas
+        # that predate the RPC column, fall back to _count_distinct_languages() —
+        # pre-fetched above in parallel so there is no extra round-trip.
+        "total_languages": meta.get("total_languages") or total_languages_fallback,
+    }
 
     return render_lists_page(
         active_tab=active_tab,
