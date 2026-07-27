@@ -838,6 +838,7 @@ def get_top_rated_creators(limit: int = 20) -> list[dict]:
         response = (
             supabase_client.table("creators")
             .select("*")
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .order("current_subscribers", desc=True)
