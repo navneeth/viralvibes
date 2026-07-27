@@ -327,6 +327,26 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         # get_creators(), hero stats, sidebar counts, and favourites are fully
         # independent.  Running them concurrently cuts wall-clock latency from
         # Σ(individual times) to max(individual times).
+
+        # count=exact (Prefer: count=exact via PostgREST) forces PostgreSQL to
+        # COUNT(*) every matching row even when LIMIT 50 is satisfied early.
+        # On the unfiltered default browse (~800K browseable creators) this
+        # hits the statement timeout (57014) before returning.
+        # Fix: skip count=exact for the default unfiltered+no-search case and
+        # use hero_stats["total_creators"] (fetched in parallel) for pagination.
+        # Filtered/searched pages still use count=exact for accurate page counts.
+        _needs_exact_count = bool(search) or any(
+            f != "all"
+            for f in [
+                grade_filter,
+                language_filter,
+                activity_filter,
+                age_filter,
+                country_filter,
+                category_filter,
+            ]
+        )
+
         _futures: dict[str, Any] = {}
         with ThreadPoolExecutor(max_workers=5) as _pool:
             _futures["creators"] = _pool.submit(
@@ -341,7 +361,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                 category_filter=category_filter,
                 limit=per_page,
                 offset=(page - 1) * per_page,
-                return_count=True,
+                return_count=_needs_exact_count,
             )
             _futures["hero"] = _pool.submit(get_creator_hero_stats)
             _futures["countries"] = _pool.submit(
@@ -356,10 +376,16 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             if is_authenticated and user_id:
                 _futures["favs"] = _pool.submit(get_user_favourite_creator_ids, user_id)
 
-        result = _futures["creators"].result()
-        creators = result.creators
-        total_count = result.total_count
         hero_stats = _futures["hero"].result()
+        creators_result = _futures["creators"].result()
+        if _needs_exact_count:
+            # Filtered/searched: result is CreatorsResult(creators, total_count)
+            creators = creators_result.creators
+            total_count = creators_result.total_count
+        else:
+            # Unfiltered default browse: result is list[dict]; use hero stats for count
+            creators = creators_result
+            total_count = hero_stats.get("total_creators", 0)
         top_countries = _futures["countries"].result()
         top_languages = _futures["languages"].result()
         top_categories = _futures["categories"].result()
