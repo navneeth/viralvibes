@@ -103,8 +103,16 @@ def client():
 class TestCreatorsPage:
     """Integration tests for GET /creators."""
 
-    def _patch_creators_db(self, monkeypatch, creators=None):
-        """Patch all DB calls made by creators_route."""
+    def _patch_creators_db(self, monkeypatch, creators=None, expected_return_count=None):
+        """Patch all DB calls made by creators_route.
+
+        Args:
+            expected_return_count: When provided, the mock asserts that
+                get_creators() is called with exactly this return_count value.
+                False  → unfiltered default browse (list[dict] response)
+                True   → filtered or search path (CreatorsResult response)
+                None   → no assertion (legacy; avoid in new tests)
+        """
         import routes.creators as rc
         from db import CreatorsResult
 
@@ -126,33 +134,33 @@ class TestCreatorsPage:
         monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
 
     def test_browse_page_returns_200(self, client, monkeypatch):
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         r = client.get("/creators")
         assert r.status_code == 200
 
     def test_browse_page_contains_page_title(self, client, monkeypatch):
         """Page title should reference Creators."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         r = client.get("/creators")
         assert r.status_code == 200
         assert "Creator" in r.text
 
     def test_browse_page_shows_creator_card(self, client, monkeypatch):
         """Creator cards should show the mocked channel name."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         r = client.get("/creators")
         assert r.status_code == 200
         assert "Test Channel" in r.text
 
     def test_browse_page_with_search_query(self, client, monkeypatch):
         """Search query param must not crash the route."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=True)
         r = client.get("/creators?search=MrBeast")
         assert r.status_code == 200
 
     def test_browse_page_with_multiple_filters(self, client, monkeypatch):
         """Multiple filter params combined must render without errors."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=True)
         r = client.get("/creators?sort=engagement&grade=A&language=en&activity=active")
         assert r.status_code == 200
 
@@ -167,9 +175,8 @@ class TestCreatorsPage:
         # Build a client that does NOT follow redirects so we can inspect the 303.
         no_redirect_client = TestClient(main.app, follow_redirects=False)
         # 1 creator → 1 total page; requesting page=999 triggers the redirect.
-        # The unfiltered path skips count=exact and reads total_creators from
-        # hero_stats, so the stub must supply it for total_pages to be computed.
-        self._patch_creators_db(monkeypatch)
+        # Default browse → return_count=False; hero_stats supplies total_creators.
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         import routes.creators as rc
 
         monkeypatch.setattr(rc, "get_creator_hero_stats", lambda: {"total_creators": 1})
