@@ -492,7 +492,7 @@ def index(req, sess):
         "Discover and vet YouTube creators at scale. Filter by engagement rate, niche, "
         "country and audience quality. Built for brands and agencies."
     )
-    return Titled(
+    response = Titled(
         _homepage_title,
         Container(
             TopAlertBar(),
@@ -527,6 +527,22 @@ def index(req, sess):
             }
         ),
     )
+
+    # Cache at the CDN edge for anonymous visitors only.
+    # The homepage makes zero DB calls and renders identically for every
+    # logged-out user, so a longer TTL is safe.
+    # Authenticated users get a fresh response (different nav state).
+    # Vary: Cookie keeps logged-in and logged-out entries separate.
+    if not sess.get("auth"):
+        return HTMLResponse(
+            _render_page(response),
+            headers={
+                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
+                "Vary": "Cookie",
+            },
+        )
+
+    return response
 
 
 @rt("/login")
