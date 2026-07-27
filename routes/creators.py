@@ -312,6 +312,19 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     except (TypeError, ValueError):
         per_page = 50
 
+    # Single source of truth for filter field names and their default values.
+    # Used both to compute _needs_exact_count (below) and has_active_filters
+    # (after the if/else).  Adding a new filter only requires updating this
+    # dict and the _active_filters mapping in the else branch.
+    _FILTER_DEFAULTS: dict[str, str] = {
+        "grade": "all",
+        "language": "all",
+        "activity": "all",
+        "age": "all",
+        "country": "all",
+        "category": "all",
+    }
+
     if handle_not_found:
         creators = []
         total_count = 0
@@ -335,16 +348,16 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         # Fix: skip count=exact for the default unfiltered+no-search case and
         # use hero_stats["total_creators"] (fetched in parallel) for pagination.
         # Filtered/searched pages still use count=exact for accurate page counts.
+        _active_filters: dict[str, str] = {
+            "grade": grade_filter,
+            "language": language_filter,
+            "activity": activity_filter,
+            "age": age_filter,
+            "country": country_filter,
+            "category": category_filter,
+        }
         _needs_exact_count = bool(search) or any(
-            f != "all"
-            for f in [
-                grade_filter,
-                language_filter,
-                activity_filter,
-                age_filter,
-                country_filter,
-                category_filter,
-            ]
+            _active_filters[k] != default for k, default in _FILTER_DEFAULTS.items()
         )
 
         _futures: dict[str, Any] = {}
@@ -383,9 +396,17 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             creators = creators_result.creators
             total_count = creators_result.total_count
         else:
-            # Unfiltered default browse: result is list[dict]; use hero stats for count
+            # Unfiltered default browse: result is list[dict]; count=exact was skipped.
+            # Use hero_stats total as pagination count (approximate: reflects synced
+            # rows only, excludes synced_partial ~0.1% of the browseable pool).
+            # Distinguish RPC failure (returns {} → None) from a genuinely empty DB
+            # (returns 0): treat None as "count unavailable" and fall back to a
+            # minimum that ensures the current page is not falsely shown as empty.
             creators = creators_result
-            total_count = hero_stats.get("total_creators", 0)
+            _hero_total = hero_stats.get("total_creators")
+            total_count = (
+                _hero_total if _hero_total is not None else (page - 1) * per_page + len(creators)
+            )
         top_countries = _futures["countries"].result()
         top_languages = _futures["languages"].result()
         top_categories = _futures["categories"].result()
@@ -433,14 +454,6 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     #
     # Derived from request.query_params — the single source of truth — so adding a
     # new filter param only needs wiring in one place (the extraction block above).
-    _FILTER_DEFAULTS = {
-        "grade": "all",
-        "language": "all",
-        "activity": "all",
-        "age": "all",
-        "country": "all",
-        "category": "all",
-    }
     has_active_filters = bool(search) or any(
         request.query_params.get(k, default) != default for k, default in _FILTER_DEFAULTS.items()
     )
