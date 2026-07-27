@@ -542,7 +542,10 @@ def index(req, sess):
             },
         )
 
-    return response
+    return HTMLResponse(
+        _render_page(response),
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @rt("/login")
