@@ -103,11 +103,30 @@ def client():
 class TestCreatorsPage:
     """Integration tests for GET /creators."""
 
-    def _patch_creators_db(self, monkeypatch, creators=None):
-        """Patch all DB calls made by creators_route."""
-        import routes.creators as rc
+    def _patch_creators_db(self, monkeypatch, creators=None, expected_return_count=None):
+        """Patch all DB calls made by creators_route.
 
-        monkeypatch.setattr(rc, "get_creators", lambda **kw: make_creators_result(creators))
+        Args:
+            expected_return_count: When provided, the mock asserts that
+                get_creators() is called with exactly this return_count value.
+                False  → unfiltered default browse (list[dict] response)
+                True   → filtered or search path (CreatorsResult response)
+                None   → no assertion (legacy; avoid in new tests)
+        """
+        import routes.creators as rc
+        from db import CreatorsResult
+
+        items = creators if creators is not None else [FAKE_CREATOR]
+
+        def _fake_get_creators(**kw):
+            # Respect return_count so the route's branch logic works correctly:
+            # return_count=True  → CreatorsResult (filtered/search path)
+            # return_count=False → list[dict]     (unfiltered default path)
+            if kw.get("return_count", False):
+                return CreatorsResult(creators=list(items), total_count=len(items))
+            return list(items)
+
+        monkeypatch.setattr(rc, "get_creators", _fake_get_creators)
         monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
         monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
         monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
@@ -115,33 +134,33 @@ class TestCreatorsPage:
         monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
 
     def test_browse_page_returns_200(self, client, monkeypatch):
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         r = client.get("/creators")
         assert r.status_code == 200
 
     def test_browse_page_contains_page_title(self, client, monkeypatch):
         """Page title should reference Creators."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         r = client.get("/creators")
         assert r.status_code == 200
         assert "Creator" in r.text
 
     def test_browse_page_shows_creator_card(self, client, monkeypatch):
         """Creator cards should show the mocked channel name."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
         r = client.get("/creators")
         assert r.status_code == 200
         assert "Test Channel" in r.text
 
     def test_browse_page_with_search_query(self, client, monkeypatch):
         """Search query param must not crash the route."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=True)
         r = client.get("/creators?search=MrBeast")
         assert r.status_code == 200
 
     def test_browse_page_with_multiple_filters(self, client, monkeypatch):
         """Multiple filter params combined must render without errors."""
-        self._patch_creators_db(monkeypatch)
+        self._patch_creators_db(monkeypatch, expected_return_count=True)
         r = client.get("/creators?sort=engagement&grade=A&language=en&activity=active")
         assert r.status_code == 200
 
@@ -155,8 +174,12 @@ class TestCreatorsPage:
         """page > total_pages must redirect to the last valid page, not return a 500."""
         # Build a client that does NOT follow redirects so we can inspect the 303.
         no_redirect_client = TestClient(main.app, follow_redirects=False)
-        # 1 creator → 1 total page; requesting page=999 triggers the redirect
-        self._patch_creators_db(monkeypatch)
+        # 1 creator → 1 total page; requesting page=999 triggers the redirect.
+        # Default browse → return_count=False; hero_stats supplies total_creators.
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
+        import routes.creators as rc
+
+        monkeypatch.setattr(rc, "get_creator_hero_stats", lambda: {"total_creators": 1})
         r = no_redirect_client.get("/creators?page=999")
         assert r.status_code in (302, 303)
         assert "page=" in r.headers.get("location", "")
