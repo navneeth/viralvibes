@@ -273,6 +273,7 @@ def AuthModal(
                         ),
                         H2(
                             "One click away.",
+                            id=f"{modal_id}-heading",
                             cls="text-2xl font-bold text-white leading-tight",
                         ),
                         P(
@@ -343,6 +344,9 @@ def AuthModal(
                     "w-full max-w-sm mx-4 "
                     "animate-in fade-in zoom-in-95 duration-200"
                 ),
+                role="dialog",
+                aria_modal="true",
+                aria_labelledby=f"{modal_id}-heading",
             ),
             onclick=f"if(event.target===this){{{close_js}}}",
             cls=(
@@ -350,7 +354,23 @@ def AuthModal(
                 "bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200"
             ),
         ),
-        Script(f"document.getElementById('{modal_id}').classList.remove('hidden')"),
+        Script(
+            f"""
+(function() {{
+    var el = document.getElementById('{modal_id}');
+    el.classList.remove('hidden');
+    var closeBtn = el.querySelector('button[aria-label="Close"]');
+    if (closeBtn) {{ closeBtn.focus(); }}
+    function _onKey(e) {{
+        if (e.key === 'Escape') {{
+            {close_js};
+            document.removeEventListener('keydown', _onKey);
+        }}
+    }}
+    document.addEventListener('keydown', _onKey);
+}})();
+"""
+        ),
         id=modal_id,
         cls="modal-container hidden",
     )

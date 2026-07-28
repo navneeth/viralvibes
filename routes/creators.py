@@ -45,7 +45,7 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
-from controllers.auth_routes import require_auth
+from controllers.auth_routes import require_auth, safe_local_return_url
 from views.compare import render_compare_page
 from views.creators import (
     creator_profile_url,
@@ -652,8 +652,11 @@ def toggle_favourite_route(request, sess, creator_id: str):
     favourited it is removed.  Returns the updated FavouriteButton fragment
     so HTMX can swap it in-place.
 
-    AUTH: Requires a valid session (``sess['auth']``).  Returns 401 when the
-    user is not logged in.
+    AUTH: When the session carries no ``auth`` token the endpoint returns an
+    HTMX OOB tuple: the unchanged heart button (primary swap) and an
+    ``AuthModal`` injected into ``#auth-modal-mount`` so no hard redirect
+    is needed.  Authenticated users with a missing ``user_id`` still receive
+    a 401 to guard the DB helpers.
     """
     from views.creators import render_favourite_button
 
@@ -665,7 +668,9 @@ def toggle_favourite_route(request, sess, creator_id: str):
 
         # Return the unchanged button as the primary HTMX swap target, and
         # inject the auth modal out-of-band so no hard redirect is needed.
-        return_url = request.headers.get("referer", "/creators")
+        # safe_local_return_url strips scheme/host and rejects external URLs,
+        # preventing an open-redirect via a spoofed Referer header.
+        return_url = safe_local_return_url(request.headers.get("referer"), default="/creators")
         return (
             render_favourite_button(creator_id, is_favourited=False),
             Div(
