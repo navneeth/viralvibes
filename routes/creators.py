@@ -45,7 +45,7 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
-from controllers.auth_routes import require_auth
+from controllers.auth_routes import require_auth, safe_local_return_url
 from views.compare import render_compare_page
 from views.creators import (
     creator_profile_url,
@@ -652,8 +652,11 @@ def toggle_favourite_route(request, sess, creator_id: str):
     favourited it is removed.  Returns the updated FavouriteButton fragment
     so HTMX can swap it in-place.
 
-    AUTH: Requires a valid session (``sess['auth']``).  Returns 401 when the
-    user is not logged in.
+    AUTH: When the session carries no ``auth`` token the endpoint returns an
+    HTMX OOB tuple: the unchanged heart button (primary swap) and an
+    ``AuthModal`` injected into ``#auth-modal-mount`` so no hard redirect
+    is needed.  Authenticated users with a missing ``user_id`` still receive
+    a 401 to guard the DB helpers.
     """
     from views.creators import render_favourite_button
 
@@ -661,7 +664,24 @@ def toggle_favourite_route(request, sess, creator_id: str):
     user_id = sess.get("user_id") if sess else None
     auth_error = require_auth(auth)
     if auth_error:
-        return Response("Authentication required", status_code=401)
+        from components.modals import AuthModal
+
+        # Return the unchanged button as the primary HTMX swap target, and
+        # inject the auth modal out-of-band so no hard redirect is needed.
+        # safe_local_return_url strips scheme/host and rejects external URLs,
+        # preventing an open-redirect via a spoofed Referer header.
+        return_url = safe_local_return_url(request.headers.get("referer"), default="/creators")
+        return (
+            render_favourite_button(creator_id, is_favourited=False),
+            Div(
+                AuthModal(
+                    return_url=return_url,
+                    context_label="Sign in to save this creator",
+                ),
+                id="auth-modal-mount",
+                hx_swap_oob="innerHTML",
+            ),
+        )
     # In test mode require_auth is skipped; use a sentinel user_id so tests
     # that supply a session work, and tests that don't still get a predictable id.
     if not user_id and _IS_TESTING:

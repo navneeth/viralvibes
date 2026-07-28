@@ -834,6 +834,10 @@ def render_creators_page(
             if creators
             else _render_empty_state(search, grade_filter, has_active_filters, is_authenticated)
         ),
+        # HTMX OOB injection point for the soft auth modal — creator cards on
+        # this page also POST to /creator/{id}/favourite, so the mount must
+        # exist here too (same OOB target as the profile page).
+        Div(id="auth-modal-mount"),
         cls=ContainerT.xl,
     )
 
@@ -4624,6 +4628,10 @@ def render_creator_profile_page(
         embedding_peers_section,
         box_plot_section,
         footer_section,
+        # HTMX OOB injection point for the soft auth modal (e.g. unauthenticated
+        # heart-button click).  Starts empty; populated server-side via
+        # hx-swap-oob="innerHTML" when toggle_favourite_route detects no session.
+        Div(id="auth-modal-mount"),
         cls="max-w-5xl mx-auto px-4 pb-16 pt-6",
     )
 

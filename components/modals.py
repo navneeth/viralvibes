@@ -2,6 +2,8 @@
 Reusable modal components with modern glass effects and animations.
 """
 
+from urllib.parse import urlencode
+
 from fasthtml.common import *
 from monsterui.all import *
 
@@ -203,4 +205,172 @@ def ExportModal(dashboard_id: str, playlist_name: str, modal_id: str = "export-m
             cls="grid grid-cols-1 md:grid-cols-3 gap-4",
         ),
         modal_id=modal_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# AuthModal — soft sign-in gate
+# ---------------------------------------------------------------------------
+# Shown in-place (HTMX OOB) when an anonymous user tries a protected action
+# such as saving a creator.  Replaces the hard 401 redirect with a contextual
+# "here is what you unlock" overlay that lets them stay on the page.
+# ---------------------------------------------------------------------------
+
+_AUTH_BENEFITS = [
+    ("heart", "Save creators to your personal watchlist"),
+    ("mail", "Access extracted contact emails"),
+    ("download", "Export CSV for outreach campaigns"),
+    ("git-compare", "Compare any two creators side by side"),
+]
+
+
+def AuthModal(
+    *,
+    modal_id: str = "auth-modal",
+    return_url: str = "/creators",
+    context_label: str = "Sign in to save creators",
+):
+    """Soft auth gate modal — shown instead of a hard /login redirect.
+
+    Displays the four key benefits of a free ViralVibes account, a Google
+    sign-in CTA, and a "Maybe later" dismiss link.  Designed to be injected
+    via HTMX ``hx-swap-oob`` into a ``<div id="auth-modal-mount">`` already
+    present on the page so no full reload is needed.
+
+    Args:
+        modal_id:      DOM id for the modal wrapper (default ``auth-modal``).
+        return_url:    After successful login, redirect back to this URL.
+        context_label: Short phrase shown above the headline, e.g.
+                       "Sign in to save this creator".
+    """
+    from components.auth_components import GoogleGLogo  # lazy — avoids circular import
+
+    login_href = f"/login?{urlencode({'return_url': return_url})}"
+    close_js = f"document.getElementById('{modal_id}').classList.add('hidden')"
+
+    def _benefit(icon: str, text: str):
+        return Div(
+            Div(
+                UkIcon(icon, cls="w-4 h-4 text-blue-600"),
+                cls="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center",
+            ),
+            P(text, cls="text-sm text-foreground leading-snug"),
+            cls="flex items-center gap-3",
+        )
+
+    return Div(
+        # ── Backdrop ──────────────────────────────────────────────────────────
+        Div(
+            # ── Panel ─────────────────────────────────────────────────────────
+            Div(
+                # Header band — gradient accent
+                Div(
+                    Div(
+                        # Eyebrow
+                        P(
+                            context_label,
+                            cls="text-xs font-mono uppercase tracking-[0.16em] text-blue-200 mb-2",
+                        ),
+                        H2(
+                            "One click away.",
+                            id=f"{modal_id}-heading",
+                            cls="text-2xl font-bold text-white leading-tight",
+                        ),
+                        P(
+                            "Free forever — no credit card required.",
+                            cls="text-sm text-blue-100 mt-1",
+                        ),
+                        cls="",
+                    ),
+                    # Close button (top-right)
+                    Button(
+                        UkIcon("x", cls="w-4 h-4"),
+                        onclick=close_js,
+                        type="button",
+                        aria_label="Close",
+                        cls=(
+                            "absolute top-4 right-4 p-1.5 rounded-lg "
+                            "text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+                        ),
+                    ),
+                    cls=(
+                        "relative px-6 py-6 "
+                        "bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-700 "
+                        "rounded-t-xl"
+                    ),
+                ),
+                # Body
+                Div(
+                    # What you unlock
+                    P(
+                        "After signing in you can:",
+                        cls="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4",
+                    ),
+                    Div(
+                        *[_benefit(icon, text) for icon, text in _AUTH_BENEFITS],
+                        cls="flex flex-col gap-3 mb-6",
+                    ),
+                    # Google CTA
+                    A(
+                        GoogleGLogo(18),
+                        Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
+                        href=login_href,
+                        cls=(
+                            "flex items-center justify-center w-full px-4 py-3 "
+                            "bg-white border border-gray-200 hover:border-gray-300 "
+                            "hover:shadow-md text-gray-800 rounded-lg transition-all "
+                            "no-underline"
+                        ),
+                    ),
+                    # Footer row
+                    Div(
+                        Span(
+                            UkIcon("lock", cls="w-3 h-3 mr-1 inline"),
+                            "Secure Google sign-in",
+                            cls="text-xs text-muted-foreground",
+                        ),
+                        Button(
+                            "Maybe later",
+                            onclick=close_js,
+                            type="button",
+                            cls="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 bg-transparent border-0 cursor-pointer",
+                        ),
+                        cls="flex items-center justify-between mt-4",
+                    ),
+                    cls="px-6 py-5",
+                ),
+                cls=(
+                    "relative bg-background rounded-xl shadow-2xl "
+                    "w-full max-w-sm mx-4 "
+                    "animate-in fade-in zoom-in-95 duration-200"
+                ),
+                role="dialog",
+                aria_modal="true",
+                aria_labelledby=f"{modal_id}-heading",
+            ),
+            onclick=f"if(event.target===this){{{close_js}}}",
+            cls=(
+                "fixed inset-0 z-50 flex items-center justify-center "
+                "bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+            ),
+        ),
+        Script(
+            f"""
+(function() {{
+    var el = document.getElementById('{modal_id}');
+    el.classList.remove('hidden');
+    var closeBtn = el.querySelector('button[aria-label="Close"]');
+    if (closeBtn) {{ closeBtn.focus(); }}
+    function _onKey(e) {{
+        if (e.key === 'Escape') {{
+            {close_js};
+            document.removeEventListener('keydown', _onKey);
+        }}
+    }}
+    document.addEventListener('keydown', _onKey);
+}})();
+"""
+        ),
+        id=modal_id,
+        cls="modal-container hidden",
     )
