@@ -4,7 +4,8 @@ Blog data layer — Post model, post loading, and markdown rendering.
 Pattern adapted from https://github.com/jackhogan/personal-site:
   - YAML frontmatter parsed by python-frontmatter
   - Markdown rendered via monsterui's render_md / FrankenRenderer
-  - Internal site links get HTMX push-url attrs so navigation stays fast
+  - Internal site links (known prefixes + fragment anchors) open same-tab;
+    all other links open in a new tab with rel="noopener noreferrer"
 """
 
 from __future__ import annotations
@@ -53,8 +54,24 @@ class Post:
         self.datestr: str = self.date.strftime("%d %b %Y") if self.date else ""
 
         self.excerpt: str = self.meta.get("excerpt", "")
-        self.tags: list[str] = list(self.meta.get("tags", []))
-        self.placeholder: bool = bool(self.meta.get("placeholder", False))
+        raw_tags = self.meta.get("tags", [])
+        if isinstance(raw_tags, list):
+            self.tags: list[str] = [str(t) for t in raw_tags]
+        else:
+            if raw_tags:
+                logger.warning(
+                    "blog: %s — 'tags' must be a YAML list, got %r; ignoring", path, raw_tags
+                )
+            self.tags = []
+        raw_placeholder = self.meta.get("placeholder", False)
+        if not isinstance(raw_placeholder, bool):
+            logger.warning(
+                "blog: %s — 'placeholder' must be a boolean (true/false), got %r; defaulting to false",
+                path,
+                raw_placeholder,
+            )
+            raw_placeholder = False
+        self.placeholder: bool = raw_placeholder
 
 
 # ---------------------------------------------------------------------------
@@ -70,15 +87,13 @@ def get_posts(published_only: bool = False) -> list[Post]:
     """
     if not _POSTS_DIR.exists():
         return []
-    try:
-        posts: list[Post] = sorted(
-            [Post(p) for p in _POSTS_DIR.glob("*.md")],
-            key=lambda p: p.date or date.min,
-            reverse=True,
-        )
-    except Exception:
-        logger.exception("blog: failed to load posts from %s", _POSTS_DIR)
-        return []
+    posts: list[Post] = []
+    for path in _POSTS_DIR.glob("*.md"):
+        try:
+            posts.append(Post(path))
+        except Exception:
+            logger.exception("blog: failed to load post %s — skipping", path)
+    posts.sort(key=lambda p: p.date or date.min, reverse=True)
 
     return [p for p in posts if not p.placeholder] if published_only else posts
 
@@ -105,7 +120,7 @@ _MD_CLASS_MODS: dict[str, str] = {
     "h1": "text-3xl font-bold tracking-tight mb-4 mt-10 text-foreground",
     "h2": "text-2xl font-semibold tracking-tight mb-3 mt-8 text-foreground",
     "h3": "text-xl font-semibold mb-2 mt-6 text-foreground",
-    "p":  "text-base leading-relaxed mb-4 text-foreground",
+    "p": "text-base leading-relaxed mb-4 text-foreground",
     "li": "text-base leading-relaxed",
     "ul": "list-disc ml-6 space-y-1.5 mb-4",
     "ol": "list-decimal ml-6 space-y-1.5 mb-4",
@@ -126,19 +141,19 @@ def _make_renderer():
         from monsterui.all import FrankenRenderer
         import mistletoe
 
+        # Known in-app route prefixes — only these get same-tab link behaviour.
+        _INTERNAL_PREFIXES = ("/blog", "/creators", "/dashboard", "/compare")
+
         class _SiteRenderer(FrankenRenderer):
-            """Extends FrankenRenderer: internal links get hx-get / hx-push-url
-            so blog-to-blog (or blog-to-creators) navigation stays fast."""
+            """Extends FrankenRenderer: internal site links open in the same tab;
+            external links get target='_blank' and rel='noopener noreferrer'."""
 
             def render_link(self, token):
                 href = token.target or ""
                 inner = self.render_inner(token)
                 title_attr = f' title="{token.title}"' if getattr(token, "title", None) else ""
-                # Internal: starts with / but not //
-                is_internal = (
-                    href.startswith("/")
-                    and not href.startswith("//")
-                    and "." not in href.split("/")[-1]
+                is_internal = href.startswith("#") or any(
+                    href.startswith(p) for p in _INTERNAL_PREFIXES
                 )
                 if is_internal:
                     return (
@@ -176,6 +191,7 @@ def from_md(content: str) -> "object":
         kwargs: dict = {"class_map_mods": _MD_CLASS_MODS}
         if _renderer_cls is not None:
             from functools import partial
+
             kwargs["renderer"] = partial(_renderer_cls)
 
         rendered = render_md(content, **kwargs)
@@ -184,4 +200,5 @@ def from_md(content: str) -> "object":
         logger.exception("blog: markdown render failed")
         # Graceful fallback — show raw text rather than a 500
         from fasthtml.common import P
+
         return Div(P(content, cls="text-sm font-mono text-muted-foreground whitespace-pre-wrap"))

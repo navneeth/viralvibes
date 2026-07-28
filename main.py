@@ -2401,7 +2401,7 @@ def blog_post_route(req, sess, slug: str):
     """Individual blog post.  Placeholder posts render the coming-soon SVG."""
     post = get_post(slug)
     if post is None:
-        return Titled(
+        page = Titled(
             "Post Not Found — ViralVibes",
             Container(
                 NavComponent(oauth, req, sess),
@@ -2414,6 +2414,7 @@ def blog_post_route(req, sess, slug: str):
                 cls=ContainerT.xl,
             ),
         )
+        return HTMLResponse(_render_page(page), status_code=404)
     if post.placeholder:
         return Titled(
             f"{post.title} — Coming Soon",
