@@ -146,6 +146,7 @@ from routes.mentions import mentions_route
 from routes.about import about_page_content
 from routes.contact import contact_page_content, post_contact
 from routes.legal import privacy_page_content, terms_page_content
+from routes.blog import blog_page_content
 from routes.press import press_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
@@ -2375,6 +2376,19 @@ def about(req, sess):
         Container(
             NavComponent(oauth, req, sess),
             about_page_content(),
+            cls=ContainerT.xl,
+        ),
+    )
+
+
+@rt("/blog")
+def blog(req, sess):
+    """Blog coming-soon page — public route linked from the footer."""
+    return Titled(
+        "Blog — ViralVibes",
+        Container(
+            NavComponent(oauth, req, sess),
+            blog_page_content(),
             cls=ContainerT.xl,
         ),
     )
