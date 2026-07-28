@@ -1,6 +1,18 @@
 """
-Blog coming-soon page — public route linked from the footer.
+Blog route content — index listing, per-post view, and coming-soon fallback.
+
+PR1 ships the data layer + placeholder posts. All three placeholder posts
+render the coming-soon SVG when visited directly; the blog index lists them
+with a "Coming Soon" badge.  Real articles are added by setting
+``placeholder: false`` (or removing the key) in the post's frontmatter.
+
+Design adapted from https://github.com/jackhogan/personal-site:
+  - Posts in posts/*.md with YAML frontmatter
+  - Markdown rendered via utils.blog.from_md (monsterui FrankenRenderer)
+  - Internal links in markdown stay within-site (no new-tab)
 """
+
+from __future__ import annotations
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -9,6 +21,8 @@ from monsterui.all import *
 # ---------------------------------------------------------------------------
 # SVG Illustration — editorial / writing theme
 # ---------------------------------------------------------------------------
+# Reused for both the /blog index fallback (empty posts/) and any post
+# that has ``placeholder: true`` in its frontmatter.
 
 _COMING_SOON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 260" width="320" height="260" aria-hidden="true">
   <defs>
@@ -84,11 +98,20 @@ _COMING_SOON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 2
 
 
 # ---------------------------------------------------------------------------
-# Page content
+# Coming-soon content block
 # ---------------------------------------------------------------------------
 
 
-def blog_page_content() -> Div:
+def blog_coming_soon_content(
+    *,
+    title: str = "Stories worth reading.",
+    subtitle: str = (
+        "Deep dives on creator marketing, campaign strategy, and the data behind "
+        "what makes YouTube channels grow. We're writing it now — check back soon."
+    ),
+) -> Div:
+    """Coming-soon section.  Shown for the /blog index fallback and for any
+    post with ``placeholder: true`` in its frontmatter."""
     return Div(
         Div(
             # Illustration
@@ -103,7 +126,7 @@ def blog_page_content() -> Div:
             ),
             # Heading
             H1(
-                "Stories worth reading.",
+                title,
                 cls=(
                     "text-4xl md:text-5xl font-bold tracking-tight text-center mb-5 "
                     "bg-gradient-to-br from-foreground via-foreground to-foreground/60 "
@@ -112,8 +135,7 @@ def blog_page_content() -> Div:
             ),
             # Subtext
             P(
-                "Deep dives on creator marketing, campaign strategy, and the data behind "
-                "what makes YouTube channels grow. We're writing it now — check back soon.",
+                subtitle,
                 cls="text-base text-muted-foreground leading-relaxed text-center max-w-xl mx-auto mb-10",
             ),
             # CTA
@@ -129,4 +151,167 @@ def blog_page_content() -> Div:
             cls="flex flex-col items-center py-24 px-4",
         ),
         cls="max-w-2xl mx-auto",
+    )
+
+
+# Backward-compat alias — existing main.py import still works.
+blog_page_content = blog_coming_soon_content
+
+
+# ---------------------------------------------------------------------------
+# Blog index
+# ---------------------------------------------------------------------------
+
+
+def _tag_pill(tag: str) -> Span:
+    return Span(
+        tag,
+        cls="text-xs px-2 py-0.5 rounded-full bg-accent text-muted-foreground font-medium",
+    )
+
+
+def _post_row(post) -> A:
+    """One post entry for the index listing."""
+    is_placeholder = post.placeholder
+
+    title_el = Span(
+        post.title,
+        cls=(
+            "text-base font-semibold text-foreground group-hover:text-primary transition-colors"
+            if not is_placeholder
+            else "text-base font-semibold text-muted-foreground"
+        ),
+    )
+
+    meta_parts = []
+    if post.datestr:
+        meta_parts.append(Span(post.datestr, cls="text-xs text-muted-foreground"))
+    if is_placeholder:
+        meta_parts.append(
+            Span(
+                "Coming Soon",
+                cls="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium border border-blue-200",
+            )
+        )
+    else:
+        meta_parts.extend([_tag_pill(t) for t in post.tags])
+
+    meta_row = Div(*meta_parts, cls="flex flex-wrap items-center gap-2 mt-1")
+
+    excerpt_el = (
+        P(post.excerpt, cls="text-sm text-muted-foreground leading-relaxed mt-1 line-clamp-2")
+        if post.excerpt and not is_placeholder
+        else None
+    )
+
+    return A(
+        Div(
+            title_el,
+            meta_row,
+            excerpt_el,
+            cls="py-4 border-b border-border last:border-0",
+        ),
+        href=f"/blog/{post.slug}",
+        cls="group block no-underline hover:no-underline",
+    )
+
+
+def blog_index_content(posts: list) -> Div:
+    """Blog index page body — lists all posts with dates, excerpts, and tags."""
+    if not posts:
+        return blog_coming_soon_content()
+
+    published = sum(1 for p in posts if not p.placeholder)
+    pending = len(posts) - published
+
+    header = Div(
+        P(
+            "ViralVibes Blog",
+            cls="text-xs font-mono uppercase tracking-[0.18em] text-blue-600 mb-3",
+        ),
+        H1(
+            "Creator Marketing Intelligence",
+            cls=(
+                "text-4xl font-bold tracking-tight mb-4 "
+                "bg-gradient-to-br from-foreground via-foreground to-foreground/60 "
+                "bg-clip-text text-transparent"
+            ),
+        ),
+        P(
+            "Data-driven takes on YouTube creator strategy, campaign optimisation, "
+            "and the metrics that actually matter.",
+            cls="text-base text-muted-foreground leading-relaxed max-w-2xl",
+        ),
+        cls="mb-10",
+    )
+
+    post_list = Div(*[_post_row(p) for p in posts])
+
+    coming_soon_note = (
+        Div(
+            P(
+                f"{pending} more article{'s' if pending != 1 else ''} in progress — check back soon.",
+                cls="text-sm text-muted-foreground text-center",
+            ),
+            cls="mt-8 py-4 border-t border-border",
+        )
+        if pending > 0
+        else None
+    )
+
+    return Div(
+        header,
+        post_list,
+        coming_soon_note,
+        cls="max-w-2xl mx-auto px-4 py-12",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Individual post
+# ---------------------------------------------------------------------------
+
+
+def blog_post_content(post) -> Div:
+    """Full article page body for a published (non-placeholder) post."""
+    from utils.blog import from_md
+
+    back_link = A(
+        "← All posts",
+        href="/blog",
+        cls="text-sm text-muted-foreground hover:text-foreground transition-colors no-underline",
+    )
+
+    post_header = Div(
+        (P(post.datestr, cls="text-sm text-muted-foreground mb-3") if post.datestr else None),
+        H1(
+            post.title,
+            cls="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-4 leading-tight",
+        ),
+        (
+            P(post.excerpt, cls="text-lg text-muted-foreground leading-relaxed mb-4")
+            if post.excerpt
+            else None
+        ),
+        (
+            Div(*[_tag_pill(t) for t in post.tags], cls="flex flex-wrap gap-2 mb-8")
+            if post.tags
+            else None
+        ),
+        Div(cls="h-px bg-gradient-to-r from-border to-transparent mb-8"),
+    )
+
+    footer = Div(
+        Div(cls="h-px bg-gradient-to-r from-transparent via-border to-transparent my-10"),
+        A(
+            "← Back to all posts",
+            href="/blog",
+            cls="text-sm text-muted-foreground hover:text-foreground transition-colors no-underline",
+        ),
+    )
+
+    return Div(
+        back_link,
+        Div(post_header, from_md(post.content), footer, cls="mt-6"),
+        cls="max-w-2xl mx-auto px-4 py-8",
     )

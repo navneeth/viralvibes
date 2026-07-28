@@ -24,3 +24,4 @@ isodate
 #google-api-python-client
 python-dotenv
 stripe>=11.0.0
+python-frontmatter>=1.1.0
