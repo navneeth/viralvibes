@@ -146,7 +146,8 @@ from routes.mentions import mentions_route
 from routes.about import about_page_content
 from routes.contact import contact_page_content, post_contact
 from routes.legal import privacy_page_content, terms_page_content
-from routes.blog import blog_page_content
+from routes.blog import blog_coming_soon_content, blog_index_content, blog_post_content
+from utils.blog import get_posts, get_post
 from routes.press import press_page_content
 from routes.pricing import pricing_page_content
 from routes.stripe_webhooks import stripe_webhook
@@ -2383,12 +2384,53 @@ def about(req, sess):
 
 @rt("/blog")
 def blog(req, sess):
-    """Blog coming-soon page — public route linked from the footer."""
+    """Blog index — lists all posts; placeholders show a Coming Soon badge."""
+    posts = get_posts()
     return Titled(
         "Blog — ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
-            blog_page_content(),
+            blog_index_content(posts),
+            cls=ContainerT.xl,
+        ),
+    )
+
+
+@rt("/blog/{slug}")
+def blog_post_route(req, sess, slug: str):
+    """Individual blog post.  Placeholder posts render the coming-soon SVG."""
+    post = get_post(slug)
+    if post is None:
+        return Titled(
+            "Post Not Found — ViralVibes",
+            Container(
+                NavComponent(oauth, req, sess),
+                Div(
+                    H1("Post not found", cls="text-2xl font-bold mb-4"),
+                    P("That article doesn't exist yet.", cls="text-muted-foreground mb-6"),
+                    A("← Back to Blog", href="/blog", cls="text-primary underline"),
+                    cls="max-w-2xl mx-auto px-4 py-16",
+                ),
+                cls=ContainerT.xl,
+            ),
+        )
+    if post.placeholder:
+        return Titled(
+            f"{post.title} — Coming Soon",
+            Container(
+                NavComponent(oauth, req, sess),
+                blog_coming_soon_content(
+                    title=post.title,
+                    subtitle=post.excerpt or ("This article is in progress — check back soon."),
+                ),
+                cls=ContainerT.xl,
+            ),
+        )
+    return Titled(
+        f"{post.title} — ViralVibes Blog",
+        Container(
+            NavComponent(oauth, req, sess),
+            blog_post_content(post),
             cls=ContainerT.xl,
         ),
     )
