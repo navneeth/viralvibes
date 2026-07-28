@@ -661,7 +661,22 @@ def toggle_favourite_route(request, sess, creator_id: str):
     user_id = sess.get("user_id") if sess else None
     auth_error = require_auth(auth)
     if auth_error:
-        return Response("Authentication required", status_code=401)
+        from components.modals import AuthModal
+
+        # Return the unchanged button as the primary HTMX swap target, and
+        # inject the auth modal out-of-band so no hard redirect is needed.
+        return_url = request.headers.get("referer", "/creators")
+        return (
+            render_favourite_button(creator_id, is_favourited=False),
+            Div(
+                AuthModal(
+                    return_url=return_url,
+                    context_label="Sign in to save this creator",
+                ),
+                id="auth-modal-mount",
+                hx_swap_oob="innerHTML",
+            ),
+        )
     # In test mode require_auth is skipped; use a sentinel user_id so tests
     # that supply a session work, and tests that don't still get a predictable id.
     if not user_id and _IS_TESTING:
