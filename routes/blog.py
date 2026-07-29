@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from fasthtml.common import *
 from monsterui.all import *
+from urllib.parse import quote_plus
+from xml.sax.saxutils import escape
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +187,7 @@ def _tag_nav(all_tags: list[str], active_tag: str | None) -> Div:
     ] + [
         A(
             tag,
-            href=f"/blog?tag={tag}",
+            href=f"/blog?tag={quote_plus(tag)}",
             cls=_active if tag == active_tag else _inactive,
         )
         for tag in all_tags
@@ -377,14 +379,13 @@ def build_rss_feed(posts: list, site_url: str) -> str:
         posts:    Full post list (placeholders are automatically excluded).
         site_url: Absolute base URL, e.g. ``"https://www.viralvibes.fyi"``.
     """
-    from xml.sax.saxutils import escape
 
     def _item(post) -> str:
         pub_date = (
             f"\n    <pubDate>{post.date.strftime(_RSS_DATE_FMT)}</pubDate>" if post.date else ""
         )
         description = escape(post.excerpt) if post.excerpt else ""
-        link = f"{site_url}/blog/{post.slug}"
+        link = escape(f"{site_url}/blog/{post.slug}")
         tags = "".join(f"\n    <category>{escape(t)}</category>" for t in post.tags)
         return (
             f"  <item>\n"
