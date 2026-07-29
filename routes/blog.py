@@ -1,10 +1,8 @@
 """
-Blog route content — index listing, per-post view, and coming-soon fallback.
+Blog route content — index listing, per-post view, coming-soon fallback, and RSS feed.
 
-PR1 ships the data layer + placeholder posts. All three placeholder posts
-render the coming-soon SVG when visited directly; the blog index lists them
-with a "Coming Soon" badge.  Real articles are added by setting
-``placeholder: false`` (or removing the key) in the post's frontmatter.
+PR1 ships the data layer + placeholder posts.
+PR3 adds tag filtering on the index and the /rss.xml feed.
 
 Design adapted from https://github.com/jackhogan/personal-site:
   - Posts in posts/*.md with YAML frontmatter
@@ -170,6 +168,31 @@ def _tag_pill(tag: str) -> Span:
     )
 
 
+def _tag_nav(all_tags: list[str], active_tag: str | None) -> Div:
+    """Horizontal pill row for filtering by tag.  'All' clears the filter."""
+    _base = "text-xs px-3 py-1 rounded-full border font-medium transition-colors no-underline "
+    _active = _base + "bg-primary text-primary-foreground border-primary"
+    _inactive = (
+        _base + "border-border text-muted-foreground hover:border-primary hover:text-foreground"
+    )
+
+    pills = [
+        A(
+            "All",
+            href="/blog",
+            cls=_active if active_tag is None else _inactive,
+        )
+    ] + [
+        A(
+            tag,
+            href=f"/blog?tag={tag}",
+            cls=_active if tag == active_tag else _inactive,
+        )
+        for tag in all_tags
+    ]
+    return Div(*pills, cls="flex flex-wrap gap-2 mb-8")
+
+
 def _post_row(post) -> A:
     """One post entry for the index listing."""
     is_placeholder = post.placeholder
@@ -216,10 +239,30 @@ def _post_row(post) -> A:
     )
 
 
-def blog_index_content(posts: list) -> Div:
-    """Blog index page body — lists all posts with dates, excerpts, and tags."""
+def blog_index_content(posts: list, active_tag: str | None = None) -> Div:
+    """Blog index page body.
+
+    When *active_tag* is set, only posts carrying that tag are listed and the
+    tag nav highlights the active filter.  Placeholder posts are always shown
+    regardless of tag (they display a Coming Soon badge, not actual tags).
+    """
     if not posts:
         return blog_coming_soon_content()
+
+    # Collect unique tags from published posts (preserve insertion order across posts)
+    seen: dict[str, None] = {}
+    for p in posts:
+        if not p.placeholder:
+            for t in p.tags:
+                seen[t] = None
+    all_tags = list(seen)
+
+    # Filter: placeholders always visible; published posts filtered by tag
+    if active_tag and active_tag in seen:
+        visible = [p for p in posts if p.placeholder or active_tag in p.tags]
+    else:
+        active_tag = None  # ignore unknown tags
+        visible = posts
 
     published = sum(1 for p in posts if not p.placeholder)
     pending = len(posts) - published
@@ -245,7 +288,9 @@ def blog_index_content(posts: list) -> Div:
         cls="mb-10",
     )
 
-    post_list = Div(*[_post_row(p) for p in posts])
+    post_list = Div(*[_post_row(p) for p in visible])
+
+    tag_nav_el = _tag_nav(all_tags, active_tag) if all_tags else None
 
     coming_soon_note = (
         Div(
@@ -261,6 +306,7 @@ def blog_index_content(posts: list) -> Div:
 
     return Div(
         header,
+        tag_nav_el,
         post_list,
         coming_soon_note,
         cls="max-w-2xl mx-auto px-4 py-12",
@@ -314,4 +360,55 @@ def blog_post_content(post) -> Div:
         back_link,
         Div(post_header, from_md(post.content), footer, cls="mt-6"),
         cls="max-w-2xl mx-auto px-4 py-8",
+    )
+
+
+# ---------------------------------------------------------------------------
+# RSS feed
+# ---------------------------------------------------------------------------
+
+_RSS_DATE_FMT = "%a, %d %b %Y 00:00:00 +0000"
+
+
+def build_rss_feed(posts: list, site_url: str) -> str:
+    """Return a complete RSS 2.0 XML string for all published (non-placeholder) posts.
+
+    Args:
+        posts:    Full post list (placeholders are automatically excluded).
+        site_url: Absolute base URL, e.g. ``"https://www.viralvibes.fyi"``.
+    """
+    from xml.sax.saxutils import escape
+
+    def _item(post) -> str:
+        pub_date = (
+            f"\n    <pubDate>{post.date.strftime(_RSS_DATE_FMT)}</pubDate>" if post.date else ""
+        )
+        description = escape(post.excerpt) if post.excerpt else ""
+        link = f"{site_url}/blog/{post.slug}"
+        tags = "".join(f"\n    <category>{escape(t)}</category>" for t in post.tags)
+        return (
+            f"  <item>\n"
+            f"    <title>{escape(post.title)}</title>\n"
+            f"    <link>{link}</link>\n"
+            f'    <guid isPermaLink="true">{link}</guid>\n'
+            f"    <description>{description}</description>"
+            f"{pub_date}{tags}\n"
+            f"  </item>"
+        )
+
+    published = [p for p in posts if not p.placeholder]
+    items_xml = "\n".join(_item(p) for p in published)
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n'
+        "  <channel>\n"
+        "    <title>ViralVibes Blog</title>\n"
+        f"    <link>{site_url}/blog</link>\n"
+        f'    <atom:link href="{site_url}/rss.xml" rel="self" type="application/rss+xml"/>\n'
+        "    <description>Data-driven takes on YouTube creator strategy and campaign optimisation.</description>\n"
+        "    <language>en-gb</language>\n"
+        f"{items_xml}\n"
+        "  </channel>\n"
+        "</rss>"
     )

@@ -146,7 +146,12 @@ from routes.mentions import mentions_route
 from routes.about import about_page_content
 from routes.contact import contact_page_content, post_contact
 from routes.legal import privacy_page_content, terms_page_content
-from routes.blog import blog_coming_soon_content, blog_index_content, blog_post_content
+from routes.blog import (
+    blog_coming_soon_content,
+    blog_index_content,
+    blog_post_content,
+    build_rss_feed,
+)
 from utils.blog import get_posts, get_post
 from routes.press import press_page_content
 from routes.pricing import pricing_page_content
@@ -2384,16 +2389,32 @@ def about(req, sess):
 
 @rt("/blog")
 def blog(req, sess):
-    """Blog index — lists all posts; placeholders show a Coming Soon badge."""
+    """Blog index — lists all posts; supports ?tag= filtering."""
     posts = get_posts()
+    active_tag = req.query_params.get("tag") or None
+    rss_link = Link(
+        rel="alternate",
+        type="application/rss+xml",
+        title="ViralVibes Blog",
+        href="/rss.xml",
+    )
     return Titled(
         "Blog — ViralVibes",
+        rss_link,
         Container(
             NavComponent(oauth, req, sess),
-            blog_index_content(posts),
+            blog_index_content(posts, active_tag=active_tag),
             cls=ContainerT.xl,
         ),
     )
+
+
+@rt("/rss.xml")
+def rss_feed(req):
+    """RSS 2.0 feed for published blog posts (no auth required)."""
+    posts = get_posts()
+    xml = build_rss_feed(posts, SITE_BASE_URL)
+    return Response(xml, media_type="application/rss+xml; charset=utf-8")
 
 
 @rt("/blog/{slug}")
