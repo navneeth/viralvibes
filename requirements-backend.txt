@@ -22,4 +22,5 @@ pytest-asyncio
 beautifulsoup4
 python-dotenv
 stripe>=11.0.0
+python-frontmatter
 Pillow>10.0.0
