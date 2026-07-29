@@ -1413,6 +1413,7 @@ def get_veteran_creators(limit: int = 20) -> list[dict]:
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .gte("channel_age_days", 3650)  # 10 years
+            .eq("sync_status", "synced")
             .order("current_subscribers", desc=True)
             .limit(limit)
             .execute()
