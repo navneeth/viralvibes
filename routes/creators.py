@@ -1137,6 +1137,8 @@ def creators_like_route(request, *, handle: str):
         return Response("No lookalikes available for this creator", status_code=404)
 
     peers, _total = peers_result
+    # With include_contacts=False, we only fetch has_contact_info flag (not extracted fields).
+    # This count represents peers marked as having contact signals available.
     contact_count = sum(1 for p in peers if p.get("has_contact_info"))
 
     body = render_creators_like_page(
@@ -1145,9 +1147,11 @@ def creators_like_route(request, *, handle: str):
         contact_count=contact_count,
     )
 
-    # Compute ETag for cache validation (content fingerprint)
-    etag_input = f"{seed_id}:{len(peers)}:{sum(hash(str(p.get('id'))) for p in peers if p)}"
-    etag = f'"{hashlib.md5(etag_input.encode()).hexdigest()}"'
+    # Compute ETag from deterministic peer IDs only (not randomized hash()).
+    # Stable across process restarts so cache validation works correctly.
+    peer_ids_sorted = sorted(p["id"] for p in peers if p)
+    etag_content = f"{seed_id}:{len(peers)}:{'|'.join(peer_ids_sorted)}"
+    etag = f'"{hashlib.md5(etag_content.encode()).hexdigest()}"'
 
     return CreatorsLikeResult(
         body=body,

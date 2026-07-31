@@ -2588,8 +2588,8 @@ _CREATOR_PEERS_TABLE = "creator_peers"
 # Maximum number of IDs to include in a single PostgREST IN() query.
 # Cloudflare's WAF rejects long URLs (~2 kB limit), but the Supabase SDK
 # automatically switches to POST for large IN() queries, which have no such limit.
-# Set to 100 to minimize database round-trips. Testing confirms 50-100 UUIDs
-# in a single POST request is fast and reliable.
+# Set to 100 to minimize database round-trips. Requires Supabase SDK >= 2.0.0.
+# Testing confirms 50-100 UUIDs in a single POST request is fast and reliable.
 _HYDRATION_BATCH_SIZE = 100
 
 # Fields fetched for each peer creator — same subset used by the similar-rail tiles
