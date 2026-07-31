@@ -1124,22 +1124,27 @@ def creators_like_route(request, *, handle: str):
     if not seed_id:
         return Response("Creator not found", status_code=404)
 
-    # Use lightweight field set for page display (include_contacts=False)
-    # to reduce query payload by ~60%. The CSV export route will fetch
-    # full contact fields separately if needed.
+    # Use full contact field set to accurately count exportable emails.
+    # While this increases query size vs. lightweight display fields, it ensures
+    # contact_count matches what ContactExtractorService.filter_email_ready_rows()
+    # would export, preventing mismatched CTAs (e.g., "Export 5 contacts" → empty CSV).
     peers_result = get_embedding_peers(
         seed_id,
         limit=LOOKALIKE_LIMIT,
-        include_contacts=False,
+        include_contacts=True,  # Fetch extracted_email for accurate export count
     )
     if not peers_result or not peers_result[0]:
         # No peer row or all peer IDs were deleted → don't serve an empty SEO page.
         return Response("No lookalikes available for this creator", status_code=404)
 
     peers, _total = peers_result
-    # With include_contacts=False, we only fetch has_contact_info flag (not extracted fields).
-    # This count represents peers marked as having contact signals available.
-    contact_count = sum(1 for p in peers if p.get("has_contact_info"))
+    # Count only peers with exportable email addresses (matches export filter logic).
+    # Build contact rows and filter to emails only, same as CSV export.
+    from services.contact_extractor import ContactExtractorService
+
+    contact_rows = [ContactExtractorService.build_creator_contact_row(p) for p in peers]
+    email_ready_rows = ContactExtractorService.filter_email_ready_rows(contact_rows)
+    contact_count = len(email_ready_rows)  # Accurate count of exportable emails
 
     body = render_creators_like_page(
         seed=seed,
@@ -1164,6 +1169,8 @@ def creators_like_route(request, *, handle: str):
             "Vary": "Accept-Encoding",
         },
     )
+    # Note: headers dict is populated here for reference, but actual header
+    # propagation must happen in main.py's creators_like() route handler.
 
 
 def creators_like_export_route(request, *, handle: str):
