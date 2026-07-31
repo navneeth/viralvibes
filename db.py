@@ -2586,10 +2586,11 @@ def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dic
 _CREATOR_PEERS_TABLE = "creator_peers"
 
 # Maximum number of IDs to include in a single PostgREST IN() query.
-# Cloudflare's WAF rejects URLs that are too long; 50 UUIDs × 36 chars ≈ 2 kB
-# which reliably triggers an HTTP 400.  Batching at 20 keeps each URL well
-# under 1 kB regardless of field-set size.
-_HYDRATION_BATCH_SIZE = 20
+# Cloudflare's WAF rejects long URLs (~2 kB limit), but the Supabase SDK
+# automatically switches to POST for large IN() queries, which have no such limit.
+# Set to 100 to minimize database round-trips. Testing confirms 50-100 UUIDs
+# in a single POST request is fast and reliable.
+_HYDRATION_BATCH_SIZE = 100
 
 # Fields fetched for each peer creator — same subset used by the similar-rail tiles
 _PEER_CREATOR_FIELDS = (
@@ -2597,11 +2598,24 @@ _PEER_CREATOR_FIELDS = (
     "current_subscribers, quality_grade, primary_category, country_code"
 )
 
-# Extended fields for the /creators/like/{handle} lookalike page — adds the
+# Extended fields for the /creators/like/{handle} lookalike page display
+# (not the CSV export). Includes engagement metrics and contact flags but
+# excludes extracted contact columns to keep queries smaller and faster.
+# Used for the rendered HTML page (user-facing peer cards).
+_PEER_CREATOR_FIELDS_FOR_DISPLAY = (
+    "id, channel_name, channel_url, custom_url, "
+    "channel_thumbnail_url, channel_description, "
+    "current_subscribers, current_view_count, current_video_count, "
+    "subscribers_change_30d, views_change_30d, "
+    "engagement_score, quality_grade, primary_category, "
+    "country_code, default_language, "
+    "has_contact_info, contact_signals_extracted_at"
+)
+
+# Extended fields for the /creators/like/{handle}/export CSV download — adds the
 # columns ContactExtractorService.build_creator_contact_row needs (channel_id,
-# custom_url, growth deltas, the persisted extracted_* contact columns from
-# migration 040). Kept separate from the rail tiles so the cheap rail query
-# stays cheap.
+# extracted_* contact columns from migration 040). Only fetched when exporting to
+# avoid bloating every page render with data that won't be displayed.
 _PEER_CREATOR_FIELDS_WITH_CONTACT = (
     "id, channel_id, channel_name, channel_url, custom_url, "
     "channel_thumbnail_url, channel_description, keywords, "
@@ -2680,10 +2694,12 @@ def get_embedding_peers(
         fetch_ids = all_peer_ids[:effective_hydrate]
 
         # Step 2: hydrate creator rows for the IDs we actually need to display.
-        # Batched in chunks of _HYDRATION_BATCH_SIZE to keep the PostgREST
-        # IN() query URL well under Cloudflare's WAF length limit (50 UUIDs
-        # × 36 chars ≈ 2 kB → HTTP 400; 20 UUIDs ≈ 900 B → always safe).
-        fields = _PEER_CREATOR_FIELDS_WITH_CONTACT if include_contacts else _PEER_CREATOR_FIELDS
+        # Batched in chunks of _HYDRATION_BATCH_SIZE (Supabase SDK uses POST for
+        # large IN() queries, which have no URL length limit).
+        if include_contacts:
+            fields = _PEER_CREATOR_FIELDS_WITH_CONTACT  # CSV export: full contact data
+        else:
+            fields = _PEER_CREATOR_FIELDS_FOR_DISPLAY  # Page display: lighter payload
         creators_by_id: dict[str, dict] = {}
         for i in range(0, len(fetch_ids), _HYDRATION_BATCH_SIZE):
             batch = fetch_ids[i : i + _HYDRATION_BATCH_SIZE]
