@@ -1495,7 +1495,7 @@ def creators_like(req, sess, handle: str):
         peer_count=result.peer_count,
         contact_count=result.contact_count,
     )
-    return Titled(
+    page = Titled(
         creators_like_page_title(result.seed),
         Container(
             NavComponent(oauth, req, sess),
@@ -1504,6 +1504,14 @@ def creators_like(req, sess, handle: str):
         ),
         *head_tags,
     )
+
+    # Apply HTTP cache headers from the route result to the response.
+    # This enables CDN/browser caching (1 hour) and ETag-based revalidation.
+    response = StarletteResponse(str(page), media_type="text/html")
+    if result.headers:
+        for header_name, header_value in result.headers.items():
+            response.headers[header_name] = header_value
+    return response
 
 
 @rt("/creators/like/{handle}/export")

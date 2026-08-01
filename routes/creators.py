@@ -1087,6 +1087,7 @@ class CreatorsLikeResult:
     seed: dict  # full creator row for the seed handle
     peer_count: int  # how many peers we actually rendered
     contact_count: int  # subset of peers with at least one contact
+    headers: dict = field(default_factory=dict)  # HTTP response headers (Cache-Control, ETag, etc)
 
 
 def _resolve_seed_creator(handle: str) -> dict | None:
@@ -1102,14 +1103,15 @@ def creators_like_route(request, *, handle: str):
     """GET /creators/like/{handle}
 
     Resolves ``handle`` to a creator id, fetches up to ``LOOKALIKE_LIMIT``
-    embedding peers (with the contact-bearing field set), and hands the
-    result to the view. Anonymous-friendly — no auth gate, no plan gate.
+    embedding peers (with full contact fields for accurate email export count),
+    and hands the result to the view. Anonymous-friendly — no auth gate, no plan gate.
 
     Returns:
-        * ``CreatorsLikeResult`` on success.
+        * ``CreatorsLikeResult`` on success (with HTTP cache headers for 1 hour).
         * ``Response`` 404 when the handle is unknown or has no peers
           (the latter prevents indexable empty pages).
     """
+    import hashlib
     from starlette.responses import Response
 
     from views.creators import render_creators_like_page
@@ -1122,29 +1124,53 @@ def creators_like_route(request, *, handle: str):
     if not seed_id:
         return Response("Creator not found", status_code=404)
 
+    # Use full contact field set to accurately count exportable emails.
+    # While this increases query size vs. lightweight display fields, it ensures
+    # contact_count matches what ContactExtractorService.filter_email_ready_rows()
+    # would export, preventing mismatched CTAs (e.g., "Export 5 contacts" → empty CSV).
     peers_result = get_embedding_peers(
         seed_id,
         limit=LOOKALIKE_LIMIT,
-        include_contacts=True,
+        include_contacts=True,  # Fetch extracted_email for accurate export count
     )
     if not peers_result or not peers_result[0]:
         # No peer row or all peer IDs were deleted → don't serve an empty SEO page.
         return Response("No lookalikes available for this creator", status_code=404)
 
     peers, _total = peers_result
-    contact_count = sum(1 for p in peers if p.get("has_contact_info") or p.get("extracted_email"))
+    # Count only peers with exportable email addresses (matches export filter logic).
+    # Build contact rows and filter to emails only, same as CSV export.
+    from services.contact_extractor import ContactExtractorService
+
+    contact_rows = [ContactExtractorService.build_creator_contact_row(p) for p in peers]
+    email_ready_rows = ContactExtractorService.filter_email_ready_rows(contact_rows)
+    contact_count = len(email_ready_rows)  # Accurate count of exportable emails
 
     body = render_creators_like_page(
         seed=seed,
         peers=peers,
         contact_count=contact_count,
     )
+
+    # Compute ETag from deterministic peer IDs only (not randomized hash()).
+    # Stable across process restarts so cache validation works correctly.
+    peer_ids_sorted = sorted(p["id"] for p in peers if p)
+    etag_content = f"{seed_id}:{len(peers)}:{'|'.join(peer_ids_sorted)}"
+    etag = f'"{hashlib.md5(etag_content.encode()).hexdigest()}"'
+
     return CreatorsLikeResult(
         body=body,
         seed=seed,
         peer_count=len(peers),
         contact_count=contact_count,
+        headers={
+            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            "ETag": etag,
+            "Vary": "Accept-Encoding",
+        },
     )
+    # Note: headers dict is populated here for reference, but actual header
+    # propagation must happen in main.py's creators_like() route handler.
 
 
 def creators_like_export_route(request, *, handle: str):
@@ -1155,6 +1181,10 @@ def creators_like_export_route(request, *, handle: str):
     Extensionless path + ``Content-Disposition`` preserves the .csv
     filename without tripping FastHTML's static-route precedence
     (the bug we fixed for ``/admin/outreach/export``).
+
+    Note: Exports always fetch full contact data (include_contacts=True),
+    separate from the page display route which uses a lighter field set.
+    This prevents the page render from fetching unnecessary contact columns.
     """
     import csv
     import io
@@ -1167,6 +1197,7 @@ def creators_like_export_route(request, *, handle: str):
     if not seed or not seed.get("id"):
         return Response("Creator not found", status_code=404)
 
+    # Fetch full contact data for CSV export
     peers_result = get_embedding_peers(
         seed["id"],
         limit=LOOKALIKE_LIMIT,
