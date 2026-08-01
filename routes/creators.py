@@ -1103,8 +1103,8 @@ def creators_like_route(request, *, handle: str):
     """GET /creators/like/{handle}
 
     Resolves ``handle`` to a creator id, fetches up to ``LOOKALIKE_LIMIT``
-    embedding peers (lightweight display field set), and hands the
-    result to the view. Anonymous-friendly — no auth gate, no plan gate.
+    embedding peers (with full contact fields for accurate email export count),
+    and hands the result to the view. Anonymous-friendly — no auth gate, no plan gate.
 
     Returns:
         * ``CreatorsLikeResult`` on success (with HTTP cache headers for 1 hour).
