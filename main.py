@@ -873,12 +873,13 @@ def validate_full(
 
     # Check auth
     if not (sess and sess.get("auth")):
-        sess["intended_url"] = "/analysis"
+        if sess:
+            sess["intended_url"] = str(req.url.path)
         from components.modals import SignInNudge
 
         return SignInNudge(
             context_label="Sign in to analyse playlists",
-            return_url="/analysis",
+            return_url=str(req.url.path),
         )
 
     # --- Check if this is an HTMX sort request BEFORE streaming ---
@@ -2026,7 +2027,8 @@ async def add_creator(req, sess):
 
     if not auth:
         logger.warning("[AddCreator] Unauthorized submission attempt")
-        sess["intended_url"] = "/creators"
+        if sess:
+            sess["intended_url"] = "/creators"
         return RedirectResponse("/login", status_code=303)
 
     if not user_id:
