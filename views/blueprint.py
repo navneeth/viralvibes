@@ -209,6 +209,47 @@ def render_no_actions() -> Div:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Sign-in CTA (unauthenticated visitors only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_signin_cta(return_url: str) -> Div:
+    """Soft sign-in invitation shown below blueprint content for logged-out visitors."""
+    from urllib.parse import urlencode
+    from components.auth_components import GoogleGLogo  # lazy — avoids circular import
+
+    login_href = f"/login?{urlencode({'return_url': return_url})}"
+    return Div(
+        Div(
+            UkIcon("bookmark", cls="w-5 h-5 text-primary shrink-0 mt-0.5"),
+            Div(
+                H4(
+                    "Track this creator — it's free",
+                    cls="text-base font-semibold text-foreground",
+                ),
+                P(
+                    "Sign in to add this channel to your watchlist and stay updated when their blueprint changes.",
+                    cls="text-sm text-muted-foreground mt-0.5",
+                ),
+                cls="flex-1 min-w-0",
+            ),
+            A(
+                GoogleGLogo(18),
+                Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
+                href=login_href,
+                cls=(
+                    "inline-flex items-center shrink-0 px-4 py-2.5 "
+                    "bg-white border border-gray-200 hover:border-gray-300 "
+                    "hover:shadow-sm text-gray-800 rounded-lg transition-all no-underline"
+                ),
+            ),
+            cls="flex items-start gap-4 flex-wrap sm:flex-nowrap",
+        ),
+        cls="mt-10 p-5 rounded-xl border border-primary/20 bg-primary/5",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Full page
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -218,6 +259,8 @@ def render_blueprint_page(
     signals: CreatorSignals,
     actions: list[ActionResult],
     back_url: str = "/creators",
+    auth: bool = False,
+    return_url: str = "/creators",
 ) -> Div:
     """
     Full Growth Blueprint page for one creator.
@@ -339,9 +382,7 @@ def render_blueprint_page(
         else:
             actions_section = free_card
 
-    return Div(
-        header,
-        diag_section,
-        actions_section,
-        cls="max-w-3xl mx-auto px-4 py-10",
-    )
+    body_parts = [header, diag_section, actions_section]
+    if not auth:
+        body_parts.append(_render_signin_cta(return_url))
+    return Div(*body_parts, cls="max-w-3xl mx-auto px-4 py-10")
