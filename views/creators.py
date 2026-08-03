@@ -706,6 +706,46 @@ def _active_filter_pill(label: str, clear_url: str) -> A:
 
 
 # ============================================================================
+# Sign-in CTA (unauthenticated visitors only)
+# ============================================================================
+
+
+def _render_creators_signin_cta() -> Div:
+    """Soft sign-in invitation shown below the creators grid for logged-out visitors."""
+    from components.auth_components import GoogleGLogo  # lazy — avoids circular import
+
+    login_href = f"/login?{urlencode({'return_url': '/creators'})}"
+    return Div(
+        Div(
+            UkIcon("heart", cls="w-5 h-5 text-primary shrink-0 mt-0.5"),
+            Div(
+                H4(
+                    "Save creators to your watchlist — it's free",
+                    cls="text-base font-semibold text-foreground",
+                ),
+                P(
+                    "Sign in to favourite channels, track their growth, and build your own shortlists.",
+                    cls="text-sm text-muted-foreground mt-0.5",
+                ),
+                cls="flex-1 min-w-0",
+            ),
+            A(
+                GoogleGLogo(18),
+                Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
+                href=login_href,
+                cls=(
+                    "inline-flex items-center shrink-0 px-4 py-2.5 "
+                    "bg-white border border-gray-200 hover:border-gray-300 "
+                    "hover:shadow-sm text-gray-800 rounded-lg transition-all no-underline"
+                ),
+            ),
+            cls="flex items-start gap-4 flex-wrap sm:flex-nowrap",
+        ),
+        cls="mt-8 p-5 rounded-xl border border-primary/20 bg-primary/5",
+    )
+
+
+# ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
 
@@ -834,6 +874,8 @@ def render_creators_page(
             if creators
             else _render_empty_state(search, grade_filter, has_active_filters, is_authenticated)
         ),
+        # Sign-in CTA for logged-out visitors
+        (_render_creators_signin_cta() if not is_authenticated else None),
         # HTMX OOB injection point for the soft auth modal — creator cards on
         # this page also POST to /creator/{id}/favourite, so the mount must
         # exist here too (same OOB target as the profile page).
