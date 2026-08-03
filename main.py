@@ -1981,8 +1981,9 @@ def creator_blueprint(req, sess, creator_id: str):
                ├─ score_all_actions(signals)             ← utils/blueprint.py
                └─ render_blueprint_page(...)             ← views/blueprint.py
     """
+    auth = sess.get("auth") if sess else None
     channel_name = req.query_params.get("name", "Growth Blueprint")
-    page_content = blueprint_route(req, creator_id)
+    page_content = blueprint_route(req, creator_id, auth=auth)
     return Titled(
         f"{channel_name} — Growth Blueprint — ViralVibes",
         Container(

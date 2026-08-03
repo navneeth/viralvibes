@@ -771,7 +771,7 @@ def compare_creators_route(request, user_id: str | None = None):
     )
 
 
-def blueprint_route(request, creator_id: str):
+def blueprint_route(request, creator_id: str, auth=None):
     """
     GET /creator/{creator_id}/blueprint — Growth Blueprint page.
 
@@ -800,11 +800,17 @@ def blueprint_route(request, creator_id: str):
     )
     actions = score_all_actions(signals)
 
+    bp_path = f"/creator/{creator_id}/blueprint"
+    bp_qs = request.url.query
+    return_url = f"{bp_path}?{bp_qs}" if bp_qs else bp_path
+
     return render_blueprint_page(
         creator,
         signals=signals,
         actions=actions,
         back_url=back_url,
+        auth=bool(auth),
+        return_url=return_url,
     )
 
 
