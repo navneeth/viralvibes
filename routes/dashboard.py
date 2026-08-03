@@ -356,7 +356,7 @@ def user_profile(request: Request, sess) -> Div:
     """
     # Check authentication
     auth = sess.get("auth")
-    auth_error = require_auth(auth, "Sign in to view your profile", return_url="/me/favourites")
+    auth_error = require_auth(auth, "Sign in to view your profile", return_url="/me")
     if auth_error:
         return auth_error
 
