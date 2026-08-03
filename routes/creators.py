@@ -628,6 +628,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     embedding_peers = peers_result[0] if peers_result else None
     embedding_peer_total = peers_result[1] if peers_result else 0
 
+    is_authenticated = user_id is not None
     body = render_creator_profile_page(
         creator,
         back_url=back_url,
@@ -639,6 +640,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         similar_creators=similar_creators,
         embedding_peers=embedding_peers,
         embedding_peer_total=embedding_peer_total,
+        is_authenticated=is_authenticated,
     )
     return CreatorProfileResult(body=body, creator=creator)
 

@@ -745,6 +745,41 @@ def _render_creators_signin_cta() -> Div:
     )
 
 
+def _render_profile_signin_cta(return_url: str) -> Div:
+    """Soft sign-in invitation shown below the creator profile for logged-out visitors."""
+    from components.auth_components import GoogleGLogo  # lazy — avoids circular import
+
+    login_href = f"/login?{urlencode({'return_url': return_url})}"
+    return Div(
+        Div(
+            UkIcon("star", cls="w-5 h-5 text-primary shrink-0 mt-0.5"),
+            Div(
+                H4(
+                    "Add to your watchlist — it's free",
+                    cls="text-base font-semibold text-foreground",
+                ),
+                P(
+                    "Sign in to save this creator, track their growth, and compare against similar channels.",
+                    cls="text-sm text-muted-foreground mt-0.5",
+                ),
+                cls="flex-1 min-w-0",
+            ),
+            A(
+                GoogleGLogo(18),
+                Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
+                href=login_href,
+                cls=(
+                    "inline-flex items-center shrink-0 px-4 py-2.5 "
+                    "bg-white border border-gray-200 hover:border-gray-300 "
+                    "hover:shadow-sm text-gray-800 rounded-lg transition-all no-underline"
+                ),
+            ),
+            cls="flex items-start gap-4 flex-wrap sm:flex-nowrap",
+        ),
+        cls="mt-10 p-5 rounded-xl border border-primary/20 bg-primary/5",
+    )
+
+
 # ============================================================================
 # MAIN PAGE FUNCTION
 # ============================================================================
@@ -3170,6 +3205,7 @@ def render_creator_profile_page(
     recent_upload: dict | None = None,
     embedding_peers: list[dict] | None = None,
     embedding_peer_total: int = 0,
+    is_authenticated: bool = False,
 ) -> Div:
     """
     Full-page creator profile — award-showcase design.
@@ -4670,6 +4706,12 @@ def render_creator_profile_page(
         embedding_peers_section,
         box_plot_section,
         footer_section,
+        # Sign-in CTA for logged-out visitors
+        (
+            _render_profile_signin_cta(f"/creators/@{custom_url.lstrip('@') or creator_id}")
+            if not is_authenticated
+            else None
+        ),
         # HTMX OOB injection point for the soft auth modal (e.g. unauthenticated
         # heart-button click).  Starts empty; populated server-side via
         # hx-swap-oob="innerHTML" when toggle_favourite_route detects no session.
