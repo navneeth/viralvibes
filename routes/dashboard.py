@@ -257,7 +257,7 @@ def my_dashboards(request: Request, sess) -> Div:
     """
     # Check authentication
     auth = sess.get("auth")
-    auth_error = require_auth(auth, "Please log in to view your dashboards.")
+    auth_error = require_auth(auth, "Sign in to view your dashboards", return_url="/me/dashboards")
     if auth_error:
         return auth_error
 
@@ -356,7 +356,7 @@ def user_profile(request: Request, sess) -> Div:
     """
     # Check authentication
     auth = sess.get("auth")
-    auth_error = require_auth(auth, "Please log in to view your profile.")
+    auth_error = require_auth(auth, "Sign in to view your profile", return_url="/me/favourites")
     if auth_error:
         return auth_error
 

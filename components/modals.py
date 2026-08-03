@@ -374,3 +374,64 @@ def AuthModal(
         id=modal_id,
         cls="modal-container hidden",
     )
+
+
+# ---------------------------------------------------------------------------
+# SignInNudge — inline sign-in invitation card
+# ---------------------------------------------------------------------------
+# Used wherever an unauthenticated user tries to take a protected action
+# (playlist analysis, suggest a creator, etc.).  Unlike AuthModal it is not
+# a floating overlay — it renders inline inside the HTMX swap target so the
+# rest of the page stays visible and the prompt feels like a natural next step
+# rather than a hard gate.
+# ---------------------------------------------------------------------------
+
+
+def SignInNudge(
+    *,
+    context_label: str = "Sign in to continue",
+    return_url: str = "/login",
+) -> Div:
+    """Compact inline sign-in card returned by HTMX action endpoints.
+
+    Args:
+        context_label: Short phrase describing why sign-in is needed, e.g.
+                       ``"Sign in to analyse playlists"``.
+        return_url:    URL the login flow redirects back to after auth.
+    """
+    from components.auth_components import GoogleGLogo  # lazy — avoids circular import
+
+    login_href = f"/login?{urlencode({'return_url': return_url})}"
+
+    return Div(
+        # Thin gradient header strip
+        Div(
+            P(
+                context_label,
+                cls="text-xs font-mono uppercase tracking-[0.14em] text-white/90",
+            ),
+            cls=("px-4 py-2.5 " "bg-gradient-to-r from-blue-600 to-indigo-600 " "rounded-t-xl"),
+        ),
+        # Body
+        Div(
+            P(
+                "Free forever — no credit card required.",
+                cls="text-sm text-muted-foreground mb-4",
+            ),
+            A(
+                GoogleGLogo(18),
+                Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
+                href=login_href,
+                cls=(
+                    "flex items-center justify-center w-full px-4 py-2.5 "
+                    "bg-white border border-gray-200 hover:border-gray-300 "
+                    "hover:shadow-sm text-gray-800 rounded-lg transition-all no-underline"
+                ),
+            ),
+            cls="px-4 py-4",
+        ),
+        cls=(
+            "rounded-xl border border-border bg-background shadow-sm "
+            "max-w-xs mx-auto my-4 overflow-hidden"
+        ),
+    )

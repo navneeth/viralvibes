@@ -816,12 +816,9 @@ async def creator_request_route(request, sess):
     Returns an inline HTMX partial (no full page reload).
     """
     auth = sess.get("auth") if sess else None
-    auth_error = require_auth(auth)
+    auth_error = require_auth(auth, "Sign in to suggest creators", return_url="/creators")
     if auth_error:
-        return render_add_creator_result(
-            success=False,
-            message="You must be logged in to submit a creator.",
-        )
+        return auth_error
 
     user_id = sess.get("user_id") if sess else None
 
