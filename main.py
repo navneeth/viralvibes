@@ -873,11 +873,13 @@ def validate_full(
 
     # Check auth
     if not (sess and sess.get("auth")):
-        sess["intended_url"] = str(req.url.path)
-        return Alert(
-            P("Please log in to analyze playlists."),
-            A("Log in", href="/login", cls=f"{ButtonT.primary}"),
-            cls=AlertT.warning,
+        if sess:
+            sess["intended_url"] = str(req.url.path)
+        from components.modals import SignInNudge
+
+        return SignInNudge(
+            context_label="Sign in to analyse playlists",
+            return_url=str(req.url.path),
         )
 
     # --- Check if this is an HTMX sort request BEFORE streaming ---
@@ -1146,7 +1148,7 @@ def check_job_status(playlist_url: str, req, sess):
     auth = sess.get("auth") if sess else None
 
     # Use existing require_auth
-    auth_error = require_auth(auth)
+    auth_error = require_auth(auth, return_url="/analysis")
     if auth_error:
         return auth_error
 
@@ -2025,7 +2027,9 @@ async def add_creator(req, sess):
 
     if not auth:
         logger.warning("[AddCreator] Unauthorized submission attempt")
-        return Response("Authentication required", status_code=401)
+        if sess:
+            sess["intended_url"] = "/creators"
+        return RedirectResponse("/login", status_code=303)
 
     if not user_id:
         logger.warning("[AddCreator] User auth present but no user_id")
