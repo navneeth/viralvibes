@@ -62,6 +62,7 @@ def clear_auth_session(sess: dict) -> None:
         "user_given_name",
         "user_has_avatar",
         "last_login_at",
+        "is_admin",
     ]
 
     for key in session_keys_to_clear:
