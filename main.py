@@ -1544,7 +1544,12 @@ def creators_like(req, sess, handle: str):
     # response pipeline, so str(page) would produce a bare fragment with no
     # CSS or JS.  _render_page() replicates the <html><head><body> assembly.
     response = StarletteResponse(_render_page(page), media_type="text/html")
-    if result.headers:
+    if _is_authenticated(sess):
+        # Authenticated nav is personalised (profile pic, sign-out link).
+        # result.headers carries Cache-Control: public with no Vary: Cookie,
+        # so the CDN could serve the logged-in nav to anonymous users.
+        response.headers["Cache-Control"] = "private, no-store"
+    elif result.headers:
         for header_name, header_value in result.headers.items():
             response.headers[header_name] = header_value
     return response
