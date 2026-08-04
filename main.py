@@ -1402,7 +1402,7 @@ def creators(req, sess):
         return HTMLResponse(
             _render_page(response),
             headers={
-                "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
+                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
                 "Vary": "Cookie",
             },
         )
@@ -1451,7 +1451,7 @@ def _render_creators_top(req, sess, category_slug: str | None):
         creators=result.creators,
     )
 
-    return Titled(
+    page = Titled(
         creators_top_page_title(result.category_label),
         Container(
             NavComponent(oauth, req, sess),
@@ -1460,6 +1460,15 @@ def _render_creators_top(req, sess, category_slug: str | None):
         ),
         *head_tags,
     )
+    if not (sess and sess.get("auth")):
+        return HTMLResponse(
+            _render_page(page),
+            headers={
+                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
+                "Vary": "Cookie",
+            },
+        )
+    return page
 
 
 @rt("/creators/top")
@@ -1552,7 +1561,7 @@ def lists(req, sess):
         return HTMLResponse(
             _render_page(response),
             headers={
-                "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
                 "Vary": "Cookie",
             },
         )
@@ -1830,7 +1839,7 @@ def creator_profile_by_handle(req, sess, handle: str):
 
     if isinstance(result, CreatorProfileResult):
         head_tags = creator_profile_head(result.creator)
-        return Titled(
+        page = Titled(
             creator_profile_page_title(result.creator),
             Container(
                 NavComponent(oauth, req, sess),
@@ -1838,6 +1847,15 @@ def creator_profile_by_handle(req, sess, handle: str):
             ),
             *head_tags,
         )
+        if not (sess and sess.get("auth")):
+            return HTMLResponse(
+                _render_page(page),
+                headers={
+                    "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
+                    "Vary": "Cookie",
+                },
+            )
+        return page
 
     return Titled(
         "Creator Profile - ViralVibes",
@@ -1912,7 +1930,7 @@ def creator_profile(req, sess, creator_id: str):
 
     if isinstance(result, CreatorProfileResult):
         head_tags = creator_profile_head(result.creator)
-        return Titled(
+        page = Titled(
             creator_profile_page_title(result.creator),
             Container(
                 NavComponent(oauth, req, sess),
@@ -1920,6 +1938,15 @@ def creator_profile(req, sess, creator_id: str):
             ),
             *head_tags,
         )
+        if not (sess and sess.get("auth")):
+            return HTMLResponse(
+                _render_page(page),
+                headers={
+                    "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
+                    "Vary": "Cookie",
+                },
+            )
+        return page
 
     return Titled(
         "Creator Profile - ViralVibes",
@@ -1984,13 +2011,22 @@ def creator_blueprint(req, sess, creator_id: str):
     auth = sess.get("auth") if sess else None
     channel_name = req.query_params.get("name", "Growth Blueprint")
     page_content = blueprint_route(req, creator_id, auth=auth)
-    return Titled(
+    page = Titled(
         f"{channel_name} — Growth Blueprint — ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             page_content,
         ),
     )
+    if not auth:
+        return HTMLResponse(
+            _render_page(page),
+            headers={
+                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
+                "Vary": "Cookie",
+            },
+        )
+    return page
 
 
 @rt("/compare")
@@ -2411,7 +2447,7 @@ def blog(req, sess):
         title="ViralVibes Blog",
         href="/rss.xml",
     )
-    return Titled(
+    page = Titled(
         "Blog — ViralVibes",
         rss_link,
         Container(
@@ -2420,6 +2456,15 @@ def blog(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    if not (sess and sess.get("auth")):
+        return HTMLResponse(
+            _render_page(page),
+            headers={
+                "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+                "Vary": "Cookie",
+            },
+        )
+    return page
 
 
 @rt("/rss.xml")
@@ -2427,7 +2472,11 @@ def rss_feed(req):
     """RSS 2.0 feed for published blog posts (no auth required)."""
     posts = get_posts()
     xml = build_rss_feed(posts, SITE_BASE_URL)
-    return Response(xml, media_type="application/rss+xml; charset=utf-8")
+    return Response(
+        xml,
+        media_type="application/rss+xml; charset=utf-8",
+        headers={"Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600"},
+    )
 
 
 @rt("/blog/{slug}")
@@ -2461,7 +2510,7 @@ def blog_post_route(req, sess, slug: str):
                 cls=ContainerT.xl,
             ),
         )
-    return Titled(
+    page = Titled(
         f"{post.title} — ViralVibes Blog",
         Container(
             NavComponent(oauth, req, sess),
@@ -2469,6 +2518,15 @@ def blog_post_route(req, sess, slug: str):
             cls=ContainerT.xl,
         ),
     )
+    if not (sess and sess.get("auth")):
+        return HTMLResponse(
+            _render_page(page),
+            headers={
+                "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+                "Vary": "Cookie",
+            },
+        )
+    return page
 
 
 @rt("/press")
