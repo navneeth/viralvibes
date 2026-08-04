@@ -3034,15 +3034,18 @@ def _match_reason(peer: dict, seed: dict) -> str | None:
         else:
             reasons.append("Related niche")
 
-    peer_subs = int(peer.get("current_subscribers") or 0)
-    seed_subs = int(seed.get("current_subscribers") or 0)
-    if peer_subs and seed_subs:
-        ratio = peer_subs / seed_subs
-        if 0.5 <= ratio <= 2.0:
-            reasons.append("Similar size")
-        elif ratio > 2.0:
-            reasons.append("Larger audience")
-        # Smaller audience — not surfaced (not a positive signal for brands)
+    try:
+        peer_subs = int(peer.get("current_subscribers") or 0)
+        seed_subs = int(seed.get("current_subscribers") or 0)
+        if peer_subs and seed_subs:
+            ratio = peer_subs / seed_subs
+            if 0.5 <= ratio <= 2.0:
+                reasons.append("Similar size")
+            elif ratio > 2.0:
+                reasons.append("Larger audience")
+            # Smaller audience — not surfaced (not a positive signal for brands)
+    except (TypeError, ValueError):
+        pass  # Non-numeric DB value — omit size signal rather than crashing the rail
 
     return " · ".join(reasons) if reasons else None
 
@@ -3173,14 +3176,15 @@ def _render_similar_creators(
                 if is_benchmark
                 else []
             ),
-            # Rail 2: short match-reason label ("Same category · Similar size").
+            # Rail 2: short match-reason chip ("Same category · Similar size").
             *(
                 [
                     Span(
                         _reason,
                         cls=(
                             "text-[9px] text-center text-muted-foreground "
-                            "mt-0.5 leading-tight line-clamp-2 px-0.5"
+                            "mt-0.5 px-1.5 py-px rounded-full bg-accent "
+                            "truncate max-w-full"
                         ),
                     )
                 ]
@@ -3203,7 +3207,10 @@ def _render_similar_creators(
         see_all_href = "/creators"
         see_all_label = "All creators"
 
-    rail_id = f"similar-rail-{current_creator_id or 'x'}"
+    # Include rail mode so benchmark and similar rails on the same profile
+    # page get distinct DOM ids (duplicate ids are invalid HTML).
+    rail_mode = "benchmark" if is_benchmark else "similar"
+    rail_id = f"{rail_mode}-rail-{current_creator_id or 'x'}"
 
     # Rail 2 subtext appears below the heading when a seed creator is provided.
     subtext = (
