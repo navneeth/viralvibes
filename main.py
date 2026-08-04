@@ -259,6 +259,42 @@ def _render_page(ft_response) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# CDN edge-cache helpers
+# ---------------------------------------------------------------------------
+# TTL strings for public (logged-out) responses served via Vercel's edge CDN.
+# s-maxage: how long the CDN serves without revalidating.
+# stale-while-revalidate: how long the CDN may serve stale content while
+# refreshing in the background (users never wait for a cache miss).
+_CC_STD = "public, s-maxage=300, stale-while-revalidate=3600"  # creator profiles, lists, blueprints
+_CC_BLOG = "public, s-maxage=3600, stale-while-revalidate=86400"  # blog pages — rarely change
+_CC_RSS = "public, s-maxage=900, stale-while-revalidate=3600"  # RSS feed
+
+
+def _is_authenticated(sess) -> bool:
+    """True when the session carries a valid auth token.
+
+    Guards against ``sess`` being ``None`` (no session middleware) and against
+    the auth key being absent or falsy.
+    """
+    return bool(sess and sess.get("auth"))
+
+
+def _public_cached_response(sess, page, cache_control: str):
+    """Return *page* wrapped in a CDN-cacheable HTMLResponse for logged-out visitors.
+
+    Logged-in users receive the raw FastHTML ``Titled`` response so FastHTML's
+    pipeline can inject session-specific nav state.  ``Vary: Cookie`` tells the
+    CDN to keep both cache entries (logged-in / logged-out) separate.
+    """
+    if not _is_authenticated(sess):
+        return HTMLResponse(
+            _render_page(page),
+            headers={"Cache-Control": cache_control, "Vary": "Cookie"},
+        )
+    return page
+
+
 def _creator_not_found_response(req, sess, message: str) -> HTMLResponse:
     """Return a 404 HTMLResponse for the creator profile route.
 
@@ -622,8 +658,9 @@ def login_new_ui(req, sess):
 
 
 @rt("/logout")
-def logout():
+def logout(sess):
     """Standard logout - clears session and redirects"""
+    clear_auth_session(sess)
     return build_logout_response()
 
 
@@ -1398,16 +1435,9 @@ def creators(req, sess):
         or req.query_params.get("country")
         or req.query_params.get("language")
     )
-    if not sess.get("auth") and not is_filtered:
-        return HTMLResponse(
-            _render_page(response),
-            headers={
-                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-                "Vary": "Cookie",
-            },
-        )
-
-    return response
+    if is_filtered:
+        return response
+    return _public_cached_response(sess, response, _CC_STD)
 
 
 @rt("/creators/request")
@@ -1460,15 +1490,7 @@ def _render_creators_top(req, sess, category_slug: str | None):
         ),
         *head_tags,
     )
-    if not (sess and sess.get("auth")):
-        return HTMLResponse(
-            _render_page(page),
-            headers={
-                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-                "Vary": "Cookie",
-            },
-        )
-    return page
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/creators/top")
@@ -1557,16 +1579,7 @@ def lists(req, sess):
     # Cache at the CDN edge for logged-out visitors only.
     # Vary: Cookie tells the CDN to keep separate cache entries per
     # cookie presence, so logged-in users always get a fresh response.
-    if not sess.get("auth"):
-        return HTMLResponse(
-            _render_page(response),
-            headers={
-                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-                "Vary": "Cookie",
-            },
-        )
-
-    return response
+    return _public_cached_response(sess, response, _CC_STD)
 
 
 @rt("/lists/more-countries")
@@ -1847,15 +1860,7 @@ def creator_profile_by_handle(req, sess, handle: str):
             ),
             *head_tags,
         )
-        if not (sess and sess.get("auth")):
-            return HTMLResponse(
-                _render_page(page),
-                headers={
-                    "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-                    "Vary": "Cookie",
-                },
-            )
-        return page
+        return _public_cached_response(sess, page, _CC_STD)
 
     return Titled(
         "Creator Profile - ViralVibes",
@@ -1938,15 +1943,7 @@ def creator_profile(req, sess, creator_id: str):
             ),
             *head_tags,
         )
-        if not (sess and sess.get("auth")):
-            return HTMLResponse(
-                _render_page(page),
-                headers={
-                    "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-                    "Vary": "Cookie",
-                },
-            )
-        return page
+        return _public_cached_response(sess, page, _CC_STD)
 
     return Titled(
         "Creator Profile - ViralVibes",
@@ -2018,15 +2015,7 @@ def creator_blueprint(req, sess, creator_id: str):
             page_content,
         ),
     )
-    if not auth:
-        return HTMLResponse(
-            _render_page(page),
-            headers={
-                "Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-                "Vary": "Cookie",
-            },
-        )
-    return page
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/compare")
@@ -2456,15 +2445,7 @@ def blog(req, sess):
             cls=ContainerT.xl,
         ),
     )
-    if not (sess and sess.get("auth")):
-        return HTMLResponse(
-            _render_page(page),
-            headers={
-                "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-                "Vary": "Cookie",
-            },
-        )
-    return page
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 @rt("/rss.xml")
@@ -2475,7 +2456,7 @@ def rss_feed(req):
     return Response(
         xml,
         media_type="application/rss+xml; charset=utf-8",
-        headers={"Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600"},
+        headers={"Cache-Control": _CC_RSS},
     )
 
 
@@ -2518,15 +2499,7 @@ def blog_post_route(req, sess, slug: str):
             cls=ContainerT.xl,
         ),
     )
-    if not (sess and sess.get("auth")):
-        return HTMLResponse(
-            _render_page(page),
-            headers={
-                "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-                "Vary": "Cookie",
-            },
-        )
-    return page
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 @rt("/press")
