@@ -3018,28 +3018,68 @@ def _count_by_grade(creators: list[dict]) -> dict:
 # ============================================================================
 
 
+def _match_reason(peer: dict, seed: dict) -> str | None:
+    """Short 'why this match' label comparing a peer to the seed creator.
+
+    Returns at most two signals joined by ' · ', or None when insufficient
+    data is available.  Designed to fit in a narrow w-28 tile at text-[9px].
+    """
+    reasons: list[str] = []
+
+    peer_cat = (peer.get("primary_category") or "").strip()
+    seed_cat = (seed.get("primary_category") or "").strip()
+    if peer_cat and seed_cat:
+        if peer_cat.lower() == seed_cat.lower():
+            reasons.append("Same category")
+        else:
+            reasons.append("Related niche")
+
+    peer_subs = int(peer.get("current_subscribers") or 0)
+    seed_subs = int(seed.get("current_subscribers") or 0)
+    if peer_subs and seed_subs:
+        ratio = peer_subs / seed_subs
+        if 0.5 <= ratio <= 2.0:
+            reasons.append("Similar size")
+        elif ratio > 2.0:
+            reasons.append("Larger audience")
+        # Smaller audience — not surfaced (not a positive signal for brands)
+
+    return " · ".join(reasons) if reasons else None
+
+
 def _render_similar_creators(
     creators: list[dict],
     category: str,
     country_code: str,
     current_creator_id: str = "",
     title: str = "You may also like",
+    *,
+    is_benchmark: bool = False,
+    seed_creator: dict | None = None,
 ) -> Div | None:
     """
     Horizontal Apple-Music-style scroll rail of similar creators.
 
-    Each tile is a fixed-width card with a square avatar, channel name,
-    subscriber count, and quality grade. The rail uses scroll-snap so
-    swiping feels native on mobile.
+    ``is_benchmark=True`` → Rail 1 "Category Leaders": title becomes
+    "Top {category} Creators" and each tile gets an amber "Benchmark" chip.
+    Used for the category-sorted top-list (``similar_creators`` on the
+    profile page).
 
-    ``title`` controls the section heading so the same component can serve
-    both the category-based "You may also like" and the embedding-based
-    "Similar creators" rails.
+    ``seed_creator=<dict>`` → Rail 2 "Similar Creators": a subtext line is
+    added below the heading and each tile shows a computed match-reason chip
+    ("Same category · Similar size" etc.).  Used for the embedding-based
+    peers rail (``embedding_peers`` on the profile page).
 
     Returns None when the list is empty so callers can safely omit it.
     """
     if not creators:
         return None
+
+    # Resolve heading — benchmark rail overrides the title parameter.
+    if is_benchmark:
+        rail_title = f"Top {category} Creators" if category else "Category Leaders"
+    else:
+        rail_title = title
 
     _chip_cls = {
         "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
@@ -3070,6 +3110,9 @@ def _render_similar_creators(
                 cls="w-full aspect-square rounded-xl bg-accent flex items-center justify-center",
             )
         )
+
+        # Rail 2 only: derive a short match-reason label from the seed creator.
+        _reason = _match_reason(c, seed_creator) if seed_creator else None
 
         return Div(
             A(
@@ -3116,6 +3159,34 @@ def _render_similar_creators(
                 if current_creator_id
                 else []
             ),
+            # Rail 1: amber "Benchmark" label signals this is a reference point.
+            *(
+                [
+                    Span(
+                        "Benchmark",
+                        cls=(
+                            "text-[9px] font-semibold text-center block mt-1 "
+                            "text-amber-600 dark:text-amber-400"
+                        ),
+                    )
+                ]
+                if is_benchmark
+                else []
+            ),
+            # Rail 2: short match-reason label ("Same category · Similar size").
+            *(
+                [
+                    Span(
+                        _reason,
+                        cls=(
+                            "text-[9px] text-center text-muted-foreground "
+                            "mt-0.5 leading-tight line-clamp-2 px-0.5"
+                        ),
+                    )
+                ]
+                if _reason
+                else []
+            ),
             cls="flex-shrink-0 w-28 sm:w-32 snap-start flex flex-col",
         )
 
@@ -3133,16 +3204,28 @@ def _render_similar_creators(
         see_all_label = "All creators"
 
     rail_id = f"similar-rail-{current_creator_id or 'x'}"
+
+    # Rail 2 subtext appears below the heading when a seed creator is provided.
+    subtext = (
+        P(
+            "Matched by category, audience size and engagement",
+            cls="text-xs text-muted-foreground mb-3",
+        )
+        if seed_creator
+        else None
+    )
+
     return Card(
         Div(
-            H2(title, cls=_CLS_HEADING),
+            H2(rail_title, cls=_CLS_HEADING),
             A(
                 see_all_label + " →",
                 href=see_all_href,
                 cls="text-xs font-medium text-primary hover:underline no-underline shrink-0",
             ),
-            cls="flex items-center justify-between mb-3",
+            cls=f"flex items-center justify-between {'mb-1' if subtext else 'mb-3'}",
         ),
+        subtext,
         Div(
             *tiles,
             id=rail_id,
@@ -4550,6 +4633,7 @@ def render_creator_profile_page(
         primary_category,
         country_code,
         current_creator_id=creator_id,
+        is_benchmark=True,
     )
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -4597,7 +4681,8 @@ def render_creator_profile_page(
                 primary_category,
                 country_code,
                 current_creator_id=creator_id,
-                title="Similar creators",
+                title="Similar Creators",
+                seed_creator=creator,
             ),
             _lookalike_cta,
         )
