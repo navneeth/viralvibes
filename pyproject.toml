@@ -24,6 +24,7 @@ dependencies = [
     "isodate",
     "python-dotenv",
     "stripe>=11.0.0",
+    "python-frontmatter>=1.1.0",
 ]
 
 # Tell setuptools this is an application, not a library - don't auto-discover packages

@@ -17,7 +17,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_POSTS_DIR = Path("posts")
+_POSTS_DIR = Path(__file__).parent.parent / "posts"
 
 
 # ---------------------------------------------------------------------------
