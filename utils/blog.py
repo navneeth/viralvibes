@@ -142,7 +142,7 @@ def _make_renderer():
         import mistletoe
 
         # Known in-app route prefixes — only these get same-tab link behaviour.
-        _INTERNAL_PREFIXES = ("/blog", "/creators", "/dashboard", "/compare")
+        _INTERNAL_PREFIXES = ("/blog", "/creators", "/creator", "/dashboard", "/compare", "/lists")
 
         class _SiteRenderer(FrankenRenderer):
             """Extends FrankenRenderer: internal site links open in the same tab;
