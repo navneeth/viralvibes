@@ -3230,6 +3230,17 @@ def _is_statement_timeout_error(exc: Exception) -> bool:
     return "57014" in text or "statement timeout" in text
 
 
+def _is_connection_pool_timeout(exc: Exception) -> bool:
+    """Return True for PostgREST PGRST003 connection-pool exhaustion errors.
+
+    Occurs when all PgBouncer / PostgREST connections are in use and the
+    request waits longer than the pool timeout.  Transient under load;
+    the same graceful-empty degradation applied to 57014 timeouts applies.
+    """
+    text = str(exc)
+    return "PGRST003" in text or "Timed out acquiring connection from connection pool" in text
+
+
 def _is_handle_like_search(search: str) -> bool:
     """Return True for single-token searches that look like YouTube handles."""
     return bool(_HANDLE_RE.match(f"@{_normalize_creator_handle(search)}"))
@@ -3547,7 +3558,9 @@ def get_creators(
                         return CreatorsResult([], 0)
                     return []
 
-            if not no_extra_filters and _is_statement_timeout_error(e):
+            if not no_extra_filters and (
+                _is_statement_timeout_error(e) or _is_connection_pool_timeout(e)
+            ):
                 # A filter+sort combination hit a statement timeout — most likely
                 # a multi-filter query whose index coverage was insufficient.
                 # Apply migration 048 (grade_sort_composite_indexes) to fix the root
