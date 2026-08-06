@@ -3237,8 +3237,8 @@ def _is_connection_pool_timeout(exc: Exception) -> bool:
     request waits longer than the pool timeout.  Transient under load;
     the same graceful-empty degradation applied to 57014 timeouts applies.
     """
-    text = str(exc)
-    return "PGRST003" in text or "Timed out acquiring connection from connection pool" in text
+    text = str(exc).lower()
+    return "pgrst003" in text or "timed out acquiring connection from connection pool" in text
 
 
 def _is_handle_like_search(search: str) -> bool:
@@ -3561,32 +3561,45 @@ def get_creators(
             if not no_extra_filters and (
                 _is_statement_timeout_error(e) or _is_connection_pool_timeout(e)
             ):
-                # A filter+sort combination hit a statement timeout — most likely
-                # a multi-filter query whose index coverage was insufficient.
-                # Apply migration 048 (grade_sort_composite_indexes) to fix the root
-                # cause. Return empty gracefully so the UI shows "no results" rather
-                # than a 500 error.
-                #
-                # Guard: only degrade gracefully when at least one non-default filter
-                # is active (no_extra_filters=False). A timeout on a plain unfiltered
-                # browse is a genuine outage and should propagate as an error, not
-                # silently return empty results.
-                logger.warning(
-                    "get_creators timed out (57014) — returning empty. "
-                    "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
-                    "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
-                    "country=%s, category=%s]. Apply migration 048 to fix.",
-                    sort,
-                    limit,
-                    offset,
-                    search[:256] if isinstance(search, str) else search,
-                    grade_filter,
-                    language_filter,
-                    activity_filter,
-                    age_filter,
-                    country_filter,
-                    category_filter,
-                )
+                # Transient DB resource error on a filtered query — return empty
+                # gracefully so the UI shows "no results" rather than a 500.
+                # Guard: only degrade when at least one non-default filter is
+                # active (no_extra_filters=False). A timeout on a plain unfiltered
+                # browse is a genuine outage and should propagate, not be masked.
+                if _is_connection_pool_timeout(e):
+                    logger.warning(
+                        "get_creators — connection pool exhausted (PGRST003), returning empty. "
+                        "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
+                        "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
+                        "country=%s, category=%s]. Reduce concurrent load or increase pool size.",
+                        sort,
+                        limit,
+                        offset,
+                        search[:256] if isinstance(search, str) else search,
+                        grade_filter,
+                        language_filter,
+                        activity_filter,
+                        age_filter,
+                        country_filter,
+                        category_filter,
+                    )
+                else:
+                    logger.warning(
+                        "get_creators timed out (57014) — returning empty. "
+                        "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
+                        "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
+                        "country=%s, category=%s]. Apply migration 048 to fix.",
+                        sort,
+                        limit,
+                        offset,
+                        search[:256] if isinstance(search, str) else search,
+                        grade_filter,
+                        language_filter,
+                        activity_filter,
+                        age_filter,
+                        country_filter,
+                        category_filter,
+                    )
                 if return_count:
                     return CreatorsResult([], 0)
                 return []
