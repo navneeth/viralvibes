@@ -219,6 +219,9 @@ def _post_row(post) -> A:
             )
         )
     else:
+        _wc = len(post.content.split())
+        _rm = max(1, round(_wc / 200))
+        meta_parts.append(Span(f"{_rm} min read", cls="text-xs text-muted-foreground"))
         meta_parts.extend([_tag_pill(t) for t in post.tags])
 
     meta_row = Div(*meta_parts, cls="flex flex-wrap items-center gap-2 mt-1")
@@ -330,20 +333,32 @@ def blog_post_content(post) -> Div:
         cls="text-sm text-muted-foreground hover:text-foreground transition-colors no-underline",
     )
 
+    # Reading time: ~200 words per minute; minimum 1 min shown.
+    _word_count = len(post.content.split())
+    _read_min = max(1, round(_word_count / 200))
+    _read_label = f"{_read_min} min read"
+
     post_header = Div(
-        (P(post.datestr, cls="text-sm text-muted-foreground mb-3") if post.datestr else None),
+        # Eyebrow row: category tags + date + reading time
+        Div(
+            *(
+                [Div(*[_tag_pill(t) for t in post.tags], cls="flex flex-wrap gap-2")]
+                if post.tags
+                else []
+            ),
+            Span("·", cls="text-muted-foreground text-xs") if post.tags and post.datestr else None,
+            Span(post.datestr, cls="text-xs text-muted-foreground") if post.datestr else None,
+            Span("·", cls="text-muted-foreground text-xs") if post.datestr else None,
+            Span(_read_label, cls="text-xs text-muted-foreground"),
+            cls="flex flex-wrap items-center gap-2 mb-4",
+        ),
         H1(
             post.title,
             cls="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-4 leading-tight",
         ),
         (
-            P(post.excerpt, cls="text-lg text-muted-foreground leading-relaxed mb-4")
+            P(post.excerpt, cls="text-lg text-muted-foreground leading-relaxed mb-6")
             if post.excerpt
-            else None
-        ),
-        (
-            Div(*[_tag_pill(t) for t in post.tags], cls="flex flex-wrap gap-2 mb-8")
-            if post.tags
             else None
         ),
         Div(cls="h-px bg-gradient-to-r from-border to-transparent mb-8"),
