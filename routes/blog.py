@@ -12,10 +12,22 @@ Design adapted from https://github.com/jackhogan/personal-site:
 
 from __future__ import annotations
 
+import math
+
 from fasthtml.common import *
 from monsterui.all import *
 from urllib.parse import quote_plus
 from xml.sax.saxutils import escape
+
+
+def compute_reading_time_minutes(content: str) -> int:
+    """Return reading time in whole minutes, rounded up, minimum 1.
+
+    Uses 200 wpm — a conservative average that errs on the side of
+    slightly over-estimating, consistent with common blog UX practice.
+    ``ceil`` prevents underestimation: 250 words → 2 min, not 1.
+    """
+    return max(1, math.ceil(len(content.split()) / 200))
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +231,8 @@ def _post_row(post) -> A:
             )
         )
     else:
+        _rm = compute_reading_time_minutes(post.content)
+        meta_parts.append(Span(f"{_rm} min read", cls="text-xs text-muted-foreground"))
         meta_parts.extend([_tag_pill(t) for t in post.tags])
 
     meta_row = Div(*meta_parts, cls="flex flex-wrap items-center gap-2 mt-1")
@@ -330,20 +344,30 @@ def blog_post_content(post) -> Div:
         cls="text-sm text-muted-foreground hover:text-foreground transition-colors no-underline",
     )
 
+    # Reading time — ceil so 250 words → 2 min, not 1.
+    _read_label = f"{compute_reading_time_minutes(post.content)} min read"
+
     post_header = Div(
-        (P(post.datestr, cls="text-sm text-muted-foreground mb-3") if post.datestr else None),
+        # Eyebrow row: category tags + date + reading time
+        Div(
+            *(
+                [Div(*[_tag_pill(t) for t in post.tags], cls="flex flex-wrap gap-2")]
+                if post.tags
+                else []
+            ),
+            Span("·", cls="text-muted-foreground text-xs") if post.tags and post.datestr else None,
+            Span(post.datestr, cls="text-xs text-muted-foreground") if post.datestr else None,
+            Span("·", cls="text-muted-foreground text-xs") if post.datestr else None,
+            Span(_read_label, cls="text-xs text-muted-foreground"),
+            cls="flex flex-wrap items-center gap-2 mb-4",
+        ),
         H1(
             post.title,
             cls="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-4 leading-tight",
         ),
         (
-            P(post.excerpt, cls="text-lg text-muted-foreground leading-relaxed mb-4")
+            P(post.excerpt, cls="text-lg text-muted-foreground leading-relaxed mb-6")
             if post.excerpt
-            else None
-        ),
-        (
-            Div(*[_tag_pill(t) for t in post.tags], cls="flex flex-wrap gap-2 mb-8")
-            if post.tags
             else None
         ),
         Div(cls="h-px bg-gradient-to-r from-border to-transparent mb-8"),
