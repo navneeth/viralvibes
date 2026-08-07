@@ -3246,6 +3246,52 @@ def _is_handle_like_search(search: str) -> bool:
     return bool(_HANDLE_RE.match(f"@{_normalize_creator_handle(search)}"))
 
 
+def _get_category_count_from_mv(normalized_category: str) -> int | None:
+    """
+    Sub-millisecond count lookup from mv_category_counts for a single topic category.
+
+    Used by get_creators() to avoid the slow COUNT(*) that PostgREST runs
+    alongside the paged SELECT when count="exact" is set.  Popular topic
+    categories (e.g. "Action game", 81k rows) spread across 57k heap pages
+    can take ~10s for a COUNT — far exceeding the statement timeout.
+
+    The materialized view is pre-computed by the worker and refreshed each
+    sync cycle (refresh_mv_category_counts RPC).  It stores ONLY topic-category
+    values (from the topic_categories column), so:
+      - Topic categories ("Action game", "Jazz"):  accurate, fast
+      - Primary categories ("Howto & Style"):       not in MV → returns None
+                                                     → caller falls back to live COUNT
+                                                     (primary_category counts are fast)
+
+    Args:
+        normalized_category: Already-normalized category name
+            (e.g. "Action game", not "Action_game").
+
+    Returns:
+        Integer count, or None if the category is not in the MV.
+    """
+    if not supabase_client or not normalized_category:
+        return None
+    try:
+        resp = _db_execute(
+            lambda: supabase_client.table("mv_category_counts")
+            .select("creator_count")
+            .eq("category", normalized_category)
+            .maybe_single()
+            .execute()
+        )
+        if resp and resp.data:
+            return int(resp.data.get("creator_count", 0))
+        return None
+    except Exception:
+        logger.debug(
+            "_get_category_count_from_mv: MV lookup failed for %r, falling back to live COUNT",
+            normalized_category,
+            exc_info=True,
+        )
+        return None
+
+
 def _get_ranked_creator_search(
     *,
     search: str,
@@ -3404,9 +3450,46 @@ def get_creators(
             if used_ranked_rpc:
                 return ranked_result
 
+        # Fast count path: when category is the *only* active filter (no search,
+        # no grade/language/country/etc.), skip count="exact" and use the
+        # mv_category_counts materialized view for an O(1) lookup instead.
+        #
+        # Why: PostgREST bundles COUNT(*) with the paged SELECT in one request.
+        # Popular topic categories (e.g. "Action game", 81k rows across 57k heap
+        # pages) take ~9.9s to count — exceeding the statement timeout and causing
+        # the exception handler to return CreatorsResult([], 0), showing the user
+        # zero results for a valid category.  The paged SELECT with LIMIT 50 takes
+        # only 143ms via idx_creators_listing_browseable early-stop.
+        #
+        # Known approximation: the MV stores per-slug counts, so the ilike pattern
+        # "%action%game%" (which matches both "Action game" and "Action-adventure
+        # game") only returns the exact-slug count for "Action game" (69,901 vs
+        # 81,702 live).  Pagination shows ~17% fewer pages than actually exist.
+        # This is intentional: a slightly-wrong page count is far better UX than
+        # reliable empty results on a 9.9s timeout.
+        # Falls back to live COUNT for primary_category values absent from the MV
+        # (e.g. "Howto & Style") — those are fast via the equality index anyway.
+        _use_mv_count = False
+        _mv_count: int | None = None
+        if (
+            return_count
+            and category_filter
+            and category_filter != "all"
+            and not search
+            and grade_filter == "all"
+            and language_filter == "all"
+            and activity_filter == "all"
+            and age_filter == "all"
+            and country_filter == "all"
+        ):
+            normalized_for_mv = normalize_category_name(category_filter)
+            _mv_count = _get_category_count_from_mv(normalized_for_mv)
+            if _mv_count is not None:
+                _use_mv_count = True
+
         # Start query - must call .select() to get a builder with filter methods
         query = supabase_client.table(CREATOR_TABLE).select(
-            "*", count="exact" if return_count else None
+            "*", count="exact" if (return_count and not _use_mv_count) else None
         )
 
         # Filter out incomplete creators (ensure data quality)
@@ -3440,17 +3523,25 @@ def get_creators(
             # To add a column: create a GIN index with gin_trgm_ops first (see migration 028).
             #
             # Excluded columns:
-            #   topic_categories     — GIN is jsonb_path_ops (containment only, not text search)
             #   country_code         — stores "JP" not "japan"; use country_filter param instead
             #   channel_description  — high noise, low signal: bio mentions of a creator's name
             #                          (e.g. shoutouts) drowned out exact name matches. Removed
             #                          to improve precision; legit name matches are well covered
-            #                          by the four columns below.
+            #                          by the five columns below.
+            #
+            # topic_categories: previously excluded because only a jsonb_path_ops GIN index
+            # existed (migration 028 comment was outdated).  Migration 049 added a gin_trgm_ops
+            # index (idx_creators_topic_categories_trgm) that supports fast ILIKE.
+            # Including it lets keyword searches match niche topic slugs — e.g. "jazz" finds
+            # creators whose topic_categories contains "Jazz" even if their channel name and
+            # primary_category don't mention it.  Measured gain: ~2 800 additional reachable
+            # creators vs the 4-column set (verified 2026-08-07).
             _search_cols = [
                 "channel_name",  # short text
                 "custom_url",  # short text
                 "primary_category",  # idx_creators_primary_category_trgm (migration 028)
                 "keywords",  # medium text
+                "topic_categories",  # idx_creators_topic_categories_trgm (migration 049)
             ]
             or_filter = ",".join(f"{col}.ilike.{search_pattern}" for col in _search_cols)
             query = query.or_(or_filter)
@@ -3514,12 +3605,23 @@ def get_creators(
                 # e.g. "Howto & Style" → "%Howto%&%Style%" still matches the clean
                 # primary_category value "Howto & Style".
                 # Single-word terms fall through to a plain %term%.
-                # The pg_trgm GIN index (migration 028) services all ilike patterns.
+                # The pg_trgm GIN index (migration 028) services primary_category.
+                #
+                # Search across BOTH columns so broad YouTube channel categories
+                # ("Gaming", "Howto & Style" → primary_category) and specific
+                # Wikipedia topic slugs ("Action_game", "Role-playing_video_game"
+                # → topic_categories) are covered.  The words-based wildcard pattern
+                # matches underscored slugs too: "%Action%game%" hits "Action_game"
+                # because % matches the underscore separator.
+                # topic_categories is covered by the GIN trgm index from migration 049.
                 words = normalized_category.split()
                 ilike_pattern = (
                     "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
                 )
-                query = query.ilike("primary_category", ilike_pattern)
+                query = query.or_(
+                    f"primary_category.ilike.{ilike_pattern},"
+                    f"topic_categories.ilike.{ilike_pattern}"
+                )
 
         # Keyset/cursor pagination optimization
         if cursor_value is not None:
@@ -3613,7 +3715,11 @@ def get_creators(
             )
             raise
         creators = response.data if response.data else []
-        total_count = (getattr(response, "count", 0) or 0) if return_count else 0
+        total_count = (
+            _mv_count
+            if _use_mv_count
+            else (getattr(response, "count", 0) or 0) if return_count else 0
+        )
 
         # Add ranking position (1-based index, adjusted for offset)
         for idx, creator in enumerate(creators, 1):
