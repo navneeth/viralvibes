@@ -3287,6 +3287,7 @@ def _get_category_count_from_mv(normalized_category: str) -> int | None:
         logger.debug(
             "_get_category_count_from_mv: MV lookup failed for %r, falling back to live COUNT",
             normalized_category,
+            exc_info=True,
         )
         return None
 
@@ -3450,13 +3451,24 @@ def get_creators(
                 return ranked_result
 
         # Fast count path: when category is the *only* active filter (no search,
-        # no grade/language/country/etc.), the full COUNT(*) with count="exact"
-        # can take ~10s for popular topic categories that match 80k+ rows
-        # (e.g. "Action game" → 9.9s, measured 2026-08-07).
-        # Use the mv_category_counts materialized view for an O(1) lookup instead.
-        # Falls back to live COUNT if the category isn't in the MV (primary_category
-        # values like "Howto & Style" are absent from the MV and their counts are
-        # fast anyway since they use an equality filter on a smaller column).
+        # no grade/language/country/etc.), skip count="exact" and use the
+        # mv_category_counts materialized view for an O(1) lookup instead.
+        #
+        # Why: PostgREST bundles COUNT(*) with the paged SELECT in one request.
+        # Popular topic categories (e.g. "Action game", 81k rows across 57k heap
+        # pages) take ~9.9s to count — exceeding the statement timeout and causing
+        # the exception handler to return CreatorsResult([], 0), showing the user
+        # zero results for a valid category.  The paged SELECT with LIMIT 50 takes
+        # only 143ms via idx_creators_listing_browseable early-stop.
+        #
+        # Known approximation: the MV stores per-slug counts, so the ilike pattern
+        # "%action%game%" (which matches both "Action game" and "Action-adventure
+        # game") only returns the exact-slug count for "Action game" (69,901 vs
+        # 81,702 live).  Pagination shows ~17% fewer pages than actually exist.
+        # This is intentional: a slightly-wrong page count is far better UX than
+        # reliable empty results on a 9.9s timeout.
+        # Falls back to live COUNT for primary_category values absent from the MV
+        # (e.g. "Howto & Style") — those are fast via the equality index anyway.
         _use_mv_count = False
         _mv_count: int | None = None
         if (
