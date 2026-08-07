@@ -12,10 +12,22 @@ Design adapted from https://github.com/jackhogan/personal-site:
 
 from __future__ import annotations
 
+import math
+
 from fasthtml.common import *
 from monsterui.all import *
 from urllib.parse import quote_plus
 from xml.sax.saxutils import escape
+
+
+def compute_reading_time_minutes(content: str) -> int:
+    """Return reading time in whole minutes, rounded up, minimum 1.
+
+    Uses 200 wpm — a conservative average that errs on the side of
+    slightly over-estimating, consistent with common blog UX practice.
+    ``ceil`` prevents underestimation: 250 words → 2 min, not 1.
+    """
+    return max(1, math.ceil(len(content.split()) / 200))
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +231,7 @@ def _post_row(post) -> A:
             )
         )
     else:
-        _wc = len(post.content.split())
-        _rm = max(1, round(_wc / 200))
+        _rm = compute_reading_time_minutes(post.content)
         meta_parts.append(Span(f"{_rm} min read", cls="text-xs text-muted-foreground"))
         meta_parts.extend([_tag_pill(t) for t in post.tags])
 
@@ -333,10 +344,8 @@ def blog_post_content(post) -> Div:
         cls="text-sm text-muted-foreground hover:text-foreground transition-colors no-underline",
     )
 
-    # Reading time: ~200 words per minute; minimum 1 min shown.
-    _word_count = len(post.content.split())
-    _read_min = max(1, round(_word_count / 200))
-    _read_label = f"{_read_min} min read"
+    # Reading time — ceil so 250 words → 2 min, not 1.
+    _read_label = f"{compute_reading_time_minutes(post.content)} min read"
 
     post_header = Div(
         # Eyebrow row: category tags + date + reading time
