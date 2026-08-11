@@ -344,15 +344,24 @@ def resolve_category_slug(slug: str) -> str | None:
 
 
 def _apply_browseable_constraints(query):
-    """Apply the four predicates shared by every topic-category query.
+    """Apply the three predicates shared by every topic-category query.
 
     Centralised so that a change to BROWSEABLE_SYNC_STATUSES or the
     standard row-quality filters only needs to happen in one place.
+
+    Note: topic_categories IS NOT NULL is intentionally omitted.
+    Both query paths that call this function already filter on topic_categories
+    (ILIKE or containment), which implicitly excludes NULL rows — adding an
+    explicit IS NOT NULL generates a second topic_categories= query param in
+    the PostgREST URL.  PostgreSQL then treats the trgm index on topic_categories
+    as more attractive than idx_creators_listing_browseable, resulting in a
+    full bitmap heap scan of all matching rows instead of an early-stop index
+    scan sorted by current_subscribers.  For broad categories ("Society",
+    "Health") this scan exceeds the statement timeout (57014).
     """
     return (
         query.in_("sync_status", list(BROWSEABLE_SYNC_STATUSES))
         .not_.is_("channel_name", "null")
-        .not_.is_("topic_categories", "null")
         .gt("current_subscribers", 0)
     )
 
