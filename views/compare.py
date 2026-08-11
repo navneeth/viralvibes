@@ -93,6 +93,93 @@ def _insight_callout(*text_parts: str) -> Div:
     )
 
 
+def _how_to_read_card() -> Div:
+    """Compact explainer shown above the first metric section.
+
+    Covers three common user questions:
+      - What is this page doing?
+      - What do the icons (🏆, 💡) mean?
+      - What does each metric actually measure?
+    The glossary is collapsible so returning users aren't slowed down.
+    """
+    glossary = [
+        (
+            "Quality Grade",
+            "A+–C composite score combining engagement rate, upload consistency, and "
+            "30-day momentum. A+ means firing on all three; C means at least one is weak.",
+        ),
+        (
+            "Engagement Score",
+            "0–10 scale measuring audience interaction (comments + likes relative to views). "
+            "Above 7 is strong; below 3 suggests passive viewership.",
+        ),
+        (
+            "Views / Subscriber",
+            "Lifetime views ÷ subscriber count — a proxy for audience loyalty. "
+            "Higher means subscribers return and watch repeatedly.",
+        ),
+        (
+            "Avg Views / Video",
+            "Mean views across all uploads. Reveals content pull independently of channel size — "
+            "a 500K-subscriber channel averaging 1M views per video has exceptional pull.",
+        ),
+        (
+            "Growth rate (30d)",
+            "Net new subscribers over 30 days as a percentage of current audience. "
+            "Normalises growth so a fast-rising small channel compares fairly with a large one.",
+        ),
+    ]
+    return Div(
+        # Purpose statement
+        Div(
+            UkIcon("info", cls="w-4 h-4 text-blue-500 shrink-0 mt-0.5"),
+            P(
+                "Scores two creators across Scale, Growth, Quality, and Output "
+                "to help you decide which fits your campaign goal.",
+                cls="text-sm text-muted-foreground leading-snug",
+            ),
+            cls="flex gap-2 items-start mb-3",
+        ),
+        # Legend
+        Div(
+            Span("🏆", cls="text-sm"),
+            Span("winning in this metric", cls="text-xs text-muted-foreground"),
+            Span("·", cls="text-muted-foreground/40 text-xs mx-2"),
+            Span("💡", cls="text-sm"),
+            Span("notable difference worth acting on", cls="text-xs text-muted-foreground"),
+            cls="flex items-center flex-wrap gap-1 mb-3",
+        ),
+        # Collapsible glossary — uses native <details> so no JS required
+        Details(
+            Summary(
+                UkIcon("chevron-right", cls="w-3 h-3 mr-1 shrink-0"),
+                "What do these metrics mean?",
+                cls=(
+                    "text-xs font-medium text-blue-600 dark:text-blue-400 "
+                    "cursor-pointer select-none list-none flex items-center "
+                    "hover:text-blue-700 dark:hover:text-blue-300"
+                ),
+            ),
+            Div(
+                *[
+                    P(
+                        Strong(term + ": "),
+                        defn,
+                        cls="text-xs text-muted-foreground mb-2 last:mb-0 leading-relaxed",
+                    )
+                    for term, defn in glossary
+                ],
+                cls="mt-2 pt-2 border-t border-blue-100 dark:border-blue-900/40",
+            ),
+        ),
+        cls=(
+            "p-4 rounded-xl mb-4 "
+            "bg-blue-50/60 dark:bg-blue-950/20 "
+            "border border-blue-100 dark:border-blue-900/40"
+        ),
+    )
+
+
 def _section_card(*children, title: str, icon: str) -> Div:
     return Card(
         Div(
@@ -837,6 +924,7 @@ def render_compare_page(
             cls="mb-4",
         ),
         header,
+        _how_to_read_card(),
         scale_section,
         growth_section,
         quality_section,

@@ -3590,9 +3590,9 @@ def render_creator_profile_page(
                 A(
                     UkIcon("git-compare", cls="w-4 h-4 mr-1"),
                     "Compare",
-                    href=f"/compare?a={creator_id}&b=",
+                    href=f"/compare?a={creator_id}",
                     id="compare-btn",
-                    title="Compare with another creator — paste a creator profile URL as ?b=<id>",
+                    title="Compare this creator with another — click, then pick a second creator from the next screen",
                     cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-accent hover:bg-accent/80 text-foreground text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
                 ),
                 A(
