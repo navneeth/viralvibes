@@ -613,6 +613,10 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         )
 
     back_url = request.query_params.get("from", "/creators")
+    # When the user navigated here from the compare step-2 state (e.g. via
+    # /creator/{id}?a={compare_a_id}), thread the first creator's ID through
+    # to the view so the Compare button can complete the pair directly.
+    compare_a_id = request.query_params.get("a", "")
     context_ranks = _get_context_ranks(creator)
     category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
     peer_benchmarks = get_category_peer_benchmarks(creator.get("primary_category", ""))
@@ -641,6 +645,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         embedding_peers=embedding_peers,
         embedding_peer_total=embedding_peer_total,
         is_authenticated=is_authenticated,
+        compare_a_id=compare_a_id,
     )
     return CreatorProfileResult(body=body, creator=creator)
 
@@ -803,13 +808,13 @@ def compare_creators_route(request, user_id: str | None = None):
                 A(
                     UkIcon("search", cls="w-4 h-4 mr-1.5"),
                     "Search all creators",
-                    href="/creators",
+                    href=f"/creators?a={id_a}",
                     cls="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold no-underline hover:opacity-90 transition-opacity",
                 ),
                 A(
                     UkIcon("users", cls="w-4 h-4 mr-1.5"),
                     f"See creators similar to {name_a}",
-                    href=f"/creator/{id_a}",
+                    href=f"/creator/{id_a}?a={id_a}",
                     cls="inline-flex items-center px-4 py-2 rounded-lg bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold no-underline transition-colors",
                 ),
                 cls="flex flex-wrap items-center justify-center gap-3",
