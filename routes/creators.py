@@ -613,6 +613,10 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         )
 
     back_url = request.query_params.get("from", "/creators")
+    # When the user navigated here from the compare step-2 state (e.g. via
+    # /creator/{id}?a={compare_a_id}), thread the first creator's ID through
+    # to the view so the Compare button can complete the pair directly.
+    compare_a_id = request.query_params.get("a", "")
     context_ranks = _get_context_ranks(creator)
     category_stats = get_cached_category_box_stats(creator.get("primary_category", ""))
     peer_benchmarks = get_category_peer_benchmarks(creator.get("primary_category", ""))
@@ -641,6 +645,7 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         embedding_peers=embedding_peers,
         embedding_peer_total=embedding_peer_total,
         is_authenticated=is_authenticated,
+        compare_a_id=compare_a_id,
     )
     return CreatorProfileResult(body=body, creator=creator)
 
@@ -721,21 +726,6 @@ def compare_creators_route(request, user_id: str | None = None):
     id_a = request.query_params.get("a", "")
     id_b = request.query_params.get("b", "")
 
-    if not id_a or not id_b:
-        return Div(
-            H2("Two creators required", cls="text-xl font-bold text-foreground mb-2"),
-            P("Add ?a=<id>&b=<id> to compare two creators.", cls="text-muted-foreground"),
-            A(
-                "← Browse creators",
-                href="/creators",
-                cls="mt-4 inline-flex text-sm font-medium text-primary hover:underline",
-            ),
-            cls="max-w-2xl mx-auto px-4 py-24 text-center",
-        )
-
-    creator_a = get_creator_stats(id_a)
-    creator_b = get_creator_stats(id_b)
-
     def _not_found(cid):
         return Div(
             H2("Creator not found", cls="text-xl font-bold text-foreground mb-2"),
@@ -747,6 +737,93 @@ def compare_creators_route(request, user_id: str | None = None):
             ),
             cls="max-w-2xl mx-auto px-4 py-24 text-center",
         )
+
+    if not id_a:
+        return Div(
+            H2("Two creators required", cls="text-xl font-bold text-foreground mb-2"),
+            P(
+                "Visit a creator profile and click Compare to start.",
+                cls="text-muted-foreground text-sm mb-4",
+            ),
+            A(
+                "Search creators →",
+                href="/creators",
+                cls="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold no-underline hover:opacity-90 transition-opacity",
+            ),
+            cls="max-w-2xl mx-auto px-4 py-24 text-center",
+        )
+
+    if id_a and not id_b:
+        # User clicked Compare on a profile but hasn't chosen the second creator yet.
+        # Show a guided step-2 state rather than a generic error.
+        creator_a = get_creator_stats(id_a)
+        if not creator_a:
+            return _not_found(id_a)
+        name_a = creator_a.get("channel_name", "this creator")
+        thumb_a = creator_a.get("channel_thumbnail_url", "")
+        return Div(
+            # Step indicator
+            Div(
+                Div(
+                    Span("1", cls="text-xs font-bold text-white"),
+                    cls="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shrink-0",
+                ),
+                Span("Picked", cls="text-xs text-emerald-600 font-medium"),
+                Div(cls="h-px flex-1 bg-border mx-2"),
+                Div(
+                    Span("2", cls="text-xs font-bold text-muted-foreground"),
+                    cls="w-5 h-5 rounded-full bg-accent border-2 border-border flex items-center justify-center shrink-0",
+                ),
+                Span("Pick a second creator", cls="text-xs text-muted-foreground font-medium"),
+                cls="flex items-center gap-2 mb-8 max-w-xs mx-auto",
+            ),
+            # Creator A identity
+            Div(
+                (
+                    Img(
+                        src=thumb_a,
+                        alt=name_a,
+                        cls="w-14 h-14 rounded-xl object-cover ring-2 ring-blue-400 shrink-0",
+                    )
+                    if thumb_a
+                    else Div(
+                        Span(name_a[:1].upper(), cls="text-xl font-bold text-muted-foreground"),
+                        cls="w-14 h-14 rounded-xl bg-accent flex items-center justify-center shrink-0",
+                    )
+                ),
+                Div(
+                    P("Comparing from", cls="text-xs text-muted-foreground"),
+                    P(name_a, cls="font-bold text-foreground text-base leading-tight"),
+                    cls="text-left",
+                ),
+                cls="flex items-center gap-3 justify-center mb-8",
+            ),
+            H2("Now pick a second creator", cls="text-2xl font-bold text-foreground mb-2"),
+            P(
+                "Browse the creator index and click Compare on any profile — "
+                "or use the Similar Creators rail on the first creator's profile.",
+                cls="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto mb-8",
+            ),
+            Div(
+                A(
+                    UkIcon("search", cls="w-4 h-4 mr-1.5"),
+                    "Search all creators",
+                    href=f"/creators?a={id_a}",
+                    cls="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold no-underline hover:opacity-90 transition-opacity",
+                ),
+                A(
+                    UkIcon("users", cls="w-4 h-4 mr-1.5"),
+                    f"See creators similar to {name_a}",
+                    href=f"/creator/{id_a}?a={id_a}",
+                    cls="inline-flex items-center px-4 py-2 rounded-lg bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold no-underline transition-colors",
+                ),
+                cls="flex flex-wrap items-center justify-center gap-3",
+            ),
+            cls="max-w-2xl mx-auto px-4 py-20 text-center",
+        )
+
+    creator_a = get_creator_stats(id_a)
+    creator_b = get_creator_stats(id_b)
 
     if not creator_a:
         return _not_found(id_a)
