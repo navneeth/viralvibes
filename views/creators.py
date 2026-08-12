@@ -2675,7 +2675,11 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     creator_uuid = safe_get_value(creator, "id", "")
     if not creator_uuid:
         return card
-    _compare_qs = f"&a={compare_a_id}" if compare_a_id and compare_a_id != creator_uuid else ""
+    _compare_qs = (
+        f"&a={quote(compare_a_id, safe='')}"
+        if compare_a_id and compare_a_id != creator_uuid
+        else ""
+    )
     return A(
         card,
         href=f"{creator_profile_url(creator)}?name={quote(channel_name)}{_compare_qs}",
