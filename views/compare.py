@@ -93,6 +93,255 @@ def _insight_callout(*text_parts: str) -> Div:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Compare pick page — step-2 state shown when only ?a= is provided
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _compare_pick_card(c: dict, compare_href: str) -> Div:
+    """
+    Vertical "player card" for the pick-your-second-creator grid.
+
+    Vertical layout (avatar centred above name) carries equal visual weight
+    across all cards in a 2–4-column grid and signals "choose your opponent"
+    better than a horizontal identity row would.
+    """
+    from views.creators import creator_profile_url  # local to avoid circular
+
+    name = c.get("channel_name") or "Creator"
+    thumb = c.get("channel_thumbnail_url") or ""
+    subs = int(c.get("current_subscribers") or 0)
+    grade = c.get("quality_grade") or ""
+
+    _grade_cls = {
+        "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+        "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+        "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+        "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+    }.get(grade, "bg-accent text-muted-foreground")
+
+    avatar = (
+        Img(
+            src=thumb,
+            alt=name,
+            cls="w-16 h-16 rounded-xl object-cover mx-auto",
+            loading="lazy",
+        )
+        if thumb
+        else Div(
+            Span(name[:1].upper(), cls="text-xl font-bold text-muted-foreground"),
+            cls="w-16 h-16 rounded-xl bg-accent flex items-center justify-center mx-auto",
+        )
+    )
+
+    return Div(
+        # ── Avatar ────────────────────────────────────────────────────────
+        avatar,
+        # ── Identity ──────────────────────────────────────────────────────
+        P(
+            name,
+            cls="text-xs font-semibold text-foreground text-center leading-tight line-clamp-2 mt-2",
+        ),
+        Div(
+            Span(format_number(subs), cls="text-[11px] text-muted-foreground"),
+            *(
+                [Span(grade, cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {_grade_cls}")]
+                if grade
+                else []
+            ),
+            cls="flex items-center justify-center gap-1.5 mt-0.5 mb-3",
+        ),
+        # ── Primary CTA ──────────────────────────────────────────────────
+        A(
+            UkIcon("git-compare", cls="w-3.5 h-3.5 mr-1 shrink-0"),
+            "Compare →",
+            href=compare_href,
+            cls=(
+                "w-full inline-flex items-center justify-center "
+                "px-3 py-1.5 rounded-lg text-xs font-semibold no-underline "
+                "bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+            ),
+        ),
+        # ── Escape hatch ─────────────────────────────────────────────────
+        A(
+            "view profile",
+            href=creator_profile_url(c),
+            cls="block text-center text-[11px] text-muted-foreground hover:text-foreground no-underline mt-1.5 transition-colors",
+        ),
+        cls=(
+            "p-3 rounded-xl border border-border bg-background "
+            "hover:border-primary/40 hover:shadow-sm transition-all"
+        ),
+    )
+
+
+def render_compare_pick_page(
+    creator_a: dict,
+    similar_creators: list[dict],
+    embedding_peers: list[dict],
+) -> Div:
+    """
+    Step-2 page: user has chosen creator A and needs to pick creator B.
+
+    Shows two suggestion grids (embedding-based peers first, then category
+    leaders) so the user can complete the comparison without leaving the page.
+    Both lists are pre-fetched in the route handler to avoid latency.
+    """
+    id_a = creator_a.get("id", "")
+    name_a = creator_a.get("channel_name") or "this creator"
+    thumb_a = creator_a.get("channel_thumbnail_url") or ""
+    category_a = creator_a.get("primary_category") or ""
+
+    def _compare_href(b_id: str) -> str:
+        return f"/compare?a={id_a}&b={b_id}"
+
+    def _section(title: str, subtitle: str, creators: list[dict]) -> Div | None:
+        if not creators:
+            return None
+        cards = [
+            _compare_pick_card(c, _compare_href(c.get("id", "")))
+            for c in creators
+            if c.get("id") and c.get("id") != id_a
+        ]
+        if not cards:
+            return None
+        return Div(
+            Div(
+                P(title, cls="text-sm font-semibold text-foreground"),
+                P(subtitle, cls="text-xs text-muted-foreground"),
+                cls="mb-3",
+            ),
+            Div(
+                *cards,
+                cls=("grid gap-3 " "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"),
+            ),
+            cls="mb-6",
+        )
+
+    embedding_section = _section(
+        title=f"Similar to {name_a}",
+        subtitle="Matched by content type, audience size and engagement",
+        creators=embedding_peers or [],
+    )
+    category_section = _section(
+        title=f"Top {category_a} Creators" if category_a else "Popular Creators",
+        subtitle="Popular in the same category — useful for benchmark comparisons",
+        creators=similar_creators or [],
+    )
+
+    # If no suggestions at all, fall back to a simple "search" prompt
+    no_suggestions = embedding_section is None and category_section is None
+
+    # ── Header — centred, prominent; same visual language as the old step-2 ──
+    # The header and the grid are sequential, not competing. A prominent header
+    # followed by a grid is better than a cramped header followed by a grid.
+    header = Div(
+        # Step tracker — centred, max-w-xs (matches original design)
+        Div(
+            Div(
+                Span("1", cls="text-xs font-bold text-white"),
+                cls="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shrink-0",
+            ),
+            Span("Picked", cls="text-xs text-emerald-600 font-medium"),
+            Div(cls="h-px flex-1 bg-border mx-2"),
+            Div(
+                Span("2", cls="text-xs font-bold text-muted-foreground"),
+                cls=(
+                    "w-5 h-5 rounded-full bg-accent border-2 border-border "
+                    "flex items-center justify-center shrink-0"
+                ),
+            ),
+            Span("Pick a second creator", cls="text-xs text-muted-foreground font-medium"),
+            cls="flex items-center gap-2 max-w-xs mx-auto mb-8",
+        ),
+        # Creator A identity — large avatar, centred (restores original visual weight)
+        Div(
+            (
+                Img(
+                    src=thumb_a,
+                    alt=name_a,
+                    cls="w-14 h-14 rounded-xl object-cover ring-2 ring-blue-400 shrink-0",
+                )
+                if thumb_a
+                else Div(
+                    Span(name_a[:1].upper(), cls="text-xl font-bold text-muted-foreground"),
+                    cls="w-14 h-14 rounded-xl bg-accent flex items-center justify-center shrink-0",
+                )
+            ),
+            Div(
+                P("Comparing from", cls="text-xs text-muted-foreground"),
+                P(name_a, cls="font-bold text-foreground text-base leading-tight"),
+                cls="text-left",
+            ),
+            cls="flex items-center gap-3 justify-center mb-6",
+        ),
+        H2(
+            "Now pick a second creator",
+            cls="text-2xl font-bold text-foreground mb-2",
+        ),
+        P(
+            "Click any card below to start the comparison, or search for someone specific.",
+            cls="text-sm text-muted-foreground",
+        ),
+        cls="text-center mb-8",
+    )
+
+    # ── Search fallback ──────────────────────────────────────────────────
+    search_fallback = Div(
+        P(
+            "Don't see who you're looking for?",
+            cls="text-xs text-muted-foreground mb-2",
+        ),
+        A(
+            UkIcon("search", cls="w-3.5 h-3.5 mr-1"),
+            "Search all creators",
+            href=f"/creators?a={id_a}",
+            cls=(
+                "inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold "
+                "no-underline bg-accent hover:bg-accent/80 text-foreground transition-colors"
+            ),
+        ),
+        cls="pt-4 border-t border-border",
+    )
+
+    body_content = (
+        Div(
+            P(
+                "No suggestions available. Search for a creator to compare.",
+                cls="text-sm text-muted-foreground mb-4",
+            ),
+            A(
+                UkIcon("search", cls="w-4 h-4 mr-1.5"),
+                "Search all creators",
+                href=f"/creators?a={id_a}",
+                cls=(
+                    "inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold "
+                    "no-underline bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                ),
+            ),
+        )
+        if no_suggestions
+        else Div(
+            embedding_section,
+            category_section,
+            search_fallback,
+        )
+    )
+
+    return Div(
+        A(
+            UkIcon("arrow-left", cls="w-4 h-4 mr-1"),
+            "Back",
+            href=f"/creator/{id_a}",
+            cls="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground no-underline transition-colors mb-6",
+        ),
+        header,
+        body_content,
+        cls="max-w-3xl mx-auto px-4 pb-16 pt-6",
+    )
+
+
 def _how_to_read_card() -> Div:
     """Compact explainer shown above the first metric section.
 

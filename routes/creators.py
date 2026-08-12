@@ -46,7 +46,7 @@ from db_lists import (
 
 # from services.youtube_backend_api import YouTubeBackendAPI
 from controllers.auth_routes import require_auth, safe_local_return_url
-from views.compare import render_compare_page
+from views.compare import render_compare_page, render_compare_pick_page
 from views.creators import (
     creator_profile_url,
     render_add_creator_result,
@@ -753,73 +753,41 @@ def compare_creators_route(request, user_id: str | None = None):
             cls="max-w-2xl mx-auto px-4 py-24 text-center",
         )
 
-    if id_a and not id_b:
+    if not id_b:
         # User clicked Compare on a profile but hasn't chosen the second creator yet.
-        # Show a guided step-2 state rather than a generic error.
+        # Fetch both suggestion sources in parallel so the page renders without
+        # the user having to navigate away to find creator B.
         creator_a = get_creator_stats(id_a)
         if not creator_a:
             return _not_found(id_a)
-        name_a = creator_a.get("channel_name", "this creator")
-        thumb_a = creator_a.get("channel_thumbnail_url", "")
-        return Div(
-            # Step indicator
-            Div(
-                Div(
-                    Span("1", cls="text-xs font-bold text-white"),
-                    cls="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shrink-0",
-                ),
-                Span("Picked", cls="text-xs text-emerald-600 font-medium"),
-                Div(cls="h-px flex-1 bg-border mx-2"),
-                Div(
-                    Span("2", cls="text-xs font-bold text-muted-foreground"),
-                    cls="w-5 h-5 rounded-full bg-accent border-2 border-border flex items-center justify-center shrink-0",
-                ),
-                Span("Pick a second creator", cls="text-xs text-muted-foreground font-medium"),
-                cls="flex items-center gap-2 mb-8 max-w-xs mx-auto",
-            ),
-            # Creator A identity
-            Div(
-                (
-                    Img(
-                        src=thumb_a,
-                        alt=name_a,
-                        cls="w-14 h-14 rounded-xl object-cover ring-2 ring-blue-400 shrink-0",
-                    )
-                    if thumb_a
-                    else Div(
-                        Span(name_a[:1].upper(), cls="text-xl font-bold text-muted-foreground"),
-                        cls="w-14 h-14 rounded-xl bg-accent flex items-center justify-center shrink-0",
-                    )
-                ),
-                Div(
-                    P("Comparing from", cls="text-xs text-muted-foreground"),
-                    P(name_a, cls="font-bold text-foreground text-base leading-tight"),
-                    cls="text-left",
-                ),
-                cls="flex items-center gap-3 justify-center mb-8",
-            ),
-            H2("Now pick a second creator", cls="text-2xl font-bold text-foreground mb-2"),
-            P(
-                "Browse the creator index and click Compare on any profile — "
-                "or use the Similar Creators rail on the first creator's profile.",
-                cls="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto mb-8",
-            ),
-            Div(
-                A(
-                    UkIcon("search", cls="w-4 h-4 mr-1.5"),
-                    "Search all creators",
-                    href=f"/creators?a={id_a}",
-                    cls="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold no-underline hover:opacity-90 transition-opacity",
-                ),
-                A(
-                    UkIcon("users", cls="w-4 h-4 mr-1.5"),
-                    f"See creators similar to {name_a}",
-                    href=f"/creator/{id_a}?a={id_a}",
-                    cls="inline-flex items-center px-4 py-2 rounded-lg bg-accent hover:bg-accent/80 text-foreground text-sm font-semibold no-underline transition-colors",
-                ),
-                cls="flex flex-wrap items-center justify-center gap-3",
-            ),
-            cls="max-w-2xl mx-auto px-4 py-20 text-center",
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_similar = pool.submit(_get_similar_creators, creator_a)
+            fut_peers = pool.submit(
+                get_embedding_peers,
+                id_a,
+                # peer_type defaults to "embedding_v1"; pass limit + hydrate_limit
+                # as kwargs because hydrate_limit is keyword-only (after *).
+                limit=_PROFILE_PEER_RAIL_LIMIT,
+                hydrate_limit=_PROFILE_PEER_RAIL_LIMIT,
+            )
+            try:
+                similar_creators_a = fut_similar.result()
+            except Exception:
+                logger.exception("[Compare] _get_similar_creators failed in step-2")
+                similar_creators_a = []
+            try:
+                peers_result_a = fut_peers.result()
+            except Exception:
+                logger.exception("[Compare] get_embedding_peers failed in step-2")
+                peers_result_a = None
+
+        embedding_peers_a = peers_result_a[0] if peers_result_a else []
+
+        return render_compare_pick_page(
+            creator_a,
+            similar_creators=similar_creators_a,
+            embedding_peers=embedding_peers_a or [],
         )
 
     creator_a = get_creator_stats(id_a)
