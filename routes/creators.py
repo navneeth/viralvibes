@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,21 @@ from views.blueprint import render_blueprint_page
 from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_compare_id(raw: str | None) -> str:
+    """Return a normalised UUID string from the ?a= query param, or '' if invalid.
+
+    Validates the value is a well-formed UUID so arbitrary user input is never
+    propagated into rendered URLs or downstream DB calls.
+    """
+    if not raw:
+        return ""
+    try:
+        return str(uuid.UUID(raw.strip()))
+    except (ValueError, AttributeError):
+        return ""
+
 
 # Number of entries shown in the hero sidebar strips and filter dropdowns.
 # Defined once so both the handle_not_found path and the parallel fan-out
@@ -487,6 +503,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
         handle_not_found=handle_not_found,
+        compare_a_id=_parse_compare_id(request.query_params.get("a")),
     )
 
 

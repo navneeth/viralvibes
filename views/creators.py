@@ -803,6 +803,7 @@ def render_creators_page(
     is_authenticated: bool = False,
     favourite_ids: set[str] | None = None,
     handle_not_found: bool = False,
+    compare_a_id: str = "",
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -878,6 +879,28 @@ def render_creators_page(
             total_count=total_count,
             per_page=per_page,
         ),
+        # Compare-mode context banner — shown when the user arrived from the
+        # "Search all creators" fallback on the compare pick page (?a=<uuid>).
+        # Each creator card's link will carry ?a=<uuid> so the profile page can
+        # offer a direct "Compare with [Creator A]" button.
+        (
+            Div(
+                UkIcon("git-compare", cls="size-4 text-purple-500 shrink-0 mt-0.5"),
+                P(
+                    "Comparison mode — click any creator to compare them with your selected creator.",
+                    cls="text-sm text-foreground",
+                ),
+                A(
+                    "Cancel",
+                    href="/creators",
+                    cls="text-sm text-muted-foreground hover:text-foreground underline shrink-0",
+                ),
+                cls="flex items-start gap-2 px-4 py-3 mb-4 rounded-xl border border-purple-200 "
+                "bg-purple-50 dark:bg-purple-950/30 dark:border-purple-800",
+            )
+            if compare_a_id
+            else None
+        ),
         # "@handle not in DB" banner — only shown alongside a real results grid.
         # When creators is empty, _render_empty_state Flow 1 handles the CTA,
         # avoiding duplicate id="creator-add-result" in the same page.
@@ -889,7 +912,9 @@ def render_creators_page(
         # Creators grid or empty state
         (
             Div(
-                _render_creators_grid(creators, favourite_ids=favourite_ids),
+                _render_creators_grid(
+                    creators, favourite_ids=favourite_ids, compare_a_id=compare_a_id
+                ),
                 # Pagination controls
                 _render_pagination(
                     page=page,
@@ -1763,12 +1788,18 @@ def _render_filter_bar(
     )
 
 
-def _render_creators_grid(creators: list[dict], favourite_ids: set[str] | None = None) -> Div:
+def _render_creators_grid(
+    creators: list[dict], favourite_ids: set[str] | None = None, compare_a_id: str = ""
+) -> Div:
     """Grid of creator cards with strict row-based layout."""
     _favs = favourite_ids or set()
     return Div(
         *[
-            _render_creator_card(creator, is_favourited=safe_get_value(creator, "id", "") in _favs)
+            _render_creator_card(
+                creator,
+                is_favourited=safe_get_value(creator, "id", "") in _favs,
+                compare_a_id=compare_a_id,
+            )
             for creator in creators
         ],
         cls="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5",
@@ -2459,7 +2490,7 @@ def _build_recent_performance(
     )
 
 
-def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
+def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_id: str = "") -> Div:
     """
     Creator card - clean, data-driven design.
 
@@ -2644,9 +2675,14 @@ def _render_creator_card(creator: dict, is_favourited: bool = False) -> Div:
     creator_uuid = safe_get_value(creator, "id", "")
     if not creator_uuid:
         return card
+    _compare_qs = (
+        f"&a={quote(compare_a_id, safe='')}"
+        if compare_a_id and compare_a_id != creator_uuid
+        else ""
+    )
     return A(
         card,
-        href=f"{creator_profile_url(creator)}?name={quote(channel_name)}",
+        href=f"{creator_profile_url(creator)}?name={quote(channel_name)}{_compare_qs}",
         cls="block no-underline group min-w-0 w-full",
     )
 
