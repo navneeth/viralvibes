@@ -487,6 +487,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
         handle_not_found=handle_not_found,
+        compare_a_id=request.query_params.get("a", ""),
     )
 
 
