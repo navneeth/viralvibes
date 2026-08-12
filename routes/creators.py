@@ -771,8 +771,16 @@ def compare_creators_route(request, user_id: str | None = None):
                 limit=_PROFILE_PEER_RAIL_LIMIT,
                 hydrate_limit=_PROFILE_PEER_RAIL_LIMIT,
             )
-            similar_creators_a = fut_similar.result()
-            peers_result_a = fut_peers.result()
+            try:
+                similar_creators_a = fut_similar.result()
+            except Exception:
+                logger.exception("[Compare] _get_similar_creators failed in step-2")
+                similar_creators_a = []
+            try:
+                peers_result_a = fut_peers.result()
+            except Exception:
+                logger.exception("[Compare] get_embedding_peers failed in step-2")
+                peers_result_a = None
 
         embedding_peers_a = peers_result_a[0] if peers_result_a else []
 
