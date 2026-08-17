@@ -42,11 +42,14 @@ from typing import Callable
 
 
 def _fmt(n: float) -> str:
-    """Compact number formatter for mechanism text (1.2M, 45K, 800)."""
+    """Compact number formatter for mechanism text (1.2M, 45K, 800).
+
+    Truncates (not rounds) to avoid overstating metrics — 1 500 → "1K", not "2K".
+    """
     if n >= 1_000_000:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n / 1_000:.0f}K"
+        return f"{int(n / 1_000)}K"
     return str(int(n))
 
 
@@ -170,6 +173,12 @@ ACTION_FUNNEL: dict[str, str] = {
     "Shift to Long-form": "Revenue",
     "Monetization Risk": "Revenue",
 }
+
+
+# Minimum score for an action to appear in output.
+# Actions below this threshold have no reliable signal — they are suppressed
+# rather than shown as "Not applicable" in the blurred pro-gate.
+MIN_ACTIONABLE_SCORE: float = 30.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -302,8 +311,8 @@ def _score_thumbnail_audit(s: CreatorSignals) -> tuple[float, str]:
         score += 35.0
         if not primary_reason:
             primary_reason = (
-                f"{s.sub_growth_pct:.2f}% subscriber growth on an active channel "
-                f"({_fmt(s.views_change_30d)} views last 30 days) — "
+                f"{s.sub_growth_pct:.2f}% subscriber growth despite "
+                f"{_fmt(s.views_change_30d)} views gained last 30 days — "
                 f"thumbnail CTR is the fastest lever to pull."
             )
 
@@ -788,6 +797,11 @@ _ACTION_REGISTRY["Shift to Long-form"] = ActionMeta(
 
 _MONETIZATION_MIN_SUBS = 1_000  # YPP threshold
 
+# YouTube removes YPP monetization after 6+ months without uploads or Community
+# posts (answer/72851). monthly_uploads < this threshold is consistent with
+# ~6 months of inactivity (< 0.17 uploads/month over 6 months ≈ 1 upload).
+_MONETIZATION_INACTIVITY_THRESHOLD: float = 0.2
+
 
 def _score_monetization_risk(s: CreatorSignals) -> tuple[float, str]:
     """
@@ -801,7 +815,7 @@ def _score_monetization_risk(s: CreatorSignals) -> tuple[float, str]:
         return 0.0, ""
 
     is_view_dormant = s.views_change_30d == 0
-    is_upload_dormant = s.monthly_uploads < 0.2  # less than ~1 upload per 5 months
+    is_upload_dormant = s.monthly_uploads < _MONETIZATION_INACTIVITY_THRESHOLD
 
     if not (is_view_dormant or is_upload_dormant):
         return 0.0, ""
@@ -920,13 +934,11 @@ def score_all_actions(signals: CreatorSignals) -> list[ActionResult]:
     scores have no reliable signal and are silently excluded — they should not
     appear in the blurred pro-gate as "Not applicable" recommendations.
     """
-    _MIN_ACTIONABLE_SCORE = 30.0
-
     results: list[ActionResult] = []
     for name, meta in _ACTION_REGISTRY.items():
         raw_score, mechanism = meta.score_fn(signals)
         score = min(100.0, max(0.0, raw_score))
-        if score < _MIN_ACTIONABLE_SCORE:
+        if score < MIN_ACTIONABLE_SCORE:
             continue
         results.append(
             ActionResult(
