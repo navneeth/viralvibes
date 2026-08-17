@@ -139,7 +139,7 @@ class ActionMeta:
 ACTION_STUDIO_LINKS: dict[str, str] = {
     "Rewrite Titles": "https://support.google.com/youtube/answer/57404?hl=en",
     "Thumbnail Audit": "https://support.google.com/youtube/answer/72431?hl=en",
-    "Captions + Auto-Dub": "https://support.google.com/youtube/answer/2734796?hl=en",
+    "Captions + Auto-Dub": "https://support.google.com/youtube/answer/15569972?hl=en",
     "Add End Screens": "https://support.google.com/youtube/answer/6388789?hl=en",
     "Add Chapter Timestamps": "https://support.google.com/youtube/answer/9884579?hl=en",
     "Change Category": "https://support.google.com/youtube/answer/2797468?hl=en",
@@ -581,7 +581,7 @@ def _score_captions_dub(s: CreatorSignals) -> tuple[float, str]:
     mechanism = (
         f"Channel based in {s.country_code.upper()}{lang_note} with "
         f"{_fmt(s.subscribers)} subscribers. YouTube's auto-dub unlocks a "
-        f"second-language audience with one click in Studio → Subtitles."
+        f"second-language audience — enable it in Studio → Settings → Channel → Advanced settings."
     )
     return score, mechanism
 
@@ -636,11 +636,14 @@ def _score_change_category(s: CreatorSignals) -> tuple[float, str]:
     if s.primary_category.lower() not in _LOW_CPM_CATEGORIES:
         return 0.0, ""
 
-    score = 0.0
-    score += 30.0  # low-CPM category confirmed
+    # Hard gate: channel must outperform peers — changing the label won't help
+    # a channel that under-performs in its own low-CPM category.
+    if not (s.category_peer_vpv > 0 and s.views_per_video > s.category_peer_vpv):
+        return 0.0, ""
 
-    if s.category_peer_vpv > 0 and s.views_per_video > s.category_peer_vpv:
-        score += 25.0
+    score = 0.0
+    score += 30.0  # low-CPM category + peer outperformance confirmed
+    score += 25.0  # VPV above peers (already validated above)
 
     if s.viral_coeff > 2.0:
         score += 25.0
@@ -649,8 +652,6 @@ def _score_change_category(s: CreatorSignals) -> tuple[float, str]:
         score += 20.0
 
     score = min(score, 100.0)
-    if score == 0.0:
-        return 0.0, ""
 
     mechanism = (
         f"Strong reach ({s.viral_coeff:.1f}× viral coefficient, "
@@ -692,8 +693,12 @@ def _score_unlist_catalogue(s: CreatorSignals) -> tuple[float, str]:
     if s.video_count < _UNLIST_MIN_VIDEOS:
         return 0.0, ""
 
+    # Requires peer benchmark — without it we can't confirm the low-view tail problem
+    if s.category_peer_vpv == 0:
+        return 0.0, ""
+
     # Hard exit: if VPV is at or above peers, there is no low-view tail problem
-    if s.category_peer_vpv > 0 and s.views_per_video >= s.category_peer_vpv * 0.5:
+    if s.views_per_video >= s.category_peer_vpv * 0.5:
         return 0.0, ""
 
     score = 0.0

@@ -178,8 +178,9 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
         viral_highlight = viral_coeff > 2
 
     # Cap sub growth display — first-sync anomaly sets subs_change == current_subs
+    # (produces exactly 100.0%); use >= to catch that exact value too.
     sub_growth = signals.sub_growth_pct
-    if abs(sub_growth) > 100:
+    if abs(sub_growth) >= 100:
         growth_str = "—"
     else:
         growth_str = f"{sub_growth:.2f}%"
