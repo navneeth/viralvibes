@@ -89,6 +89,13 @@ _EFFORT_LABELS: dict[int, str] = {
     8: "Strategy",
 }
 
+_FUNNEL_COLOURS: dict[str, str] = {
+    "Reach": "bg-blue-500/10 text-blue-600",
+    "Engagement": "bg-amber-500/10 text-amber-600",
+    "Conversion": "bg-emerald-500/10 text-emerald-600",
+    "Revenue": "bg-violet-500/10 text-violet-600",
+}
+
 
 def render_action_card(action: ActionResult, is_top: bool = False) -> Div:
     """
@@ -100,23 +107,32 @@ def render_action_card(action: ActionResult, is_top: bool = False) -> Div:
     """
     ring = "ring-2 ring-primary/60 shadow-lg shadow-primary/10" if is_top else "ring-1 ring-border"
     effort_label = _EFFORT_LABELS.get(action.effort, "—")
+    funnel_cls = _FUNNEL_COLOURS.get(action.funnel_stage, "bg-muted text-muted-foreground")
+
+    # Build the badge row: action name + funnel stage chip + effort chip
+    badges = [
+        H3(action.name, cls="text-base font-semibold text-foreground leading-tight"),
+    ]
+    if action.funnel_stage:
+        badges.append(
+            Span(
+                action.funnel_stage,
+                cls=f"text-xs px-2 py-0.5 rounded-full font-medium {funnel_cls}",
+            )
+        )
+    badges.append(
+        Span(
+            f"Effort: {effort_label}",
+            cls=("text-xs px-2 py-0.5 rounded-full bg-muted " "text-muted-foreground font-medium"),
+        )
+    )
 
     return Div(
         # Left: score gauge
         render_score_gauge(action.score),
         # Centre: action info
         Div(
-            Div(
-                H3(action.name, cls="text-base font-semibold text-foreground leading-tight"),
-                Span(
-                    f"Effort: {effort_label}",
-                    cls=(
-                        "text-xs px-2 py-0.5 rounded-full bg-muted "
-                        "text-muted-foreground font-medium"
-                    ),
-                ),
-                cls="flex items-center gap-3 flex-wrap",
-            ),
+            Div(*badges, cls="flex items-center gap-3 flex-wrap"),
             P(action.mechanism, cls="text-sm text-muted-foreground mt-1.5 leading-snug"),
             cls="flex-1 min-w-0",
         ),

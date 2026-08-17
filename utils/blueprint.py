@@ -146,6 +146,8 @@ ACTION_STUDIO_LINKS: dict[str, str] = {
     "Unlist Old Videos": "https://support.google.com/youtube/answer/1571778?hl=en",
     "Shift to Long-form": "https://support.google.com/youtube/answer/10059070?hl=en",
     "Monetization Risk": "https://support.google.com/youtube/answer/72851?hl=en",
+    "Community Posts": "https://support.google.com/youtube/answer/7124474?hl=en",
+    "Playlists": "https://support.google.com/youtube/answer/6083634?hl=en",
 }
 
 # Effort tier for tiebreaking: lower = faster win.
@@ -159,6 +161,8 @@ ACTION_EFFORT: dict[str, int] = {
     "Unlist Old Videos": 7,
     "Shift to Long-form": 8,
     "Monetization Risk": 2,  # fast action: post to Community or upload anything
+    "Community Posts": 1,  # write a post: minutes
+    "Playlists": 3,  # organise existing videos into playlists
 }
 
 # Funnel stage each action addresses.
@@ -172,6 +176,8 @@ ACTION_FUNNEL: dict[str, str] = {
     "Unlist Old Videos": "Reach",
     "Shift to Long-form": "Revenue",
     "Monetization Risk": "Revenue",
+    "Community Posts": "Engagement",
+    "Playlists": "Engagement",
 }
 
 
@@ -857,6 +863,139 @@ _ACTION_REGISTRY["Monetization Risk"] = ActionMeta(
     effort=ACTION_EFFORT["Monetization Risk"],
     studio_url=ACTION_STUDIO_LINKS["Monetization Risk"],
     funnel_stage=ACTION_FUNNEL["Monetization Risk"],
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Action: Community Posts
+# ─────────────────────────────────────────────────────────────────────────────
+# Official source: support.google.com/youtube/answer/7124474
+# Funnel stage: Engagement (re-activates passive subscribers between uploads)
+# Trigger: active channel where many subscribers don't watch each upload.
+#   Proxy: views_per_video / subscribers (watch rate per sub).
+#   A low watch rate means the notification pool is large but cold — Community
+#   posts surface in subscribers' feeds and recommendation feeds without an
+#   upload, directly addressing that gap.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_COMMUNITY_MIN_SUBS = 10_000
+_COMMUNITY_HIGH_WATCH_RATE = 0.5  # >= 50% watch rate — engagement already strong
+
+
+def _score_community_posts(s: CreatorSignals) -> tuple[float, str]:
+    """
+    Score the "Community Posts" recommendation.
+
+    Fires when an active channel has a large but under-engaged subscriber base
+    — the classic "notification graveyard" pattern that Community posts address.
+    """
+    if s.subscribers < _COMMUNITY_MIN_SUBS:
+        return 0.0, ""
+    if s.views_change_30d == 0 and s.subs_change_30d == 0:
+        return 0.0, ""
+
+    watch_rate = s.views_per_video / max(s.subscribers, 1)
+
+    # Guard: engagement already strong — no cold-subscriber problem to solve
+    if watch_rate >= _COMMUNITY_HIGH_WATCH_RATE:
+        return 0.0, ""
+
+    score = 0.0
+    score += 30.0  # active channel above community threshold
+
+    if watch_rate < 0.05:
+        score += 30.0  # very cold subscriber base
+    elif watch_rate < 0.15:
+        score += 15.0
+
+    if s.subscribers > 500_000:
+        score += 20.0  # large pool — each post reaches more
+
+    if s.sub_growth_pct > 0.3 and s.views_change_30d > 0:
+        score += 20.0  # growing channel benefits from activating the new-sub wave
+
+    score = min(score, 100.0)
+    if score < MIN_ACTIONABLE_SCORE:
+        return 0.0, ""
+
+    watch_pct = watch_rate * 100
+    mechanism = (
+        f"Only {watch_pct:.1f}% of your {_fmt(s.subscribers)} subscribers "
+        f"watch each upload on average. Community posts surface in subscriber "
+        f"feeds between uploads — re-engaging the cold notification pool."
+    )
+    return score, mechanism
+
+
+_ACTION_REGISTRY["Community Posts"] = ActionMeta(
+    score_fn=_score_community_posts,
+    effort=ACTION_EFFORT["Community Posts"],
+    studio_url=ACTION_STUDIO_LINKS["Community Posts"],
+    funnel_stage=ACTION_FUNNEL["Community Posts"],
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Action: Playlists
+# ─────────────────────────────────────────────────────────────────────────────
+# Official source: support.google.com/youtube/answer/6083634
+# Funnel stage: Engagement (session watch time and browse discovery)
+# Trigger: enough content to organise, but below-peer VPV or stalled growth
+#   suggests viewers aren't binging — playlists create a "next video" path and
+#   improve algorithmic session signals.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PLAYLISTS_MIN_VIDEOS = 10
+
+
+def _score_playlists(s: CreatorSignals) -> tuple[float, str]:
+    """
+    Score the "Playlists" recommendation.
+
+    Fires when a channel has enough content that a "next video" path would
+    meaningfully extend watch sessions, but viewership metrics suggest
+    viewers aren't organically discovering the back catalogue.
+    """
+    if s.video_count < _PLAYLISTS_MIN_VIDEOS:
+        return 0.0, ""
+    if s.views_change_30d == 0 and s.subs_change_30d == 0:
+        return 0.0, ""
+
+    score = 0.0
+    score += 30.0  # base: enough content to organise
+
+    if s.video_count > 50:
+        score += 15.0
+
+    # Below-peer VPV suggests session depth is weak (viewers not discovering more)
+    if s.category_peer_vpv > 0 and s.views_per_video < s.category_peer_vpv * 0.7:
+        score += 25.0
+
+    # Active but stalled subscriber growth — playlists lift browse surface
+    if s.sub_growth_pct < 0.3 and s.views_change_30d > 0:
+        score += 20.0
+
+    if s.subscribers > 100_000:
+        score += 10.0
+
+    score = min(score, 100.0)
+    if score < MIN_ACTIONABLE_SCORE:
+        return 0.0, ""
+
+    peer_note = f" vs {_fmt(s.category_peer_vpv)} category p75" if s.category_peer_vpv > 0 else ""
+    mechanism = (
+        f"{s.video_count:,} uploads averaging {_fmt(s.views_per_video)} views/video{peer_note}. "
+        f"Organising into playlists extends watch sessions and improves how the "
+        f"algorithm surfaces your back catalogue."
+    )
+    return score, mechanism
+
+
+_ACTION_REGISTRY["Playlists"] = ActionMeta(
+    score_fn=_score_playlists,
+    effort=ACTION_EFFORT["Playlists"],
+    studio_url=ACTION_STUDIO_LINKS["Playlists"],
+    funnel_stage=ACTION_FUNNEL["Playlists"],
 )
 
 
