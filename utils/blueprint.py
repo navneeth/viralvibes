@@ -915,6 +915,8 @@ def _score_community_posts(s: CreatorSignals) -> tuple[float, str]:
         score += 20.0  # growing channel benefits from activating the new-sub wave
 
     score = min(score, 100.0)
+    if score < MIN_ACTIONABLE_SCORE:
+        return 0.0, ""
 
     watch_pct = watch_rate * 100
     mechanism = (
