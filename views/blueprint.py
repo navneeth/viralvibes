@@ -169,15 +169,28 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
             else str(int(peer_vpv)) if peer_vpv > 0 else "—"
         )
     )
-    viral_str = f"{signals.viral_coeff:.2f}×"
-    growth_str = f"{signals.sub_growth_pct:.2f}%"
+    viral_coeff = signals.viral_coeff
+    if viral_coeff < 0:
+        viral_str = "↓ losing views"
+        viral_highlight = False
+    else:
+        viral_str = f"{viral_coeff:.2f}×"
+        viral_highlight = viral_coeff > 2
+
+    # Cap sub growth display — first-sync anomaly sets subs_change == current_subs
+    # (produces exactly 100.0%); use >= to catch that exact value too.
+    sub_growth = signals.sub_growth_pct
+    if abs(sub_growth) >= 100:
+        growth_str = "—"
+    else:
+        growth_str = f"{sub_growth:.2f}%"
 
     return Div(
         _stat_chip("Avg views / video", vpv_str),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip("Category p75 VPV", peer_str),
         Div(cls="w-px h-10 bg-border self-center"),
-        _stat_chip("Viral coeff (30d)", viral_str, highlight=signals.viral_coeff > 2),
+        _stat_chip("Viral coeff (30d)", viral_str, highlight=viral_highlight),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip("Sub growth (30d)", growth_str),
         cls=(
@@ -276,8 +289,9 @@ def render_blueprint_page(
     creator_id = safe_get_value(creator, "id", "")
     profile_url = creator_profile_url(creator)
 
-    # Split actions: first scored action = free card; rest will be pro-gated.
-    scored = [a for a in actions if a.score > 0]
+    # All actions already scored >= 30 (filtered in score_all_actions).
+    # Split: first = free tier card; rest = pro-gated.
+    scored = actions
     top_action = scored[0] if scored else None
     remaining = scored[1:]
 
