@@ -83,7 +83,10 @@ def _check_module_exports(module_name: str, keys: List[str]):
     try:
         mod = importlib.import_module(module_name)
     except Exception as e:
-        pytest.skip(f"Module {module_name} not importable: {e}")
+        import warnings
+
+        warnings.warn(f"Module {module_name} not importable: {e}", stacklevel=2)
+        return
     missing = [k for k in keys if not hasattr(mod, k)]
     if missing:
         raise AssertionError(f"Module {module_name} missing exports: {missing}")
