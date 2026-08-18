@@ -9,9 +9,9 @@ from monsterui.all import *
 # Pricing data — single source of truth for all tier details
 # ---------------------------------------------------------------------------
 _PRICING = {
-    "pro": {"monthly": "$19", "annual": "$15", "annual_total": "$180", "shortlists": "5 \u00d7 25"},
+    "pro": {"monthly": "$19", "annual": "$15", "annual_total": "$180"},
     "agency": {"monthly": "$49", "annual": "$39", "annual_total": "$468"},
-    "free": {"dashboards": "3"},
+    "free": {},
 }
 
 # ---------------------------------------------------------------------------
@@ -117,10 +117,14 @@ def _free_card(is_authenticated: bool) -> Div:
             ),
         ),
         Ul(
-            _feature("Full creator lists & rankings"),
-            _feature("Individual creator profiles"),
+            _feature("Browse 1M+ creators & rankings"),
+            _feature("Full creator profiles"),
+            _feature("Growth Blueprint for any channel"),
+            _feature("Side-by-side creator comparison"),
             _feature("Playlist analysis (unlimited)"),
-            _feature("3 saved dashboards"),
+            _feature("Saved playlist dashboards"),
+            _feature("Outreach workspace & contact export"),
+            _feature("Saved favourites & list bookmarks"),
             cls="space-y-3",
         ),
         cls="bg-background rounded-2xl border border-border p-8 flex flex-col h-full",
@@ -172,10 +176,10 @@ def _pro_card(is_authenticated: bool) -> Div:
         Ul(
             _feature("Everything in Free", bold=True, color="red"),
             _feature("Unlimited saved dashboards", color="red"),
-            _feature("CSV & JSON export", color="red"),
-            _feature(f"Saved shortlists ({_PRICING['pro']['shortlists']} creators)", color="red"),
+            _feature("Saved shortlists", color="red"),
+            _feature("Full database CSV export", color="red"),
             _feature("Daily data refresh", color="red"),
-            _feature("Rising star digest (weekly email)", color="red"),
+            _feature("Priority support", color="red"),
             cls="space-y-3",
         ),
         cls=(
@@ -221,12 +225,9 @@ def _agency_card(is_authenticated: bool) -> Div:
         _checkout_hint(is_authenticated),
         Ul(
             _feature("Everything in Pro", bold=True),
-            _feature("Unlimited shortlists & creators"),
-            _feature("Team seats (up to 5)"),
-            _feature("Client-shareable report links"),
-            _feature("Bulk export"),
-            _feature("API access (coming soon)"),
-            _feature("Priority support"),
+            _feature("Unlimited shortlists & creator slots"),
+            _feature("Client-shareable dashboard links"),
+            _feature("Dedicated account manager"),
             cls="space-y-3",
         ),
         cls="bg-background rounded-2xl border border-border p-8 flex flex-col h-full",
@@ -293,28 +294,28 @@ def _comparison_table() -> Div:
         )
 
     rows = [
-        row("Creator lists & rankings", _yes(), _yes("red"), _yes()),
+        row("Creator discovery & rankings", _yes(), _yes("red"), _yes()),
         row("Creator profiles", _yes(), _yes("red"), _yes()),
+        row("Growth Blueprint", _yes(), _yes("red"), _yes()),
+        row("Side-by-side comparison", _yes(), _yes("red"), _yes()),
         row("Playlist analysis", _yes(), _yes("red"), _yes()),
         row(
             "Saved dashboards",
-            Span(_PRICING["free"]["dashboards"], cls="text-xs text-muted-foreground"),
+            _yes(),
             Span("Unlimited", cls="text-xs font-semibold text-red-500"),
             Span("Unlimited", cls="text-xs"),
         ),
-        row("CSV & JSON export", _no(), _yes("red"), _yes()),
+        row("Outreach workspace & CSV export", _yes(), _yes("red"), _yes()),
+        row("Saved favourites & bookmarks", _yes(), _yes("red"), _yes()),
         row(
             "Saved shortlists",
             _no(),
-            Span(_PRICING["pro"]["shortlists"], cls="text-xs font-semibold text-red-500"),
+            _yes("red"),
             Span("Unlimited", cls="text-xs"),
         ),
+        row("Full database CSV export", _no(), _yes("red"), _yes()),
         row("Daily data refresh", _no(), _yes("red"), _yes()),
-        row("Rising star digest", _no(), _yes("red"), _yes()),
-        row("Team seats", _no(), _no(), Span("Up to 5", cls="text-xs")),
-        row("Client-shareable report links", _no(), _no(), _yes()),
-        row("Bulk export", _no(), _no(), _yes()),
-        row("API access", _no(), _no(), Span("Coming soon", cls="text-xs text-muted-foreground")),
+        row("Client-shareable dashboard links", _no(), _no(), _yes()),
     ]
 
     return Div(

@@ -16,6 +16,41 @@ from components.auth_components import OneTapLoginCard
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Login page value-proposition splash
+# ---------------------------------------------------------------------------
+
+_LOGIN_SPLASH_FEATURES = [
+    ("trending-up", "Growth Blueprint", "Personalised action plan for any channel"),
+    ("users", "1M+ Creators", "Filter by category, country, language & grade"),
+    ("bar-chart-2", "Deep Analytics", "VPV, viral coefficient, peer benchmarks"),
+    ("download", "Outreach Export", "Contact CSV for your saved creator list"),
+]
+
+
+def _login_value_splash() -> Div:
+    """Compact feature strip shown above the login card to encourage sign-up."""
+    chips = [
+        Div(
+            UkIcon(icon, cls="w-4 h-4 text-red-500 shrink-0 mt-0.5"),
+            Div(
+                Span(title, cls="text-sm font-semibold text-foreground block leading-tight"),
+                Span(desc, cls="text-xs text-muted-foreground leading-snug"),
+            ),
+            cls="flex items-start gap-2.5",
+        )
+        for icon, title, desc in _LOGIN_SPLASH_FEATURES
+    ]
+    return Div(
+        P(
+            "Free — no credit card required",
+            cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-4 text-center",
+        ),
+        Div(*chips, cls="grid grid-cols-2 gap-x-8 gap-y-3"),
+        cls="w-full max-w-sm mx-auto px-4 pb-6",
+    )
+
+
 def build_login_page(oauth, req):
     """Build login page content - ORIGINAL STABLE VERSION"""
     if oauth:
@@ -253,6 +288,7 @@ def build_auth_redirect_page(
             "Sign in to ViralVibes",
             Div(
                 NavComponent(oauth, req, sess),
+                _login_value_splash(),
                 auth_content,  # Already has full-page layout in .auth-container
                 cls="auth-page-wrapper",
             ),
