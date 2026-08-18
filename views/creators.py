@@ -98,6 +98,7 @@ def _login_href(return_url: str = "/creators") -> str:
 # Matches a bare YouTube handle token — same alphabet as the @handle format
 # but without the leading @.  Used to detect searches like "mrbeast" or
 # "ai.engineer" that are clearly handle-intent even without the @ prefix.
+# Character class must stay in sync with db._HANDLE_RE = r"^@[a-zA-Z0-9._-]{1,100}$".
 _HANDLE_LIKE_RE = _re.compile(r"^[a-zA-Z0-9._-]{1,100}$")
 
 
@@ -2865,11 +2866,11 @@ def _render_empty_state(
     # Triggers on "@mrbeast" AND bare "mrbeast" (same user intent, different
     # typing habit).  prefill always includes @ so the submit form is correct.
     # ────────────────────────────────────────────────────────────────────────
-    _is_handle_intent = search and (
-        search.startswith("@") or bool(_HANDLE_LIKE_RE.match(search.strip()))
-    )
+    # Strip once so "  @mrbeast" and "  mrbeast" both hit the handle path.
+    _s = search.strip()
+    _is_handle_intent = _s and (_s.startswith("@") or bool(_HANDLE_LIKE_RE.match(_s)))
     if _is_handle_intent:
-        prefill = search if search.startswith("@") else f"@{search.strip()}"
+        prefill = _s if _s.startswith("@") else f"@{_s}"
         add_cta = AddCreatorForm(
             is_authenticated,
             prefill=prefill,
