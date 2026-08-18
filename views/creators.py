@@ -54,6 +54,7 @@ from utils.creator_metrics import (
 )
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
+from components.add_creator import AddCreatorForm
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
 from components.seo import (
@@ -327,60 +328,6 @@ def _build_filter_url(
 # ============================================================================
 
 
-def render_add_creator_section() -> Div:
-    """
-    HTMX form that lets authenticated users submit a creator by @handle or
-    channel ID.  No YouTube API is called on the Vercel frontend — the input
-    is passed directly to the backend worker queue via ``POST /creators/request``.
-    """
-    return Div(
-        Div(
-            Div(
-                UkIcon("plus-circle", cls="size-5 text-primary shrink-0 mt-0.5"),
-                Div(
-                    H3("Submit a Creator", cls="text-base font-semibold text-foreground"),
-                    P(
-                        "Know a channel that's not listed? Submit their @handle or "
-                        "channel ID and our system will add them automatically.",
-                        cls="text-sm text-muted-foreground mt-0.5",
-                    ),
-                    cls="flex-1 min-w-0",
-                ),
-                cls="flex items-start gap-3",
-            ),
-            # Input + submit (HTMX inline form)
-            Form(
-                Div(
-                    Input(
-                        type="text",
-                        name="q",
-                        id="creator-add-input",
-                        placeholder="@MrBeast or UCX6OQ3DkcsbYNE6H8uQQuVA",
-                        autocomplete="off",
-                        cls="flex-1 px-3 py-2 text-sm rounded-lg border border-border "
-                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
-                    ),
-                    Button(
-                        UkIcon("send", cls=_CLS_ICON_SM),
-                        "Submit",
-                        type="submit",
-                        cls="flex items-center px-4 py-2 text-sm font-medium rounded-lg "
-                        "bg-primary text-primary-foreground hover:bg-primary/90 "
-                        "transition-colors shrink-0",
-                    ),
-                    cls="flex gap-2 mt-3",
-                ),
-                # Response target injected below the form
-                Div(id="creator-add-result", cls="mt-3"),
-                hx_post="/creators/request",
-                hx_target="#creator-add-result",
-            ),
-            cls="p-4 rounded-xl border border-border bg-background",
-        ),
-        cls="mt-6 mb-2",
-    )
-
-
 def render_add_creator_result(
     success: bool,
     message: str,
@@ -503,11 +450,11 @@ def render_add_creator_status_result(
             "border border-red-200 dark:border-red-800",
         )
 
-    # Still processing — continue polling
+    # Still processing — continue polling (load fires immediately, then every 15s)
     status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
     poll_attrs = dict(
         hx_get=status_url,
-        hx_trigger="every 15s",
+        hx_trigger="load, every 15s",
         hx_target="this",
         hx_swap="outerHTML",
     )
@@ -2852,31 +2799,13 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
     returned no exact DB match — even if related creators are shown below.
     Reuses the same HTMX endpoint as the empty-state Flow 1.
     """
-    result_slot = Div(id="creator-add-result", cls="mt-2")
-
-    if is_authenticated:
-        action = Form(
-            Input(type="hidden", name="q", value=search),
-            Button(
-                UkIcon("plus-circle", cls=_CLS_ICON_SM),
-                f"Add {search}",
-                type="submit",
-                cls="flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
-                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0",
-            ),
-            result_slot,
-            hx_post="/creators/request",
-            hx_target="#creator-add-result",
-            cls="flex flex-col items-start gap-0",
-        )
-    else:
-        action = A(
-            UkIcon("log-in", cls=_CLS_ICON_SM),
-            "Sign in with Google to add",
-            href=_login_href(f"/creators?search={quote_plus(search)}" if search else "/creators"),
-            cls="inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-lg "
-            "border border-border hover:bg-accent transition-colors shrink-0",
-        )
+    action = AddCreatorForm(
+        is_authenticated,
+        prefill=search,
+        return_url=f"/creators?search={quote_plus(search)}" if search else "/creators",
+        size="sm",
+        align="start",
+    )
 
     return Div(
         Div(
@@ -2930,29 +2859,14 @@ def _render_empty_state(
     # Known handle → pre-fill the form so user needs only one click
     # ────────────────────────────────────────────────────────────────────────
     if search and search.startswith("@"):
-        if is_authenticated:
-            add_cta = Form(
-                Input(type="hidden", name="q", value=search),
-                Button(
-                    UkIcon("plus-circle", cls=_CLS_ICON_SM),
-                    f"Add {search} to ViralVibes",
-                    type="submit",
-                    cls="flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
-                    "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
-                ),
-                result_slot,
-                hx_post="/creators/request",
-                hx_target="#creator-add-result",
-                cls="flex flex-col items-center gap-0",
-            )
-        else:
-            add_cta = A(
-                UkIcon("log-in", cls=_CLS_ICON_SM),
-                "Sign in with Google to add this creator",
-                href=_login_href(f"/creators?search={quote_plus(search)}"),
-                cls="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-lg "
-                "border border-border hover:bg-accent transition-colors",
-            )
+        add_cta = AddCreatorForm(
+            is_authenticated,
+            prefill=search,
+            return_url=f"/creators?search={quote_plus(search)}",
+            button_label=f"Add {search} to ViralVibes",
+            size="md",
+            align="center",
+        )
 
         return Card(
             Div(
@@ -2978,42 +2892,12 @@ def _render_empty_state(
     # ────────────────────────────────────────────────────────────────────────
     if has_active_filters:
         label = f'No creators match "{search}"' if search else "No creators match these filters"
-        if is_authenticated:
-            submit_area = Form(
-                Div(
-                    Input(
-                        type="text",
-                        name="q",
-                        placeholder="@handle or channel ID…",
-                        autocomplete="off",
-                        cls="flex-1 px-3 py-2 text-sm rounded-lg border border-border "
-                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/40",
-                    ),
-                    Button(
-                        "Submit",
-                        type="submit",
-                        cls="px-4 py-2 text-sm font-semibold rounded-lg "
-                        "bg-primary text-primary-foreground hover:bg-primary/90 "
-                        "transition-colors shrink-0",
-                    ),
-                    cls="flex gap-2",
-                ),
-                result_slot,
-                hx_post="/creators/request",
-                hx_target="#creator-add-result",
-            )
-        else:
-            submit_area = P(
-                A(
-                    "Sign in with Google",
-                    href=_login_href(
-                        f"/creators?search={quote_plus(search)}" if search else "/creators"
-                    ),
-                    cls="text-primary hover:underline font-medium",
-                ),
-                " to submit a creator by @handle.",
-                cls=_CLS_MUTED_SM,
-            )
+        submit_area = AddCreatorForm(
+            is_authenticated,
+            prefill="",
+            return_url=f"/creators?search={quote_plus(search)}" if search else "/creators",
+            size="sm",
+        )
 
         return Card(
             Div(
