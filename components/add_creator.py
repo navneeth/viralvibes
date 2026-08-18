@@ -12,6 +12,7 @@ a #creator-add-result slot injected below the submit button.
 
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import urlencode
 
 from fasthtml.common import *
@@ -22,6 +23,9 @@ from monsterui.all import *
 # ---------------------------------------------------------------------------
 
 _RESULT_SLOT_ID = "creator-add-result"
+
+# Icon size used inside flex-gap containers (no margin-right needed).
+_ICON_CLS = "size-4"
 
 _BTN_BASE = (
     "flex items-center gap-1.5 font-semibold rounded-lg "
@@ -58,8 +62,8 @@ def AddCreatorForm(
     prefill: str = "",
     return_url: str = "/creators",
     button_label: str = "",
-    size: str = "sm",
-    align: str = "start",
+    size: Literal["sm", "md"] = "sm",
+    align: Literal["start", "center"] = "start",
 ) -> FT:
     """
     HTMX add-creator form / sign-in CTA.
@@ -86,7 +90,7 @@ def AddCreatorForm(
         # Unauthenticated — render a sign-in link (no form, no DB write)
         if prefill:
             return A(
-                UkIcon("log-in", cls="size-4"),
+                UkIcon("log-in", cls=_ICON_CLS),
                 "Sign in with Google to add",
                 href=_login_href(return_url),
                 cls=login_btn_cls,
@@ -108,7 +112,7 @@ def AddCreatorForm(
         return Form(
             Input(type="hidden", name="q", value=prefill),
             Button(
-                UkIcon("plus-circle", cls="size-4"),
+                UkIcon("plus-circle", cls=_ICON_CLS),
                 label,
                 type="submit",
                 cls=btn_cls,

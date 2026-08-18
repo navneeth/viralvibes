@@ -450,11 +450,13 @@ def render_add_creator_status_result(
             "border border-red-200 dark:border-red-800",
         )
 
-    # Still processing — continue polling (load fires immediately, then every 15s)
+    # Still processing — wait 15s before the next check.
+    # No 'load' trigger here: this card was just fetched (via the 15s poll on
+    # the queued card), so firing immediately would create a rapid re-poll loop.
     status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
     poll_attrs = dict(
         hx_get=status_url,
-        hx_trigger="load, every 15s",
+        hx_trigger="every 15s",
         hx_target="this",
         hx_swap="outerHTML",
     )
