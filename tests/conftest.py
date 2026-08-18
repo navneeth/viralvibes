@@ -59,8 +59,8 @@ except (ImportError, IndexError, KeyError):
 # Minimal contract mapping
 # ============================================================================
 
+# Modules that MUST be importable in every environment.
 DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
-    "worker.worker": ["Worker", "handle_job"],
     "db": [
         "upsert_playlist_stats",
         "get_cached_playlist_stats",
@@ -72,21 +72,22 @@ DEFAULT_EXPECTED_EXPORTS: Dict[str, List[str]] = {
     "constants": ["PLAYLIST_STATS_TABLE"],
 }
 
+# Modules that may be absent in some environments (e.g. worker deps not installed locally).
+OPTIONAL_EXPECTED_EXPORTS: Dict[str, List[str]] = {
+    "worker.worker": ["Worker", "handle_job"],
+}
+
 _validated = False
 
 
-def _check_module_exports(module_name: str, keys: List[str]):
+def _check_module_exports(module_name: str, keys: List[str]) -> None:
     """
     Import a module and assert it exports the given keys.
-    If module can't be imported, skip the assertion (some tests may not need all modules).
+    Raises ImportError if the module cannot be imported, or AssertionError if
+    required exports are missing.  Callers that want lenient behaviour for
+    optional modules should catch ImportError themselves.
     """
-    try:
-        mod = importlib.import_module(module_name)
-    except Exception as e:
-        import warnings
-
-        warnings.warn(f"Module {module_name} not importable: {e}", stacklevel=2)
-        return
+    mod = importlib.import_module(module_name)
     missing = [k for k in keys if not hasattr(mod, k)]
     if missing:
         raise AssertionError(f"Module {module_name} missing exports: {missing}")
@@ -162,10 +163,24 @@ def setup_test_environment():
     print(f"✅ YOUTUBE_API_KEY: {os.getenv('YOUTUBE_API_KEY')[:10]}...")
 
     # Validate contracts ONCE
+    import warnings
+
     global _validated
     if not _validated:
         for mod, keys in DEFAULT_EXPECTED_EXPORTS.items():
-            _check_module_exports(mod, keys)
+            try:
+                _check_module_exports(mod, keys)
+            except ImportError as e:
+                # Some required modules depend on server-side packages (e.g. supabase)
+                # that are not installed in all dev environments.  Warn so the gap is
+                # visible; CI has all deps and will hard-fail on AssertionError if
+                # exports are actually missing.
+                warnings.warn(f"Module {mod} not importable in this environment: {e}", stacklevel=2)
+        for mod, keys in OPTIONAL_EXPECTED_EXPORTS.items():
+            try:
+                _check_module_exports(mod, keys)
+            except ImportError as e:
+                warnings.warn(f"Optional module {mod} not importable: {e}", stacklevel=2)
         _validated = True
         print("✅ Module contracts VALIDATED")
 

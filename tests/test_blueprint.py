@@ -151,8 +151,8 @@ class TestSignalsFromRow:
             peer_vpv_p75=100_000.0,
             peer_vc_p75=0.5,
         )
-        assert sig.views_per_video == 500_000.0          # 50M / 100
-        assert sig.viral_coeff == pytest.approx(0.5)     # 500K / 1M
+        assert sig.views_per_video == 500_000.0  # 50M / 100
+        assert sig.viral_coeff == pytest.approx(0.5)  # 500K / 1M
         assert sig.sub_growth_pct == pytest.approx(1.0)  # 10K / 1M * 100
 
     def test_phase2_stubs_when_missing(self):
@@ -427,8 +427,12 @@ class TestCaptionsDub:
         assert "BR" in mech
 
     def test_low_caption_coverage_boosts_score(self):
-        s_low = _make(country_code="IN", subscribers=500_000, views_change_30d=50_000, caption_coverage=0.1)
-        s_high = _make(country_code="IN", subscribers=500_000, views_change_30d=50_000, caption_coverage=-1.0)
+        s_low = _make(
+            country_code="IN", subscribers=500_000, views_change_30d=50_000, caption_coverage=0.1
+        )
+        s_high = _make(
+            country_code="IN", subscribers=500_000, views_change_30d=50_000, caption_coverage=-1.0
+        )
         score_low, _ = _score_captions_dub(s_low)
         score_high, _ = _score_captions_dub(s_high)
         assert score_low > score_high
@@ -441,7 +445,9 @@ class TestCaptionsDub:
 
 class TestChangeCategory:
     def test_non_low_cpm_category_no_fire(self):
-        s = _make(primary_category="Finance", views_per_video=500_000.0, category_peer_vpv=200_000.0)
+        s = _make(
+            primary_category="Finance", views_per_video=500_000.0, category_peer_vpv=200_000.0
+        )
         score, _ = _score_change_category(s)
         assert score == 0.0
 
@@ -584,8 +590,12 @@ class TestMonetizationRisk:
         assert score_both > score_upload
 
     def test_large_channel_bonus(self):
-        s_large = _make(subscribers=500_000, views_change_30d=0, subs_change_30d=0, monthly_uploads=0.0)
-        s_small = _make(subscribers=5_000, views_change_30d=0, subs_change_30d=0, monthly_uploads=0.0)
+        s_large = _make(
+            subscribers=500_000, views_change_30d=0, subs_change_30d=0, monthly_uploads=0.0
+        )
+        s_small = _make(
+            subscribers=5_000, views_change_30d=0, subs_change_30d=0, monthly_uploads=0.0
+        )
         score_large, _ = _score_monetization_risk(s_large)
         score_small, _ = _score_monetization_risk(s_small)
         assert score_large > score_small
