@@ -95,6 +95,12 @@ def _login_href(return_url: str = "/creators") -> str:
     return f"/login?{urlencode({'return_url': return_url})}"
 
 
+# Matches a bare YouTube handle token — same alphabet as the @handle format
+# but without the leading @.  Used to detect searches like "mrbeast" or
+# "ai.engineer" that are clearly handle-intent even without the @ prefix.
+_HANDLE_LIKE_RE = _re.compile(r"^[a-zA-Z0-9._-]{1,100}$")
+
+
 def creator_profile_url(creator: dict) -> str:
     """Return the canonical profile URL for a creator.
 
@@ -2841,13 +2847,11 @@ def _render_empty_state(
     """Empty state when no creators found.
 
     Three progressive-disclosure flows:
-    1. @handle typed → one-click "Add to ViralVibes" CTA (handle pre-filled)
+    1. @handle typed OR bare handle-like term (e.g. "mrbeast") with no match
+       → one-click pre-filled "Add to ViralVibes" CTA
     2. Name search / filters, no results → inline handle submit form
     3. Truly empty DB → encourage playlist analysis
     """
-
-    # ── shared submit result target (HTMX drops response here) ──────────────
-    result_slot = Div(id="creator-add-result", cls="mt-3")
 
     # ── shared "back to all" link ────────────────────────────────────────────
     back_link = A(
@@ -2857,15 +2861,20 @@ def _render_empty_state(
     )
 
     # ────────────────────────────────────────────────────────────────────────
-    # FLOW 1 — @handle typed, no match in DB
-    # Known handle → pre-fill the form so user needs only one click
+    # FLOW 1 — handle-intent search, no match in DB
+    # Triggers on "@mrbeast" AND bare "mrbeast" (same user intent, different
+    # typing habit).  prefill always includes @ so the submit form is correct.
     # ────────────────────────────────────────────────────────────────────────
-    if search and search.startswith("@"):
+    _is_handle_intent = search and (
+        search.startswith("@") or bool(_HANDLE_LIKE_RE.match(search.strip()))
+    )
+    if _is_handle_intent:
+        prefill = search if search.startswith("@") else f"@{search.strip()}"
         add_cta = AddCreatorForm(
             is_authenticated,
-            prefill=search,
+            prefill=prefill,
             return_url=f"/creators?search={quote_plus(search)}",
-            button_label=f"Add {search} to ViralVibes",
+            button_label=f"Add {prefill} to ViralVibes",
             size="md",
             align="center",
         )
@@ -2874,7 +2883,7 @@ def _render_empty_state(
             Div(
                 Span("👀", cls="text-5xl block text-center mb-3"),
                 H2(
-                    f"{search} isn't in our database yet",
+                    f"{prefill} isn't in our database yet",
                     cls="text-center text-xl font-bold mb-1",
                 ),
                 P(
