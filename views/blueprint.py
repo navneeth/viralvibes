@@ -7,11 +7,9 @@ Layout
 ------
   ┌─ Channel diagnostic strip (subscriber count, VPV, viral coeff, peer rank) ─┐
   │                                                                              │
-  │  ┌─ Top action card (free tier: 1 card) ───────────────────────────────┐   │
+  │  ┌─ Ranked recommendation cards (all shown, top card highlighted) ───────┐   │
   │  │  Score gauge  │  Action name + mechanism  │  Studio link button      │   │
-  │  └──────────────────────────────────────────────────────────────────────┘   │
-  │                                                                              │
-  │  [Pro gate: remaining actions blurred]                                       │
+  │  └──────────────────────────────────────────────────────┘   │
   └──────────────────────────────────────────────────────────────────────────────┘
 """
 
@@ -128,15 +126,17 @@ def render_action_card(action: ActionResult, is_top: bool = False) -> Div:
     )
 
     return Div(
-        # Left: score gauge
-        render_score_gauge(action.score),
-        # Centre: action info
+        # Gauge + text — always a row on both mobile and desktop
         Div(
-            Div(*badges, cls="flex items-center gap-3 flex-wrap"),
-            P(action.mechanism, cls="text-sm text-muted-foreground mt-1.5 leading-snug"),
-            cls="flex-1 min-w-0",
+            render_score_gauge(action.score),
+            Div(
+                Div(*badges, cls="flex items-center gap-2 flex-wrap"),
+                P(action.mechanism, cls="text-sm text-muted-foreground mt-1.5 leading-snug"),
+                cls="flex-1 min-w-0",
+            ),
+            cls="flex items-start gap-4 flex-1 min-w-0",
         ),
-        # Right: Studio button
+        # Button: full-width on mobile, auto-width on sm+
         A(
             UkIcon("external-link", cls="w-4 h-4 mr-1.5 shrink-0"),
             "How to do this",
@@ -144,12 +144,13 @@ def render_action_card(action: ActionResult, is_top: bool = False) -> Div:
             target="_blank",
             rel="noopener noreferrer",
             cls=(
-                "inline-flex items-center shrink-0 text-sm font-medium "
+                "inline-flex items-center justify-center sm:justify-start "
+                "w-full sm:w-auto shrink-0 text-sm font-medium "
                 "px-3 py-2 rounded-lg bg-primary/10 text-primary "
                 "hover:bg-primary/20 transition-colors"
             ),
         ),
-        cls=f"flex items-center gap-5 p-5 rounded-xl bg-card {ring}",
+        cls=f"flex flex-col sm:flex-row sm:items-center gap-4 p-4 sm:p-5 rounded-xl bg-card {ring}",
     )
 
 
@@ -305,11 +306,7 @@ def render_blueprint_page(
     creator_id = safe_get_value(creator, "id", "")
     profile_url = creator_profile_url(creator)
 
-    # All actions already scored >= 30 (filtered in score_all_actions).
-    # Split: first = free tier card; rest = pro-gated.
-    scored = actions
-    top_action = scored[0] if scored else None
-    remaining = scored[1:]
+    # All actions already scored >= MIN_ACTIONABLE_SCORE (filtered in score_all_actions).
 
     # Header
     header = Div(
@@ -364,53 +361,20 @@ def render_blueprint_page(
     )
 
     # Actions section
-    if not top_action:
+    if not actions:
         actions_section = render_no_actions()
     else:
-        # Free tier: top action card
-        free_card = Div(
+        actions_section = Div(
             H4(
-                "Top recommendation",
+                "Recommendations",
                 cls="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3",
             ),
-            render_action_card(top_action, is_top=True),
-            cls="mb-6",
-        )
-
-        # Pro gate: remaining actions blurred/locked
-        if remaining:
-            locked_cards = Div(
-                *[render_action_card(a) for a in remaining],
+            Div(
+                render_action_card(actions[0], is_top=True),
+                *[render_action_card(a) for a in actions[1:]],
                 cls="flex flex-col gap-3",
-            )
-            pro_gate = Div(
-                Div(locked_cards, cls="opacity-30 blur-sm pointer-events-none select-none"),
-                Div(
-                    UkIcon("lock", cls="w-5 h-5 text-primary mb-2"),
-                    P(
-                        f"{len(remaining)} more action{'s' if len(remaining) != 1 else ''} — Pro only",
-                        cls="text-sm font-semibold text-foreground",
-                    ),
-                    P(
-                        "Upgrade to see the full ranked list with confidence scores.",
-                        cls="text-xs text-muted-foreground mt-0.5",
-                    ),
-                    A(
-                        "Upgrade to Pro",
-                        href="/pricing",
-                        cls=(
-                            "mt-3 inline-flex items-center px-4 py-2 rounded-lg "
-                            "bg-primary text-primary-foreground text-sm font-medium "
-                            "hover:bg-primary/90 transition-colors"
-                        ),
-                    ),
-                    cls="absolute inset-0 flex flex-col items-center justify-center",
-                ),
-                cls="relative",
-            )
-            actions_section = Div(free_card, pro_gate)
-        else:
-            actions_section = free_card
+            ),
+        )
 
     body_parts = [header, diag_section, actions_section]
     if not auth:
