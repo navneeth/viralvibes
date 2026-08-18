@@ -20,6 +20,7 @@ from utils.creator_metrics import (
     get_language_name,
 )
 from views.creators import get_topic_category_emoji
+from components.add_creator import AddCreatorForm
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -180,6 +181,7 @@ def render_compare_pick_page(
     creator_a: dict,
     similar_creators: list[dict],
     embedding_peers: list[dict],
+    is_authenticated: bool = False,
 ) -> Div:
     """
     Step-2 page: user has chosen creator A and needs to pick creator B.
@@ -287,20 +289,47 @@ def render_compare_pick_page(
         cls="text-center mb-8",
     )
 
-    # ── Search fallback ──────────────────────────────────────────────────
+    # ── Search + add fallback ────────────────────────────────────────────
+    # Inline search navigates to /creators?a=<id> (compare-mode) so the
+    # selected creator's ID is threaded through to the profile link.
+    # AddCreatorForm lets the user queue a missing creator without leaving.
     search_fallback = Div(
-        P(
-            "Don't see who you're looking for?",
-            cls="text-xs text-muted-foreground mb-2",
-        ),
-        A(
-            UkIcon("search", cls="w-3.5 h-3.5 mr-1"),
-            "Search all creators",
-            href=f"/creators?a={id_a}",
-            cls=(
-                "inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold "
-                "no-underline bg-accent hover:bg-accent/80 text-foreground transition-colors"
+        Div(
+            P(
+                "Don't see who you're looking for?",
+                cls="text-xs font-semibold text-foreground mb-2",
             ),
+            Form(
+                Div(
+                    UkIcon(
+                        "search",
+                        cls="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none",
+                    ),
+                    Input(
+                        type="search",
+                        name="search",
+                        placeholder="Search creators…",
+                        autocomplete="off",
+                        cls="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-border "
+                        "bg-background focus:outline-none focus:ring-2 focus:ring-primary/25",
+                    ),
+                    Input(type="hidden", name="a", value=id_a),
+                    cls="relative",
+                ),
+                method="GET",
+                action="/creators",
+                cls="mb-3",
+            ),
+            P(
+                "Creator not in our database?",
+                cls="text-xs text-muted-foreground mb-1.5",
+            ),
+            AddCreatorForm(
+                is_authenticated,
+                return_url=f"/compare?a={id_a}",
+                size="sm",
+            ),
+            cls="p-4 rounded-xl border border-border bg-background",
         ),
         cls="pt-4 border-t border-border",
     )

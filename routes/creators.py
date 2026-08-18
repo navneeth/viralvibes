@@ -821,6 +821,7 @@ def compare_creators_route(request, user_id: str | None = None):
             creator_a,
             similar_creators=similar_creators_a,
             embedding_peers=embedding_peers_a or [],
+            is_authenticated=bool(user_id),
         )
 
     creator_a = get_creator_stats(id_a)
