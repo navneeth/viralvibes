@@ -8,7 +8,7 @@ import os
 from urllib.parse import urlsplit
 
 from fasthtml.common import *
-from monsterui.all import ButtonT, AlertT
+from monsterui.all import ButtonT, AlertT, UkIcon
 
 from components import NavComponent
 from components.auth_components import OneTapLoginCard
