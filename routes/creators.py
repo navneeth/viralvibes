@@ -305,14 +305,30 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # Detects patterns like "MKBHD from Germany" or "gaming creators in Japan"
     # and splits them into a name search + a country_filter, but only when the
     # user has NOT already explicitly set a country filter via the pill UI.
+    #
+    # We redirect rather than mutating locals so the inferred country is
+    # explicit in the URL: the country pill activates, the URL is shareable,
+    # and pagination page numbers stay consistent.
     if search and country_filter == "all":
         parsed_search, inferred_country = _extract_country(search)
         if inferred_country != "all":
-            search = parsed_search
-            country_filter = inferred_country
             logger.debug(
-                "[CountryExtract] inferred country=%s from query",
-                country_filter,
+                "[CountryExtract] inferred country=%s from query %r; redirecting",
+                inferred_country,
+                search,
+            )
+            # Build redirect params from the live request so any future filter
+            # params are preserved automatically, then override the extracted
+            # values and drop the page number (results will change).
+            redirect_params = dict(request.query_params)
+            redirect_params["country"] = inferred_country
+            if parsed_search:
+                redirect_params["search"] = parsed_search
+            else:
+                redirect_params.pop("search", None)
+            redirect_params.pop("page", None)
+            return RedirectResponse(
+                f"{request.url.path}?{urlencode(redirect_params)}", status_code=303
             )
 
     # Pagination parameters
