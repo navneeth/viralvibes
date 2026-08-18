@@ -317,19 +317,19 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                 inferred_country,
                 search,
             )
-            redirect_params: dict[str, str] = {"sort": sort, "country": inferred_country}
+            # Build redirect params from the live request so any future filter
+            # params are preserved automatically, then override the extracted
+            # values and drop the page number (results will change).
+            redirect_params = dict(request.query_params)
+            redirect_params["country"] = inferred_country
             if parsed_search:
                 redirect_params["search"] = parsed_search
-            for key, val in [
-                ("grade", grade_filter),
-                ("language", language_filter),
-                ("activity", activity_filter),
-                ("age", age_filter),
-                ("category", category_filter),
-            ]:
-                if val and val != "all":
-                    redirect_params[key] = val
-            return RedirectResponse(f"/creators?{urlencode(redirect_params)}", status_code=303)
+            else:
+                redirect_params.pop("search", None)
+            redirect_params.pop("page", None)
+            return RedirectResponse(
+                f"{request.url.path}?{urlencode(redirect_params)}", status_code=303
+            )
 
     # Pagination parameters
     # NOTE: max(1, ...) clamps page to >= 1, so page < 1 is impossible.
