@@ -337,18 +337,10 @@ def render_compare_pick_page(
     body_content = (
         Div(
             P(
-                "No suggestions available. Search for a creator to compare.",
+                "No suggestions available yet.",
                 cls="text-sm text-muted-foreground mb-4",
             ),
-            A(
-                UkIcon("search", cls="w-4 h-4 mr-1.5"),
-                "Search all creators",
-                href=f"/creators?a={id_a}",
-                cls=(
-                    "inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold "
-                    "no-underline bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                ),
-            ),
+            search_fallback,
         )
         if no_suggestions
         else Div(
