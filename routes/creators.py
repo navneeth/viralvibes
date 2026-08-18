@@ -305,15 +305,31 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # Detects patterns like "MKBHD from Germany" or "gaming creators in Japan"
     # and splits them into a name search + a country_filter, but only when the
     # user has NOT already explicitly set a country filter via the pill UI.
+    #
+    # We redirect rather than mutating locals so the inferred country is
+    # explicit in the URL: the country pill activates, the URL is shareable,
+    # and pagination page numbers stay consistent.
     if search and country_filter == "all":
         parsed_search, inferred_country = _extract_country(search)
         if inferred_country != "all":
-            search = parsed_search
-            country_filter = inferred_country
             logger.debug(
-                "[CountryExtract] inferred country=%s from query",
-                country_filter,
+                "[CountryExtract] inferred country=%s from query %r; redirecting",
+                inferred_country,
+                search,
             )
+            redirect_params: dict[str, str] = {"sort": sort, "country": inferred_country}
+            if parsed_search:
+                redirect_params["search"] = parsed_search
+            for key, val in [
+                ("grade", grade_filter),
+                ("language", language_filter),
+                ("activity", activity_filter),
+                ("age", age_filter),
+                ("category", category_filter),
+            ]:
+                if val and val != "all":
+                    redirect_params[key] = val
+            return RedirectResponse(f"/creators?{urlencode(redirect_params)}", status_code=303)
 
     # Pagination parameters
     # NOTE: max(1, ...) clamps page to >= 1, so page < 1 is impossible.
