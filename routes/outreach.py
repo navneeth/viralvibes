@@ -48,7 +48,13 @@ def outreach_route(req, sess):
         for c in creators
     ]
 
-    return render_outreach_page(rows, saved_lists=saved_lists, user_name=user_name)
+    return render_outreach_page(
+        rows,
+        saved_lists=saved_lists,
+        user_name=user_name,
+        is_authenticated=bool(auth),
+        return_url="/me/outreach",
+    )
 
 
 def outreach_export_route(req, sess):

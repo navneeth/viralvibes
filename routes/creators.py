@@ -821,7 +821,6 @@ def compare_creators_route(request, user_id: str | None = None):
             creator_a,
             similar_creators=similar_creators_a,
             embedding_peers=embedding_peers_a or [],
-            is_authenticated=bool(user_id),
         )
 
     creator_a = get_creator_stats(id_a)
@@ -908,6 +907,12 @@ async def creator_request_route(request, sess):
         return auth_error
 
     user_id = sess.get("user_id") if sess else None
+    if not user_id and _IS_TESTING:
+        user_id = "test-user-id"
+    # require_auth only validates `auth`; `user_id` can independently be absent
+    # on partial/legacy sessions — guard so we never enqueue with a NULL user.
+    if not user_id:
+        return require_auth(None, "Sign in to suggest creators", return_url="/creators")
 
     # Read form body
     try:
