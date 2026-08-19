@@ -68,7 +68,7 @@ def _row(row: dict[str, str]) -> Tr:
     )
 
 
-def _empty_state(is_authenticated: bool = True) -> Div:
+def _empty_state(is_authenticated: bool = True, return_url: str = "/me/outreach") -> Div:
     return Div(
         UkIcon("send", cls="w-14 h-14 text-muted-foreground/30 mx-auto mb-4"),
         H2("No saved creators yet", cls="text-xl font-semibold text-foreground mb-2"),
@@ -82,17 +82,21 @@ def _empty_state(is_authenticated: bool = True) -> Div:
             href="/creators",
             cls="mt-6 inline-flex items-center px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg no-underline transition-colors",
         ),
-        Div(
-            P(
-                "Know their @handle? Add them directly:",
-                cls="text-xs text-muted-foreground mb-2",
-            ),
-            AddCreatorForm(
-                is_authenticated,
-                return_url="/me/outreach",
-                size="sm",
-            ),
-            cls="mt-6 pt-6 border-t border-border w-full max-w-sm text-left",
+        (
+            Div(
+                P(
+                    "Know their @handle? Add them directly:",
+                    cls="text-xs text-muted-foreground mb-2",
+                ),
+                AddCreatorForm(
+                    is_authenticated,
+                    return_url=return_url,
+                    size="sm",
+                ),
+                cls="mt-6 pt-6 border-t border-border w-full max-w-sm text-left",
+            )
+            if is_authenticated
+            else None
         ),
         cls="flex flex-col items-center justify-center py-20 text-center",
     )
@@ -174,6 +178,7 @@ def render_outreach_page(
     saved_lists: list[dict] | None = None,
     user_name: str = "",
     is_authenticated: bool = True,
+    return_url: str = "/me/outreach",
 ) -> Div:
     email_rows = filter_email_ready_rows(rows)
     social_rows = [
@@ -266,7 +271,7 @@ def render_outreach_page(
                 cls="bg-background border border-border rounded-xl overflow-hidden shadow-sm",
             )
             if rows
-            else _empty_state(is_authenticated)
+            else _empty_state(is_authenticated, return_url=return_url)
         ),
         cls=ContainerT.xl,
     )

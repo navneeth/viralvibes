@@ -49,7 +49,11 @@ def outreach_route(req, sess):
     ]
 
     return render_outreach_page(
-        rows, saved_lists=saved_lists, user_name=user_name, is_authenticated=bool(auth)
+        rows,
+        saved_lists=saved_lists,
+        user_name=user_name,
+        is_authenticated=bool(auth),
+        return_url="/me/outreach",
     )
 
 
