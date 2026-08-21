@@ -58,7 +58,7 @@ logger = logging.getLogger("vv_worker")
 # --- Config with improved defaults ---
 POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "30"))
 BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "3"))  # Increased back to 3
-MAX_RUNTIME = int(os.getenv("CREATOR_WORKER_MAX_RUNTIME", "3600"))  # 1 hour default (in seconds)
+MAX_RUNTIME = int(os.getenv("WORKER_MAX_RUNTIME", "3600"))  # 1 hour default (in seconds)
 MIN_REQUEST_DELAY = float(os.getenv("MIN_REQUEST_DELAY", "1.0"))  # Reduced delay
 MAX_REQUEST_DELAY = float(os.getenv("MAX_REQUEST_DELAY", "3.0"))
 BOT_CHALLENGE_BACKOFF = int(os.getenv("BOT_CHALLENGE_BACKOFF", "180"))  # 3 min
@@ -790,11 +790,23 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
         logger.info(f"[Job {job_id}] Completed in {elapsed:.2f}s")
 
 
+_raw_idle_backoff_max = int(os.getenv("WORKER_IDLE_BACKOFF_MAX", "120"))
+if _raw_idle_backoff_max < 1:
+    logger.warning(
+        "WORKER_IDLE_BACKOFF_MAX=%s is invalid (must be >= 1); defaulting to 120s",
+        _raw_idle_backoff_max,
+    )
+    _raw_idle_backoff_max = 120
+IDLE_BACKOFF_MAX = _raw_idle_backoff_max
+
+
 async def worker_loop():
     """Main worker loop that polls for pending and failed jobs."""
     start_time = time.time()
     jobs_processed = 0
     retries_processed = 0
+    # Start at whichever is smaller so the initial sleep never exceeds the cap
+    idle_sleep = min(POLL_INTERVAL, IDLE_BACKOFF_MAX)
 
     logger.info(
         "Worker starting main loop (poll_interval=%ss, max_runtime=%sm, batch_size=%s, "
@@ -839,20 +851,30 @@ async def worker_loop():
                     await asyncio.sleep(cooldown_sleep)
                 continue
 
-            # Fetch both pending and retryable failed jobs
-            pending_jobs = await fetch_pending_jobs()
-            failed_jobs = await fetch_retryable_failed_jobs()
+            # Both fetches are scheduled together; supabase-py execute() is sync so they
+            # still run sequentially, but gather keeps the structure symmetric for when
+            # an async client is adopted later.
+            pending_jobs, failed_jobs = await asyncio.gather(
+                fetch_pending_jobs(),
+                fetch_retryable_failed_jobs(),
+            )
 
             # Combine jobs: prioritize pending over retries
             all_jobs = pending_jobs + failed_jobs
 
             if not all_jobs:
-                sleep_time = min(POLL_INTERVAL, remaining_time)
+                sleep_time = min(idle_sleep, remaining_time)
                 if sleep_time <= 0:
                     logger.info("No time remaining, exiting worker loop")
                     break
+                logger.debug("Queue empty, sleeping %ss (backoff)", sleep_time)
                 await asyncio.sleep(sleep_time)
+                # Exponential backoff: double on consecutive empty polls, cap at max
+                idle_sleep = min(idle_sleep * 2, IDLE_BACKOFF_MAX)
                 continue
+
+            # Jobs found — reset idle backoff
+            idle_sleep = POLL_INTERVAL
 
             for job in all_jobs:
                 job_id = job.get("id")

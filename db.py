@@ -2887,7 +2887,7 @@ def get_or_create_creator_from_playlist(
                 update_payload = {
                     "channel_name": channel_name,
                     "channel_url": channel_url,
-                    "last_seen_at": datetime.now(timezone.utc).isoformat(),
+                    "last_updated_at": datetime.now(timezone.utc).isoformat(),
                 }
                 # Only update thumbnail if we have a new value (avoid overwriting with None)
                 if channel_thumbnail_url:
@@ -2896,7 +2896,9 @@ def get_or_create_creator_from_playlist(
                 supabase_client.table(CREATOR_TABLE).update(update_payload).eq(
                     "id", creator_id
                 ).execute()
-                logger.debug(f"Refreshed metadata for creator {channel_id} (last_seen updated)")
+                logger.debug(
+                    f"Refreshed metadata for creator {channel_id} (last_updated_at updated)"
+                )
             except Exception as e:
                 logger.debug(f"Metadata refresh failed (non-critical): {e}")
 
@@ -3109,7 +3111,7 @@ def add_creator_by_handle(
                         "custom_url": custom_url.lstrip("@").lower(),
                         "channel_name": channel_name,
                         "channel_thumbnail_url": channel_thumbnail_url,
-                        "last_seen_at": datetime.now(timezone.utc).isoformat(),
+                        "last_updated_at": datetime.now(timezone.utc).isoformat(),
                     }
                 ).eq("id", creator_id).execute()
                 logger.debug(f"Updated metadata for creator {channel_id}")
