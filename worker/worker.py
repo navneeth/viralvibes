@@ -790,7 +790,14 @@ async def handle_job(job: Dict[str, Any], is_retry: bool = False):
         logger.info(f"[Job {job_id}] Completed in {elapsed:.2f}s")
 
 
-IDLE_BACKOFF_MAX = int(os.getenv("WORKER_IDLE_BACKOFF_MAX", "120"))  # caps idle sleep at 2 min
+_raw_idle_backoff_max = int(os.getenv("WORKER_IDLE_BACKOFF_MAX", "120"))
+if _raw_idle_backoff_max < 1:
+    logger.warning(
+        "WORKER_IDLE_BACKOFF_MAX=%s is invalid (must be >= 1); defaulting to 120s",
+        _raw_idle_backoff_max,
+    )
+    _raw_idle_backoff_max = 120
+IDLE_BACKOFF_MAX = _raw_idle_backoff_max
 
 
 async def worker_loop():
@@ -798,7 +805,8 @@ async def worker_loop():
     start_time = time.time()
     jobs_processed = 0
     retries_processed = 0
-    idle_sleep = POLL_INTERVAL  # current idle sleep, doubles on consecutive empty polls
+    # Start at whichever is smaller so the initial sleep never exceeds the cap
+    idle_sleep = min(POLL_INTERVAL, IDLE_BACKOFF_MAX)
 
     logger.info(
         "Worker starting main loop (poll_interval=%ss, max_runtime=%sm, batch_size=%s, "
@@ -843,7 +851,9 @@ async def worker_loop():
                     await asyncio.sleep(cooldown_sleep)
                 continue
 
-            # Fetch pending and retryable failed jobs concurrently (1 round-trip instead of 2)
+            # Both fetches are scheduled together; supabase-py execute() is sync so they
+            # still run sequentially, but gather keeps the structure symmetric for when
+            # an async client is adopted later.
             pending_jobs, failed_jobs = await asyncio.gather(
                 fetch_pending_jobs(),
                 fetch_retryable_failed_jobs(),

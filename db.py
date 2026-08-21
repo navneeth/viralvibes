@@ -2896,7 +2896,9 @@ def get_or_create_creator_from_playlist(
                 supabase_client.table(CREATOR_TABLE).update(update_payload).eq(
                     "id", creator_id
                 ).execute()
-                logger.debug(f"Refreshed metadata for creator {channel_id} (last_seen updated)")
+                logger.debug(
+                    f"Refreshed metadata for creator {channel_id} (last_updated_at updated)"
+                )
             except Exception as e:
                 logger.debug(f"Metadata refresh failed (non-critical): {e}")
 
