@@ -8,6 +8,10 @@ from urllib.parse import quote_plus
 from fasthtml.common import *
 from monsterui.all import *
 
+# How often the in-progress UI polls /job-progress for an update.
+# Tune here without touching view code.
+_PROGRESS_POLL_INTERVAL = "every 3s"
+
 from components.errors import get_user_friendly_error
 from components.processing_tips import get_tip_for_progress
 from constants import JobStatus, MAX_RETRY_ATTEMPTS
@@ -250,6 +254,7 @@ def _elapsed_timer_widgets(started_at: str | None) -> list:
         dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
         start_ts = int(dt.timestamp())
     except (ValueError, AttributeError, OSError):
+        logger.warning("_elapsed_timer_widgets: could not parse started_at %r", started_at)
         return []
 
     timer_script = f"""
@@ -259,7 +264,7 @@ def _elapsed_timer_widgets(started_at: str | None) -> list:
     function tick() {{
         var el = document.getElementById('vv-elapsed-timer');
         if (!el) {{ clearInterval(window._vvElapsedTimer); return; }}
-        var elapsed = Math.floor((Date.now() - startTs) / 1000);
+        var elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
         var m = Math.floor(elapsed / 60), s = elapsed % 60;
         el.textContent = m > 0 ? m + 'm ' + s + 's' : s + 's';
     }}
@@ -416,8 +421,8 @@ def render_job_progress_ui(
         *(_elapsed_timer_widgets(started_at)),
         cls="p-6 bg-white rounded-xl shadow-lg border max-w-3xl mx-auto",
         id="preview-box",
-        # 🔄 Continue polling every 3s (down from 10s)
+        # 🔄 Continue polling (interval tunable via _PROGRESS_POLL_INTERVAL)
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="every 3s",
+        hx_trigger=_PROGRESS_POLL_INTERVAL,
         hx_swap="outerHTML",
     )
