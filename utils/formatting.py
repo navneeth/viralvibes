@@ -2,6 +2,9 @@
 Number and string formatting utilities.
 """
 
+import logging
+from typing import Union
+
 
 def format_number(num: float, signed: bool = False) -> str:
     """Convert a large number into a human-readable string (e.g. 1.2M, 3.4K).
@@ -72,35 +75,51 @@ def parse_number(val: str) -> int:
         return 0
 
 
-def format_percentage(x: float, decimals: int = 1) -> str:
+def format_percentage(x: Union[float, int, str, None], decimals: int = 1) -> str:
     """Format a fraction (0–1) as a percentage string.
 
     Args:
-        x:        Value in the range 0–1 (e.g. ``0.067`` for 6.7 %).
+        x:        Value in the range 0–1 (e.g. ``0.067`` for 6.7 %).  May also
+                  be an already-formatted string ending in ``%`` (e.g. ``"0.28%"``)
+                  in which case the value is re-formatted without multiplying by 100.
         decimals: Number of decimal places in the output.  Defaults to 1
-                  (e.g. ``"6.7%"``).  Pass ``2`` for ``"6.70%"``.
+                  (e.g. ``"6.7%"``).  Pass ``2`` for ``"6.70%"``.  ``0`` emits
+                  an integer percentage (e.g. ``"7%"``).
 
     Returns:
         Percentage string without trailing zeros (e.g. ``"6.7%"`` not ``"6.70%"``
-        when decimals=1), unless the extra zeros are significant.
+        when decimals=1), unless the extra zeros are significant.  Returns
+        ``"—"`` for ``None`` or values that cannot be converted to a number.
 
     Examples::
 
         format_percentage(0.067)     → "6.7%"
         format_percentage(0.067, 2)  → "6.70%"
         format_percentage(0.5)       → "50.0%"
+        format_percentage("6.7%")    → "6.7%"
     """
     # Guard: if x is already a formatted percentage string (e.g. "0.28%"),
     # strip the trailing "%" and treat the value as already in percent form
     # (i.e. do NOT multiply by 100 again).
     if isinstance(x, str) and x.strip().endswith("%"):
         try:
-            return f"{float(x.strip().rstrip('%')):.{max(decimals, 1)}f}%"
+            pct = float(x.strip().rstrip("%"))
         except (ValueError, TypeError):
             return "—"
+        if decimals <= 0:
+            return f"{pct:.0f}%"
+        formatted = f"{pct:.{decimals}f}"
+        if "." in formatted:
+            integer_part, frac_part = formatted.split(".", 1)
+            trimmed_frac = frac_part.rstrip("0")
+            if not trimmed_frac:
+                trimmed_frac = "0"
+            formatted = f"{integer_part}.{trimmed_frac}"
+        return f"{formatted}%"
     try:
         pct = float(x) * 100
     except (ValueError, TypeError):
+        logging.warning("format_percentage: could not convert %r to float", x)
         return "—"
     if decimals <= 0:
         formatted = f"{pct:.0f}"
