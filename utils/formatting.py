@@ -90,7 +90,18 @@ def format_percentage(x: float, decimals: int = 1) -> str:
         format_percentage(0.067, 2)  → "6.70%"
         format_percentage(0.5)       → "50.0%"
     """
-    pct = float(x) * 100
+    # Guard: if x is already a formatted percentage string (e.g. "0.28%"),
+    # strip the trailing "%" and treat the value as already in percent form
+    # (i.e. do NOT multiply by 100 again).
+    if isinstance(x, str) and x.strip().endswith("%"):
+        try:
+            return f"{float(x.strip().rstrip('%')):.{max(decimals, 1)}f}%"
+        except (ValueError, TypeError):
+            return "—"
+    try:
+        pct = float(x) * 100
+    except (ValueError, TypeError):
+        return "—"
     if decimals <= 0:
         formatted = f"{pct:.0f}"
     else:

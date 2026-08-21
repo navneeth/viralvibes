@@ -224,7 +224,9 @@ def render_playlist_table(
                 td_cls = "px-4 py-3 text-center"
 
             elif h == "Engagement Rate":
-                raw = row.get(get_render_col(h), row.get("Engagement Rate Raw"))
+                # Always use the raw float column so format_percentage receives
+                # a fraction (0-1), not an already-formatted string like "0.28%".
+                raw = row.get("Engagement Rate Raw", row.get(get_render_col(h)))
                 cell = Div(
                     format_percentage(raw),
                     cls="text-center font-semibold text-green-600",
