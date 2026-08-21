@@ -8,6 +8,10 @@ from urllib.parse import quote_plus
 from fasthtml.common import *
 from monsterui.all import *
 
+# How often the in-progress UI polls /job-progress for an update.
+# Tune here without touching view code.
+_PROGRESS_POLL_INTERVAL = "every 3s"
+
 from components.errors import get_user_friendly_error
 from components.processing_tips import get_tip_for_progress
 from constants import JobStatus, MAX_RETRY_ATTEMPTS
@@ -231,7 +235,51 @@ def job_progress_controller(playlist_url: str):
         preview_info=preview_info,
         retry_count=retry_count,
         max_retries=MAX_RETRY_ATTEMPTS,
+        started_at=job_data.get("started_at"),
     )
+
+
+def _elapsed_timer_widgets(started_at: str | None) -> list:
+    """Return a live elapsed-time Span + a self-contained client-side timer Script.
+
+    The Script clears any previous interval (stored in window._vvElapsedTimer)
+    so repeated HTMX swaps don't accumulate stale setInterval calls.
+    Returns an empty list when started_at is unavailable.
+    """
+    if not started_at:
+        return []
+    try:
+        from datetime import datetime
+
+        dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        start_ts = int(dt.timestamp())
+    except (ValueError, AttributeError, OSError):
+        logger.warning("_elapsed_timer_widgets: could not parse started_at %r", started_at)
+        return []
+
+    timer_script = f"""
+(function() {{
+    if (window._vvElapsedTimer) clearInterval(window._vvElapsedTimer);
+    var startTs = {start_ts} * 1000;
+    function tick() {{
+        var el = document.getElementById('vv-elapsed-timer');
+        if (!el) {{ clearInterval(window._vvElapsedTimer); return; }}
+        var elapsed = Math.max(0, Math.floor((Date.now() - startTs) / 1000));
+        var m = Math.floor(elapsed / 60), s = elapsed % 60;
+        el.textContent = m > 0 ? m + 'm ' + s + 's' : s + 's';
+    }}
+    tick();
+    window._vvElapsedTimer = setInterval(tick, 1000);
+}})();
+"""
+    return [
+        Div(
+            Span("⏱ Elapsed: ", cls="text-sm text-gray-500"),
+            Span("…", id="vv-elapsed-timer", cls="text-sm font-medium text-gray-700"),
+            cls="text-center mt-4 text-gray-600",
+        ),
+        Script(timer_script),
+    ]
 
 
 def render_job_progress_ui(
@@ -241,6 +289,7 @@ def render_job_progress_ui(
     preview_info: dict,
     retry_count: int = 0,
     max_retries: int = 3,
+    started_at: str | None = None,
 ):
     """
     Render the progress UI with preview data.
@@ -368,10 +417,12 @@ def render_job_progress_ui(
             ),
             cls="bg-gradient-to-br from-purple-50 to-blue-50 p-4 rounded-lg border",
         ),
+        # Live elapsed timer — ticks every second client-side between polls
+        *(_elapsed_timer_widgets(started_at)),
         cls="p-6 bg-white rounded-xl shadow-lg border max-w-3xl mx-auto",
         id="preview-box",
-        # 🔄 Continue polling
+        # 🔄 Continue polling (interval tunable via _PROGRESS_POLL_INTERVAL)
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="every 10s",
+        hx_trigger=_PROGRESS_POLL_INTERVAL,
         hx_swap="outerHTML",
     )

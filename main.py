@@ -796,10 +796,27 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
         # Redirect to clean login page (avoids navbar duplication)
         return RedirectResponse("/login", status_code=303)
 
-    # Authenticated user - proceed to preview
-    return Script(
-        "htmx.ajax('POST', '/validate/preview', {target: '#preview-box', values: {playlist_url: '%s'}});"
-        % playlist.playlist_url
+    # Authenticated user - proceed to preview.
+    # Return two things at once via HTMX OOB:
+    #   1. A loading skeleton swapped into #preview-box immediately (OOB innerHTML)
+    #   2. A Script that fires the actual /validate/preview HTMX request
+    # This eliminates the blank gap between form submit and the preview card
+    # appearing.  json.dumps() safely escapes the URL for JS (XSS guard).
+    safe_url = json.dumps(playlist.playlist_url)
+    return (
+        Div(
+            Div(
+                Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary")),
+                Span("Loading playlist…", cls="text-sm text-muted-foreground ml-2"),
+                cls="flex items-center justify-center py-10",
+            ),
+            id="preview-box",
+            hx_swap_oob="innerHTML",
+        ),
+        Script(
+            f"htmx.ajax('POST', '/validate/preview', "
+            f"{{target: '#preview-box', values: {{playlist_url: {safe_url}}}}});"
+        ),
     )
 
 
@@ -1159,18 +1176,19 @@ def submit_job(playlist_url: str, req, sess):
     #     hx_trigger="every 3s",
     #     hx_swap="outerHTML",
     # )
-    # Instead of polling instruction, show the full engagement screen
+    # Fire the first /job-progress poll immediately on load.
+    # Subsequent polling is managed by the progress UI itself (every 3s),
+    # so we only need the initial "load" trigger here.
     return Div(
         hx_get=f"/job-progress?playlist_url={quote_plus(playlist_url)}",
-        hx_trigger="load, every 10s",
+        hx_trigger="load",
         hx_swap="outerHTML",
         id="preview-box",
         children=[
-            P("Analyzing playlist... This might take a moment."),
-            Span(
-                cls="loading loading-bars loading-large",
-                id="loading-bar",
-                style="margin-top:1rem; color:#393e6e;",
+            Div(
+                Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary")),
+                Span("Queuing analysis…", cls="text-sm text-muted-foreground ml-2"),
+                cls="flex items-center justify-center py-10",
             ),
         ],
     )
