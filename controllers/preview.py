@@ -9,6 +9,7 @@ from db import (
 from views.preview import (
     render_blocked_preview,
     render_preview_card,
+    render_queuing_placeholder,
     render_redirect_to_full,
 )
 
@@ -50,18 +51,18 @@ def preview_playlist_controller(playlist_url: str):
         logger.warning("Preview: job blocked")
         return render_blocked_preview()
 
-    # 3. Preview data (DB stub or API fallback)
-    preview_info = get_playlist_preview_info(playlist_url) or {}
-
-    # ✅ Auto-submit if no job exists or job failed
-    auto_submit = job_status is None or job_status == JobStatus.FAILED
-
-    if auto_submit:
+    # ✅ Auto-submit if no job exists or job failed — return before the
+    # preview-info DB query; that data is unused by the placeholder.
+    if job_status is None or job_status == JobStatus.FAILED:
         logger.info(f"Auto-submitting job for {playlist_url}")
+        return render_queuing_placeholder(playlist_url=playlist_url)
+
+    # 3. Preview data (DB stub or API fallback) — only needed for the card
+    preview_info = get_playlist_preview_info(playlist_url) or {}
 
     return render_preview_card(
         playlist_url=playlist_url,
         job_status=job_status,
         preview_info=preview_info,
-        auto_submit=auto_submit,
+        auto_submit=False,
     )

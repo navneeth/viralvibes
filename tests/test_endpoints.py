@@ -305,7 +305,7 @@ class TestURLValidationAndPreview:
         Flow:
         1. No cache exists
         2. No active job found (job_status = None)
-        3. auto_submit=True passed to render_preview_card
+        3. Queuing placeholder returned (no preview card flash)
         4. HTMX trigger fires /submit-job on page load
         """
         monkeypatch.setattr(
@@ -316,19 +316,17 @@ class TestURLValidationAndPreview:
             "controllers.preview.get_playlist_job_status",
             lambda url: None,  # No job exists
         )
-        monkeypatch.setattr(
-            "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
-        )
+        # get_playlist_preview_info is NOT called on the auto-submit path
 
         r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
 
         assert r.status_code == 200
-        # Should show preview card
-        assert "Test Playlist" in r.text
-        # Should have auto-submit trigger (check for just "load", not "load once")
+        # Placeholder — no preview card content visible
+        assert "Test Playlist" not in r.text
+        assert "Queuing analysis" in r.text
+        # Auto-submit trigger must still be present
         assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load"' in r.text  # ✅ Fixed: removed "once"
+        assert 'hx-trigger="load"' in r.text
 
     def test_preview_auto_submit_when_job_failed(self, client, monkeypatch):
         """
