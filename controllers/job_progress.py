@@ -91,7 +91,7 @@ def job_progress_controller(playlist_url: str):
         return Div(
             Alert(
                 P("No analysis job found for this playlist."),
-                A("Try analyzing again", href="/", cls=ButtonT.primary),
+                A("Try analyzing again", href="/analysis", cls=ButtonT.primary),
                 cls=AlertT.warning,
             ),
             cls="p-6 max-w-2xl mx-auto",

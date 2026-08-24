@@ -1067,7 +1067,13 @@ def validate_full(
 
         except Exception as e:
             logger.exception("Deep analysis failed")
-            yield str(Alert(P("Failed to fetch playlist data."), cls=AlertT.error))
+            yield str(
+                Alert(
+                    P("Failed to fetch playlist data."),
+                    A("Try again", href="/analysis", cls=ButtonT.primary),
+                    cls=AlertT.error,
+                )
+            )
 
     return StreamingResponse(stream(), media_type="text/html")
 
