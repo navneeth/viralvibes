@@ -247,7 +247,7 @@ class ViralVibesAuth(OAuth):
 
         # 1. Check if user was trying to analyze a playlist
         intended_playlist_url = session.get("intended_playlist_url")
-        if intended_playlist_url:
+        if intended_playlist_url and session.get("user_id"):
             logger.info(f"User logged in to analyze playlist, redirecting to /analysis")
             return RedirectResponse("/analysis", status_code=303)
 
