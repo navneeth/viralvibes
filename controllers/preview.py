@@ -9,6 +9,7 @@ from db import (
 from views.preview import (
     render_blocked_preview,
     render_preview_card,
+    render_queuing_placeholder,
     render_redirect_to_full,
 )
 
@@ -58,10 +59,13 @@ def preview_playlist_controller(playlist_url: str):
 
     if auto_submit:
         logger.info(f"Auto-submitting job for {playlist_url}")
+        # Skip rendering the full preview card — it would flash briefly then
+        # vanish when /submit-job fires.  Return a minimal spinner instead.
+        return render_queuing_placeholder(playlist_url=playlist_url)
 
     return render_preview_card(
         playlist_url=playlist_url,
         job_status=job_status,
         preview_info=preview_info,
-        auto_submit=auto_submit,
+        auto_submit=False,
     )

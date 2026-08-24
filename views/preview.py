@@ -22,6 +22,34 @@ def render_redirect_to_full(playlist_url: str):
     )
 
 
+def render_queuing_placeholder(*, playlist_url: str, user_id: str | None = None):
+    """
+    Returned by preview_playlist_controller when auto_submit=True.
+    Avoids flashing the full preview card before the job is queued:
+    the spinner is already visible; we just keep it and fire /submit-job.
+    """
+    return Div(
+        # Hidden trigger — fires immediately on DOM insertion
+        Div(
+            hx_post="/submit-job",
+            hx_vals={
+                "playlist_url": playlist_url,
+                **(({"user_id": user_id}) if user_id else {}),
+            },
+            hx_trigger="load",
+            hx_target="#preview-box",
+            hx_swap="outerHTML",
+            style="display:none;",
+        ),
+        # Keep the same spinner that validate_url already rendered
+        Div(
+            Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary")),
+            Span("Queuing analysis\u2026", cls="text-sm text-muted-foreground ml-2"),
+            cls="flex items-center justify-center py-10",
+        ),
+    )
+
+
 def render_blocked_preview():
     return Div(
         UkIcon("ban", width=48, height=48, cls="text-red-500 mb-4"),
