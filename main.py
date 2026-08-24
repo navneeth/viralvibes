@@ -790,8 +790,7 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
     if not (sess and sess.get("auth")):
         # Store the VALIDATED playlist URL they want to analyze
         sess["intended_playlist_url"] = playlist.playlist_url
-        # Store intended URL for post-login redirect
-        sess["intended_url"] = "/me/dashboards"
+        # After login, auth_service redirects to /analysis which picks this up
 
         # Redirect to clean login page (avoids navbar duplication)
         return RedirectResponse("/login", status_code=303)
@@ -1405,6 +1404,16 @@ def export_json(dashboard_id: str, req, sess):
 def analysis(req, sess):
     """Playlist analysis page — PUBLIC route"""
     user_id = sess.get("user_id") if sess else None
+
+    # Post-login: user submitted a playlist URL before authenticating.
+    # Submit the job now that we have a user_id and redirect straight to the result.
+    intended_playlist_url = sess.get("intended_playlist_url")
+    if intended_playlist_url and user_id:
+        sess.pop("intended_playlist_url", None)
+        logger.info(f"Submitting deferred job for {intended_playlist_url} after login")
+        submit_playlist_job(intended_playlist_url, user_id=user_id)
+        dashboard_id = compute_dashboard_id(intended_playlist_url)
+        return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
     _analysis_title = "YouTube Playlist Analyzer — Instant Engagement & Viral Score | ViralVibes"
     _analysis_desc = (
         "Paste any YouTube playlist URL and instantly see engagement rate, viral score, "
