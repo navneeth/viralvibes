@@ -575,6 +575,32 @@ def index(req, sess):
     )
 
 
+_BOT_UA_KEYWORDS = (
+    "bot",
+    "crawl",
+    "spider",
+    "scrape",
+    "slurp",
+    "ia_archiver",
+    "python-requests",
+    "python-urllib",
+    "go-http-client",
+    "curl/",
+    "wget/",
+    "libwww",
+    "java/",
+    "ruby/",
+    "perl/",
+    "scrapy",
+)
+
+
+def _is_bot_request(req) -> bool:
+    """Return True for non-human User-Agents that have no business hitting /login."""
+    ua = req.headers.get("user-agent", "").lower()
+    return any(kw in ua for kw in _BOT_UA_KEYWORDS)
+
+
 @rt("/login")
 def login(req, sess):
     """
@@ -588,6 +614,12 @@ def login(req, sess):
     Default: Modern One-Tap Material Design UI
     Fallback: Simple button (set USE_NEW_LOGIN_UI=false)
     """
+    # Reject non-human UAs immediately — before any session work or rendering.
+    # Bots that reach this route despite robots.txt + rel=nofollow get a 410
+    # (Gone) so they de-prioritise future requests rather than retrying (403).
+    if _is_bot_request(req):
+        return Response(status_code=410)
+
     # Normalize session: if user manually visited /login (no intended_url),
     # clear any stale URLs so they get redirected to homepage after login
     normalize_intended_url(sess)
