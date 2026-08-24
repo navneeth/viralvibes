@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_60afb0a4f41d540c_token_revocation_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-24 06:17 +0000
+            created at 2026-08-24 07:40 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -331,9 +331,9 @@
     <p class="pln"><span class="n"><a id="t247" href="#t247">247</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t248" href="#t248">248</a></span><span class="t">        <span class="com"># 1. Check if user was trying to analyze a playlist</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t249" href="#t249">249</a></span><span class="t">        <span class="nam">intended_playlist_url</span> <span class="op">=</span> <span class="nam">session</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;intended_playlist_url&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t250" href="#t250">250</a></span><span class="t">        <span class="key">if</span> <span class="nam">intended_playlist_url</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t251" href="#t251">251</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">info</span><span class="op">(</span><span class="fst">f&quot;</span><span class="fst">User logged in to analyze playlist, redirecting to /me/dashboards</span><span class="fst">&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t252" href="#t252">252</a></span><span class="t">            <span class="key">return</span> <span class="nam">RedirectResponse</span><span class="op">(</span><span class="str">&quot;/me/dashboards&quot;</span><span class="op">,</span> <span class="nam">status_code</span><span class="op">=</span><span class="num">303</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t250" href="#t250">250</a></span><span class="t">        <span class="key">if</span> <span class="nam">intended_playlist_url</span> <span class="key">and</span> <span class="nam">session</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;user_id&quot;</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t251" href="#t251">251</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">info</span><span class="op">(</span><span class="fst">f&quot;</span><span class="fst">User logged in to analyze playlist, redirecting to /analysis</span><span class="fst">&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t252" href="#t252">252</a></span><span class="t">            <span class="key">return</span> <span class="nam">RedirectResponse</span><span class="op">(</span><span class="str">&quot;/analysis&quot;</span><span class="op">,</span> <span class="nam">status_code</span><span class="op">=</span><span class="num">303</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t253" href="#t253">253</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">        <span class="com"># 2. Check if there&#x27;s a stored intended destination</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">        <span class="nam">intended_url</span> <span class="op">=</span> <span class="nam">session</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;intended_url&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -531,7 +531,7 @@
             <a class="nav" href="z_60afb0a4f41d540c_token_revocation_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-24 06:17 +0000
+            created at 2026-08-24 07:40 +0000
         </p>
     </div>
 </footer>
