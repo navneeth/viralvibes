@@ -166,6 +166,7 @@ def NavComponent(oauth, req=None, sess=None):
             A(
                 "Sign in with Google",
                 href=login_href,
+                rel="nofollow",
                 cls="btn-cta-primary text-sm",
             ),
         )
