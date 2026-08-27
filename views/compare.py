@@ -710,7 +710,7 @@ def render_compare_page(
                 ),
                 Div(
                     A(
-                        UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
+                        UkIcon("youtube", cls="w-5 h-5 mr-1"),  # 20px — YouTube branding minimum
                         "YouTube",
                         href=channel_url,
                         target="_blank",

@@ -570,7 +570,7 @@ def _SocialIcon(icon: str, href: str, label: str) -> A:
     Hover: border + icon shift to red, gentle scale + background tint.
     """
     return A(
-        UkIcon(icon, cls="size-4"),
+        UkIcon(icon, cls="size-5"),  # 20px — YouTube branding minimum
         href=href,
         target="_blank",
         rel="noopener noreferrer",
