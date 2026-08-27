@@ -170,6 +170,21 @@ def privacy_page_content() -> Div:
             ],
         ),
         PageSection(
+            "How We Share Your Information",
+            "We do not sell your personal data. We share information only as described below:",
+            variant="split",
+            eyebrow="04",
+        ),
+        BulletSection(
+            "",
+            [
+                "Google / YouTube: Channel and creator data is fetched via the YouTube Data API. Use of this API is subject to the Google Privacy Policy at http://www.google.com/policies/privacy.",
+                "Google OAuth: Your name and email are provided to us by Google on sign-in. Your authentication token is stored to maintain your session and is not shared with any other third party.",
+                "Vercel: Page-view and performance data is processed by Vercel for hosting and analytics. Vercel Web Analytics is cookieless and does not identify individual users.",
+                "Legal and safety: We may disclose information if required by law, court order, or to protect the rights and safety of ViralVibes or its users.",
+            ],
+        ),
+        PageSection(
             "Data Storage and Security",
             "Account and dashboard data is stored in Supabase, a cloud database provider, "
             "with servers located in the European Union (AWS eu-west-2 / eu-central-1). "
@@ -178,20 +193,20 @@ def privacy_page_content() -> Div:
             "against unauthorised access, loss, or misuse. No method of transmission over the "
             "internet is 100% secure; we cannot guarantee absolute security.",
             variant="numbered",
-            number="04",
+            number="05",
         ),
         PageSection(
             "Third-Party Services",
             "The Service integrates with the following third-party services, each governed by "
             "their own privacy policies:",
             variant="split",
-            eyebrow="05",
+            eyebrow="06",
         ),
         BulletSection(
             "",
             [
-                "Google OAuth — for authentication. Subject to Google's Privacy Policy.",
-                "YouTube Data API — for public channel and playlist data. Subject to YouTube's Terms of Service.",
+                "Google OAuth — for authentication. Subject to the Google Privacy Policy (http://www.google.com/policies/privacy).",
+                "YouTube Data API — for public channel and playlist data. Subject to YouTube's Terms of Service (https://www.youtube.com/t/terms) and the Google Privacy Policy (http://www.google.com/policies/privacy).",
                 "Supabase — for database and storage. Subject to Supabase's Privacy Policy.",
                 "Vercel — for hosting and analytics. Subject to Vercel's Privacy Policy.",
             ],
@@ -203,13 +218,13 @@ def privacy_page_content() -> Div:
             "Our analytics provider (Vercel Web Analytics) does not use cookies and does not "
             "track users across sites.",
             variant="accent",
-            eyebrow="06 — Tracking",
+            eyebrow="07 — Tracking",
         ),
         PageSection(
             "Your Rights",
             "Depending on your jurisdiction, you may have the right to:",
             variant="numbered",
-            number="07",
+            number="08",
         ),
         BulletSection(
             "",
@@ -233,7 +248,7 @@ def privacy_page_content() -> Div:
             "Newsletter subscribers are retained until you unsubscribe. "
             "You may request deletion of your data at any time.",
             variant="split",
-            eyebrow="08",
+            eyebrow="09",
         ),
         PageSection(
             "Children's Privacy",
@@ -241,7 +256,7 @@ def privacy_page_content() -> Div:
             "collect personal data from children. If you believe a child has provided us with "
             "personal data, please contact us so we can delete it.",
             variant="numbered",
-            number="09",
+            number="10",
         ),
         PageSection(
             "Changes to This Policy",
@@ -249,15 +264,15 @@ def privacy_page_content() -> Div:
             'communicated via the Service or by email. The "last updated" date at the top of '
             "this page reflects the most recent revision.",
             variant="split",
-            eyebrow="10",
+            eyebrow="11",
         ),
         PageSection(
             "Contact",
             f"For privacy-related questions or requests, please contact us at {CONTACT_EMAIL}.",
             variant="centered",
-            eyebrow="11",
+            eyebrow="12",
         ),
-        last_updated="April 8, 2026",
+        last_updated="August 27, 2026",
         eyebrow="Legal",
         section_gap="space-y-12",
     )
