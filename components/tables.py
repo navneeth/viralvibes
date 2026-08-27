@@ -75,7 +75,9 @@ def thumbnail_cell(url: str, vid: str, title: str = None) -> A:
         Img(
             src=url,
             alt=title or "Video thumbnail",
-            cls="h-14 w-28 object-cover rounded-lg shadow-sm hover:opacity-90 transition",
+            # 120×90 meets YouTube's 120px/70px minimums for playback-initiating thumbnails;
+            # scales to 160×90 on sm+ screens for a better desktop experience.
+            cls="w-[120px] h-[90px] sm:w-[160px] sm:h-[90px] object-cover rounded-lg shadow-sm hover:opacity-90 transition",
             loading="lazy",
             onerror=f"this.src='{fallback_url}'",
         ),
