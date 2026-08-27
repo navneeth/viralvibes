@@ -2256,7 +2256,7 @@ def _build_card_footer(
             heart_btn,
             # <button> stops the card-level click; JS opens YouTube in a new tab
             Button(
-                UkIcon("youtube", cls="w-3.5 h-3.5 mr-1"),
+                UkIcon("youtube", cls="w-5 h-5 mr-1"),  # 20px — YouTube branding minimum
                 "YouTube",
                 type="button",
                 onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
@@ -3512,7 +3512,7 @@ def render_creator_profile_page(
             ),
             Div(
                 A(
-                    UkIcon("youtube", cls="w-4 h-4 mr-1.5"),
+                    UkIcon("youtube", cls="w-5 h-5 mr-1.5"),  # 20px — YouTube branding minimum
                     "YouTube",
                     href=channel_url,
                     target="_blank",

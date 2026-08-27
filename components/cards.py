@@ -293,7 +293,7 @@ def _product_switcher() -> Div:
     # ── Panel 3: Playlist Analysis ──────────────────────────────────────
     analyze_panel = Div(
         Div(
-            UkIcon("youtube", cls="w-3 h-3", style="color:#f87171;flex-shrink:0;"),
+            UkIcon("link", cls="w-3 h-3", style="color:#f87171;flex-shrink:0;"),
             Span(
                 "youtube.com/playlist?list=PLrAXt…",
                 style="font-size:0.65rem;color:rgba(255,255,255,0.3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
