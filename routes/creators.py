@@ -991,6 +991,7 @@ TOP_PAGE_SIZE = 50  # creators per page — one screen on a laptop
 # deploy reflects new data within an hour, but long enough that the rail
 # never bottlenecks the discovery pages.
 _APLUS_COUNTS_TTL_S = 60 * 60  # 1 hour
+_APLUS_COUNTS_RETRY_TTL_S = 60 * 5  # short retry window after a failed refresh
 
 
 @dataclass
@@ -1028,7 +1029,8 @@ def get_aplus_category_counts() -> dict[str, int]:
             return _aplus_counts_cache.data
         prev_payload = _aplus_counts_cache.data  # snapshot for failure fallback
 
-    def _probe(slug: str | None, label: str | None) -> tuple[str, int]:
+    def _probe(slug: str | None, label: str | None) -> tuple[str, int, bool]:
+        """Return (key, count, success). success=False only on exception."""
         try:
             res = get_creators(
                 sort="subscribers",
@@ -1038,26 +1040,41 @@ def get_aplus_category_counts() -> dict[str, int]:
                 offset=0,
                 return_count=True,
             )
-            return (slug or "all"), int(res.total_count or 0)
+            return (slug or "all"), int(res.total_count or 0), True
         except Exception:
             logger.exception("get_aplus_category_counts: probe failed for %s", slug)
-            return (slug or "all"), 0
+            return (slug or "all"), 0, False
 
     probes: list[tuple[str | None, str | None]] = [(None, None)]
     probes.extend((slug, label) for slug, label in TOP_CATEGORY_SLUGS.items())
 
     counts: dict[str, int] = {}
+    failed_probes: int = 0
     try:
         with ThreadPoolExecutor(max_workers=len(probes)) as pool:
             futures = [pool.submit(_probe, slug, label) for slug, label in probes]
             for fut in as_completed(futures):
-                key, n = fut.result()
+                key, n, ok = fut.result()
                 counts[key] = n
+                if not ok:
+                    failed_probes += 1
     except Exception:
         logger.exception("get_aplus_category_counts: pool failed")
         if prev_payload is not None:
             return prev_payload  # serve stale rather than break the rail
         return {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
+
+    # Serve stale only when probes actually raised — not merely returned zero.
+    # A genuine all-zero result (valid DB state) must be cached and served as-is.
+    if failed_probes and prev_payload is not None:
+        logger.warning(
+            "get_aplus_category_counts: %d probe(s) failed; serving stale cache",
+            failed_probes,
+        )
+        # Short TTL so the next refresh retries soon rather than on every request.
+        with _aplus_counts_cache.lock:
+            _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_RETRY_TTL_S
+        return prev_payload
 
     with _aplus_counts_cache.lock:
         _aplus_counts_cache.data = counts

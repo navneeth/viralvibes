@@ -239,7 +239,7 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
                     format_number(current_subs),
                     cls="text-sm font-semibold text-foreground",
                 ),
-                Span("subs", cls="text-xs text-muted-foreground"),
+                Span("subscribers", cls="text-xs text-muted-foreground"),
                 cls="flex flex-col items-end",
             ),
             cls="hidden sm:block shrink-0 w-20 text-right",

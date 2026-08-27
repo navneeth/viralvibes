@@ -168,18 +168,6 @@ def ExportModal(dashboard_id: str, playlist_name: str, modal_id: str = "export-m
         ),
         # Export options
         Div(
-            # CSV Export
-            A(
-                Div(
-                    UkIcon("file-text", cls="w-8 h-8 text-green-600 mb-2"),
-                    H3("CSV", cls="text-lg font-semibold text-gray-900"),
-                    P("Spreadsheet-friendly format", cls="text-sm text-gray-500"),
-                    cls="text-center",
-                ),
-                href=f"/export/{dashboard_id}/csv",
-                download=f"{playlist_name}.csv",
-                cls="block p-6 border-2 border-gray-200 rounded-lg hover:border-green-500 hover:shadow-lg transition-all cursor-pointer",
-            ),
             # JSON Export
             A(
                 Div(
@@ -202,7 +190,7 @@ def ExportModal(dashboard_id: str, playlist_name: str, modal_id: str = "export-m
                 ),
                 cls="p-6 border-2 border-gray-200 rounded-lg opacity-50 cursor-not-allowed",
             ),
-            cls="grid grid-cols-1 md:grid-cols-3 gap-4",
+            cls="grid grid-cols-1 md:grid-cols-2 gap-4",
         ),
         modal_id=modal_id,
     )
