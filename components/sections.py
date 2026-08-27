@@ -563,14 +563,14 @@ def FooterLinkGroup(title: str, links: list[tuple[str, str]]) -> Div:
     )
 
 
-def _SocialIcon(icon: str, href: str, label: str) -> A:
+def _SocialIcon(icon: str, href: str, label: str, icon_cls: str = "size-4") -> A:
     """Award-SaaS-style circular social icon button.
 
     Resting state: muted icon in a subtle bordered pill.
     Hover: border + icon shift to red, gentle scale + background tint.
     """
     return A(
-        UkIcon(icon, cls="size-5"),  # 20px — YouTube branding minimum
+        UkIcon(icon, cls=icon_cls),
         href=href,
         target="_blank",
         rel="noopener noreferrer",
@@ -617,7 +617,9 @@ def footer():
                     ),
                 ),
                 Div(
-                    _SocialIcon("youtube", SOCIALS["youtube"], "ViralVibes on YouTube"),
+                    _SocialIcon(
+                        "youtube", SOCIALS["youtube"], "ViralVibes on YouTube", icon_cls="size-5"
+                    ),  # 20px — YouTube branding minimum
                     _SocialIcon("x", SOCIALS["x"], "ViralVibes on X (Twitter)"),
                     _SocialIcon("linkedin", SOCIALS["linkedin"], "ViralVibes on LinkedIn"),
                     cls="flex items-center gap-3",
