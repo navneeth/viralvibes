@@ -1059,6 +1059,15 @@ def get_aplus_category_counts() -> dict[str, int]:
             return prev_payload  # serve stale rather than break the rail
         return {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
 
+    # Individual probe failures return 0 silently, so the pool never raises — the
+    # all-zeros case must be caught here before it poisons the cache for an hour.
+    if not any(counts.values()) and prev_payload and any(prev_payload.values()):
+        logger.warning(
+            "get_aplus_category_counts: all counts are zero after refresh "
+            "(likely transient DB error); serving stale cache"
+        )
+        return prev_payload
+
     with _aplus_counts_cache.lock:
         _aplus_counts_cache.data = counts
         _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_TTL_S
