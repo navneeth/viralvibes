@@ -43,6 +43,7 @@ class YoutubePlaylistValidator:
         "youtube.com",
         "m.youtube.com",
         "music.youtube.com",
+        "youtu.be",  # shortened share URLs from the YouTube mobile app
     }
 
     @classmethod
@@ -65,13 +66,21 @@ class YoutubePlaylistValidator:
                 errors.append("Invalid YouTube URL: Domain is not a recognized youtube.com domain")
                 return errors
 
-            # Validate path
-            if parsed_url.path != "/playlist":
+            query_params = parse_qs(parsed_url.query)
+
+            # Accept three URL shapes that all carry a valid playlist ID:
+            #   1. /playlist?list=...          — standard desktop/web URL
+            #   2. /watch?v=...&list=...       — YouTube app share on mobile
+            #   3. youtu.be/<id>?list=...      — shortened share link
+            is_standard = parsed_url.path == "/playlist"
+            is_watch = parsed_url.path == "/watch" and "list" in query_params
+            is_short = parsed_url.netloc == "youtu.be"
+
+            if not (is_standard or is_watch or is_short):
                 errors.append("Invalid YouTube URL: Not a playlist URL")
                 return errors
 
             # Validate playlist ID
-            query_params = parse_qs(parsed_url.query)
             if "list" not in query_params:
                 errors.append("Invalid YouTube URL: Missing playlist ID")
                 return errors

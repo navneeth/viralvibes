@@ -734,6 +734,8 @@ def SamplePlaylistButtons(input_name: str = "playlist_url", max_items: int = 5) 
     """Render quick action buttons from cached playlists in DB."""
     known_playlists = fetch_playlists(max_items=max_items, randomize=True)
     if not known_playlists:
+        known_playlists = KNOWN_PLAYLISTS[:max_items]  # fall back to hardcoded samples
+    if not known_playlists:
         return Div()
 
     buttons = []
