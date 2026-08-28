@@ -1266,6 +1266,9 @@ def _render_filter_bar(
         ("all", "All creators", ""),
         ("A+", "High engagement", ""),
         ("A", "Good engagement", ""),
+        ("B+", "Growing creators", ""),
+        ("B", "Established creators", ""),
+        ("C", "New creators", ""),
     ]
 
     grade_pills = _filter_pills(
@@ -1852,6 +1855,18 @@ def _build_card_header(
                 cls="text-xs text-muted-foreground truncate mt-0.5",
             ),
             cls="flex-1 min-w-0",
+        ),
+        (
+            Div(
+                Span(
+                    f"{engagement_score:.1f}%",
+                    cls="text-sm font-bold tabular-nums text-foreground leading-none",
+                ),
+                Span("eng.", cls="text-[10px] text-muted-foreground leading-none"),
+                cls="flex flex-col items-center gap-1 shrink-0",
+            )
+            if engagement_score > 0
+            else None
         ),
         cls="flex items-start gap-3",
     )
