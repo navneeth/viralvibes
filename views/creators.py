@@ -1260,7 +1260,7 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 3. QUALITY GRADE PILLS
+    # 3. ENGAGEMENT PILLS
     # ═══════════════════════════════════════════════════════════════
     grade_options = [
         ("all", "All creators", ""),
@@ -1592,8 +1592,31 @@ def _render_filter_bar(
                 # Accordion with filters
                 Accordion(
                     AccordionItem(
-                        "Quality Grade",
-                        grade_pills,
+                        "Engagement",
+                        Div(
+                            (
+                                _active_filter_pill(
+                                    {
+                                        "B+": "Growing creators",
+                                        "B": "Established creators",
+                                        "C": "New creators",
+                                    }.get(grade_filter, grade_filter),
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade="all",
+                                        language=language_filter,
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country=country_filter,
+                                        category=category_filter,
+                                    ),
+                                )
+                                if grade_filter not in {"all", "A+", "A"}
+                                else None
+                            ),
+                            grade_pills,
+                        ),
                         open=(grade_filter != "all"),
                     ),
                     AccordionItem(
@@ -1772,13 +1795,9 @@ def _build_card_header(
     current_subs: int,
     current_videos: int,
     rank: str,
-    grade_icon: str,
-    grade_label: str,
-    grade_bg: str,
-    quality_grade: str,
     channel_age_days: int,
 ) -> Div:
-    """Build card header: award-showcase rank badge, avatar, name, grade pill.
+    """Build card header: award-showcase rank badge, avatar, channel name, handle, and quick stats.
 
     No nested <a> tags — the whole card is already wrapped in an <a> by the
     caller, so channel_name is plain H3 text.  The YouTube link lives only in
@@ -2459,8 +2478,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
         safe_get_value(creator, "channel_url") or f"https://youtube.com/channel/{channel_id}"
     )
     # Default to None (not "C") so synced_partial creators don't inherit a false grade.
-    # The grade pill in _build_card_header is already suppressed when quality_grade is falsy.
-    quality_grade = safe_get_value(creator, "quality_grade", None)
     rank = safe_get_value(creator, "_rank", "—")
     thumbnail_url = (
         safe_get_value(creator, "channel_thumbnail_url")
@@ -2497,7 +2514,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     else:
         card_border = ""
 
-    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
     growth_label, growth_style = get_growth_signal(growth_rate)
 
     # === INFO STRIP DATA ===
@@ -2559,10 +2575,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
             current_subs,
             current_videos,
             rank,
-            grade_icon,
-            grade_label,
-            grade_bg,
-            quality_grade,
             channel_age_days,
         ),
         # ── Context ───────────────────────────────────────────────────────────
@@ -3038,21 +3050,11 @@ def _render_similar_creators(
     else:
         rail_title = title
 
-    _chip_cls = {
-        "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-        "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-        "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-        "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
-        "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-    }
-
     def _tile(c: dict):
         cid = c.get("id", "")
         name = c.get("channel_name") or "Creator"
         thumb = c.get("channel_thumbnail_url") or ""
         subs = int(c.get("current_subscribers") or 0)
-        grade = c.get("quality_grade") or ""
-        grade_cls = _chip_cls.get(grade, "bg-accent text-muted-foreground")
 
         avatar = (
             Img(

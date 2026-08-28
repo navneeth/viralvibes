@@ -24,7 +24,7 @@ from utils import format_number
 
 __all__ = ["EditorsShortlistRail"]
 
-# The "All A+" card is always first as the broadest entry point. The
+# The "Top Creators" card is always first as the broadest entry point. The
 # category cards are derived from ``routes.creators.TOP_CATEGORY_SLUGS``
 # at call time (see ``_build_rail_items``) so the rail and the
 # ``/creators/top`` landing pages can never silently drift apart. The
@@ -36,7 +36,7 @@ _ALL_AP_ITEM: tuple[None, str, str] = (None, "Top Creators", "/creators/top")
 def _build_rail_items() -> list[tuple[str | None, str, str]]:
     """Return ``[(slug_or_None, label, href), ...]`` for the rail.
 
-    Order: the synthetic "All A+" card first, then category cards in the
+    Order: the "Top Creators" card first, then category cards in the
     order ``TOP_CATEGORY_SLUGS`` defines them (which we keep sorted by A+
     population at the source).
     """
