@@ -16,7 +16,7 @@ def _render_creator_row(creator: dict) -> Tr:
     """
     One table row for a favourited creator.
 
-    Shows: thumbnail + name  |  subscribers  |  views  |  quality grade  |  actions
+    Shows: thumbnail + name  |  subscribers  |  views  |  engagement  |  actions
     """
     from views.creators import render_favourite_button  # local import to avoid circulars
 
@@ -31,18 +31,9 @@ def _render_creator_row(creator: dict) -> Tr:
     channel_url = creator.get("channel_url") or f"https://www.youtube.com/channel/{channel_id}"
     current_subs = int(creator.get("current_subscribers") or 0)
     current_views = int(creator.get("current_view_count") or 0)
-    quality_grade = creator.get("quality_grade") or "—"
+    engagement_score = float(creator.get("engagement_score") or 0)
     custom_url = creator.get("custom_url") or ""
     handle = f"@{custom_url.lstrip('@')}" if custom_url else ""
-
-    _grade_colours = {
-        "A+": "bg-green-100 text-green-800",
-        "A": "bg-green-50 text-green-700",
-        "B+": "bg-yellow-100 text-yellow-800",
-        "B": "bg-yellow-50 text-yellow-700",
-        "C": "bg-gray-100 text-gray-600",
-    }
-    grade_cls = _grade_colours.get(quality_grade, "bg-gray-100 text-gray-500")
 
     return Tr(
         # Creator identity
@@ -77,9 +68,12 @@ def _render_creator_row(creator: dict) -> Tr:
         Td(
             Span(format_number(current_views), cls="text-sm tabular-nums text-muted-foreground"),
         ),
-        # Quality grade
+        # Engagement score
         Td(
-            Span(quality_grade, cls=f"text-xs font-bold px-2 py-0.5 rounded-md {grade_cls}"),
+            Span(
+                f"{engagement_score:.1f}/10" if engagement_score > 0 else "—",
+                cls="text-xs font-medium tabular-nums text-muted-foreground",
+            ),
         ),
         # Actions
         Td(
@@ -211,7 +205,7 @@ def render_favourites_page(creators: list[dict], user_name: str) -> Div:
                                 cls="text-left text-xs font-semibold text-muted-foreground py-3",
                             ),
                             Th(
-                                "Grade",
+                                "Engagement",
                                 cls="text-left text-xs font-semibold text-muted-foreground py-3",
                             ),
                             Th("", cls="py-3"),
