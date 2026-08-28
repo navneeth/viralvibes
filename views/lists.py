@@ -13,7 +13,6 @@ from utils import format_number, safe_get_value, slugify
 from utils.creator_metrics import (
     get_country_flag,
     get_country_name,
-    get_grade_info,
     get_language_emoji,
     get_language_name,
     calculate_growth_rate,
@@ -41,7 +40,7 @@ def _render_lists_editors_rail() -> "Div":
         return EditorsShortlistRail(
             counts=get_aplus_category_counts(),
             headline="Start with the Shortlist",
-            subhead="Hand-graded A+ creators — the curated cut behind every list below.",
+            subhead="High engagement creators — the curated cut behind every list below.",
         )
     except Exception:  # pragma: no cover — never block /lists
         logger.exception("Editors' Shortlist rail failed to render on /lists")
@@ -160,14 +159,10 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
     current_subs = safe_get_value(creator, "current_subscribers", 0)
     current_views = safe_get_value(creator, "current_view_count", 0)
     current_videos = safe_get_value(creator, "current_video_count", 0)
-    quality_grade = safe_get_value(creator, "quality_grade", "C")
     country_code = safe_get_value(creator, "country_code", "")
     language = safe_get_value(creator, "language", "en")
     subs_change = safe_get_value(creator, "subscribers_change_30d", 0)
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
-
-    # Get grade badge info
-    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
 
     # Calculate growth rate if showing growth
     growth_rate = 0
@@ -253,15 +248,6 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
             ),
             cls="hidden md:block shrink-0 w-24 text-right",
         ),
-        # Grade badge
-        Div(
-            Span(
-                grade_icon,
-                cls=f"inline-flex items-center justify-center size-7 rounded-full text-xs font-bold {grade_bg}",
-                title=grade_label,
-            ),
-            cls="shrink-0",
-        ),
         cls="flex items-center gap-3 p-3 rounded-xl border border-border bg-background hover:bg-accent transition-colors",
     )
 
@@ -283,10 +269,6 @@ def _creator_mini_row(creator: dict, rank: int):
     creator_id = safe_get_value(creator, "id", "")
     thumbnail_url = safe_get_value(creator, "channel_thumbnail_url", "")
     current_subs = safe_get_value(creator, "current_subscribers", 0)
-    quality_grade = safe_get_value(creator, "quality_grade", "C")
-
-    # Get grade badge info
-    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
 
     profile_href = f"/creator/{creator_id}" if creator_id else channel_url
 
@@ -312,12 +294,6 @@ def _creator_mini_row(creator: dict, rank: int):
         Span(
             format_number(current_subs),
             cls="text-xs font-semibold text-muted-foreground shrink-0 hidden sm:inline",
-        ),
-        # Grade badge (smaller)
-        Span(
-            grade_icon,
-            cls=f"inline-flex items-center justify-center size-6 rounded-full text-xs font-bold {grade_bg} shrink-0",
-            title=grade_label,
         ),
         cls="flex items-center gap-2 p-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
     )
