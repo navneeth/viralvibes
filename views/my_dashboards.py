@@ -405,6 +405,7 @@ def _section_campaigns(plan: str) -> Div:
 # Watchlist Pulse
 # ---------------------------------------------------------------------------
 
+
 def _flag(country_code: str | None) -> str:
     if not country_code or len(country_code) != 2:
         return ""
@@ -435,6 +436,23 @@ def _pulse_row(creator: dict) -> Div:
     cat = creator.get("category") or ""
 
     avatar = (
+        Img(src=thumb, alt=name, cls="w-9 h-9 rounded-full object-cover flex-shrink-0")
+        if thumb
+        else Div(
+            Span(name[:1].upper(), cls="text-xs font-bold text-gray-500"),
+            cls="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0",
+        )
+    )
+
+    return Div(
+        avatar,
+        Span(name, cls="flex-1 font-medium text-sm truncate min-w-0"),
+        _growth_cell(delta),
+        *(
+            [Span(f"{eng:.1f}/10", cls="text-xs text-muted-foreground tabular-nums")]
+            if eng > 0
+            else []
+        ),
         *(
             [Span(f"{flag} {code}" if flag else code, cls="text-xs text-gray-400 w-10 text-center")]
             if code
