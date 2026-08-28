@@ -1796,6 +1796,7 @@ def _build_card_header(
     current_videos: int,
     rank: str,
     channel_age_days: int,
+    engagement_score: float = 0.0,
 ) -> Div:
     """Build card header: award-showcase rank badge, avatar, channel name, handle, and quick stats.
 
@@ -2576,6 +2577,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
             current_videos,
             rank,
             channel_age_days,
+            engagement_score,
         ),
         # ── Context ───────────────────────────────────────────────────────────
         # Topic categories rendered as clean emoji pills with Wikipedia links, plus
@@ -5005,13 +5007,13 @@ def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, 
     if category_label is None:
         h1 = "Top YouTube Creators"
         lede = (
-            f"A hand-graded shortlist of {format_number(total_count)} A+ creators "
+            f"A curated shortlist of {format_number(total_count)} high-engagement YouTube creators "
             "ranked by engagement quality, not subscriber count. Every channel "
-            "below has cleared ViralVibes' top-tier threshold for viewer retention, "
+            "below has cleared ViralVibes' threshold for viewer retention, "
             "comment velocity, and like-to-view ratio."
         )
         desc = (
-            f"Browse {format_number(total_count)} A+ rated YouTube creators across "
+            f"Browse {format_number(total_count)} high-engagement YouTube creators across "
             "every niche. Ranked by engagement quality and audience signal — "
             "updated daily."
         )
@@ -5019,14 +5021,14 @@ def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, 
 
     h1 = f"Top {category_label} YouTube Creators"
     lede = (
-        f"The {format_number(total_count)} A+ rated {category_label} channels on "
+        f"The {format_number(total_count)} highest-engagement {category_label} channels on "
         "YouTube — ranked by engagement quality. This is the shortlist agencies, "
         "sponsors and researchers start with before drilling into individual "
         "creator profiles."
     )
     desc = (
         f"Discover {format_number(total_count)} top {category_label.lower()} "
-        "YouTube creators. A+ engagement grade only, ranked by reach — updated daily."
+        "YouTube creators. Ranked by engagement quality and reach — updated daily."
     )
     return h1, lede, desc
 
@@ -5096,7 +5098,7 @@ def render_creators_top_page(
 
     # Hero: gradient H1 + mono eyebrow + lede — matches the StaticPage rhythm
     # without dragging in the full helper (we need a grid below, not prose).
-    eyebrow = "A+ Tier" if category_label is None else f"A+ Tier · {category_label}"
+    eyebrow = "High Engagement" if category_label is None else f"High Engagement · {category_label}"
     hero = Div(
         Div(
             Span(
@@ -5127,7 +5129,7 @@ def render_creators_top_page(
     if not creators:
         body = Div(
             P(
-                "No A+ creators in this slice yet. Check back as the catalogue grows.",
+                "No creators found in this slice yet. Check back as the catalogue grows.",
                 cls="text-muted-foreground text-center py-16",
             ),
             cls="max-w-2xl mx-auto",
@@ -5167,9 +5169,9 @@ def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
     href = f"/creators?{urlencode(params)}"
 
     label = (
-        "Open the full A+ filter on /creators"
+        "Explore high-engagement creators on /creators"
         if category_label is None
-        else f"Open all {category_label} A+ creators on /creators"
+        else f"Explore high-engagement {category_label} creators on /creators"
     )
 
     return Div(
@@ -5181,7 +5183,7 @@ def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
                 ),
             ),
             P(
-                "Want to combine A+ with country, language, or growth filters? "
+                "Want to combine this filter with country, language, or growth filters? "
                 "Open the same set in the search tool — sortable, paginated, exportable.",
                 cls="text-sm text-muted-foreground leading-relaxed",
             ),
@@ -5217,7 +5219,7 @@ def creators_top_head(
     total_count: int,
     creators: list | None = None,
 ) -> tuple:
-    """Return ``<head>`` tags for the A+ landing page.
+    """Return ``<head>`` tags for the top-creators landing page.
 
     Returned as a tuple so main.py can splat them next to the existing
     NavComponent wrapping: ``Titled(title, Container(...), *head_tags)``.
