@@ -1118,7 +1118,7 @@ def _filter_pills(
     return Div(
         *[
             A(
-                f"{emoji} {label}",
+                f"{emoji} {label}" if emoji else label,
                 href=build_url(val),
                 cls=_PILL_BASE + (active_cls if current_val == val else _PILL_INACTIVE),
             )
@@ -1263,12 +1263,9 @@ def _render_filter_bar(
     # 3. QUALITY GRADE PILLS
     # ═══════════════════════════════════════════════════════════════
     grade_options = [
-        ("all", "All", "🎯"),
-        ("A+", "Elite", "👑"),
-        ("A", "Star", "⭐"),
-        ("B+", "Rising", "📈"),
-        ("B", "Good", "💎"),
-        ("C", "New", "🔍"),
+        ("all", "All creators", ""),
+        ("A+", "High engagement", ""),
+        ("A", "Good engagement", ""),
     ]
 
     grade_pills = _filter_pills(
@@ -1835,16 +1832,6 @@ def _build_card_header(
                 cls="text-xs text-muted-foreground truncate mt-0.5",
             ),
             cls="flex-1 min-w-0",
-        ),
-        # Grade pill — omitted for grade C (unscored/new channels)
-        (
-            Div(
-                Span(grade_icon, cls="text-base leading-none"),
-                Span(grade_label, cls="text-xs font-semibold leading-none"),
-                cls=f"flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg {grade_bg} shrink-0",
-            )
-            if quality_grade and quality_grade != "C"
-            else None
         ),
         cls="flex items-start gap-3",
     )
@@ -3098,16 +3085,6 @@ def _render_similar_creators(
                                 format_number(subs),
                                 cls=_CLS_MUTED_XS,
                             ),
-                            *(
-                                [
-                                    Span(
-                                        grade,
-                                        cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {grade_cls}",
-                                    )
-                                ]
-                                if grade
-                                else []
-                            ),
                             cls="flex items-center gap-1.5 mt-0.5",
                         ),
                     ),
@@ -3573,14 +3550,6 @@ def render_creator_profile_page(
             *(
                 [
                     Div(
-                        (
-                            Span(
-                                f"{grade_icon} {grade_label}",
-                                cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {grade_bg}",
-                            )
-                            if quality_grade
-                            else None
-                        ),
                         (
                             _rank_chip(
                                 f"#{country_rank} {country_flag} {country_code.upper()}",
