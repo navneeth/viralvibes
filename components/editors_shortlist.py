@@ -24,19 +24,19 @@ from utils import format_number
 
 __all__ = ["EditorsShortlistRail"]
 
-# The "All A+" card is always first as the broadest entry point. The
+# The "Top Creators" card is always first as the broadest entry point. The
 # category cards are derived from ``routes.creators.TOP_CATEGORY_SLUGS``
 # at call time (see ``_build_rail_items``) so the rail and the
 # ``/creators/top`` landing pages can never silently drift apart. The
 # import is deferred to avoid a components → routes → views → components
 # import cycle at module load.
-_ALL_AP_ITEM: tuple[None, str, str] = (None, "All A+ Tier", "/creators/top")
+_ALL_AP_ITEM: tuple[None, str, str] = (None, "Top Creators", "/creators/top")
 
 
 def _build_rail_items() -> list[tuple[str | None, str, str]]:
     """Return ``[(slug_or_None, label, href), ...]`` for the rail.
 
-    Order: the synthetic "All A+" card first, then category cards in the
+    Order: the "Top Creators" card first, then category cards in the
     order ``TOP_CATEGORY_SLUGS`` defines them (which we keep sorted by A+
     population at the source).
     """
@@ -64,7 +64,7 @@ def _rail_card(
                 cls="block text-3xl font-mono font-semibold text-foreground tabular-nums",
             ),
             P(
-                "A+ rated creators",
+                "high engagement creators",
                 cls="text-xs text-muted-foreground mt-1",
             ),
             cls="mt-4",
@@ -120,8 +120,8 @@ def EditorsShortlistRail(
     counts: dict[str, int] | None = None,
     *,
     headline: str = "Editors' Shortlist",
-    subhead: str | None = "The A+ engagement tier — hand-graded, ranked by reach.",
-    see_all_label: str = "See all A+ creators →",
+    subhead: str | None = "Curated by engagement — our highest-performing creators.",
+    see_all_label: str = "Browse top creators →",
     see_all_href: str = "/creators/top",
 ) -> Div:
     """Render the rail. Pass ``counts`` from ``get_aplus_category_counts()``.
