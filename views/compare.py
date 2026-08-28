@@ -15,7 +15,6 @@ from utils.creator_metrics import (
     calculate_growth_rate,
     calculate_views_per_subscriber,
     get_country_flag,
-    get_grade_info,
     get_language_emoji,
     get_language_name,
 )
@@ -28,15 +27,6 @@ logger = __import__("logging").getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
-
-_GRADE_ORDER = {"A+": 5, "A": 4, "B+": 3, "B": 2, "C": 1}
-_GRADE_CLS = {
-    "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-    "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-    "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-    "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
-    "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-}
 
 
 def _pct(part: float, total: float) -> float:
@@ -112,15 +102,7 @@ def _compare_pick_card(c: dict, compare_href: str) -> Div:
     name = c.get("channel_name") or "Creator"
     thumb = c.get("channel_thumbnail_url") or ""
     subs = int(c.get("current_subscribers") or 0)
-    grade = c.get("quality_grade") or ""
-
-    _grade_cls = {
-        "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-        "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-        "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-        "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
-        "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-    }.get(grade, "bg-accent text-muted-foreground")
+    eng = float(c.get("engagement_score") or 0)
 
     avatar = (
         Img(
@@ -146,11 +128,7 @@ def _compare_pick_card(c: dict, compare_href: str) -> Div:
         ),
         Div(
             Span(format_number(subs), cls="text-[11px] text-muted-foreground"),
-            *(
-                [Span(grade, cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {_grade_cls}")]
-                if grade
-                else []
-            ),
+            *([Span(f"{eng:.1f}/10", cls="text-[10px] text-muted-foreground")] if eng > 0 else []),
             cls="flex items-center justify-center gap-1.5 mt-0.5 mb-3",
         ),
         # ── Primary CTA ──────────────────────────────────────────────────
@@ -374,11 +352,6 @@ def _how_to_read_card() -> Div:
     """
     glossary = [
         (
-            "Quality Grade",
-            "A+–C composite score combining engagement rate, upload consistency, and "
-            "30-day momentum. A+ means firing on all three; C means at least one is weak.",
-        ),
-        (
             "Engagement Score",
             "0–10 scale measuring audience interaction (comments + likes relative to views). "
             "Above 7 is strong; below 3 suggests passive viewership.",
@@ -596,13 +569,6 @@ def render_compare_page(
     cat_emoji_a = get_topic_category_emoji(cat_a) if cat_a else ""
     cat_emoji_b = get_topic_category_emoji(cat_b) if cat_b else ""
 
-    grade_a = _ex(a, "quality_grade", "C")
-    grade_b = _ex(b, "quality_grade", "C")
-    _, grade_label_a, grade_bg_a = get_grade_info(grade_a)
-    _, grade_label_b, grade_bg_b = get_grade_info(grade_b)
-    grade_cls_a = _GRADE_CLS.get(grade_a, "bg-accent text-muted-foreground")
-    grade_cls_b = _GRADE_CLS.get(grade_b, "bg-accent text-muted-foreground")
-
     # Numerics
     subs_a = int(_ex(a, "current_subscribers", 0) or 0)
     subs_b = int(_ex(b, "current_subscribers", 0) or 0)
@@ -668,8 +634,7 @@ def render_compare_page(
         flag,
         cat,
         cat_emoji,
-        grade,
-        grade_cls,
+        eng_score,
         is_fav,
         align,
     ):
@@ -695,7 +660,16 @@ def render_compare_page(
                     cls=f"text-lg sm:text-xl font-bold text-foreground leading-tight {text_align}",
                 ),
                 Div(
-                    Span(grade, cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_cls}"),
+                    *(
+                        [
+                            Span(
+                                f"{eng_score:.1f}/10",
+                                cls="text-xs font-semibold text-muted-foreground",
+                            )
+                        ]
+                        if eng_score > 0
+                        else []
+                    ),
                     *(
                         [Span(f"{flag} {country}", cls="text-xs text-muted-foreground")]
                         if country
@@ -749,8 +723,7 @@ def render_compare_page(
                 flag_a,
                 cat_a,
                 cat_emoji_a,
-                grade_a,
-                grade_cls_a,
+                eng_a,
                 is_fav_a,
                 align="left",
             ),
@@ -773,8 +746,7 @@ def render_compare_page(
                 flag_b,
                 cat_b,
                 cat_emoji_b,
-                grade_b,
-                grade_cls_b,
+                eng_b,
                 is_fav_b,
                 align="right",
             ),
@@ -908,9 +880,6 @@ def render_compare_page(
     # ─────────────────────────────────────────────────────────────────────────
     # SECTION 3 — Content Quality
     # ─────────────────────────────────────────────────────────────────────────
-    grade_ord_a = _GRADE_ORDER.get(grade_a, 0)
-    grade_ord_b = _GRADE_ORDER.get(grade_b, 0)
-
     quality_insight = None
     if vps_a > 0 and vps_b > 0:
         bigger_vps = name_a if vps_a >= vps_b else name_b
@@ -924,29 +893,6 @@ def render_compare_page(
 
     quality_section = _section_card(
         _col_labels(),
-        # Grade — render pill + dot meter for engagement
-        Div(
-            Span(
-                "Quality Grade", cls="text-xs text-muted-foreground col-span-3 sm:hidden block mb-1"
-            ),
-            Div(
-                Span(grade_a, cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_cls_a}"),
-                _trophy(grade_ord_a > grade_ord_b),
-                cls="flex items-center gap-1 flex-1 justify-end",
-            ),
-            Div(
-                Span(
-                    "Quality Grade", cls="text-xs text-muted-foreground text-center hidden sm:block"
-                ),
-                cls="w-32 sm:w-40 flex flex-col items-center justify-center px-2 shrink-0",
-            ),
-            Div(
-                _trophy(grade_ord_b > grade_ord_a),
-                Span(grade_b, cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_cls_b}"),
-                cls="flex items-center gap-1 flex-1",
-            ),
-            cls="flex items-center gap-2 py-2 border-b border-border",
-        ),
         # Engagement dot meters
         Div(
             Span("Engagement", cls="text-xs text-muted-foreground col-span-3 sm:hidden block mb-1"),
@@ -1033,7 +979,7 @@ def render_compare_page(
     # ─────────────────────────────────────────────────────────────────────────
     # SECTION 5 — Verdict + Actions
     # ─────────────────────────────────────────────────────────────────────────
-    def _score_creator(name, subs, growth_rate, eng, vps, uploads, grade):
+    def _score_creator(name, subs, growth_rate, eng, vps, uploads):
         """Simple weighted score — who 'wins' overall."""
         score = 0
         score += 2 if subs > 0 else 0  # presence
@@ -1041,11 +987,10 @@ def render_compare_page(
         score += 3 if eng > 7 else (1 if eng > 4 else 0)
         score += 2 if vps > 200 else (1 if vps > 50 else 0)
         score += 1 if uploads > 4 else 0
-        score += {"A+": 3, "A": 2, "B+": 1}.get(grade, 0)
         return score
 
-    score_a = _score_creator(name_a, subs_a, growth_rate_a, eng_a, vps_a, uploads_a, grade_a)
-    score_b = _score_creator(name_b, subs_b, growth_rate_b, eng_b, vps_b, uploads_b, grade_b)
+    score_a = _score_creator(name_a, subs_a, growth_rate_a, eng_a, vps_a, uploads_a)
+    score_b = _score_creator(name_b, subs_b, growth_rate_b, eng_b, vps_b, uploads_b)
 
     def _wins(name, wins_list):
         return Div(
