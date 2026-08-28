@@ -128,11 +128,7 @@ def _compare_pick_card(c: dict, compare_href: str) -> Div:
         ),
         Div(
             Span(format_number(subs), cls="text-[11px] text-muted-foreground"),
-            *(
-                [Span(f"{eng:.1f}% eng.", cls="text-[10px] text-muted-foreground")]
-                if eng > 0
-                else []
-            ),
+            *([Span(f"{eng:.1f}/10", cls="text-[10px] text-muted-foreground")] if eng > 0 else []),
             cls="flex items-center justify-center gap-1.5 mt-0.5 mb-3",
         ),
         # ── Primary CTA ──────────────────────────────────────────────────
@@ -667,7 +663,7 @@ def render_compare_page(
                     *(
                         [
                             Span(
-                                f"{eng_score:.1f}% eng.",
+                                f"{eng_score:.1f}/10",
                                 cls="text-xs font-semibold text-muted-foreground",
                             )
                         ]

@@ -1266,9 +1266,9 @@ def _render_filter_bar(
         ("all", "All creators", ""),
         ("A+", "High engagement", ""),
         ("A", "Good engagement", ""),
-        ("B+", "Growing creators", ""),
-        ("B", "Established creators", ""),
-        ("C", "New creators", ""),
+        ("B+", "Some engagement", ""),
+        ("B", "Growing audience", ""),
+        ("C", "Early stage", ""),
     ]
 
     grade_pills = _filter_pills(
@@ -1600,9 +1600,9 @@ def _render_filter_bar(
                             (
                                 _active_filter_pill(
                                     {
-                                        "B+": "Growing creators",
-                                        "B": "Established creators",
-                                        "C": "New creators",
+                                        "B+": "Some engagement",
+                                        "B": "Growing audience",
+                                        "C": "Early stage",
                                     }.get(grade_filter, grade_filter),
                                     _build_filter_url(
                                         sort=sort,
@@ -1615,7 +1615,7 @@ def _render_filter_bar(
                                         category=category_filter,
                                     ),
                                 )
-                                if grade_filter not in {"all", "A+", "A"}
+                                if grade_filter not in {"all", "A+", "A", "B+", "B", "C"}
                                 else None
                             ),
                             grade_pills,
@@ -1859,7 +1859,7 @@ def _build_card_header(
         (
             Div(
                 Span(
-                    f"{engagement_score:.1f}%",
+                    f"{engagement_score:.1f}/10",
                     cls="text-sm font-bold tabular-nums text-foreground leading-none",
                 ),
                 Span("eng.", cls="text-[10px] text-muted-foreground leading-none"),
