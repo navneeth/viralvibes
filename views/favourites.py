@@ -205,7 +205,7 @@ def render_favourites_page(creators: list[dict], user_name: str) -> Div:
                                 cls="text-left text-xs font-semibold text-muted-foreground py-3",
                             ),
                             Th(
-                                "Grade",
+                                "Engagement",
                                 cls="text-left text-xs font-semibold text-muted-foreground py-3",
                             ),
                             Th("", cls="py-3"),
