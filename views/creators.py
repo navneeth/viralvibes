@@ -1118,7 +1118,7 @@ def _filter_pills(
     return Div(
         *[
             A(
-                f"{emoji} {label}",
+                f"{emoji} {label}" if emoji else label,
                 href=build_url(val),
                 cls=_PILL_BASE + (active_cls if current_val == val else _PILL_INACTIVE),
             )
@@ -1260,15 +1260,12 @@ def _render_filter_bar(
     )
 
     # ═══════════════════════════════════════════════════════════════
-    # 3. QUALITY GRADE PILLS
+    # 3. ENGAGEMENT PILLS
     # ═══════════════════════════════════════════════════════════════
     grade_options = [
-        ("all", "All", "🎯"),
-        ("A+", "Elite", "👑"),
-        ("A", "Star", "⭐"),
-        ("B+", "Rising", "📈"),
-        ("B", "Good", "💎"),
-        ("C", "New", "🔍"),
+        ("all", "All creators", ""),
+        ("A+", "High engagement", ""),
+        ("A", "Good engagement", ""),
     ]
 
     grade_pills = _filter_pills(
@@ -1595,8 +1592,31 @@ def _render_filter_bar(
                 # Accordion with filters
                 Accordion(
                     AccordionItem(
-                        "Quality Grade",
-                        grade_pills,
+                        "Engagement",
+                        Div(
+                            (
+                                _active_filter_pill(
+                                    {
+                                        "B+": "Growing creators",
+                                        "B": "Established creators",
+                                        "C": "New creators",
+                                    }.get(grade_filter, grade_filter),
+                                    _build_filter_url(
+                                        sort=sort,
+                                        search=search,
+                                        grade="all",
+                                        language=language_filter,
+                                        activity=activity_filter,
+                                        age=age_filter,
+                                        country=country_filter,
+                                        category=category_filter,
+                                    ),
+                                )
+                                if grade_filter not in {"all", "A+", "A"}
+                                else None
+                            ),
+                            grade_pills,
+                        ),
                         open=(grade_filter != "all"),
                     ),
                     AccordionItem(
@@ -1775,13 +1795,9 @@ def _build_card_header(
     current_subs: int,
     current_videos: int,
     rank: str,
-    grade_icon: str,
-    grade_label: str,
-    grade_bg: str,
-    quality_grade: str,
     channel_age_days: int,
 ) -> Div:
-    """Build card header: award-showcase rank badge, avatar, name, grade pill.
+    """Build card header: award-showcase rank badge, avatar, channel name, handle, and quick stats.
 
     No nested <a> tags — the whole card is already wrapped in an <a> by the
     caller, so channel_name is plain H3 text.  The YouTube link lives only in
@@ -1835,16 +1851,6 @@ def _build_card_header(
                 cls="text-xs text-muted-foreground truncate mt-0.5",
             ),
             cls="flex-1 min-w-0",
-        ),
-        # Grade pill — omitted for grade C (unscored/new channels)
-        (
-            Div(
-                Span(grade_icon, cls="text-base leading-none"),
-                Span(grade_label, cls="text-xs font-semibold leading-none"),
-                cls=f"flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg {grade_bg} shrink-0",
-            )
-            if quality_grade and quality_grade != "C"
-            else None
         ),
         cls="flex items-start gap-3",
     )
@@ -2472,8 +2478,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
         safe_get_value(creator, "channel_url") or f"https://youtube.com/channel/{channel_id}"
     )
     # Default to None (not "C") so synced_partial creators don't inherit a false grade.
-    # The grade pill in _build_card_header is already suppressed when quality_grade is falsy.
-    quality_grade = safe_get_value(creator, "quality_grade", None)
     rank = safe_get_value(creator, "_rank", "—")
     thumbnail_url = (
         safe_get_value(creator, "channel_thumbnail_url")
@@ -2510,7 +2514,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     else:
         card_border = ""
 
-    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
     growth_label, growth_style = get_growth_signal(growth_rate)
 
     # === INFO STRIP DATA ===
@@ -2572,10 +2575,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
             current_subs,
             current_videos,
             rank,
-            grade_icon,
-            grade_label,
-            grade_bg,
-            quality_grade,
             channel_age_days,
         ),
         # ── Context ───────────────────────────────────────────────────────────
@@ -3051,21 +3050,11 @@ def _render_similar_creators(
     else:
         rail_title = title
 
-    _chip_cls = {
-        "A+": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-        "A": "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-        "B+": "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-        "B": "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
-        "C": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
-    }
-
     def _tile(c: dict):
         cid = c.get("id", "")
         name = c.get("channel_name") or "Creator"
         thumb = c.get("channel_thumbnail_url") or ""
         subs = int(c.get("current_subscribers") or 0)
-        grade = c.get("quality_grade") or ""
-        grade_cls = _chip_cls.get(grade, "bg-accent text-muted-foreground")
 
         avatar = (
             Img(
@@ -3097,16 +3086,6 @@ def _render_similar_creators(
                             Span(
                                 format_number(subs),
                                 cls=_CLS_MUTED_XS,
-                            ),
-                            *(
-                                [
-                                    Span(
-                                        grade,
-                                        cls=f"text-[10px] font-bold px-1.5 py-0.5 rounded-full {grade_cls}",
-                                    )
-                                ]
-                                if grade
-                                else []
                             ),
                             cls="flex items-center gap-1.5 mt-0.5",
                         ),
@@ -3573,14 +3552,6 @@ def render_creator_profile_page(
             *(
                 [
                     Div(
-                        (
-                            Span(
-                                f"{grade_icon} {grade_label}",
-                                cls=f"text-xs font-semibold px-2 py-0.5 rounded-full {grade_bg}",
-                            )
-                            if quality_grade
-                            else None
-                        ),
                         (
                             _rank_chip(
                                 f"#{country_rank} {country_flag} {country_code.upper()}",
@@ -5034,13 +5005,13 @@ def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, 
     if category_label is None:
         h1 = "Top YouTube Creators"
         lede = (
-            f"A hand-graded shortlist of {format_number(total_count)} A+ creators "
+            f"A curated shortlist of {format_number(total_count)} high-engagement YouTube creators "
             "ranked by engagement quality, not subscriber count. Every channel "
-            "below has cleared ViralVibes' top-tier threshold for viewer retention, "
+            "below has cleared ViralVibes' threshold for viewer retention, "
             "comment velocity, and like-to-view ratio."
         )
         desc = (
-            f"Browse {format_number(total_count)} A+ rated YouTube creators across "
+            f"Browse {format_number(total_count)} high-engagement YouTube creators across "
             "every niche. Ranked by engagement quality and audience signal — "
             "updated daily."
         )
@@ -5048,14 +5019,14 @@ def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, 
 
     h1 = f"Top {category_label} YouTube Creators"
     lede = (
-        f"The {format_number(total_count)} A+ rated {category_label} channels on "
+        f"The {format_number(total_count)} highest-engagement {category_label} channels on "
         "YouTube — ranked by engagement quality. This is the shortlist agencies, "
         "sponsors and researchers start with before drilling into individual "
         "creator profiles."
     )
     desc = (
         f"Discover {format_number(total_count)} top {category_label.lower()} "
-        "YouTube creators. A+ engagement grade only, ranked by reach — updated daily."
+        "YouTube creators. Ranked by engagement quality and reach — updated daily."
     )
     return h1, lede, desc
 
@@ -5125,7 +5096,7 @@ def render_creators_top_page(
 
     # Hero: gradient H1 + mono eyebrow + lede — matches the StaticPage rhythm
     # without dragging in the full helper (we need a grid below, not prose).
-    eyebrow = "A+ Tier" if category_label is None else f"A+ Tier · {category_label}"
+    eyebrow = "High Engagement" if category_label is None else f"High Engagement · {category_label}"
     hero = Div(
         Div(
             Span(
@@ -5156,7 +5127,7 @@ def render_creators_top_page(
     if not creators:
         body = Div(
             P(
-                "No A+ creators in this slice yet. Check back as the catalogue grows.",
+                "No creators found in this slice yet. Check back as the catalogue grows.",
                 cls="text-muted-foreground text-center py-16",
             ),
             cls="max-w-2xl mx-auto",
@@ -5196,9 +5167,9 @@ def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
     href = f"/creators?{urlencode(params)}"
 
     label = (
-        "Open the full A+ filter on /creators"
+        "Explore high-engagement creators on /creators"
         if category_label is None
-        else f"Open all {category_label} A+ creators on /creators"
+        else f"Explore high-engagement {category_label} creators on /creators"
     )
 
     return Div(
@@ -5210,7 +5181,7 @@ def _render_top_drill_in_cta(*, category_label: str | None) -> Div:
                 ),
             ),
             P(
-                "Want to combine A+ with country, language, or growth filters? "
+                "Want to combine this filter with country, language, or growth filters? "
                 "Open the same set in the search tool — sortable, paginated, exportable.",
                 cls="text-sm text-muted-foreground leading-relaxed",
             ),
@@ -5246,7 +5217,7 @@ def creators_top_head(
     total_count: int,
     creators: list | None = None,
 ) -> tuple:
-    """Return ``<head>`` tags for the A+ landing page.
+    """Return ``<head>`` tags for the top-creators landing page.
 
     Returned as a tuple so main.py can splat them next to the existing
     NavComponent wrapping: ``Titled(title, Container(...), *head_tags)``.

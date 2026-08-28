@@ -970,7 +970,7 @@ async def creator_add_status_route(request, sess):
 
 
 # ---------------------------------------------------------------------------
-# /creators/top — A+ tier SEO landing pages
+# /creators/top — high-engagement SEO landing pages
 # ---------------------------------------------------------------------------
 # Hand-picked slug → primary_category mapping. The slug allowlist also acts as
 # the SEO surface — anything off-list returns 404 so we never index empty or
@@ -1102,7 +1102,7 @@ class CreatorsTopResult:
 def creators_top_route(request, *, category_slug: str | None = None):
     """GET /creators/top  and  GET /creators/top/{slug}
 
-    Editorial landing pages listing only A+ grade creators. Reuses
+    Editorial landing pages listing high-engagement creators. Reuses
     ``get_creators(grade_filter="A+", category_filter=...)`` so all heavy
     lifting stays in the DB layer; this route adds SEO surface (canonical
     URL, OG tags, JSON-LD ItemList) and an editorial intro.
