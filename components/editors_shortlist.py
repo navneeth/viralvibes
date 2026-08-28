@@ -1,9 +1,9 @@
 """Editors' Shortlist rail — curated entry point into ``/creators/top``.
 
-A horizontal card rail surfacing the five A+ category landing pages plus
-the global A+ shortlist. Designed to live near the top of the two main
-discovery surfaces (``/creators`` and ``/lists``) so anonymous visitors
-and returning users alike have a one-click path into the editorial cut.
+A horizontal card rail surfacing the five high-engagement category landing
+pages plus the global top-creators shortlist. Designed to live near the top
+of the two main discovery surfaces (``/creators`` and ``/lists``) so anonymous
+visitors and returning users alike have a one-click path into the editorial cut.
 
 Design notes
 ------------

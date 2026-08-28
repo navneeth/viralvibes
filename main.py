@@ -1529,14 +1529,14 @@ def creators_suggest(req):
 
 
 # ---------------------------------------------------------------------------
-# A+ tier SEO landing pages
+# Top creators SEO landing pages
 # ---------------------------------------------------------------------------
-# `/creators/top` and `/creators/top/{slug}` render hand-picked subsets of the
-# A+ grade catalogue. SEO surface only — application filtering lives on /creators.
+# `/creators/top` and `/creators/top/{slug}` render high-engagement creator
+# subsets. SEO surface only — application filtering lives on /creators.
 
 
 def _render_creators_top(req, sess, category_slug: str | None):
-    """Shared body for the global and category-scoped A+ landing pages."""
+    """Shared body for the global and category-scoped top-creators landing pages."""
     result = creators_top_route(req, category_slug=category_slug)
     if isinstance(result, StarletteResponse):
         return result  # 404 for unknown slug or 302 redirect for out-of-range page

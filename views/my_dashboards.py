@@ -405,16 +405,6 @@ def _section_campaigns(plan: str) -> Div:
 # Watchlist Pulse
 # ---------------------------------------------------------------------------
 
-_GRADE_CLS = {
-    "A+": "bg-emerald-100 text-emerald-800",
-    "A": "bg-green-100 text-green-700",
-    "B+": "bg-blue-100 text-blue-800",
-    "B": "bg-blue-50 text-blue-700",
-    "C": "bg-yellow-100 text-yellow-800",
-    "D": "bg-red-100 text-red-700",
-}
-
-
 def _flag(country_code: str | None) -> str:
     if not country_code or len(country_code) != 2:
         return ""
@@ -439,30 +429,12 @@ def _pulse_row(creator: dict) -> Div:
     thumb = creator.get("channel_thumbnail_url") or ""
     name = creator.get("channel_name") or "Unknown"
     delta = creator.get("subscribers_change_30d")
-    grade = creator.get("quality_grade") or ""
+    eng = float(creator.get("engagement_score") or 0)
     code = creator.get("country_code") or ""
     flag = _flag(code)
     cat = creator.get("category") or ""
 
     avatar = (
-        Img(src=thumb, alt=name, cls="w-9 h-9 rounded-full object-cover flex-shrink-0")
-        if thumb
-        else Div(
-            Span(name[:1].upper(), cls="text-xs font-bold text-gray-500"),
-            cls="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0",
-        )
-    )
-    grade_cls = _GRADE_CLS.get(grade, "bg-gray-100 text-gray-600")
-
-    return Div(
-        avatar,
-        Span(name, cls="flex-1 font-medium text-sm truncate min-w-0"),
-        _growth_cell(delta),
-        *(
-            [Span(grade, cls=f"text-xs font-bold px-2 py-0.5 rounded-full {grade_cls}")]
-            if grade
-            else []
-        ),
         *(
             [Span(f"{flag} {code}" if flag else code, cls="text-xs text-gray-400 w-10 text-center")]
             if code

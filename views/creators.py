@@ -46,7 +46,6 @@ from utils.creator_metrics import (
     get_age_emoji,
     get_age_title,
     get_country_flag,
-    get_grade_info,
     get_growth_signal,
     get_language_emoji,
     get_language_name,
@@ -3270,7 +3269,6 @@ def render_creator_profile_page(
     keywords = safe_get_value(creator, "keywords", "")
     country_code = safe_get_value(creator, "country_code", "")
     language = safe_get_value(creator, "default_language", "")
-    quality_grade = safe_get_value(creator, "quality_grade", None)
     official = safe_get_value(creator, "official", False)
     hidden_subs = safe_get_value(creator, "hidden_subscriber_count", False)
     primary_category = safe_get_value(creator, "primary_category", "")
@@ -3336,7 +3334,6 @@ def render_creator_profile_page(
     has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status") or False)
 
     # ── derived ───────────────────────────────────────────────────────────────
-    grade_icon, grade_label, grade_bg = get_grade_info(quality_grade)
     growth_rate = calculate_growth_rate(subs_change, current_subs)
     growth_label, growth_style = get_growth_signal(growth_rate)
     # Prefer last-10-video average (recent performance) over lifetime average.
@@ -3590,7 +3587,7 @@ def render_creator_profile_page(
                         cls="flex flex-wrap items-center gap-1.5 mt-1",
                     )
                 ]
-                if (quality_grade or country_rank is not None or category_rank is not None)
+                if (country_rank is not None or category_rank is not None)
                 else []
             ),
             # Handle + country + language + age tags
