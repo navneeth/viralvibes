@@ -66,8 +66,8 @@
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a id="nextFileLink" class="nav" href="z_ccd67909ff75f620_favourites_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-28 08:37 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.16.0">coverage.py v7.16.0</a>,
+            created at 2026-08-30 06:20 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -207,7 +207,7 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t123" href="#t123">123</a></span><span class="t">                    <span class="nam">engagement_rate</span><span class="op">=</span><span class="nam">summary_stats</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;avg_engagement&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t124" href="#t124">124</a></span><span class="t">                    <span class="nam">total_views</span><span class="op">=</span><span class="nam">summary_stats</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;total_views&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t125" href="#t125">125</a></span><span class="t">                <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t126" href="#t126">126</a></span><span class="t">                <span class="com"># &#128279; Add Share/Export buttons HERE</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t126" href="#t126">126</a></span><span class="t">                <span class="com"># &#128279; Add Share button HERE (Export is intentionally disabled in the UI)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t127" href="#t127">127</a></span><span class="t">                <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t128" href="#t128">128</a></span><span class="t">                    <span class="nam">Div</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t129" href="#t129">129</a></span><span class="t">                        <span class="nam">Button</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
@@ -220,16 +220,16 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t136" href="#t136">136</a></span><span class="t">                            <span class="nam">type</span><span class="op">=</span><span class="str">&quot;button&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t137" href="#t137">137</a></span><span class="t">                            <span class="nam">disabled</span><span class="op">=</span><span class="op">(</span><span class="nam">dashboard_id</span> <span class="key">is</span> <span class="key">None</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t138" href="#t138">138</a></span><span class="t">                        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t139" href="#t139">139</a></span><span class="t">                        <span class="nam">Button</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t140" href="#t140">140</a></span><span class="t">                            <span class="nam">UkIcon</span><span class="op">(</span><span class="str">&quot;download&quot;</span><span class="op">,</span> <span class="nam">cls</span><span class="op">=</span><span class="str">&quot;mr-2 w-4 h-4&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t141" href="#t141">141</a></span><span class="t">                            <span class="str">&quot;Export&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t142" href="#t142">142</a></span><span class="t">                            <span class="nam">hx_get</span><span class="op">=</span><span class="op">(</span><span class="fst">f&quot;</span><span class="fst">/modal/export/</span><span class="op">{</span><span class="nam">dashboard_id</span><span class="op">}</span><span class="fst">&quot;</span> <span class="key">if</span> <span class="nam">dashboard_id</span> <span class="key">else</span> <span class="str">&quot;#&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t143" href="#t143">143</a></span><span class="t">                            <span class="nam">hx_target</span><span class="op">=</span><span class="str">&quot;#modal-container&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t144" href="#t144">144</a></span><span class="t">                            <span class="nam">hx_swap</span><span class="op">=</span><span class="str">&quot;innerHTML&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t145" href="#t145">145</a></span><span class="t">                            <span class="nam">cls</span><span class="op">=</span><span class="str">&quot;px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t146" href="#t146">146</a></span><span class="t">                            <span class="nam">type</span><span class="op">=</span><span class="str">&quot;button&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t147" href="#t147">147</a></span><span class="t">                            <span class="nam">disabled</span><span class="op">=</span><span class="op">(</span><span class="nam">dashboard_id</span> <span class="key">is</span> <span class="key">None</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t148" href="#t148">148</a></span><span class="t">                        <span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t139" href="#t139">139</a></span><span class="t">                        <span class="com"># Button(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t140" href="#t140">140</a></span><span class="t">                        <span class="com">#     UkIcon(&quot;download&quot;, cls=&quot;mr-2 w-4 h-4&quot;),</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t141" href="#t141">141</a></span><span class="t">                        <span class="com">#     &quot;Export&quot;,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t142" href="#t142">142</a></span><span class="t">                        <span class="com">#     hx_get=(f&quot;/modal/export/{dashboard_id}&quot; if dashboard_id else &quot;#&quot;),</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t143" href="#t143">143</a></span><span class="t">                        <span class="com">#     hx_target=&quot;#modal-container&quot;,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t144" href="#t144">144</a></span><span class="t">                        <span class="com">#     hx_swap=&quot;innerHTML&quot;,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t145" href="#t145">145</a></span><span class="t">                        <span class="com">#     cls=&quot;px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center&quot;,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t146" href="#t146">146</a></span><span class="t">                        <span class="com">#     type=&quot;button&quot;,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t147" href="#t147">147</a></span><span class="t">                        <span class="com">#     disabled=(dashboard_id is None),</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis mis2 show_mis"><span class="n"><a id="t148" href="#t148">148</a></span><span class="t">                        <span class="com"># ),</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t149" href="#t149">149</a></span><span class="t">                        <span class="nam">cls</span><span class="op">=</span><span class="str">&quot;flex gap-3 mt-4&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t150" href="#t150">150</a></span><span class="t">                    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t151" href="#t151">151</a></span><span class="t">                    <span class="key">if</span> <span class="nam">dashboard_id</span>&nbsp;</span><span class="r"></span></p>
@@ -285,8 +285,8 @@
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a class="nav" href="z_ccd67909ff75f620_favourites_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-28 08:37 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.16.0">coverage.py v7.16.0</a>,
+            created at 2026-08-30 06:20 +0000
         </p>
     </div>
 </footer>
