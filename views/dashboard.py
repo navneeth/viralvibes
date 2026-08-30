@@ -123,7 +123,7 @@ def render_full_dashboard(
                     engagement_rate=summary_stats.get("avg_engagement"),
                     total_views=summary_stats.get("total_views"),
                 ),
-                # 🔗 Add Share/Export buttons HERE
+                # 🔗 Add Share button HERE (Export is intentionally disabled in the UI)
                 (
                     Div(
                         Button(
@@ -136,16 +136,16 @@ def render_full_dashboard(
                             type="button",
                             disabled=(dashboard_id is None),
                         ),
-                        Button(
-                            UkIcon("download", cls="mr-2 w-4 h-4"),
-                            "Export",
-                            hx_get=(f"/modal/export/{dashboard_id}" if dashboard_id else "#"),
-                            hx_target="#modal-container",
-                            hx_swap="innerHTML",
-                            cls="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center",
-                            type="button",
-                            disabled=(dashboard_id is None),
-                        ),
+                        # Button(
+                        #     UkIcon("download", cls="mr-2 w-4 h-4"),
+                        #     "Export",
+                        #     hx_get=(f"/modal/export/{dashboard_id}" if dashboard_id else "#"),
+                        #     hx_target="#modal-container",
+                        #     hx_swap="innerHTML",
+                        #     cls="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center",
+                        #     type="button",
+                        #     disabled=(dashboard_id is None),
+                        # ),
                         cls="flex gap-3 mt-4",
                     )
                     if dashboard_id

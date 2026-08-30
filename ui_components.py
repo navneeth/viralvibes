@@ -656,6 +656,7 @@ def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -
             subtitle=f"Across {total_videos:,} videos",
             icon="eye",
             color="blue",
+            formula="Sum of individual video views from YouTube",
         ),
         MetricCard(
             title="Engagement Rate",
@@ -663,6 +664,7 @@ def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -
             subtitle="Likes + comments ÷ views",
             icon="heart",
             color="red",
+            formula="(Likes + Comments) ÷ Views × 100",
         ),
         MetricCard(
             title="Top Performer",
@@ -677,6 +679,7 @@ def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -
             subtitle="Playlist-wide average",
             icon="bar-chart",
             color="purple",
+            formula="Total views ÷ number of videos",
         ),
     ]
 
@@ -779,7 +782,16 @@ def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -
             cols_md=3,  # 3 columns on tablets
             cols_lg=len(cards),  # full row on desktop (4-6 cards)
             gap=4,
-            cls="mb-8",
+            cls="mb-3",
+        ),
+        # Source legend — only shown when calculated metrics are present
+        P(
+            Span(
+                "fx",
+                cls="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-50 text-violet-400 mr-1.5",
+            ),
+            "Calculated by ViralVibes from YouTube Analytics data. Hover any badge for the formula.",
+            cls="text-[11px] text-gray-400 text-right mb-6",
         ),
         # Category breakdown (replaces old Controversy card)
         (category_breakdown if category_breakdown else None),

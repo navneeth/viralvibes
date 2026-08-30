@@ -16,9 +16,9 @@ PROCESSING_TIPS = [
         "content": "Once complete, sort videos by views, likes, comments, engagement rate, or controversy score.",
     },
     {
-        "icon": "download",
-        "title": "Export Your Data",
-        "content": "Download your analysis as CSV and use it in spreadsheets, dashboards, or presentations.",
+        "icon": "share-2",
+        "title": "Share Your Results",
+        "content": "Once complete, share your dashboard with a permanent link — no sign-in required for viewers.",
     },
     {
         "icon": "bar-chart-2",
