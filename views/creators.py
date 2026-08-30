@@ -54,6 +54,7 @@ from utils.creator_metrics import (
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.add_creator import AddCreatorForm
+from components.buttons import YoutubeChannelButton
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
 from components.seo import (
@@ -2276,12 +2277,12 @@ def _build_card_footer(
         Div(
             heart_btn,
             # <button> stops the card-level click; JS opens YouTube in a new tab
-            Button(
-                UkIcon("youtube", cls="w-5 h-5 mr-1"),  # 20px — YouTube branding minimum
-                "YouTube",
-                type="button",
-                onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
-                cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+            YoutubeChannelButton(
+                channel_url,
+                variant="ghost",
+                as_button=True,
+                onclick_js=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
+                size="sm",
             ),
             cls="flex items-center gap-3",
         ),
@@ -3504,13 +3505,11 @@ def render_creator_profile_page(
                 cls="w-20 h-20 sm:w-28 sm:h-28 rounded-2xl object-cover ring-4 ring-background shadow-xl -mt-10 sm:-mt-14",
             ),
             Div(
-                A(
-                    UkIcon("youtube", cls="w-5 h-5 mr-1.5"),  # 20px — YouTube branding minimum
-                    "YouTube",
-                    href=channel_url,
-                    target="_blank",
-                    rel="noopener noreferrer",
-                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                YoutubeChannelButton(
+                    channel_url,
+                    variant="solid",
+                    size="sm",
+                    extra_cls="sm:px-4 sm:py-2 sm:text-sm",
                 ),
                 render_favourite_button(creator_id, is_favourited=is_favourited),
                 A(
