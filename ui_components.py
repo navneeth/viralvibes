@@ -664,7 +664,7 @@ def PlaylistMetricsOverview(df: list[dict[str, Any]], summary: Dict[str, Any]) -
             subtitle="Likes + comments ÷ views",
             icon="heart",
             color="red",
-            formula="(Likes + Comments) ÷ Views × 100",
+            formula="Avg. per-video (Likes + Comments) ÷ (Views + 1) × 100",
         ),
         MetricCard(
             title="Top Performer",

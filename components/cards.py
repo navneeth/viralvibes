@@ -1208,11 +1208,14 @@ def MetricCard(
         Span(
             "fx",
             title=formula,
+            tabindex="0",
+            aria_label=f"Calculated metric — {formula}",
             cls=(
                 "text-[9px] font-mono font-bold tracking-wide "
                 "px-1.5 py-0.5 rounded "
                 "bg-violet-50 text-violet-400 "
-                "cursor-default select-none"
+                "cursor-default select-none "
+                "focus:outline-none focus:ring-1 focus:ring-violet-300"
             ),
         )
         if formula
