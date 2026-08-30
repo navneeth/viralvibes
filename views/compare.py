@@ -20,6 +20,7 @@ from utils.creator_metrics import (
 )
 from views.creators import get_topic_category_emoji
 from components.add_creator import AddCreatorForm
+from components.buttons import YoutubeChannelButton
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -683,14 +684,7 @@ def render_compare_page(
                     cls=f"flex flex-wrap gap-1.5 mt-1 {items_align}",
                 ),
                 Div(
-                    A(
-                        UkIcon("youtube", cls="w-5 h-5 mr-1"),  # 20px — YouTube branding minimum
-                        "YouTube",
-                        href=channel_url,
-                        target="_blank",
-                        rel="noopener noreferrer",
-                        cls="inline-flex items-center px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold no-underline transition-colors",
-                    ),
+                    YoutubeChannelButton(channel_url, variant="solid", size="sm"),
                     A(
                         UkIcon(fav_icon, cls="w-3.5 h-3.5 mr-1"),
                         fav_label,
