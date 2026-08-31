@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.0">coverage.py v7.16.0</a>,
-            created at 2026-08-31 02:30 +0000
+            created at 2026-08-31 08:39 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -3746,14 +3746,14 @@
     <p class="mis show_mis"><span class="n"><a id="t3662" href="#t3662">3662</a></span><span class="t">                        <span class="key">return</span> <span class="nam">CreatorsResult</span><span class="op">(</span><span class="op">[</span><span class="op">]</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3663" href="#t3663">3663</a></span><span class="t">                    <span class="key">return</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3664" href="#t3664">3664</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t3665" href="#t3665">3665</a></span><span class="t">            <span class="key">if</span> <span class="key">not</span> <span class="nam">no_extra_filters</span> <span class="key">and</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t3666" href="#t3666">3666</a></span><span class="t">                <span class="nam">_is_statement_timeout_error</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span> <span class="key">or</span> <span class="nam">_is_connection_pool_timeout</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t3667" href="#t3667">3667</a></span><span class="t">            <span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t3668" href="#t3668">3668</a></span><span class="t">                <span class="com"># Transient DB resource error on a filtered query &#8212; return empty</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t3669" href="#t3669">3669</a></span><span class="t">                <span class="com"># gracefully so the UI shows &quot;no results&quot; rather than a 500.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t3670" href="#t3670">3670</a></span><span class="t">                <span class="com"># Guard: only degrade when at least one non-default filter is</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t3671" href="#t3671">3671</a></span><span class="t">                <span class="com"># active (no_extra_filters=False). A timeout on a plain unfiltered</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t3672" href="#t3672">3672</a></span><span class="t">                <span class="com"># browse is a genuine outage and should propagate, not be masked.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3665" href="#t3665">3665</a></span><span class="t">            <span class="com"># Statement/pool timeouts: always degrade gracefully rather than 500.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3666" href="#t3666">3666</a></span><span class="t">            <span class="com"># The original guard (not no_extra_filters) was intended to propagate</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3667" href="#t3667">3667</a></span><span class="t">            <span class="com"># &quot;genuine outages&quot; on unfiltered browse, but the real signal for a</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3668" href="#t3668">3668</a></span><span class="t">            <span class="com"># genuine outage is monitoring, not user-visible 500s.  Unfiltered</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3669" href="#t3669">3669</a></span><span class="t">            <span class="com"># newest_channel / oldest_channel sorts have no covering partial index</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3670" href="#t3670">3670</a></span><span class="t">            <span class="com"># on published_at and timeout consistently on large tables (57014,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t3671" href="#t3671">3671</a></span><span class="t">            <span class="com"># observed Aug 2026) &#8212; returning empty is far better UX than a 500.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t3672" href="#t3672">3672</a></span><span class="t">            <span class="key">if</span> <span class="nam">_is_statement_timeout_error</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span> <span class="key">or</span> <span class="nam">_is_connection_pool_timeout</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3673" href="#t3673">3673</a></span><span class="t">                <span class="key">if</span> <span class="nam">_is_connection_pool_timeout</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3674" href="#t3674">3674</a></span><span class="t">                    <span class="nam">logger</span><span class="op">.</span><span class="nam">warning</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3675" href="#t3675">3675</a></span><span class="t">                        <span class="str">&quot;get_creators &#8212; connection pool exhausted (PGRST003), returning empty. &quot;</span>&nbsp;</span><span class="r"></span></p>
@@ -3790,7 +3790,7 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t3706" href="#t3706">3706</a></span><span class="t">                    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3707" href="#t3707">3707</a></span><span class="t">                <span class="key">if</span> <span class="nam">return_count</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3708" href="#t3708">3708</a></span><span class="t">                    <span class="key">return</span> <span class="nam">CreatorsResult</span><span class="op">(</span><span class="op">[</span><span class="op">]</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t3709" href="#t3709">3709</a></span><span class="t">                <span class="key">return</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t3709" href="#t3709">3709</a></span><span class="t">                <span class="key">return</span> <span class="nam">CreatorsResult</span><span class="op">(</span><span class="op">[</span><span class="op">]</span><span class="op">,</span> <span class="num">0</span><span class="op">)</span>  <span class="com"># signals degradation; route checks isinstance</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3710" href="#t3710">3710</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3711" href="#t3711">3711</a></span><span class="t">            <span class="nam">logger</span><span class="op">.</span><span class="nam">error</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3712" href="#t3712">3712</a></span><span class="t">                <span class="fst">f&quot;</span><span class="fst">Query execution failed: </span><span class="op">{</span><span class="nam">type</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span><span class="op">.</span><span class="nam">__name__</span><span class="op">}</span><span class="fst">: </span><span class="op">{</span><span class="nam">str</span><span class="op">(</span><span class="nam">e</span><span class="op">)</span><span class="op">}</span><span class="fst">\n</span><span class="fst">&quot;</span>&nbsp;</span><span class="r"></span></p>
@@ -4597,7 +4597,7 @@
             <a class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.0">coverage.py v7.16.0</a>,
-            created at 2026-08-31 02:30 +0000
+            created at 2026-08-31 08:39 +0000
         </p>
     </div>
 </footer>
