@@ -3662,14 +3662,14 @@ def get_creators(
                         return CreatorsResult([], 0)
                     return []
 
-            if not no_extra_filters and (
-                _is_statement_timeout_error(e) or _is_connection_pool_timeout(e)
-            ):
-                # Transient DB resource error on a filtered query — return empty
-                # gracefully so the UI shows "no results" rather than a 500.
-                # Guard: only degrade when at least one non-default filter is
-                # active (no_extra_filters=False). A timeout on a plain unfiltered
-                # browse is a genuine outage and should propagate, not be masked.
+            # Statement/pool timeouts: always degrade gracefully rather than 500.
+            # The original guard (not no_extra_filters) was intended to propagate
+            # "genuine outages" on unfiltered browse, but the real signal for a
+            # genuine outage is monitoring, not user-visible 500s.  Unfiltered
+            # newest_channel / oldest_channel sorts have no covering partial index
+            # on published_at and timeout consistently on large tables (57014,
+            # observed Aug 2026) — returning empty is far better UX than a 500.
+            if _is_statement_timeout_error(e) or _is_connection_pool_timeout(e):
                 if _is_connection_pool_timeout(e):
                     logger.warning(
                         "get_creators — connection pool exhausted (PGRST003), returning empty. "
