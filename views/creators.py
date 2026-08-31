@@ -54,6 +54,7 @@ from utils.creator_metrics import (
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.add_creator import AddCreatorForm
+from components.buttons import EstimatedBadge, YoutubeChannelButton, _EST_MOMENTUM_DETAIL
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
 from components.seo import (
@@ -1798,7 +1799,6 @@ def _build_card_header(
     current_videos: int,
     rank: str,
     channel_age_days: int,
-    engagement_score: float = 0.0,
 ) -> Div:
     """Build card header: award-showcase rank badge, avatar, channel name, handle, and quick stats.
 
@@ -1854,18 +1854,6 @@ def _build_card_header(
                 cls="text-xs text-muted-foreground truncate mt-0.5",
             ),
             cls="flex-1 min-w-0",
-        ),
-        (
-            Div(
-                Span(
-                    f"{engagement_score:.1f}/10",
-                    cls="text-sm font-bold tabular-nums text-foreground leading-none",
-                ),
-                Span("eng.", cls="text-[10px] text-muted-foreground leading-none"),
-                cls="flex flex-col items-center gap-1 shrink-0",
-            )
-            if engagement_score > 0
-            else None
         ),
         cls="flex items-start gap-3",
     )
@@ -1970,9 +1958,13 @@ def _build_performance_metrics(
             cls="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         Div(
-            P(
-                "EST. REVENUE",
-                cls="text-xs font-semibold text-green-700 dark:text-green-400 uppercase",
+            Div(
+                P(
+                    "EST. REVENUE",
+                    cls="text-xs font-semibold text-green-700 dark:text-green-400 uppercase",
+                ),
+                EstimatedBadge(),
+                cls="flex items-center justify-center gap-1.5",
             ),
             P(
                 f"${format_number(estimated_revenue)}",
@@ -2276,12 +2268,12 @@ def _build_card_footer(
         Div(
             heart_btn,
             # <button> stops the card-level click; JS opens YouTube in a new tab
-            Button(
-                UkIcon("youtube", cls="w-5 h-5 mr-1"),  # 20px — YouTube branding minimum
-                "YouTube",
-                type="button",
-                onclick=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
-                cls="flex items-center text-xs font-semibold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors bg-transparent border-0 p-0 cursor-pointer",
+            YoutubeChannelButton(
+                channel_url,
+                variant="ghost",
+                as_button=True,
+                onclick_js=f"event.stopPropagation(); event.preventDefault(); window.open({js_url}, '_blank', 'noopener,noreferrer')",
+                size="sm",
             ),
             cls="flex items-center gap-3",
         ),
@@ -2591,7 +2583,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
             current_videos,
             rank,
             channel_age_days,
-            engagement_score,
         ),
         # ── Context ───────────────────────────────────────────────────────────
         # Topic categories rendered as clean emoji pills with Wikipedia links, plus
@@ -3449,12 +3440,33 @@ def render_creator_profile_page(
             ),
         )
 
-    def _stat_card(label, value, delta_val, number_cls, bg_cls, *, delta_pct=None, rank_line=None):
+    def _stat_card(
+        label,
+        value,
+        delta_val,
+        number_cls,
+        bg_cls,
+        *,
+        delta_pct=None,
+        rank_line=None,
+        label_badge=None,
+    ):
         return Card(
             Div(
-                P(
-                    label,
-                    cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+                (
+                    Div(
+                        P(
+                            label,
+                            cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+                        ),
+                        label_badge,
+                        cls="flex items-center gap-1.5",
+                    )
+                    if label_badge
+                    else P(
+                        label,
+                        cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
+                    )
                 ),
                 Div(
                     Span(value, cls=f"text-3xl font-bold {number_cls}"),
@@ -3504,13 +3516,11 @@ def render_creator_profile_page(
                 cls="w-20 h-20 sm:w-28 sm:h-28 rounded-2xl object-cover ring-4 ring-background shadow-xl -mt-10 sm:-mt-14",
             ),
             Div(
-                A(
-                    UkIcon("youtube", cls="w-5 h-5 mr-1.5"),  # 20px — YouTube branding minimum
-                    "YouTube",
-                    href=channel_url,
-                    target="_blank",
-                    rel="noopener noreferrer",
-                    cls="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold rounded-lg no-underline transition-colors",
+                YoutubeChannelButton(
+                    channel_url,
+                    variant="solid",
+                    size="sm",
+                    extra_cls="sm:px-4 sm:py-2 sm:text-sm",
                 ),
                 render_favourite_button(creator_id, is_favourited=is_favourited),
                 A(
@@ -3691,6 +3701,7 @@ def render_creator_profile_page(
             None,
             "text-emerald-600 dark:text-emerald-400",
             "bg-emerald-50 dark:bg-emerald-950/40",
+            label_badge=EstimatedBadge(),
         ),
         cols_sm=2,
         cols_lg=4,
@@ -4025,7 +4036,11 @@ def render_creator_profile_page(
         *(
             [
                 Div(
-                    Span("Momentum", cls=_CLS_MUTED_SM),
+                    Div(
+                        Span("Momentum", cls=_CLS_MUTED_SM),
+                        EstimatedBadge(detail=_EST_MOMENTUM_DETAIL),
+                        cls="flex items-center gap-1.5",
+                    ),
                     Div(
                         Span(
                             format_float(momentum_score, 0),
@@ -4154,7 +4169,8 @@ def render_creator_profile_page(
                         "Est. Monthly Revenue",
                         cls=_CLS_LABEL,
                     ),
-                    cls="flex items-center",
+                    EstimatedBadge(),
+                    cls="flex items-center gap-1.5",
                 ),
                 Span(
                     f"${format_number(estimated_revenue)}",

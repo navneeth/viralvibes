@@ -120,6 +120,189 @@ def ViralVibesButton(
     return Button(content, type=button_type, cls=final_cls, **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# Metric provenance badges
+#
+# Two visual tiers, deliberately distinct colours:
+#   fx   (violet) — already in components/cards.py — calculated from YouTube API data
+#   est. (amber)  — ViralVibes model/estimate; not a figure YouTube provides
+#
+# Both follow the same accessibility pattern: title + tabindex + aria_label.
+# ---------------------------------------------------------------------------
+
+_EST_REVENUE_DETAIL = (
+    "ViralVibes estimates this from public view, subscriber, and upload data combined "
+    "with country-level CPM benchmarks and category multipliers. "
+    "YouTube doesn\u2019t expose revenue, CPM, or monetisation data for channels you "
+    "don\u2019t own \u2014 this is our own model, not a number from YouTube\u2019s API."
+)
+_EST_MOMENTUM_DETAIL = (
+    "ViralVibes-computed score derived from 30-day subscriber and view velocity. "
+    "YouTube doesn\u2019t provide a momentum or growth-velocity metric via its API."
+)
+
+
+def EstimatedBadge(detail: str = "") -> Span:
+    """Amber \u2018est.\u2019 badge for ViralVibes-estimated metrics not sourced from YouTube\u2019s API."""
+    tip = detail or _EST_REVENUE_DETAIL
+    return Span(
+        "est.",
+        title=tip,
+        tabindex="0",
+        aria_label=f"ViralVibes estimate \u2014 {tip}",
+        cls=(
+            "text-[9px] font-mono font-bold tracking-wide "
+            "px-1.5 py-0.5 rounded "
+            "bg-amber-50 text-amber-600 border border-amber-200 "
+            "cursor-default select-none "
+            "focus:outline-none focus:ring-1 focus:ring-amber-300"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# YouTube channel button — compliant with YouTube API branding guidelines.
+#
+# Lucide's mono "youtube" icon renders the rectangle and play triangle in the
+# same color, so the triangle is invisible against the rectangle.  These
+# helpers use a two-path inline SVG: red rounded-rect + white play triangle
+# (branded) or a single evenodd path that punches the triangle through a solid
+# shape (mono, for use inside a red button).  Min icon size = 20 px per the
+# YouTube API branding guidelines for digital media.
+# ---------------------------------------------------------------------------
+
+# Official YouTube icon SVG paths (24×24 viewBox)
+_YT_RECT = (
+    "M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088"
+    "c-1.87-.501-9.396-.501-9.396-.501"
+    "s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205"
+    "a31.247 31.247 0 0 0-.522 5.805"
+    "a31.247 31.247 0 0 0 .522 5.783"
+    "a3.007 3.007 0 0 0 2.088 2.088"
+    "c1.868.502 9.396.502 9.396.502"
+    "s7.506 0 9.396-.502"
+    "a3.007 3.007 0 0 0 2.088-2.088"
+    "a31.247 31.247 0 0 0 .5-5.783"
+    "a31.247 31.247 0 0 0-.5-5.805z"
+)
+_YT_TRIANGLE = "M9.609 15.601V8.408l6.264 3.602z"
+# Triangle reversed for fill-rule evenodd punch-out (monochrome on solid bg)
+_YT_PUNCHOUT = _YT_RECT + " M15.873 12.010L9.609 8.408V15.601z"
+
+
+def YtIcon(variant: str = "branded", size: int = 20) -> NotStr:
+    """Inline SVG YouTube play-button icon.
+
+    variant="branded" — red rectangle, white triangle (for light/transparent bg).
+    variant="mono"    — white evenodd punch-out shape (for use inside a red button).
+    Both meet the 20 px minimum size requirement from the YouTube API branding guidelines.
+    """
+    if variant == "mono":
+        return NotStr(
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"'
+            f' width="{size}" height="{size}" aria-hidden="true" focusable="false">'
+            f'<path fill="#fff" fill-rule="evenodd" d="{_YT_PUNCHOUT}"/>'
+            f"</svg>"
+        )
+    # branded (default)
+    return NotStr(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"'
+        f' width="{size}" height="{size}" aria-hidden="true" focusable="false">'
+        f'<path fill="#FF0000" d="{_YT_RECT}"/>'
+        f'<path fill="#fff" d="{_YT_TRIANGLE}"/>'
+        f"</svg>"
+    )
+
+
+def YoutubeChannelButton(
+    channel_url: str,
+    *,
+    variant: str = "solid",
+    as_button: bool = False,
+    onclick_js: str = "",
+    size: str = "sm",
+    extra_cls: str = "",
+) -> ...:
+    """Branded YouTube channel button — compliant with YouTube API branding guidelines.
+
+    variant="solid"  — red (#FF0000) pill with white icon + text.  Used on
+                       profile pages and compare cards where the button is a
+                       primary action standing alone.
+    variant="ghost"  — transparent background with branded (red+white) icon
+                       and red label.  Used inside card footers that are
+                       themselves wrapped in an <a>, so nested <a> is invalid.
+                       Pass as_button=True to render a <button> with onclick.
+
+    size="sm"  → py-1.5 px-3 text-xs  (card footer, compact contexts)
+    size="md"  → py-2   px-4 text-sm  (profile page, compare card)
+
+    as_button=True renders a <button> element (for contexts inside an existing
+    <a>) instead of an <a>.  Pair with onclick_js for the click handler.
+    """
+    pad = "px-3 py-1.5 text-xs" if size == "sm" else "px-4 py-2 text-sm"
+    icon_size = 20  # always ≥20px per YouTube branding guidelines
+
+    if variant == "ghost":
+        icon = YtIcon("branded", size=icon_size)
+        cls = (
+            f"inline-flex items-center gap-1.5 {pad} rounded-lg font-semibold "
+            f"text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
+            f"bg-transparent border-0 cursor-pointer transition-colors {extra_cls}"
+        )
+        content = (icon, Span("YouTube"))
+        if as_button:
+            return Button(
+                *content,
+                type="button",
+                onclick=onclick_js,
+                cls=cls,
+                aria_label="Open YouTube channel",
+            )
+        return A(
+            *content,
+            href=channel_url,
+            target="_blank",
+            rel="noopener noreferrer",
+            cls=cls,
+            aria_label="Open YouTube channel",
+        )
+
+    # solid (default)
+    icon = YtIcon("mono", size=icon_size)
+    cls = (
+        f"inline-flex items-center gap-1.5 {pad} rounded-lg font-semibold "
+        f"text-white no-underline transition-colors {extra_cls}"
+    )
+    # YouTube brand red — do not substitute with Tailwind red-600 (#DC2626)
+    style = "background:#FF0000;"
+    hover_script = (
+        "this.style.background='#CC0000'"
+        ",this.onmouseleave=function(){this.style.background='#FF0000'}"
+    )
+    if as_button:
+        return Button(
+            icon,
+            Span("YouTube"),
+            type="button",
+            onclick=onclick_js,
+            cls=cls,
+            style=style,
+            onmouseenter=hover_script,
+            aria_label="Open YouTube channel",
+        )
+    return A(
+        icon,
+        Span("YouTube"),
+        href=channel_url,
+        target="_blank",
+        rel="noopener noreferrer",
+        cls=cls,
+        style=style,
+        onmouseenter=hover_script,
+        aria_label="Open YouTube channel",
+    )
+
+
 def SignUpNudge(
     feature: str = "this feature",
     benefit: str = "sign in to unlock full access",
