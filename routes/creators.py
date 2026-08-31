@@ -22,6 +22,7 @@ from db import (
     add_creator_by_handle,
     add_favourite_creator,
     calculate_creator_stats,
+    CreatorsResult,
     find_creator_by_handle,
     get_cached_category_box_stats,
     get_category_leaderboard,
@@ -428,17 +429,20 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             creators = creators_result.creators
             total_count = creators_result.total_count
         else:
-            # Unfiltered default browse: result is list[dict]; count=exact was skipped.
-            # Use hero_stats total as pagination count (approximate: reflects synced
-            # rows only, excludes synced_partial ~0.1% of the browseable pool).
-            # Distinguish RPC failure (returns {} → None) from a genuinely empty DB
-            # (returns 0): treat None as "count unavailable" and fall back to a
-            # minimum that ensures the current page is not falsely shown as empty.
-            creators = creators_result
-            _hero_total = hero_stats.get("total_creators")
-            total_count = (
-                _hero_total if _hero_total is not None else (page - 1) * per_page + len(creators)
-            )
+            # Unfiltered default browse: normally list[dict], but CreatorsResult([], 0)
+            # when get_creators degraded on a timeout — don't propagate the hero
+            # total as pagination count or users see 0 cards across thousands of pages.
+            if isinstance(creators_result, CreatorsResult):
+                creators = creators_result.creators  # []
+                total_count = creators_result.total_count  # 0
+            else:
+                creators = creators_result
+                _hero_total = hero_stats.get("total_creators")
+                total_count = (
+                    _hero_total
+                    if _hero_total is not None
+                    else (page - 1) * per_page + len(creators)
+                )
         top_countries = _futures["countries"].result()
         top_languages = _futures["languages"].result()
         top_categories = _futures["categories"].result()
