@@ -121,6 +121,46 @@ def ViralVibesButton(
 
 
 # ---------------------------------------------------------------------------
+# Metric provenance badges
+#
+# Two visual tiers, deliberately distinct colours:
+#   fx   (violet) — already in components/cards.py — calculated from YouTube API data
+#   est. (amber)  — ViralVibes model/estimate; not a figure YouTube provides
+#
+# Both follow the same accessibility pattern: title + tabindex + aria_label.
+# ---------------------------------------------------------------------------
+
+_EST_REVENUE_DETAIL = (
+    "ViralVibes estimates this from public view, subscriber, and upload data combined "
+    "with country-level CPM benchmarks and category multipliers. "
+    "YouTube doesn\u2019t expose revenue, CPM, or monetisation data for channels you "
+    "don\u2019t own \u2014 this is our own model, not a number from YouTube\u2019s API."
+)
+_EST_MOMENTUM_DETAIL = (
+    "ViralVibes-computed score derived from 30-day subscriber and view velocity. "
+    "YouTube doesn\u2019t provide a momentum or growth-velocity metric via its API."
+)
+
+
+def EstimatedBadge(detail: str = "") -> Span:
+    """Amber \u2018est.\u2019 badge for ViralVibes-estimated metrics not sourced from YouTube\u2019s API."""
+    tip = detail or _EST_REVENUE_DETAIL
+    return Span(
+        "est.",
+        title=tip,
+        tabindex="0",
+        aria_label=f"ViralVibes estimate \u2014 {tip}",
+        cls=(
+            "text-[9px] font-mono font-bold tracking-wide "
+            "px-1.5 py-0.5 rounded "
+            "bg-amber-50 text-amber-600 border border-amber-200 "
+            "cursor-default select-none "
+            "focus:outline-none focus:ring-1 focus:ring-amber-300"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # YouTube channel button — compliant with YouTube API branding guidelines.
 #
 # Lucide's mono "youtube" icon renders the rectangle and play triangle in the
