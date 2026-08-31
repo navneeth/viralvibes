@@ -55,6 +55,7 @@ from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.add_creator import AddCreatorForm
 from components.buttons import EstimatedBadge, YoutubeChannelButton, _EST_MOMENTUM_DETAIL
+
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
 from components.seo import (
