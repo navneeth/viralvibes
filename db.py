@@ -3706,7 +3706,7 @@ def get_creators(
                     )
                 if return_count:
                     return CreatorsResult([], 0)
-                return []
+                return CreatorsResult([], 0)  # signals degradation; route checks isinstance
 
             logger.error(
                 f"Query execution failed: {type(e).__name__}: {str(e)}\n"
