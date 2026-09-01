@@ -228,8 +228,8 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
             highlight=viral_highlight,
             label_badge=EstimatedBadge(
                 detail=(
-                    "30-day views ÷ total subscribers. "
-                    "Above 1× means content reached more people than the channel's subscriber count. "
+                    "Net 30-day view change ÷ total subscribers. "
+                    "Above 1× means views grew by more than the channel's subscriber count in the past month. "
                     "Computed by ViralVibes — not provided by YouTube's API."
                 )
             ),
