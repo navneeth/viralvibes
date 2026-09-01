@@ -18,6 +18,7 @@ from __future__ import annotations
 from fasthtml.common import *
 from monsterui.all import *
 
+from components.buttons import EstimatedBadge
 from utils import format_number, safe_get_value
 from utils.blueprint import ActionResult, CreatorSignals
 from views.creators import creator_profile_url
@@ -54,15 +55,11 @@ def _score_label(score: float) -> str:
 
 
 def render_score_gauge(score: float) -> Div:
-    """Circular-ish score badge — plain CSS, no SVG dependency."""
+    """Circular score badge — score only; /100 removed to prevent mobile overflow."""
     colour = _score_colour(score)
     label = _score_label(score)
     return Div(
-        Div(
-            Span(f"{int(score)}", cls=f"text-4xl font-black tabular-nums {colour}"),
-            Span("/100", cls="text-sm text-muted-foreground ml-0.5 self-end pb-1"),
-            cls="flex items-end justify-center gap-0",
-        ),
+        Span(f"{int(score)}", cls=f"text-3xl font-black tabular-nums leading-none {colour}"),
         P(label, cls=f"text-xs font-medium text-center mt-1 {colour}"),
         cls=(
             "flex flex-col items-center justify-center "
@@ -159,11 +156,20 @@ def render_action_card(action: ActionResult, is_top: bool = False) -> Div:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _stat_chip(label: str, value: str, highlight: bool = False) -> Div:
+def _stat_chip(label: str, value: str, highlight: bool = False, label_badge=None) -> Div:
     val_cls = "text-foreground font-semibold" if not highlight else "text-primary font-bold"
+    label_el = (
+        Div(
+            P(label, cls="text-xs text-muted-foreground mt-0.5"),
+            label_badge,
+            cls="flex items-center gap-1 justify-center",
+        )
+        if label_badge is not None
+        else P(label, cls="text-xs text-muted-foreground mt-0.5")
+    )
     return Div(
         P(value, cls=f"text-lg {val_cls} tabular-nums"),
-        P(label, cls="text-xs text-muted-foreground mt-0.5"),
+        label_el,
         cls="flex flex-col items-center text-center px-4 py-3",
     )
 
@@ -188,7 +194,7 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
     )
     viral_coeff = signals.viral_coeff
     if viral_coeff < 0:
-        viral_str = "↓ losing views"
+        viral_str = "↓ declining"
         viral_highlight = False
     else:
         viral_str = f"{viral_coeff:.2f}×"
@@ -205,11 +211,40 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
     return Div(
         _stat_chip("Avg views / video", vpv_str),
         Div(cls="w-px h-10 bg-border self-center"),
-        _stat_chip("Category p75 VPV", peer_str),
+        _stat_chip(
+            "Category p75 VPV",
+            peer_str,
+            label_badge=EstimatedBadge(
+                detail=(
+                    "75th-percentile views per video across channels in the same category. "
+                    "Computed by ViralVibes from aggregate channel data — not a YouTube metric."
+                )
+            ),
+        ),
         Div(cls="w-px h-10 bg-border self-center"),
-        _stat_chip("Viral coeff (30d)", viral_str, highlight=viral_highlight),
+        _stat_chip(
+            "Reach multiplier (30d)",
+            viral_str,
+            highlight=viral_highlight,
+            label_badge=EstimatedBadge(
+                detail=(
+                    "30-day views ÷ total subscribers. "
+                    "Above 1× means content reached more people than the channel's subscriber count. "
+                    "Computed by ViralVibes — not provided by YouTube's API."
+                )
+            ),
+        ),
         Div(cls="w-px h-10 bg-border self-center"),
-        _stat_chip("Sub growth (30d)", growth_str),
+        _stat_chip(
+            "Sub growth (30d)",
+            growth_str,
+            label_badge=EstimatedBadge(
+                detail=(
+                    "30-day subscriber change ÷ current subscribers, expressed as a percentage. "
+                    "Computed by ViralVibes from YouTube channel data."
+                )
+            ),
+        ),
         cls=(
             "flex items-center rounded-xl bg-muted/40 border border-border "
             "divide-x divide-border overflow-x-auto"
@@ -339,8 +374,8 @@ def render_blueprint_page(
                     cls="flex items-baseline flex-wrap gap-1",
                 ),
                 P(
-                    "Studio-grounded actions ranked by confidence. "
-                    "Each link opens the exact YouTube Studio help page.",
+                    "ViralVibes-computed growth recommendations ranked by confidence. "
+                    "Each action links to the official YouTube Studio help page.",
                     cls="text-sm text-muted-foreground mt-1",
                 ),
                 cls="flex-1 min-w-0",
@@ -365,9 +400,15 @@ def render_blueprint_page(
         actions_section = render_no_actions()
     else:
         actions_section = Div(
-            H4(
-                "Recommendations",
-                cls="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3",
+            Div(
+                H4(
+                    "Recommendations",
+                    cls="text-sm font-semibold text-muted-foreground uppercase tracking-wide",
+                ),
+                P(
+                    "Scored by ViralVibes \u2014 not sourced from YouTube.",
+                    cls="text-xs text-muted-foreground mt-0.5 mb-3",
+                ),
             ),
             Div(
                 render_action_card(actions[0], is_top=True),
