@@ -54,7 +54,12 @@ from utils.creator_metrics import (
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from components.add_creator import AddCreatorForm
-from components.buttons import EstimatedBadge, YoutubeChannelButton, _EST_MOMENTUM_DETAIL
+from components.buttons import (
+    EstimatedBadge,
+    YtSourceBadge,
+    YoutubeChannelButton,
+    _EST_MOMENTUM_DETAIL,
+)
 
 from components.category_stats import render_category_box_plots
 from views.mentions import render_mentions_placeholder
@@ -1867,9 +1872,10 @@ def _build_primary_metrics(
     return Div(
         # Subscribers
         Div(
-            P(
-                "SUBSCRIBERS",
-                cls=_CLS_LABEL,
+            Div(
+                P("SUBSCRIBERS", cls=_CLS_LABEL),
+                YtSourceBadge(),
+                cls="flex items-center justify-center gap-1.5",
             ),
             H2(
                 format_number(current_subs),
@@ -1888,9 +1894,10 @@ def _build_primary_metrics(
         ),
         # Views
         Div(
-            P(
-                "VIEWS",
-                cls=_CLS_LABEL,
+            Div(
+                P("VIEWS", cls=_CLS_LABEL),
+                YtSourceBadge(),
+                cls="flex items-center justify-center gap-1.5",
             ),
             H2(
                 format_number(current_views),
@@ -1933,9 +1940,10 @@ def _build_performance_metrics(
             cls="bg-accent rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         Div(
-            P(
-                "VIDEOS",
-                cls="text-xs font-semibold text-muted-foreground uppercase",
+            Div(
+                P("VIDEOS", cls="text-xs font-semibold text-muted-foreground uppercase"),
+                YtSourceBadge(),
+                cls="flex items-center justify-center gap-1.5",
             ),
             P(
                 format_number(current_videos),
@@ -2618,6 +2626,16 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
         ),
         # Info strp at bottom of the card body, showing language, country, channel age, and activity badges as emojis with tooltips
         info_strip,
+        # Source attribution — one place, not per-metric badges on computed fields
+        Div(
+            YtSourceBadge(),
+            P(
+                "Subscriber, view & video counts sourced directly from YouTube. "
+                "All other metrics are ViralVibes estimates.",
+                cls="text-[10px] text-muted-foreground leading-relaxed",
+            ),
+            cls="flex items-start gap-1.5",
+        ),
         # ── Footer slot (only the action row — no body content here) ──────────
         footer=_build_card_footer(
             last_updated,
