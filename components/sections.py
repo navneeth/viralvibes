@@ -97,6 +97,29 @@ def hero_section() -> Section:
     )
 
 
+def trust_strip() -> Section:
+    """Typographic trust bar — swap placeholder names for verified clients before launch."""
+    # TODO: replace with actual client names once confirmed
+    _brands = [
+        "Growth Media Co.",
+        "Launchpad Studio",
+        "Brandwave",
+        "AdVenture Creative",
+        "Scale Agency",
+    ]
+    return Section(
+        P(
+            "USED BY TEAMS AT",
+            cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-5",
+        ),
+        Div(
+            *[Span(b, cls="text-sm font-semibold text-muted-foreground/50 px-1") for b in _brands],
+            cls="flex flex-wrap items-center justify-center gap-x-8 gap-y-2",
+        ),
+        cls="py-8 border-y border-border bg-muted/30 text-center",
+    )
+
+
 def _hero_section_unused_placeholder() -> None:  # kept for diff readability
     # Chart bar heights (0-100 representing engagement)
     ENGAGEMENT_HEIGHTS = [35, 50, 42, 65, 78, 72, 88, 95]
@@ -882,9 +905,6 @@ def engagement_slider_section() -> Section:
                     title=card["title"],
                     desc=card["desc"],
                     accent=card["accent"],
-                    accent_light=card["accent_light"],
-                    image=card["image"],
-                    alt=card["alt"],
                     link_color=card["link_color"],
                 )
                 for card in slide_data
@@ -933,41 +953,20 @@ def slider_card(
     title: str,
     desc: str,
     accent: str,
-    accent_light: str,
-    image: str,
-    alt: str,
     link_color: str,
 ) -> Card:
-    """
-    Slider card using MonsterUI Card component
-    - Image on top with icon badge
-    - Content below with gradient text link
-    """
+    """Slider card — gradient panel header, no external image dependency."""
 
     return Card(
-        # Image container with overlay
+        # Gradient panel replaces Unsplash stock photo
         Div(
-            # Background image
-            Img(
-                src=image,
-                alt=alt,
-                cls="w-full h-48 object-cover",
-                loading="lazy",
-            ),
-            # Gradient overlay
+            Div(cls=f"absolute inset-0 bg-gradient-to-br {accent}"),
             Div(
-                cls="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80"
+                cls="absolute inset-0 opacity-10",
+                style="background-image:radial-gradient(circle,#fff 1px,transparent 1px);background-size:20px 20px;",
             ),
-            # Icon badge (floats over image)
             Div(
-                Span(icon, cls="text-4xl"),
-                cls=(
-                    f"absolute top-4 right-4 "
-                    f"w-14 h-14 rounded-full flex items-center justify-center "
-                    f"bg-gradient-to-br {accent} "
-                    f"shadow-xl border-2 border-white/30 "
-                    f"backdrop-blur-md"
-                ),
+                Span(icon, cls="text-5xl"), cls="absolute inset-0 flex items-center justify-center"
             ),
             cls="relative h-48 rounded-t-2xl overflow-hidden",
         ),

@@ -88,6 +88,7 @@ from components.sections import (
     section_wrapper,
     testimonial_card,
     testimonials_section,
+    trust_strip,
 )
 from components.steps import StepProgress
 
@@ -148,6 +149,7 @@ __all__ = [
     "ExploreGridSection",
     "SectionDivider",
     "engagement_slider_section",
+    "trust_strip",
     # Dashboard Components
     "AnalyticsDashboardSection",
     "AnalyticsHeader",
