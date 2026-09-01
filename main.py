@@ -493,7 +493,7 @@ def index(req, sess):
     """Homepage - public route"""
 
     def _Section(*c, **kwargs):
-        return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-48", **kwargs)
+        return Section(*c, cls=f"{SECTION_BASE} space-y-3 my-16", **kwargs)
 
     # Ensure all components are wrapped safely
     sections = [

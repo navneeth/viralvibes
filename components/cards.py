@@ -1481,8 +1481,8 @@ def ListsFeatureShowcase():
         Div(
             Div(
                 Span(
-                    "✨ NEW FEATURE",
-                    cls="inline-block px-3 py-1 rounded-full bg-red-100 text-red-600 text-sm font-semibold mb-4",
+                    "CREATOR DISCOVERY",
+                    cls="inline-block text-xs font-semibold text-red-600 uppercase tracking-widest mb-4",
                 ),
                 H2(
                     "Discover 1M+ Creators",

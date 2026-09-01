@@ -431,7 +431,10 @@ def features_section():
                 P(desc, cls="text-sm text-muted-foreground leading-relaxed"),
                 cls="flex flex-col items-center text-center h-full",
             ),
-            cls=(CardT.hover, "p-6 transition-all duration-300"),
+            cls=(
+                CardT.hover,
+                "p-6 transition-all duration-300 ring-1 ring-border hover:ring-red-500/30 hover:shadow-lg hover:shadow-red-500/5",
+            ),
         )
         for icon, title, desc in feature_items
     ]
