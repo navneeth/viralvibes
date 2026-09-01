@@ -160,6 +160,24 @@ def EstimatedBadge(detail: str = "") -> Span:
     )
 
 
+def YtSourceBadge() -> Span:
+    """Sky-blue 'yt' badge for metrics sourced directly from the YouTube API."""
+    tip = "Sourced directly from the YouTube API."
+    return Span(
+        "yt",
+        title=tip,
+        tabindex="0",
+        aria_label=f"YouTube API — {tip}",
+        cls=(
+            "text-[9px] font-mono font-bold tracking-wide "
+            "px-1.5 py-0.5 rounded "
+            "bg-sky-50 text-sky-600 border border-sky-200 "
+            "cursor-default select-none "
+            "focus:outline-none focus:ring-1 focus:ring-sky-300"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # YouTube channel button — compliant with YouTube API branding guidelines.
 #
