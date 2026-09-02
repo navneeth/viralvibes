@@ -209,40 +209,36 @@ def known_creator_similarity_section() -> Section:
     copy = Div(
         P(
             "FROM KNOWN CREATOR TO RELEVANT LOOKALIKES",
-            cls="font-mono text-xs font-medium text-muted-foreground uppercase tracking-widest mb-5",
+            cls="text-sm font-semibold text-red-600 uppercase tracking-wider mb-4",
         ),
         H2(
             "See the ",
             Span("why", cls="text-red-500"),
             " behind the match.",
-            cls="text-4xl lg:text-5xl font-bold text-foreground leading-tight tracking-tight mb-6",
+            cls="text-4xl lg:text-5xl font-bold text-foreground leading-tight mb-6",
         ),
         P(
             "Semantic embeddings and content similarity turn a proven reference into a "
             "defensible peer set. The output is not a recommendation—it is a better place "
             "to look next.",
-            cls="text-foreground/80 text-lg leading-relaxed mb-8 max-w-lg",
+            cls="text-muted-foreground text-lg leading-relaxed mb-8 max-w-lg",
         ),
         Div(
             A(
+                UkIcon("sparkles", cls="w-5 h-5"),
                 Span("Inspect the prototype"),
-                UkIcon(
-                    "arrow-up-right",
-                    cls="w-4 h-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5",
-                ),
+                UkIcon("arrow-up-right", cls="w-4 h-4"),
                 href="/creators",
                 cls=(
-                    "group inline-flex items-center gap-2 "
-                    "font-mono text-xs font-semibold uppercase tracking-wider "
-                    "text-foreground underline underline-offset-8 decoration-1 "
-                    "hover:text-red-500 hover:decoration-red-500 "
-                    "transition-colors"
+                    "inline-flex items-center gap-2 px-6 py-3 rounded-lg "
+                    "bg-red-500 hover:bg-red-600 text-white font-semibold "
+                    "transition-colors no-underline"
                 ),
             ),
             P(
                 UkIcon("bookmark", cls="w-4 h-4 inline mr-1 align-[-2px]"),
                 Span("Sign in to save your shortlist and revisit later."),
-                cls="text-sm text-muted-foreground mt-5",
+                cls="text-sm text-muted-foreground mt-4",
             ),
             cls="flex flex-col items-start",
         ),
@@ -258,7 +254,7 @@ def known_creator_similarity_section() -> Section:
             ),
             cls="max-w-7xl mx-auto px-6 lg:px-16",
         ),
-        cls="relative overflow-hidden bg-stone-100 py-16 lg:py-24",
+        cls="relative overflow-hidden bg-muted py-16 lg:py-24",
         id="lookalike-match-section",
     )
 
