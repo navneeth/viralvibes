@@ -15,6 +15,7 @@ Contains:
 from urllib.parse import urlencode
 
 from fasthtml.common import *
+from fasthtml.svg import Circle, Line, Rect, Svg
 from monsterui.all import *
 
 from components.base import DivFullySpaced, DivHStacked, maxpx, maxrem, styled_div
@@ -154,7 +155,7 @@ def _lookalike_graph_panel() -> Div:
                 "radial-gradient(circle at 80% 80%, rgba(59,130,246,0.15), transparent 35%)"
             ),
         ),
-        SVG(
+        Svg(
             *grid_rings,
             *edges,
             Circle(cx=430, cy=235, r=20, fill="#FFFFFF", opacity="0.95"),
