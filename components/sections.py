@@ -12,8 +12,6 @@ Contains:
 - Footer
 """
 
-from urllib.parse import urlencode
-
 from fasthtml.common import *
 from fasthtml.svg import Circle, Line, Rect, Svg
 from monsterui.all import *
@@ -208,8 +206,6 @@ def _lookalike_graph_panel() -> Div:
 
 def known_creator_similarity_section() -> Section:
     """Editorial proof section for mapping a known creator to relevant lookalikes."""
-    login_href = f"/login?{urlencode({'return_url': '/creators'})}"
-
     copy = Div(
         P(
             "FROM KNOWN CREATOR TO RELEVANT LOOKALIKES",
@@ -230,9 +226,9 @@ def known_creator_similarity_section() -> Section:
         Div(
             A(
                 UkIcon("sparkles", cls="w-5 h-5"),
-                Span("Sign in to inspect the prototype"),
+                Span("Inspect the prototype"),
                 UkIcon("arrow-up-right", cls="w-4 h-4"),
-                href=login_href,
+                href="/creators",
                 cls=(
                     "inline-flex items-center gap-2 px-6 py-3 rounded-lg "
                     "bg-red-500 hover:bg-red-600 text-white font-semibold "
@@ -240,8 +236,8 @@ def known_creator_similarity_section() -> Section:
                 ),
             ),
             P(
-                UkIcon("lock", cls="w-4 h-4 inline mr-1 align-[-2px]"),
-                Span("Google sign-in required to access the creator shortlist."),
+                UkIcon("bookmark", cls="w-4 h-4 inline mr-1 align-[-2px]"),
+                Span("Sign in to save your shortlist and revisit later."),
                 cls="text-sm text-muted-foreground mt-4",
             ),
             cls="flex flex-col items-start",
