@@ -84,6 +84,7 @@ from components.sections import (
     # Full-page section builders
     hero_section,
     how_it_works_section,
+    known_creator_similarity_section,
     section_header,
     section_wrapper,
     testimonial_card,
@@ -149,6 +150,7 @@ __all__ = [
     "ExploreGridSection",
     "SectionDivider",
     "engagement_slider_section",
+    "known_creator_similarity_section",
     "trust_strip",
     # Dashboard Components
     "AnalyticsDashboardSection",
