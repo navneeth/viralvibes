@@ -51,6 +51,7 @@ from components import (
     footer,
     hero_section,
     how_it_works_section,
+    known_creator_similarity_section,
     trust_strip,
 )
 from components.modals import ExportModal, ShareModal
@@ -500,6 +501,7 @@ def index(req, sess):
     sections = [
         hero_section() or Div(),  # Full-screen hero (wraps HeaderCard)
         trust_strip(),
+        known_creator_similarity_section(),
         engagement_slider_section() or Div(),
         CoreValuePropsSection(),  # 4-box value props section
         ListsFeatureShowcase(),  # NEW: Lists feature showcase with screenshot
