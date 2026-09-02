@@ -13,6 +13,7 @@ Contains:
 """
 
 from fasthtml.common import *
+from fasthtml.svg import Circle, Line, Rect, Svg
 from monsterui.all import *
 
 from components.base import DivFullySpaced, DivHStacked, maxpx, maxrem, styled_div
@@ -117,6 +118,148 @@ def trust_strip() -> Section:
             cls="flex flex-wrap items-center justify-center gap-x-8 gap-y-2",
         ),
         cls="py-8 border-y border-border bg-muted/30 text-center",
+    )
+
+
+def _lookalike_graph_panel() -> Div:
+    """Dark SVG node graph used by known_creator_similarity_section."""
+    grid_rings = [
+        Circle(cx=430, cy=235, r=r, fill="none", stroke="rgba(255,255,255,0.16)", stroke_width=1)
+        for r in (120, 180, 240)
+    ]
+    edges = [
+        Line(x1=430, y1=235, x2=x, y2=y, stroke="rgba(255,255,255,0.35)", stroke_width=1.5)
+        for x, y in ((255, 170), (295, 300), (560, 150), (620, 270), (590, 340), (270, 360))
+    ]
+    lookalikes = [
+        Circle(cx=255, cy=170, r=12, cls="fill-red-500"),
+        Circle(cx=295, cy=300, r=10, cls="fill-red-500"),
+        Circle(cx=560, cy=150, r=10, cls="fill-blue-500"),
+        Circle(cx=620, cy=270, r=12, cls="fill-red-500"),
+        Circle(cx=590, cy=340, r=9, fill="#E8EEFF"),
+        Circle(cx=270, cy=360, r=9, cls="fill-blue-500"),
+    ]
+    micro_dots = [
+        Circle(cx=x, cy=y, r=2, fill="#FFFFFF", opacity="0.45")
+        for x, y in ((120, 110), (140, 125), (705, 250), (720, 290), (660, 150))
+    ]
+
+    return Div(
+        Div(
+            cls="absolute inset-0 pointer-events-none",
+            style=(
+                "background:"
+                "radial-gradient(circle at 20% 10%, rgba(239,68,68,0.18), transparent 28%),"
+                "radial-gradient(circle at 80% 80%, rgba(59,130,246,0.15), transparent 35%)"
+            ),
+        ),
+        Svg(
+            *grid_rings,
+            *edges,
+            Circle(cx=430, cy=235, r=20, fill="#FFFFFF", opacity="0.95"),
+            Circle(cx=430, cy=235, r=38, fill="#FFFFFF", opacity="0.12"),
+            Circle(
+                cx=430,
+                cy=235,
+                r=58,
+                fill="none",
+                stroke="#FFFFFF",
+                stroke_opacity="0.18",
+                stroke_width=1,
+            ),
+            *lookalikes,
+            Rect(
+                x=150,
+                y=90,
+                width=90,
+                height=90,
+                rx=16,
+                fill="none",
+                stroke="rgba(255,255,255,0.38)",
+                stroke_width=1,
+            ),
+            Rect(
+                x=660,
+                y=330,
+                width=95,
+                height=70,
+                rx=16,
+                fill="none",
+                stroke="rgba(255,255,255,0.38)",
+                stroke_width=1,
+            ),
+            *micro_dots,
+            viewBox="0 0 860 470",
+            cls="relative h-[470px] w-full",
+            xmlns="http://www.w3.org/2000/svg",
+        ),
+        Div(
+            P(
+                "KNOWN CREATOR → LOOKALIKE SET",
+                cls="text-xs font-semibold text-red-500 uppercase tracking-widest",
+            ),
+            cls="absolute left-6 bottom-5",
+        ),
+        cls="relative overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 shadow-2xl",
+    )
+
+
+def known_creator_similarity_section() -> Section:
+    """Editorial proof section for mapping a known creator to relevant lookalikes."""
+    copy = Div(
+        P(
+            "FROM KNOWN CREATOR TO RELEVANT LOOKALIKES",
+            cls="font-mono text-xs font-medium text-muted-foreground uppercase tracking-widest mb-5",
+        ),
+        H2(
+            "See the ",
+            Span("why", cls="text-red-500"),
+            " behind the match.",
+            cls="text-4xl lg:text-5xl font-bold text-foreground leading-tight tracking-tight mb-6",
+        ),
+        P(
+            "Semantic embeddings and content similarity turn a proven reference into a "
+            "defensible peer set. The output is not a recommendation—it is a better place "
+            "to look next.",
+            cls="text-foreground/80 text-lg leading-relaxed mb-8 max-w-lg",
+        ),
+        Div(
+            A(
+                Span("Inspect the prototype"),
+                UkIcon(
+                    "arrow-up-right",
+                    cls="w-4 h-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5",
+                ),
+                href="/creators",
+                cls=(
+                    "group inline-flex items-center gap-2 "
+                    "font-mono text-xs font-semibold uppercase tracking-wider "
+                    "text-foreground underline underline-offset-8 decoration-1 "
+                    "hover:text-red-500 hover:decoration-red-500 "
+                    "transition-colors"
+                ),
+            ),
+            P(
+                UkIcon("bookmark", cls="w-4 h-4 inline mr-1 align-[-2px]"),
+                Span("Sign in to save your shortlist and revisit later."),
+                cls="text-sm text-muted-foreground mt-5",
+            ),
+            cls="flex flex-col items-start",
+        ),
+        cls="flex flex-col justify-center",
+    )
+
+    return Section(
+        Container(
+            Div(
+                copy,
+                _lookalike_graph_panel(),
+                cls="grid items-center gap-10 lg:gap-16 lg:grid-cols-[0.95fr_1.25fr]",
+            ),
+            cls="max-w-7xl mx-auto px-6 lg:px-16",
+        ),
+        cls="relative overflow-hidden bg-stone-100 py-16 lg:py-24",
+        id="lookalike-match-section",
     )
 
 
