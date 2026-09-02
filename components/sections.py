@@ -13,7 +13,7 @@ Contains:
 """
 
 from fasthtml.common import *
-from fasthtml.svg import Circle, Line, Rect, Svg
+from fasthtml.svg import Circle, G, Line, Svg, Title
 from monsterui.all import *
 
 from components.base import DivFullySpaced, DivHStacked, maxpx, maxrem, styled_div
@@ -121,23 +121,64 @@ def trust_strip() -> Section:
     )
 
 
+_LOOKALIKE_HOVER_CSS = """
+.vv-la-graph .vv-la-pair { transition: opacity 180ms ease-out; cursor: pointer; }
+.vv-la-graph .vv-la-edge { transition: stroke 180ms ease-out, stroke-width 180ms ease-out; }
+.vv-la-graph:hover .vv-la-pair { opacity: 0.28; }
+.vv-la-graph:hover .vv-la-pair:hover { opacity: 1; }
+.vv-la-graph .vv-la-pair:hover .vv-la-edge { stroke: rgba(255,255,255,0.9); stroke-width: 2.5; }
+"""
+
+
+def _reticle_brackets(x: int, y: int, w: int, h: int, size: int = 14) -> list:
+    """Four L-shaped corner marks framing an invisible bounding box."""
+    stroke = "rgba(255,255,255,0.5)"
+    sw = 1.25
+    x2, y2 = x + w, y + h
+    return [
+        Line(x1=x, y1=y, x2=x + size, y2=y, stroke=stroke, stroke_width=sw),
+        Line(x1=x, y1=y, x2=x, y2=y + size, stroke=stroke, stroke_width=sw),
+        Line(x1=x2, y1=y, x2=x2 - size, y2=y, stroke=stroke, stroke_width=sw),
+        Line(x1=x2, y1=y, x2=x2, y2=y + size, stroke=stroke, stroke_width=sw),
+        Line(x1=x, y1=y2, x2=x + size, y2=y2, stroke=stroke, stroke_width=sw),
+        Line(x1=x, y1=y2, x2=x, y2=y2 - size, stroke=stroke, stroke_width=sw),
+        Line(x1=x2, y1=y2, x2=x2 - size, y2=y2, stroke=stroke, stroke_width=sw),
+        Line(x1=x2, y1=y2, x2=x2, y2=y2 - size, stroke=stroke, stroke_width=sw),
+    ]
+
+
 def _lookalike_graph_panel() -> Div:
     """Dark SVG node graph used by known_creator_similarity_section."""
+    # (x, y, radius, fill, similarity_pct)
+    lookalikes = [
+        (255, 170, 12, "#EF4444", 94),
+        (295, 300, 10, "#EF4444", 91),
+        (560, 150, 10, "#3B82F6", 87),
+        (620, 270, 12, "#EF4444", 89),
+        (590, 340, 9, "#E8EEFF", 82),
+        (270, 360, 9, "#3B82F6", 78),
+    ]
+    pairs = [
+        G(
+            Line(
+                x1=430,
+                y1=235,
+                x2=x,
+                y2=y,
+                stroke="rgba(255,255,255,0.35)",
+                stroke_width=1.5,
+                cls="vv-la-edge",
+            ),
+            Circle(cx=x, cy=y, r=r, fill=fill),
+            Title(f"{sim}% similarity"),
+            cls="vv-la-pair",
+        )
+        for x, y, r, fill, sim in lookalikes
+    ]
+
     grid_rings = [
         Circle(cx=430, cy=235, r=r, fill="none", stroke="rgba(255,255,255,0.16)", stroke_width=1)
         for r in (120, 180, 240)
-    ]
-    edges = [
-        Line(x1=430, y1=235, x2=x, y2=y, stroke="rgba(255,255,255,0.35)", stroke_width=1.5)
-        for x, y in ((255, 170), (295, 300), (560, 150), (620, 270), (590, 340), (270, 360))
-    ]
-    lookalikes = [
-        Circle(cx=255, cy=170, r=12, cls="fill-red-500"),
-        Circle(cx=295, cy=300, r=10, cls="fill-red-500"),
-        Circle(cx=560, cy=150, r=10, cls="fill-blue-500"),
-        Circle(cx=620, cy=270, r=12, cls="fill-red-500"),
-        Circle(cx=590, cy=340, r=9, fill="#E8EEFF"),
-        Circle(cx=270, cy=360, r=9, cls="fill-blue-500"),
     ]
     micro_dots = [
         Circle(cx=x, cy=y, r=2, fill="#FFFFFF", opacity="0.45")
@@ -154,8 +195,8 @@ def _lookalike_graph_panel() -> Div:
             ),
         ),
         Svg(
+            Style(_LOOKALIKE_HOVER_CSS),
             *grid_rings,
-            *edges,
             Circle(cx=430, cy=235, r=20, fill="#FFFFFF", opacity="0.95"),
             Circle(cx=430, cy=235, r=38, fill="#FFFFFF", opacity="0.12"),
             Circle(
@@ -167,30 +208,12 @@ def _lookalike_graph_panel() -> Div:
                 stroke_opacity="0.18",
                 stroke_width=1,
             ),
-            *lookalikes,
-            Rect(
-                x=150,
-                y=90,
-                width=90,
-                height=90,
-                rx=16,
-                fill="none",
-                stroke="rgba(255,255,255,0.38)",
-                stroke_width=1,
-            ),
-            Rect(
-                x=660,
-                y=330,
-                width=95,
-                height=70,
-                rx=16,
-                fill="none",
-                stroke="rgba(255,255,255,0.38)",
-                stroke_width=1,
-            ),
+            *pairs,
+            *_reticle_brackets(150, 90, 90, 90),
+            *_reticle_brackets(660, 330, 95, 70),
             *micro_dots,
             viewBox="0 0 860 470",
-            cls="relative h-[470px] w-full",
+            cls="vv-la-graph relative h-[470px] w-full",
             xmlns="http://www.w3.org/2000/svg",
         ),
         Div(
@@ -198,63 +221,99 @@ def _lookalike_graph_panel() -> Div:
                 "KNOWN CREATOR → LOOKALIKE SET",
                 cls="text-xs font-semibold text-red-500 uppercase tracking-widest",
             ),
-            cls="absolute left-6 bottom-5",
+            cls="absolute left-6 bottom-5 pointer-events-none",
         ),
         cls="relative overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 shadow-2xl",
     )
 
 
 def known_creator_similarity_section() -> Section:
-    """Editorial proof section for mapping a known creator to relevant lookalikes."""
-    copy = Div(
-        P(
-            "FROM KNOWN CREATOR TO RELEVANT LOOKALIKES",
-            cls="text-sm font-semibold text-red-600 uppercase tracking-wider mb-4",
-        ),
-        H2(
-            "See the ",
-            Span("why", cls="text-red-500"),
-            " behind the match.",
-            cls="text-4xl lg:text-5xl font-bold text-foreground leading-tight mb-6",
-        ),
-        P(
-            "Semantic embeddings and content similarity turn a proven reference into a "
-            "defensible peer set. The output is not a recommendation—it is a better place "
-            "to look next.",
-            cls="text-muted-foreground text-lg leading-relaxed mb-8 max-w-lg",
-        ),
+    """Feature showcase for known-creator-to-lookalikes similarity matching.
+
+    Follows the ListsFeatureShowcase pattern: centered marketing header
+    above a split layout (visual left, content right).
+    """
+    header = Div(
         Div(
-            A(
-                UkIcon("sparkles", cls="w-5 h-5"),
-                Span("Inspect the prototype"),
-                UkIcon("arrow-up-right", cls="w-4 h-4"),
-                href="/creators",
-                cls=(
-                    "inline-flex items-center gap-2 px-6 py-3 rounded-lg "
-                    "bg-red-500 hover:bg-red-600 text-white font-semibold "
-                    "transition-colors no-underline"
-                ),
+            Span(
+                "SIMILARITY MATCHING",
+                cls="inline-block text-xs font-semibold text-red-600 uppercase tracking-widest mb-4",
+            ),
+            H2(
+                "See the ",
+                Span("why", cls="text-red-500"),
+                " behind the match.",
+                cls="text-4xl lg:text-5xl font-bold text-foreground mb-4",
             ),
             P(
-                UkIcon("bookmark", cls="w-4 h-4 inline mr-1 align-[-2px]"),
-                Span("Sign in to save your shortlist and revisit later."),
-                cls="text-sm text-muted-foreground mt-4",
+                "Semantic embeddings and content similarity turn a proven reference "
+                "into a defensible peer set — a better place to look next, not just "
+                "another recommendation.",
+                cls="text-xl text-muted-foreground max-w-2xl",
             ),
-            cls="flex flex-col items-start",
+            cls="text-center mx-auto max-w-4xl mb-16",
         ),
-        cls="flex flex-col justify-center",
+        cls="container mx-auto px-4 lg:px-8 py-16",
+    )
+
+    content = Div(
+        Div(
+            UkIcon("radar", cls="size-6 text-red-500"),
+            cls="inline-flex items-center justify-center size-14 rounded-2xl bg-red-100 mb-6",
+        ),
+        H3(
+            "From one known creator to a ranked peer set",
+            cls="text-3xl font-bold text-foreground mb-4",
+        ),
+        P(
+            "Give us a creator you already trust. We surface the closest matches "
+            "by content topics, audience overlap, and engagement shape — with a "
+            "similarity score you can defend to a client.",
+            cls="text-lg text-muted-foreground mb-6 leading-relaxed",
+        ),
+        Div(
+            Div(
+                UkIcon("check-circle", cls="size-5 text-green-500"),
+                Span(
+                    "Explainable similarity, not a black box", cls="font-semibold text-foreground"
+                ),
+                cls="flex items-center gap-2",
+            ),
+            cls=(
+                "inline-flex px-4 py-2 rounded-full bg-green-50 dark:bg-green-950/30 "
+                "border border-green-200 dark:border-green-900"
+            ),
+        ),
+        A(
+            Span("Explore creators"),
+            UkIcon(
+                "arrow-right",
+                cls="size-4 transition-transform group-hover:translate-x-1",
+            ),
+            href="/creators",
+            cls=(
+                "group inline-flex items-center gap-2 mt-8 px-6 py-3 rounded-lg "
+                "bg-red-500 text-white font-medium hover:bg-red-600 transition-colors"
+            ),
+        ),
+        P(
+            UkIcon("bookmark", cls="size-4 inline mr-1 align-[-2px]"),
+            Span("Sign in to save your shortlist and revisit later."),
+            cls="text-sm text-muted-foreground mt-4",
+        ),
+        cls="flex-1 flex flex-col justify-center",
+    )
+
+    split = Div(
+        Div(_lookalike_graph_panel(), cls="relative flex-1"),
+        content,
+        cls="container mx-auto px-4 lg:px-8 flex flex-col lg:flex-row gap-12 lg:gap-16 items-center",
     )
 
     return Section(
-        Container(
-            Div(
-                copy,
-                _lookalike_graph_panel(),
-                cls="grid items-center gap-10 lg:gap-16 lg:grid-cols-[0.95fr_1.25fr]",
-            ),
-            cls="max-w-7xl mx-auto px-6 lg:px-16",
-        ),
-        cls="relative overflow-hidden bg-muted py-16 lg:py-24",
+        header,
+        split,
+        cls="py-20 bg-gradient-to-b from-background via-muted to-background overflow-hidden",
         id="lookalike-match-section",
     )
 
