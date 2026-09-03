@@ -3219,10 +3219,30 @@ def add_creator_by_handle(
 
 
 class CreatorsResult(NamedTuple):
-    """Result from get_creators with pagination metadata."""
+    """Result from get_creators with pagination metadata.
+
+    ``degraded`` is True when the empty result is a fallback from a statement
+    timeout or connection-pool exhaustion, not a genuine zero-match query.
+    Routes surface this to the UI so users see "try loosening filters"
+    instead of "no creators match", which is misleading during an outage.
+    """
 
     creators: list[dict]
     total_count: int
+    degraded: bool = False
+
+
+# Sort keys grouped by which composite index migration covers them.  Used by
+# get_creators() to point operators at the correct migration when the query
+# times out (57014) — a wrong hint here led to migration 048 being applied
+# for a newest_channel timeout that only migration 058 fixes.
+_SORT_MIGRATION_HINT: dict[str, str] = {
+    "views": "048",
+    "subscribers": "048",
+    "engagement": "048",
+    "newest_channel": "058",
+    "oldest_channel": "058",
+}
 
 
 def _normalize_creator_handle(handle: str) -> str:
@@ -3747,11 +3767,28 @@ def get_creators(
                         category_filter,
                     )
                 else:
+                    # Migrations 048 and 058 both create grade-LEADING composite
+                    # indexes: (quality_grade, <sort_col> DESC).  They only help
+                    # queries that also filter by a specific grade equality.  When
+                    # grade_filter is 'all' the composite can't be seeked, so the
+                    # hint would be actively misleading.
+                    migration_hint = (
+                        _SORT_MIGRATION_HINT.get(sort)
+                        if grade_filter in ("A+", "A", "B+", "B", "C")
+                        else None
+                    )
+                    if migration_hint:
+                        hint_suffix = f" Apply migration {migration_hint} to fix."
+                    else:
+                        hint_suffix = (
+                            " Residual filters are likely too restrictive; "
+                            "loosen country/category or narrow the grade."
+                        )
                     logger.warning(
                         "get_creators timed out (57014) — returning empty. "
                         "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
                         "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
-                        "country=%s, category=%s]. Apply migration 048 to fix.",
+                        "country=%s, category=%s].%s",
                         sort,
                         limit,
                         offset,
@@ -3762,10 +3799,18 @@ def get_creators(
                         age_filter,
                         country_filter,
                         category_filter,
+                        hint_suffix,
                     )
+                # Preserve the documented return contract: callers who pass
+                # return_count=True expect CreatorsResult and read .degraded to
+                # render an honest timeout message; callers without return_count
+                # expect list[dict] and iterate it (e.g. _get_similar_creators,
+                # services/outreach_lists).  Returning CreatorsResult to the
+                # latter shape would iterate as (creators, total_count, degraded)
+                # and crash the first .get() call.
                 if return_count:
-                    return CreatorsResult([], 0)
-                return CreatorsResult([], 0)  # signals degradation; route checks isinstance
+                    return CreatorsResult([], 0, degraded=True)
+                return []
 
             logger.error(
                 f"Query execution failed: {type(e).__name__}: {str(e)}\n"
