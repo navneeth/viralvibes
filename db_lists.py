@@ -590,6 +590,11 @@ try:
         _httpx.ConnectTimeout,
         _httpx.ConnectError,
         _httpx.ReadError,
+        # WriteError/WriteTimeout: transient HTTP/2 broken-pipe on Vercel cold-warm
+        # transitions.  _rpc_with_retry is only used for read RPCs so retry is
+        # safe even if some request bytes reached the server.
+        _httpx.WriteError,
+        _httpx.WriteTimeout,
     )
 except ImportError:
     _HTTPX_ERRORS = ()

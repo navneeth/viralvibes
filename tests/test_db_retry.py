@@ -1,76 +1,112 @@
-"""Regression tests for db._is_transient_disconnect.
+"""Regression tests for db retry-scope predicates.
 
 Guards the retry-scope decisions documented in db.py so future changes
 cannot silently drop coverage for known-transient HTTP/2 transport errors
-observed in production (Vercel + Supabase logs).
+observed in production (Vercel + Supabase logs), and cannot silently
+broaden the write-safe predicate to include errors that may fire after
+the server has partially received a request.
 """
 
 import pytest
 
-from db import _is_transient_disconnect
+from db import _is_transient_disconnect, _is_transient_transport_readonly
 
 
-# ── Types that must be treated as transient ──────────────────────────────
+def _named_exc(name: str):
+    """Build a throwaway exception class with a chosen __name__.
+
+    db.py matches httpx/httpcore transient errors by class name (not
+    isinstance) to survive vendored subclass differences across deploy
+    targets; tests mirror that by faking the class name.
+    """
+    return type(name, (Exception,), {})
 
 
-class _FakeRemoteProtocolError(Exception):
-    pass
+_RemoteProtocolError = _named_exc("RemoteProtocolError")
+_WriteError = _named_exc("WriteError")
+_WriteTimeout = _named_exc("WriteTimeout")
+_ReadError = _named_exc("ReadError")
+_ReadTimeout = _named_exc("ReadTimeout")
+_ConnectError = _named_exc("ConnectError")
+_ConnectTimeout = _named_exc("ConnectTimeout")
 
 
-_FakeRemoteProtocolError.__name__ = "RemoteProtocolError"
-
-
-class _FakeWriteError(Exception):
-    pass
-
-
-_FakeWriteError.__name__ = "WriteError"
-
-
-class _FakeConnectError(Exception):
-    pass
-
-
-_FakeConnectError.__name__ = "ConnectError"
+# ── _is_transient_disconnect: STRICT set (safe for reads AND writes) ─────
 
 
 @pytest.mark.parametrize(
     "exc",
     [
-        _FakeRemoteProtocolError("Server disconnected"),
-        _FakeWriteError("[Errno 32] Broken pipe"),
-        _FakeConnectError("connection refused"),
-        BrokenPipeError("[Errno 32] Broken pipe"),
-        ConnectionResetError("peer reset"),
-        Exception("[Errno 32] Broken pipe"),  # matched by string fallback
+        _RemoteProtocolError("Server disconnected"),
+        _ConnectError("connection refused"),
+        _ConnectTimeout("connect timeout"),
         RuntimeError("dictionary changed size during iteration"),
         RuntimeError("deque mutated during iteration"),
-        KeyError(3),  # HTTP/2 client stream ids are odd
+        KeyError(3),
     ],
 )
-def test_transient_disconnect_matches(exc):
+def test_strict_matches_pre_dispatch_errors(exc):
     assert _is_transient_disconnect(exc) is True
 
 
-# ── Types that must NOT be treated as transient ───────────────────────────
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _WriteError("[Errno 32] Broken pipe"),
+        _WriteTimeout("write timeout"),
+        _ReadError("read error"),
+        _ReadTimeout("read timeout"),
+        Exception("[Errno 32] Broken pipe"),
+        ValueError("bad payload"),
+        KeyError("user_id"),
+        KeyError(2),
+        RuntimeError("unrelated"),
+    ],
+)
+def test_strict_does_not_match_post_dispatch_or_unrelated(exc):
+    assert _is_transient_disconnect(exc) is False
+
+
+def test_strict_matches_when_cause_is_transient():
+    root = _RemoteProtocolError("Server disconnected")
+    wrapped = Exception("query failed")
+    wrapped.__cause__ = root
+    assert _is_transient_disconnect(wrapped) is True
+
+
+# ── _is_transient_transport_readonly: broader set (idempotent reads only)
 
 
 @pytest.mark.parametrize(
     "exc",
     [
-        ValueError("bad payload"),
-        KeyError("user_id"),  # non-integer key, application bug
-        KeyError(2),  # even integer, not an HTTP/2 stream id
-        RuntimeError("unrelated"),
-        Exception("timeout: statement canceled"),  # 57014 handled elsewhere
+        _RemoteProtocolError("Server disconnected"),
+        _ConnectError("connection refused"),
+        _WriteError("[Errno 32] Broken pipe"),
+        _WriteTimeout("write timeout"),
+        _ReadError("read error"),
+        _ReadTimeout("read timeout"),
     ],
 )
-def test_non_transient_not_matched(exc):
-    assert _is_transient_disconnect(exc) is False
+def test_readonly_matches_broader_transport_errors(exc):
+    assert _is_transient_transport_readonly(exc) is True
 
 
-def test_matches_when_cause_is_transient():
-    root = _FakeWriteError("[Errno 32] Broken pipe")
+@pytest.mark.parametrize(
+    "exc",
+    [
+        Exception("[Errno 32] Broken pipe"),
+        ValueError("bad payload"),
+        KeyError("user_id"),
+        RuntimeError("unrelated"),
+    ],
+)
+def test_readonly_does_not_match_unrelated(exc):
+    assert _is_transient_transport_readonly(exc) is False
+
+
+def test_readonly_matches_when_cause_is_write_error():
+    root = _WriteError("[Errno 32] Broken pipe")
     wrapped = Exception("query failed")
     wrapped.__cause__ = root
-    assert _is_transient_disconnect(wrapped) is True
+    assert _is_transient_transport_readonly(wrapped) is True
