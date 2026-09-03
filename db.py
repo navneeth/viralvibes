@@ -55,16 +55,20 @@ logger = logging.getLogger("vv_db")
 # ==============================================================
 # 🔄 Transient-error retry helper
 # ==============================================================
-# Supabase uses HTTP/2 keep-alive connections.  Under load the server-side
-# idle timeout can fire between the client sending a request and receiving
-# the response headers, causing httpx / httpcore to raise:
+# Supabase uses HTTP/2 keep-alive connections.  Under load, or on serverless
+# platforms where idle sockets can be closed by the peer between invocations,
+# the client discovers the dead connection only on the next send() and raises
+# one of:
 #   httpx.RemoteProtocolError: Server disconnected
-# This is a transient transport error — the request never reached the DB.
-# A single immediate retry resolves it in practice.
+#   httpx.WriteError: [Errno 32] Broken pipe
+#   httpx.ConnectError: ...
+# These are transient transport errors — the request never reached the DB, so
+# retrying is safe for both reads and writes.
 #
-# We only retry on RemoteProtocolError (and its httpcore base).  All other
-# exceptions (PostgREST errors, auth failures, etc.) are NOT retried so we
-# don't mask genuine application bugs.
+# We match by exception class name (not isinstance) because httpx/httpcore
+# subclasses are vendored and the vendored path can differ across deploy
+# targets.  Non-transport exceptions (PostgREST errors, auth failures, etc.)
+# are NOT retried so we don't mask genuine application bugs.
 
 
 def _is_transient_disconnect(exc: BaseException) -> bool:
@@ -76,6 +80,23 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
 
     def _matches(e: BaseException) -> bool:
         if type(e).__name__ == "RemoteProtocolError" or "Server disconnected" in str(e):
+            return True
+        # httpx/httpcore transport errors that fire during connect or while sending
+        # request headers, before any request byte reaches the server.  On Vercel /
+        # Lambda cold-warm transitions, Supabase's edge closes idle HTTP/2 sockets
+        # between invocations and httpx only discovers this on the next send(),
+        # raising WriteError([Errno 32] Broken pipe) or ConnectError.  Because the
+        # request was never dispatched, retry is safe for reads AND writes.
+        if type(e).__name__ in (
+            "WriteError",
+            "WriteTimeout",
+            "ConnectError",
+            "ConnectTimeout",
+        ):
+            return True
+        if isinstance(e, (BrokenPipeError, ConnectionResetError)):
+            return True
+        if "Broken pipe" in str(e) or "Errno 32" in str(e):
             return True
         # h2 concurrent-stream thread-safety errors: the vendored h2 library
         # mutates its stream dict while another thread is iterating it.  These
