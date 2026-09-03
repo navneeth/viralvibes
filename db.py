@@ -53,29 +53,40 @@ logger = logging.getLogger("vv_db")
 
 
 # ==============================================================
-# 🔄 Transient-error retry helper
+# 🔄 Transient-error retry helpers
 # ==============================================================
-# Supabase uses HTTP/2 keep-alive connections.  Under load the server-side
-# idle timeout can fire between the client sending a request and receiving
-# the response headers, causing httpx / httpcore to raise:
-#   httpx.RemoteProtocolError: Server disconnected
-# This is a transient transport error — the request never reached the DB.
-# A single immediate retry resolves it in practice.
+# Supabase runs over HTTP/2 with keep-alive.  In serverless environments the
+# peer can close idle sockets between invocations; the client discovers the
+# dead connection only on the next send() and raises a transport error.
 #
-# We only retry on RemoteProtocolError (and its httpcore base).  All other
-# exceptions (PostgREST errors, auth failures, etc.) are NOT retried so we
-# don't mask genuine application bugs.
+# We split the retry policy into two tiers:
+#
+#   _is_transient_disconnect  — errors proven to occur BEFORE dispatch.
+#     Safe to retry for reads AND writes because the server never processed
+#     the request.  Wrapped by _db_execute() and used everywhere by default.
+#
+#   _is_transient_transport_readonly  — broader transport failures that may
+#     have partially reached the server (WriteError, ReadTimeout, etc.).
+#     Only safe to retry for idempotent reads.  Wrapped by
+#     _db_execute_readonly() and used at explicit call sites.
+#
+# Non-transport exceptions (PostgREST errors, auth failures, application
+# bugs) are NEVER retried so we don't mask genuine failures.  Matching is
+# by class name to survive vendored httpx/httpcore differences across
+# deploy targets.
 
 
 def _is_transient_disconnect(exc: BaseException) -> bool:
-    """Return True for HTTP/2 server-disconnect errors worth retrying.
-
-    Checks the exception and its direct __cause__ — the real transport error
-    is always one level deep in the httpx/httpcore chain.
-    """
+    """Match errors that are provably pre-dispatch — safe for reads AND writes."""
 
     def _matches(e: BaseException) -> bool:
+        # httpx.RemoteProtocolError: server closed the connection during a
+        # keep-alive idle window before receiving our request.
         if type(e).__name__ == "RemoteProtocolError" or "Server disconnected" in str(e):
+            return True
+        # ConnectError / ConnectTimeout: TCP connection never established,
+        # by definition nothing reached the server.
+        if type(e).__name__ in ("ConnectError", "ConnectTimeout"):
             return True
         # h2 concurrent-stream thread-safety errors: the vendored h2 library
         # mutates its stream dict while another thread is iterating it.  These
@@ -113,6 +124,28 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
+def _is_transient_transport_readonly(exc: BaseException) -> bool:
+    """Broader transport-error match — ONLY safe for idempotent reads.
+
+    Includes WriteError / ReadError / ReadTimeout on top of the pre-dispatch
+    set.  A WriteError can fire after some bytes reached the server, so a
+    blind retry on a mutation could duplicate rows; callers must guarantee
+    the operation is a pure read (SELECT, GET, RPC without side effects).
+    """
+    if _is_transient_disconnect(exc):
+        return True
+
+    def _matches(e: BaseException) -> bool:
+        return type(e).__name__ in (
+            "WriteError",
+            "WriteTimeout",
+            "ReadError",
+            "ReadTimeout",
+        )
+
+    return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
+
+
 # ---------------------------------------------------------------------------
 # HTTP/2 disconnect retry configuration
 # Extracted as constants so the policy can be tuned without code changes if
@@ -138,17 +171,43 @@ _with_disconnect_retry = retry(
     reraise=True,
 )
 
+_with_readonly_retry = retry(
+    retry=retry_if_exception(_is_transient_transport_readonly),
+    stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(
+        initial=_DISCONNECT_RETRY_INITIAL_S,
+        max=_DISCONNECT_RETRY_MAX_S,
+        jitter=_DISCONNECT_RETRY_JITTER_S,
+    ),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+
 
 def _db_execute(fn):
     """Invoke a zero-arg callable that runs a postgrest-py query, retrying
     once on transient HTTP/2 server-disconnect errors.  Always returns the
     query result directly — never a callable.
 
+    Safe for reads AND writes: only retries errors proven to occur before
+    the server dispatched the request.
+
     Usage::
 
         _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
     """
     return _with_disconnect_retry(fn)()
+
+
+def _db_execute_readonly(fn):
+    """Like _db_execute() but with a broader transient-error match.
+
+    ONLY use for idempotent reads (SELECT, RPC without side effects).  Also
+    retries on WriteError / ReadError / ReadTimeout which may fire after the
+    server already received some of the request bytes — retrying such an
+    operation would be unsafe for INSERT / UPDATE / UPSERT.
+    """
+    return _with_readonly_retry(fn)()
 
 
 # ==============================================================
@@ -3639,7 +3698,7 @@ def get_creators(
 
         # Execute query (count already included in select if needed)
         try:
-            response = _db_execute(lambda: query.execute())
+            response = _db_execute_readonly(lambda: query.execute())
         except Exception as e:
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
                 exact_creator = _find_creator_by_normalized_handle(search)
