@@ -3767,12 +3767,23 @@ def get_creators(
                         category_filter,
                     )
                 else:
-                    migration_hint = _SORT_MIGRATION_HINT.get(sort)
-                    hint_suffix = (
-                        f" Apply migration {migration_hint} to fix."
-                        if migration_hint
-                        else " No covering composite index for this sort dimension."
+                    # Migrations 048 and 058 both create grade-LEADING composite
+                    # indexes: (quality_grade, <sort_col> DESC).  They only help
+                    # queries that also filter by a specific grade equality.  When
+                    # grade_filter is 'all' the composite can't be seeked, so the
+                    # hint would be actively misleading.
+                    migration_hint = (
+                        _SORT_MIGRATION_HINT.get(sort)
+                        if grade_filter in ("A+", "A", "B+", "B", "C")
+                        else None
                     )
+                    if migration_hint:
+                        hint_suffix = f" Apply migration {migration_hint} to fix."
+                    else:
+                        hint_suffix = (
+                            " Residual filters are likely too restrictive; "
+                            "loosen country/category or narrow the grade."
+                        )
                     logger.warning(
                         "get_creators timed out (57014) — returning empty. "
                         "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
@@ -3790,11 +3801,16 @@ def get_creators(
                         category_filter,
                         hint_suffix,
                     )
+                # Preserve the documented return contract: callers who pass
+                # return_count=True expect CreatorsResult and read .degraded to
+                # render an honest timeout message; callers without return_count
+                # expect list[dict] and iterate it (e.g. _get_similar_creators,
+                # services/outreach_lists).  Returning CreatorsResult to the
+                # latter shape would iterate as (creators, total_count, degraded)
+                # and crash the first .get() call.
                 if return_count:
                     return CreatorsResult([], 0, degraded=True)
-                return CreatorsResult(
-                    [], 0, degraded=True
-                )  # signals degradation; route checks .degraded
+                return []
 
             logger.error(
                 f"Query execution failed: {type(e).__name__}: {str(e)}\n"

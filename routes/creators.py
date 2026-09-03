@@ -361,6 +361,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     if handle_not_found:
         creators = []
         total_count = 0
+        degraded = False
         hero_stats: dict = get_creator_hero_stats()
         top_countries = get_top_countries_with_counts(limit=_HERO_COUNTRIES_LIMIT)
         top_languages = get_top_languages_with_counts(limit=_HERO_LANGUAGES_LIMIT)
