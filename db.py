@@ -3219,10 +3219,30 @@ def add_creator_by_handle(
 
 
 class CreatorsResult(NamedTuple):
-    """Result from get_creators with pagination metadata."""
+    """Result from get_creators with pagination metadata.
+
+    ``degraded`` is True when the empty result is a fallback from a statement
+    timeout or connection-pool exhaustion, not a genuine zero-match query.
+    Routes surface this to the UI so users see "try loosening filters"
+    instead of "no creators match", which is misleading during an outage.
+    """
 
     creators: list[dict]
     total_count: int
+    degraded: bool = False
+
+
+# Sort keys grouped by which composite index migration covers them.  Used by
+# get_creators() to point operators at the correct migration when the query
+# times out (57014) — a wrong hint here led to migration 048 being applied
+# for a newest_channel timeout that only migration 058 fixes.
+_SORT_MIGRATION_HINT: dict[str, str] = {
+    "views": "048",
+    "subscribers": "048",
+    "engagement": "048",
+    "newest_channel": "058",
+    "oldest_channel": "058",
+}
 
 
 def _normalize_creator_handle(handle: str) -> str:
@@ -3747,11 +3767,17 @@ def get_creators(
                         category_filter,
                     )
                 else:
+                    migration_hint = _SORT_MIGRATION_HINT.get(sort)
+                    hint_suffix = (
+                        f" Apply migration {migration_hint} to fix."
+                        if migration_hint
+                        else " No covering composite index for this sort dimension."
+                    )
                     logger.warning(
                         "get_creators timed out (57014) — returning empty. "
                         "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
                         "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
-                        "country=%s, category=%s]. Apply migration 048 to fix.",
+                        "country=%s, category=%s].%s",
                         sort,
                         limit,
                         offset,
@@ -3762,10 +3788,13 @@ def get_creators(
                         age_filter,
                         country_filter,
                         category_filter,
+                        hint_suffix,
                     )
                 if return_count:
-                    return CreatorsResult([], 0)
-                return CreatorsResult([], 0)  # signals degradation; route checks isinstance
+                    return CreatorsResult([], 0, degraded=True)
+                return CreatorsResult(
+                    [], 0, degraded=True
+                )  # signals degradation; route checks .degraded
 
             logger.error(
                 f"Query execution failed: {type(e).__name__}: {str(e)}\n"

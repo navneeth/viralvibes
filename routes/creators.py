@@ -424,10 +424,12 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
 
         hero_stats = _futures["hero"].result()
         creators_result = _futures["creators"].result()
+        degraded = False
         if _needs_exact_count:
             # Filtered/searched: result is CreatorsResult(creators, total_count)
             creators = creators_result.creators
             total_count = creators_result.total_count
+            degraded = getattr(creators_result, "degraded", False)
         else:
             # Unfiltered default browse: normally list[dict], but CreatorsResult([], 0)
             # when get_creators degraded on a timeout — don't propagate the hero
@@ -435,6 +437,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             if isinstance(creators_result, CreatorsResult):
                 creators = creators_result.creators  # []
                 total_count = creators_result.total_count  # 0
+                degraded = creators_result.degraded
             else:
                 creators = creators_result
                 _hero_total = hero_stats.get("total_creators")
@@ -524,6 +527,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         favourite_ids=favourite_ids,
         handle_not_found=handle_not_found,
         compare_a_id=_parse_compare_id(request.query_params.get("a")),
+        degraded=degraded,
     )
 
 

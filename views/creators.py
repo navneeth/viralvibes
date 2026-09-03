@@ -766,6 +766,7 @@ def render_creators_page(
     favourite_ids: set[str] | None = None,
     handle_not_found: bool = False,
     compare_a_id: str = "",
+    degraded: bool = False,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -894,7 +895,9 @@ def render_creators_page(
                 ),
             )
             if creators
-            else _render_empty_state(search, grade_filter, has_active_filters, is_authenticated)
+            else _render_empty_state(
+                search, grade_filter, has_active_filters, is_authenticated, degraded=degraded
+            )
         ),
         # Sign-in CTA for logged-out visitors
         (_render_creators_signin_cta() if not is_authenticated else None),
@@ -2869,10 +2872,14 @@ def _render_empty_state(
     grade_filter: str,
     has_active_filters: bool,
     is_authenticated: bool = False,
+    degraded: bool = False,
 ) -> Div:
     """Empty state when no creators found.
 
-    Three progressive-disclosure flows:
+    Four progressive-disclosure flows:
+    0. Query timed out / connection pool exhausted (degraded=True)
+       → distinct message telling the user to loosen filters, not that no
+         creators match
     1. @handle typed OR bare handle-like term (e.g. "mrbeast") with no match
        → one-click pre-filled "Add to ViralVibes" CTA
     2. Name search / filters, no results → inline handle submit form
@@ -2885,6 +2892,43 @@ def _render_empty_state(
         href="/creators",
         cls="text-sm text-muted-foreground hover:underline",
     )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # FLOW 0 — degraded (statement timeout or connection-pool exhaustion)
+    # Never claim "no creators match" when we didn't actually complete the
+    # query — it misleads users into rewriting filters that would have worked.
+    # ────────────────────────────────────────────────────────────────────────
+    if degraded:
+        return Card(
+            Div(
+                Span("⏱️", cls="text-5xl block text-center mb-3"),
+                H2(
+                    "This filter combination is taking too long",
+                    cls="text-center text-xl font-bold mb-1",
+                ),
+                P(
+                    "We couldn't finish the query in time. Try loosening one of "
+                    "the filters — country or category usually helps most — or "
+                    "try a broader sort like Subscribers or Views.",
+                    cls="text-center text-sm text-muted-foreground mb-5 max-w-md mx-auto",
+                ),
+                Div(
+                    A(
+                        "Clear filters",
+                        href="/creators",
+                        cls=(
+                            "inline-flex items-center gap-2 px-4 py-2 rounded-lg "
+                            "bg-red-500 hover:bg-red-600 text-white text-sm font-semibold "
+                            "transition-colors no-underline"
+                        ),
+                    ),
+                    cls="flex justify-center",
+                ),
+                Div(back_link, cls="flex justify-center mt-4"),
+                cls="p-10 space-y-0",
+            ),
+            cls="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 max-w-md mx-auto",
+        )
 
     # ────────────────────────────────────────────────────────────────────────
     # FLOW 1 — handle-intent search, no match in DB
