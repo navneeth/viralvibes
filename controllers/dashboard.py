@@ -20,6 +20,7 @@ from db import (
     supabase_client,  # ✅ Global client
     record_dashboard_event,
     get_dashboard_event_counts,
+    _db_execute_readonly,
 )
 from utils import load_df_from_json
 from views.dashboard import render_dashboard
@@ -69,12 +70,15 @@ def view_dashboard_controller(
     # Fetch playlist data
     try:
         logger.debug(f"Querying playlist_stats for dashboard_id={dashboard_id}")
-        resp = (
-            supabase_client.table("playlist_stats")
-            .select("*")
-            .eq("dashboard_id", dashboard_id)
-            .limit(1)
-            .execute()
+
+        resp = _db_execute_readonly(
+            lambda: (
+                supabase_client.table("playlist_stats")
+                .select("*")
+                .eq("dashboard_id", dashboard_id)
+                .limit(1)
+                .execute()
+            )
         )
 
         if not resp.data or len(resp.data) == 0:
@@ -202,12 +206,15 @@ def list_user_dashboards_controller(sess: dict, oauth, req) -> Union[Div, Respon
     # Fetch user's analyzed playlists
     try:
         logger.debug(f"Querying user playlists for user_id={user_id}")
-        resp = (
-            supabase_client.table("playlist_stats")
-            .select("dashboard_id, playlist_url, title, created_at, view_count")
-            .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .execute()
+
+        resp = _db_execute_readonly(
+            lambda: (
+                supabase_client.table("playlist_stats")
+                .select("dashboard_id, playlist_url, title, created_at, view_count")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
         )
 
         playlists = resp.data or []

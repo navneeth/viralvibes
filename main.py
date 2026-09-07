@@ -101,6 +101,8 @@ from db import (
     upsert_playlist_stats,
     add_creator_by_handle,
     find_creator_by_handle,
+    _db_execute_readonly,
+    _db_execute,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
 from utils import (
@@ -719,13 +721,16 @@ def revoke(req, sess):
     # Fetch access_token from secure backend storage
     if user_id and supabase_client:
         try:
-            result = (
-                supabase_client.table("auth_providers")
-                .select("access_token")
-                .eq("user_id", user_id)
-                .eq("provider", "google")
-                .single()
-                .execute()
+
+            result = _db_execute_readonly(
+                lambda: (
+                    supabase_client.table("auth_providers")
+                    .select("access_token")
+                    .eq("user_id", user_id)
+                    .eq("provider", "google")
+                    .single()
+                    .execute()
+                )
             )
             if result.data:
                 access_token = result.data.get("access_token")
@@ -1163,7 +1168,8 @@ def newsletter(email: str, req, sess):  # ✅ Add sess (public route)
         logger.info(f"Attempting to insert newsletter signup for: {email}")
 
         # Insert data using Supabase client
-        data = supabase_client.table(SIGNUPS_TABLE).insert(payload).execute()
+
+        data = _db_execute(lambda: supabase_client.table(SIGNUPS_TABLE).insert(payload).execute())
 
         # Check if we have data in the response
         if data.data:

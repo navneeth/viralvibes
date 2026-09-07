@@ -30,6 +30,7 @@ from db import (
     get_dashboard_event_counts,
     get_supabase,
     record_dashboard_event,
+    _db_execute_readonly,
 )
 from utils import load_df_from_json
 from views.dashboard import render_dashboard
@@ -118,12 +119,15 @@ def dashboard_view(request: Request, dashboard_id: str) -> Union[Div, Response]:
     # --- 2️⃣ Fetch playlist by dashboard_id (FAST indexed query) ---
     try:
         logger.debug(f"Querying playlist_stats for dashboard_id={dashboard_id}")
-        resp = (
-            supabase.table("playlist_stats")
-            .select("*")
-            .eq("dashboard_id", dashboard_id)
-            .limit(1)  # ✅ Handle potential hash collisions
-            .execute()
+
+        resp = _db_execute_readonly(
+            lambda: (
+                supabase.table("playlist_stats")
+                .select("*")
+                .eq("dashboard_id", dashboard_id)
+                .limit(1)
+                .execute()
+            )
         )
 
         if not resp.data or len(resp.data) == 0:
@@ -273,14 +277,17 @@ def my_dashboards(request: Request, sess) -> Div:
     # --- Fetch user's analyzed playlists ---
     try:
         logger.debug(f"Querying user playlists: {user_id}")
-        resp = (
-            supabase_client.table("playlist_stats")
-            .select(
-                "dashboard_id, playlist_url, title, processed_date, view_count, engagement_rate"
+
+        resp = _db_execute_readonly(
+            lambda: (
+                supabase_client.table("playlist_stats")
+                .select(
+                    "dashboard_id, playlist_url, title, processed_date, view_count, engagement_rate"
+                )
+                .eq("user_id", user_id)
+                .order("processed_date", desc=True)
+                .execute()
             )
-            .eq("user_id", user_id)  # ✅ USER-SCOPED QUERY
-            .order("processed_date", desc=True)
-            .execute()
         )
 
         playlists = resp.data or []
@@ -368,22 +375,27 @@ def user_profile(request: Request, sess) -> Div:
 
     # --- Fetch user stats ---
     try:
+
         # Count playlists
-        playlists_resp = (
-            supabase_client.table("playlist_stats")
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .execute()
+        playlists_resp = _db_execute_readonly(
+            lambda: (
+                supabase_client.table("playlist_stats")
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .execute()
+            )
         )
         playlist_count = len(playlists_resp.data or [])
 
         # Fetch user info (if using users table)
-        user_resp = (
-            supabase_client.table("users")
-            .select("email, name, avatar_url")
-            .eq("id", user_id)
-            .limit(1)
-            .execute()
+        user_resp = _db_execute_readonly(
+            lambda: (
+                supabase_client.table("users")
+                .select("email, name, avatar_url")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
         )
         user_info = user_resp.data[0] if user_resp.data else {}
 
@@ -473,12 +485,15 @@ def my_dashboards(req, sess, oauth=None):
 
     try:
         # Fetch user's analyzed playlists
-        resp = (
-            supabase.table("playlist_stats")
-            .select("dashboard_id, playlist_url, title, created_at, view_count")
-            .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .execute()
+
+        resp = _db_execute_readonly(
+            lambda: (
+                supabase.table("playlist_stats")
+                .select("dashboard_id, playlist_url, title, created_at, view_count")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
         )
 
         playlists = resp.data or []

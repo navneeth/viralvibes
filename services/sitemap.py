@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import urljoin
 from xml.dom import minidom
 
+from db import _db_execute_readonly
 from constants import SITE_BASE_URL
 from services.rankings import iter_ranking_sitemap_paths
 
@@ -48,11 +49,14 @@ STATIC_ROUTES: list[tuple[str, str, str]] = [
 def fetch_synced_creators(client) -> list:
     """Return ``{id, custom_url, last_updated_at}`` rows for all synced creators."""
     try:
-        resp = (
-            client.table("creators")
-            .select("id, custom_url, last_updated_at")
-            .eq("sync_status", "synced")
-            .execute()
+
+        resp = _db_execute_readonly(
+            lambda: (
+                client.table("creators")
+                .select("id, custom_url, last_updated_at")
+                .eq("sync_status", "synced")
+                .execute()
+            )
         )
         return resp.data or []
     except Exception:
@@ -66,13 +70,16 @@ def fetch_aplus_creators(client) -> list:
     crawl budget focuses on the highest-quality cohort.
     """
     try:
-        resp = (
-            client.table("creators")
-            .select("custom_url, last_updated_at")
-            .eq("sync_status", "synced")
-            .eq("quality_grade", "A+")
-            .not_.is_("custom_url", "null")
-            .execute()
+
+        resp = _db_execute_readonly(
+            lambda: (
+                client.table("creators")
+                .select("custom_url, last_updated_at")
+                .eq("sync_status", "synced")
+                .eq("quality_grade", "A+")
+                .not_.is_("custom_url", "null")
+                .execute()
+            )
         )
         return resp.data or []
     except Exception:
