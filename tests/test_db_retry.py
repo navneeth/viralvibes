@@ -9,7 +9,7 @@ the server has partially received a request.
 
 import pytest
 
-from db import _is_transient_disconnect, _is_transient_transport_readonly
+from db import _is_cf_upstream_5xx, _is_transient_disconnect, _is_transient_transport_readonly
 
 
 def _named_exc(name: str):
@@ -110,3 +110,48 @@ def test_readonly_matches_when_cause_is_write_error():
     wrapped = Exception("query failed")
     wrapped.__cause__ = root
     assert _is_transient_transport_readonly(wrapped) is True
+
+
+# ── Cloudflare 5xx from Supabase's origin (postgrest.APIError) ───────────
+
+_APIError = _named_exc("APIError")
+
+
+def _apierror(code):
+    """Fake postgrest.APIError with a .code attribute like the real class."""
+    exc = _APIError("origin unreachable")
+    exc.code = code  # type: ignore[attr-defined]
+    return exc
+
+
+@pytest.mark.parametrize("code", [520, 521, 522, 523, 524])
+def test_cf_upstream_5xx_matches_all_known_codes(code):
+    assert _is_cf_upstream_5xx(_apierror(code)) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _apierror(200),
+        _apierror(400),
+        _apierror(404),
+        _apierror(500),  # generic 500 is not a CF upstream signal
+        _apierror(525),  # SSL handshake, not upstream unreachable
+        _apierror(None),
+        _apierror("not-a-number"),
+        _named_exc("APIError")("no code attribute"),
+        Exception("522 in message but wrong type"),
+    ],
+)
+def test_cf_upstream_5xx_rejects_unrelated(exc):
+    assert _is_cf_upstream_5xx(exc) is False
+
+
+def test_readonly_matches_cf_upstream_5xx():
+    assert _is_transient_transport_readonly(_apierror(522)) is True
+
+
+def test_strict_does_not_match_cf_upstream_5xx():
+    # CF 5xx may represent post-dispatch state (esp. 520, 524) so the
+    # write-safe predicate must NOT match; only the read-only predicate does.
+    assert _is_transient_disconnect(_apierror(522)) is False
