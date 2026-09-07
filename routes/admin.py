@@ -21,6 +21,7 @@ from fasthtml.common import *
 from starlette.responses import Response as StarletteResponse
 
 import db as _db
+from db import _db_execute_readonly
 from constants import BROWSEABLE_SYNC_STATUSES
 from services.contact_extractor import ContactExtractorService
 from utils.dates import parse_iso_utc
@@ -43,7 +44,14 @@ def _is_admin(user_id: str | None) -> bool:
     if not user_id or not client:
         return False
     try:
-        resp = client.table("admin_users").select("id").eq("user_id", user_id).limit(1).execute()
+
+        resp = _db_execute_readonly(
+            lambda: client.table("admin_users")
+            .select("id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
         return bool(resp.data)
     except Exception as e:
         logger.warning("[Admin] Error checking admin status for %s: %s", user_id, e)

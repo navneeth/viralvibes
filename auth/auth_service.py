@@ -13,6 +13,7 @@ from fasthtml.common import RedirectResponse
 from fasthtml.oauth import GoogleAppClient, OAuth
 
 from db import is_admin as _db_is_admin
+from db import _db_execute, _db_execute_readonly
 
 logger = logging.getLogger(__name__)
 
@@ -167,9 +168,13 @@ class ViralVibesAuth(OAuth):
                         "avatar_url": picture_url,
                         "last_login_at": datetime.utcnow().isoformat(),
                     }
-                    self.supabase_client.table("users").update(user_data).eq(
-                        "id", user_id
-                    ).execute()
+
+                    _db_execute(
+                        lambda: self.supabase_client.table("users")
+                        .update(user_data)
+                        .eq("id", user_id)
+                        .execute()
+                    )
                     logger.info(f"✅ Updated existing user {email}")
                 else:
                     # Create new user - only insert fields that exist in schema
@@ -179,7 +184,10 @@ class ViralVibesAuth(OAuth):
                         "email_verified": email_verified,
                         "avatar_url": picture_url,
                     }
-                    user_response = self.supabase_client.table("users").insert(user_data).execute()
+
+                    user_response = _db_execute(
+                        lambda: self.supabase_client.table("users").insert(user_data).execute()
+                    )
                     if user_response.data:
                         user_id = user_response.data[0]["id"]
                         logger.info(f"✅ Created new user {email} with ID {user_id}")
@@ -212,9 +220,11 @@ class ViralVibesAuth(OAuth):
                     if token_expires_at:
                         auth_provider_data["token_expires_at"] = token_expires_at
 
-                    self.supabase_client.table("auth_providers").upsert(
-                        auth_provider_data, on_conflict="user_id,provider"
-                    ).execute()
+                    _db_execute(
+                        lambda: self.supabase_client.table("auth_providers")
+                        .upsert(auth_provider_data, on_conflict="user_id,provider")
+                        .execute()
+                    )
 
                     logger.info(f"✅ Stored auth provider info for {email}")
                 elif user_id and not access_token:
@@ -311,12 +321,14 @@ class ViralVibesAuth(OAuth):
             return None
 
         try:
-            response = (
-                self.supabase_client.table("users")
-                .select("*")
-                .eq("email", email)
-                .single()
-                .execute()
+            response = _db_execute_readonly(
+                lambda: (
+                    self.supabase_client.table("users")
+                    .select("*")
+                    .eq("email", email)
+                    .single()
+                    .execute()
+                )
             )
             return response.data if response.data else None
         except Exception as e:
@@ -338,13 +350,15 @@ class ViralVibesAuth(OAuth):
             return None
 
         try:
-            response = (
-                self.supabase_client.table("auth_providers")
-                .select("*")
-                .eq("user_id", user_id)
-                .eq("provider", provider)
-                .single()
-                .execute()
+            response = _db_execute_readonly(
+                lambda: (
+                    self.supabase_client.table("auth_providers")
+                    .select("*")
+                    .eq("user_id", user_id)
+                    .eq("provider", provider)
+                    .single()
+                    .execute()
+                )
             )
             return response.data if response.data else None
         except Exception as e:
@@ -368,7 +382,9 @@ def get_user_by_email(supabase_client, email: str) -> dict:
         return None
 
     try:
-        response = supabase_client.table("users").select("*").eq("email", email).single().execute()
+        response = _db_execute_readonly(
+            lambda: supabase_client.table("users").select("*").eq("email", email).single().execute()
+        )
         return response.data if response.data else None
     except Exception as e:
         logger.debug(f"Failed to fetch user {email}: {e}")
@@ -392,13 +408,15 @@ def get_auth_provider(supabase_client, user_id: str, provider: str = "google") -
         return None
 
     try:
-        response = (
-            supabase_client.table("auth_providers")
-            .select("*")
-            .eq("user_id", user_id)
-            .eq("provider", provider)
-            .single()
-            .execute()
+        response = _db_execute_readonly(
+            lambda: (
+                supabase_client.table("auth_providers")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("provider", provider)
+                .single()
+                .execute()
+            )
         )
         return response.data if response.data else None
     except Exception as e:
