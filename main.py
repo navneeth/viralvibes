@@ -637,9 +637,23 @@ def login(req, sess):
     # Consume any contextual message set by a pre-auth redirect (e.g. checkout)
     subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
 
-    return build_auth_redirect_page(
+    page = build_auth_redirect_page(
         oauth, req, sess, return_url=return_url, subheadline=subheadline
     )
+
+    # /login is 97% of measured Vercel visitors (>9K/week, most spoofed-UA
+    # bots that pass the _is_bot_request check).  Every render is Python
+    # compute we pay for on Fluid.  For the "bare" case — no query params,
+    # no session context, unauthenticated — the rendered page is identical
+    # for every visitor, so serve it from the CDN.  Requests with return_url
+    # or a stashed login_context stay dynamic so contextual messages
+    # (checkout, favourites, etc.) still render per-user.
+    is_bare_visit = not req.query_params and not (sess and sess.get("login_context"))
+    if is_bare_visit:
+        return _public_cached_response(
+            sess, page, "public, s-maxage=300, stale-while-revalidate=60"
+        )
+    return page
 
 
 @rt("/login/onetap")
@@ -2462,7 +2476,7 @@ def pricing(req, sess):
     """Pricing page — public route."""
     error = req.query_params.get("error", "")
     is_authenticated = bool(sess.get("auth"))
-    return (
+    page = (
         Title("Pricing - ViralVibes"),
         Container(
             NavComponent(oauth, req, sess),
@@ -2471,12 +2485,18 @@ def pricing(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    # Skip cache when the page includes an error param so users see their
+    # error message immediately (unrelated visitors still get the cached
+    # error-free version).
+    if error:
+        return page
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/terms")
 def terms(req, sess):
     """Terms of Service — public route."""
-    return Titled(
+    page = Titled(
         "Terms of Service - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
@@ -2484,12 +2504,13 @@ def terms(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 @rt("/privacy")
 def privacy(req, sess):
     """Privacy Policy — public route."""
-    return Titled(
+    page = Titled(
         "Privacy Policy - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
@@ -2497,12 +2518,13 @@ def privacy(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 @rt("/about")
 def about(req, sess):
     """About page — public route."""
-    return Titled(
+    page = Titled(
         "About ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
@@ -2510,6 +2532,7 @@ def about(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 @rt("/blog")
@@ -2592,7 +2615,7 @@ def blog_post_route(req, sess, slug: str):
 @rt("/press")
 def press(req, sess):
     """Press Kit — public route linked from the footer."""
-    return Titled(
+    page = Titled(
         "Press Kit - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
@@ -2600,6 +2623,7 @@ def press(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 @rt("/contact", methods=["GET", "POST"])
@@ -2623,7 +2647,7 @@ async def contact(req, sess):
             ),
         )
     # GET request — render the form
-    return Titled(
+    page = Titled(
         "Contact Us - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
@@ -2631,6 +2655,7 @@ async def contact(req, sess):
             cls=ContainerT.xl,
         ),
     )
+    return _public_cached_response(sess, page, _CC_BLOG)
 
 
 # ============================================================================
