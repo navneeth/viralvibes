@@ -131,8 +131,14 @@ def _is_transient_transport_readonly(exc: BaseException) -> bool:
     set.  A WriteError can fire after some bytes reached the server, so a
     blind retry on a mutation could duplicate rows; callers must guarantee
     the operation is a pure read (SELECT, GET, RPC without side effects).
+
+    Also matches Cloudflare 5xx errors wrapped in postgrest.APIError, which
+    happen when Supabase's origin is temporarily unreachable (Cloudflare
+    returns an HTML error page that postgrest-py can't parse as JSON).
     """
     if _is_transient_disconnect(exc):
+        return True
+    if _is_cf_upstream_5xx(exc):
         return True
 
     def _matches(e: BaseException) -> bool:
@@ -144,6 +150,30 @@ def _is_transient_transport_readonly(exc: BaseException) -> bool:
         )
 
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
+
+
+# Cloudflare 5xx codes returned when Supabase's origin is temporarily
+# unreachable.  Codes chosen from the CF error reference:
+#   520 unknown, 521 origin down, 522 connection timeout,
+#   523 origin unreachable, 524 timeout waiting for response.
+_CF_UPSTREAM_5XX_CODES = frozenset({520, 521, 522, 523, 524})
+
+
+def _is_cf_upstream_5xx(exc: BaseException) -> bool:
+    """True for postgrest.APIError wrapping a Cloudflare 5xx from Supabase's origin.
+
+    postgrest-py raises APIError with the raw HTML error page in .details and
+    the Cloudflare status in .code (int).  Application-level PostgREST errors
+    (bad SQL, missing column, RLS denial) do NOT set .code to a CF 5xx, so
+    matching on the code range is precise and won't retry genuine bugs.
+    """
+    if type(exc).__name__ != "APIError":
+        return False
+    code = getattr(exc, "code", None)
+    try:
+        return int(code) in _CF_UPSTREAM_5XX_CODES
+    except (TypeError, ValueError):
+        return False
 
 
 # ---------------------------------------------------------------------------

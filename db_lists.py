@@ -652,8 +652,28 @@ def _rpc_with_retry(
                 exc,
             )
             time.sleep(delay)
-        except Exception:
-            raise  # non-transport errors: propagate immediately
+        except Exception as exc:
+            # Cloudflare 5xx from Supabase's origin comes through as postgrest
+            # APIError (not an httpx transport error) because Cloudflare returns
+            # an HTML error page that fails JSON parsing.  Retry those; everything
+            # else (bad SQL, RLS, auth) propagates immediately.
+            from db import _is_cf_upstream_5xx
+
+            if not _is_cf_upstream_5xx(exc):
+                raise
+            last_exc = exc
+            if attempt == max_attempts:
+                break
+            delay = min(max_delay_s, base_delay_s * (2 ** (attempt - 1)))
+            delay *= 0.85 + random.random() * 0.30  # ±15 % jitter
+            logger.warning(
+                "[Lists] %s Cloudflare 5xx from origin (attempt %d/%d), retrying in %.2fs",
+                rpc_name,
+                attempt,
+                max_attempts,
+                delay,
+            )
+            time.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
 
