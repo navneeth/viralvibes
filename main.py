@@ -635,7 +635,8 @@ def login(req, sess):
     )
 
     # Consume any contextual message set by a pre-auth redirect (e.g. checkout)
-    subheadline = sess.pop("login_context", None) or login_subheadline_for_return_url(return_url)
+    stashed_context = sess.pop("login_context", None)
+    subheadline = stashed_context or login_subheadline_for_return_url(return_url)
 
     page = build_auth_redirect_page(
         oauth, req, sess, return_url=return_url, subheadline=subheadline
@@ -648,7 +649,7 @@ def login(req, sess):
     # for every visitor, so serve it from the CDN.  Requests with return_url
     # or a stashed login_context stay dynamic so contextual messages
     # (checkout, favourites, etc.) still render per-user.
-    is_bare_visit = not req.query_params and not (sess and sess.get("login_context"))
+    is_bare_visit = not req.query_params and not stashed_context
     if is_bare_visit:
         return _public_cached_response(
             sess, page, "public, s-maxage=300, stale-while-revalidate=60"
