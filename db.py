@@ -1654,11 +1654,20 @@ def archive_permanently_failed_creators(max_retries: int = 3) -> int:
 
         for creator_id in failed_creator_ids:
             try:
+                # The DB enforces a strict sync_status CHECK. "archived" is not
+                # a permitted value; normalize to "failed" and log the original
+                # attempted value so operators can audit the change.
+                try:
+                    logger.warning(
+                        f"Archiving intent for creator {creator_id}: normalizing invalid sync_status 'archived' -> 'failed'"
+                    )
+                except Exception:
+                    pass
                 result = (
                     supabase_client.table(CREATOR_TABLE)
                     .update(
                         {
-                            "sync_status": "archived",
+                            "sync_status": "failed",
                             "sync_error_message": f"Failed after {max_retries}+ retries",
                             "archived_at": datetime.now(timezone.utc).isoformat(),
                         }
