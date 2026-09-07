@@ -21,7 +21,7 @@ from fasthtml.common import *
 from starlette.responses import Response as StarletteResponse
 
 import db as _db
-from _db import _db_execute_readonly
+from db import _db_execute_readonly
 from constants import BROWSEABLE_SYNC_STATUSES
 from services.contact_extractor import ContactExtractorService
 from utils.dates import parse_iso_utc
