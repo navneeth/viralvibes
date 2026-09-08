@@ -917,10 +917,14 @@ def queue_invalid_creators_for_retry(
         # Note: 'not_found' channels are hard-deleted by the worker, so they won't
         # appear here. The .in_() filter already restricts to specific statuses.
         # Reduced batch size to avoid statement timeouts on large datasets.
+        # archived_at IS NULL: archive_permanently_failed_creators() writes
+        # sync_status='failed' with a non-NULL archived_at as a terminal state
+        # (see PR #635); without this filter archived creators would be requeued.
         failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
             .in_("sync_status", ["invalid", "failed", "synced_partial"])
+            .is_("archived_at", "null")
             .not_.is_("last_synced_at", "null")  # ← only rows where value exists
             .lt("last_synced_at", cutoff_iso)
             .limit(batch_size)
@@ -932,10 +936,13 @@ def queue_invalid_creators_for_retry(
         # Includes NULL sync_status (creators inserted without a status).
         # Note: .neq() would exclude NULLs due to SQL NULL behavior, so we omit it.
         # 'not_found' channels are hard-deleted by worker anyway.
+        # archived_at IS NULL: defence-in-depth so a future path that archives a
+        # never-synced creator can't be requeued through this query.
         never_synced_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
             .is_("last_synced_at", "null")
+            .is_("archived_at", "null")
             .limit(batch_size)
             .execute()
         )

@@ -417,6 +417,7 @@ def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,last_synced_at")
             .in_("sync_status", ["synced", "synced_partial", "invalid", "failed"])
+            .is_("archived_at", "null")
             .lt("last_synced_at", cutoff)
             .limit(100)
             .execute()
