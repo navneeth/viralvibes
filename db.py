@@ -3317,6 +3317,26 @@ _SORT_MIGRATION_HINT: dict[str, str] = {
 _METRICS_PREFIX = "[Metrics]"
 
 
+def _escape_for_metric_field(value: str, max_len: int = 64) -> str:
+    """Truncate + escape a string for safe embedding in a metric log line.
+
+    Metric lines are one line each so aggregators can parse ``key="value"``
+    fields without multi-line stitching.  User-supplied strings (``search``,
+    ``category_filter``) may contain newlines, quotes, or backslashes that
+    would either split the line or invalidate the quote escaping.  Order
+    matters: escape backslashes FIRST so subsequent escape sequences aren't
+    double-escaped when consumers unescape the value.
+    """
+    truncated = value[:max_len]
+    return (
+        truncated.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+
+
 def _log_get_creators_metrics(
     *,
     req_id: str,
@@ -3368,10 +3388,7 @@ def _log_get_creators_metrics(
     if degraded:
         parts.append("degraded=1")
     if search:
-        # Truncate for log hygiene; %r-style quoting so newlines don't wrap
-        # the line and break greppability.
-        truncated = search[:64].replace('"', '\\"')
-        parts.append(f'search="{truncated}"')
+        parts.append(f'search="{_escape_for_metric_field(search)}"')
     if grade_filter and grade_filter != "all":
         parts.append(f"grade={grade_filter}")
     if language_filter and language_filter != "all":
@@ -3383,9 +3400,7 @@ def _log_get_creators_metrics(
     if country_filter and country_filter != "all":
         parts.append(f"country={country_filter}")
     if category_filter and category_filter != "all":
-        # Category names have spaces + special chars; quote to keep the line parseable.
-        cat_clean = category_filter[:64].replace('"', '\\"')
-        parts.append(f'category="{cat_clean}"')
+        parts.append(f'category="{_escape_for_metric_field(category_filter)}"')
     logger.info(" ".join(parts))
 
 
@@ -3872,11 +3887,24 @@ def get_creators(
         except Exception as e:
             _query_dur_ms = int((time.perf_counter() - _query_t0) * 1000)
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
-                exact_creator = _find_creator_by_normalized_handle(search)
+                # Guard the fallback lookup: if it raises during timeout
+                # recovery, we must NOT lose the original-timeout metric.  Log
+                # the fallback failure and treat it as "no exact match" so we
+                # fall through to the standard timeout metric below.
+                try:
+                    exact_creator = _find_creator_by_normalized_handle(search)
+                except Exception as fb_exc:
+                    logger.warning(
+                        "req_id=%s handle fallback lookup raised during timeout recovery: %s",
+                        req_id,
+                        fb_exc,
+                    )
+                    exact_creator = None
                 if exact_creator:
                     exact_creator["_rank"] = 1
                     logger.warning(
-                        "Creator broad search timed out for %r; returned exact handle fallback",
+                        "req_id=%s Creator broad search timed out for %r; returned exact handle fallback",
+                        req_id,
                         search,
                     )
                     _log_get_creators_metrics(
@@ -3902,8 +3930,9 @@ def get_creators(
                     return [exact_creator]
                 if _is_handle_like_search(search):
                     logger.warning(
-                        "Creator broad search timed out for handle-like query %r; "
+                        "req_id=%s Creator broad search timed out for handle-like query %r; "
                         "returning empty exact-search result",
+                        req_id,
                         search,
                     )
                     _log_get_creators_metrics(
@@ -3936,10 +3965,11 @@ def get_creators(
             if _is_statement_timeout_error(e) or _is_connection_pool_timeout(e):
                 if _is_connection_pool_timeout(e):
                     logger.warning(
-                        "get_creators — connection pool exhausted (PGRST003), returning empty. "
+                        "req_id=%s get_creators — connection pool exhausted (PGRST003), returning empty. "
                         "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
                         "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
                         "country=%s, category=%s]. Reduce concurrent load or increase pool size.",
+                        req_id,
                         sort,
                         limit,
                         offset,
@@ -3970,10 +4000,11 @@ def get_creators(
                             "loosen country/category or narrow the grade."
                         )
                     logger.warning(
-                        "get_creators timed out (57014) — returning empty. "
+                        "req_id=%s get_creators timed out (57014) — returning empty. "
                         "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
                         "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
                         "country=%s, category=%s].%s",
+                        req_id,
                         sort,
                         limit,
                         offset,
@@ -4017,7 +4048,7 @@ def get_creators(
                 return []
 
             logger.error(
-                f"Query execution failed: {type(e).__name__}: {str(e)}\n"
+                f"req_id={req_id} Query execution failed: {type(e).__name__}: {str(e)}\n"
                 f"Sort: {sort}, Search: {search!r}, Filters: "
                 f"[grade={grade_filter}, lang={language_filter}, activity={activity_filter}, "
                 f"age={age_filter}, country={country_filter}, category={category_filter}]",

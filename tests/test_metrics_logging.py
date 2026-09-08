@@ -115,3 +115,27 @@ def test_metrics_escapes_quotes_in_search(metrics_line):
     line = metrics_line(**{**_BASE, "search": 'evil"quote'})
     # The embedded quote must be escaped so the field stays parseable.
     assert 'search="evil\\"quote"' in line
+
+
+def test_metrics_escapes_newlines_and_tabs_in_search(metrics_line):
+    """Newlines in user input MUST NOT split the metric line into two log records."""
+    line = metrics_line(**{**_BASE, "search": "foo\nbar\rbaz\tqux"})
+    # No literal newline / CR / tab may appear anywhere in the emitted line.
+    assert "\n" not in line
+    assert "\r" not in line
+    assert "\t" not in line
+    assert 'search="foo\\nbar\\rbaz\\tqux"' in line
+
+
+def test_metrics_escapes_backslash_before_quote(metrics_line):
+    """Backslash MUST be escaped first, otherwise later quote escapes get corrupted."""
+    line = metrics_line(**{**_BASE, "search": 'weird\\"stuff'})
+    # After escaping: \\ becomes \\\\, then " becomes \" — final string is \\\\\"
+    assert 'search="weird\\\\\\"stuff"' in line
+
+
+def test_metrics_escapes_control_chars_in_category(metrics_line):
+    """Category values also go through the escaper (same class of user-like input)."""
+    line = metrics_line(**{**_BASE, "category_filter": "Music\nRock"})
+    assert "\n" not in line
+    assert 'category="Music\\nRock"' in line
