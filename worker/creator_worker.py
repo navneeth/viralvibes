@@ -417,6 +417,7 @@ def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,last_synced_at")
             .in_("sync_status", ["synced", "synced_partial", "invalid", "failed"])
+            .is_("archived_at", "null")
             .lt("last_synced_at", cutoff)
             .limit(100)
             .execute()
@@ -1722,6 +1723,29 @@ async def handle_sync_job(
         else:
             computed_monthly_uploads = None
 
+        # Normalize sync_status to a known set before writing to DB.
+        # Log the original value if it was invalid, but only write a valid
+        # normalized value to Supabase to satisfy DB CHECK constraints.
+        VALID_SYNC_STATUSES = {
+            "pending",
+            "synced",
+            "failed",
+            "invalid",
+            "synced_partial",
+            "not_found",
+        }
+        orig_sync_status = sync_status
+        try:
+            normalized_sync_status = str(sync_status or "failed").strip().lower()
+        except Exception:
+            normalized_sync_status = "failed"
+        if normalized_sync_status not in VALID_SYNC_STATUSES:
+            logger.warning(
+                f"{job_tag} Normalizing invalid sync_status value %r -> 'failed'",
+                orig_sync_status,
+            )
+            normalized_sync_status = "failed"
+
         full_payload.update(
             {
                 "official": channel_data.get("official", False),
@@ -1750,7 +1774,7 @@ async def handle_sync_job(
                 "is_made_for_kids": channel_data.get("is_made_for_kids", False),
                 "has_long_upload_status": channel_data.get("has_long_upload_status", False),
                 # ──────────────────────────────────────────────────────────
-                "sync_status": sync_status,
+                "sync_status": normalized_sync_status,
                 "sync_error_message": sync_error,
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
                 "last_synced_at": datetime.now(timezone.utc).isoformat(),
