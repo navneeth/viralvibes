@@ -11,6 +11,8 @@ import logging
 import os
 import random
 import re
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Protocol, NamedTuple, Tuple
@@ -3310,6 +3312,83 @@ _SORT_MIGRATION_HINT: dict[str, str] = {
 }
 
 
+# Prefix used for every structured metrics line so operators can grep by it,
+# e.g. `grep '\[Metrics\] op=get_creators' | awk ...` to feed a dashboard.
+_METRICS_PREFIX = "[Metrics]"
+
+
+def _log_get_creators_metrics(
+    *,
+    req_id: str,
+    status: str,
+    duration_ms: int,
+    sort: str,
+    limit: int,
+    offset: int,
+    return_count: bool,
+    search: str,
+    grade_filter: str,
+    language_filter: str,
+    activity_filter: str,
+    age_filter: str,
+    country_filter: str,
+    category_filter: str,
+    rows: int = 0,
+    total_count: int | None = None,
+    degraded: bool = False,
+) -> None:
+    """Emit a single-line grep-able metric for a get_creators() invocation.
+
+    Format::
+
+        [Metrics] op=get_creators req_id=... status=ok|timeout_57014|pool_exhausted|error
+                  dur_ms=... sort=... limit=... offset=... return_count=1|0 rows=...
+                  [total=N] [degraded=1] [search="q"] [grade=A+] [country=US] ...
+
+    Only non-default filters are included so lines stay short.  The columns
+    field is always ``columns=*`` because the query does ``.select("*")`` —
+    documented explicitly so future changes (e.g. narrowing SELECT) can be
+    correlated with query cost changes.
+    """
+    parts: list[str] = [
+        _METRICS_PREFIX,
+        "op=get_creators",
+        f"req_id={req_id}",
+        f"status={status}",
+        f"dur_ms={duration_ms}",
+        "columns=*",
+        f"sort={sort}",
+        f"limit={limit}",
+        f"offset={offset}",
+        f"return_count={1 if return_count else 0}",
+        f"rows={rows}",
+    ]
+    if total_count is not None:
+        parts.append(f"total={total_count}")
+    if degraded:
+        parts.append("degraded=1")
+    if search:
+        # Truncate for log hygiene; %r-style quoting so newlines don't wrap
+        # the line and break greppability.
+        truncated = search[:64].replace('"', '\\"')
+        parts.append(f'search="{truncated}"')
+    if grade_filter and grade_filter != "all":
+        parts.append(f"grade={grade_filter}")
+    if language_filter and language_filter != "all":
+        parts.append(f"lang={language_filter}")
+    if activity_filter and activity_filter != "all":
+        parts.append(f"activity={activity_filter}")
+    if age_filter and age_filter != "all":
+        parts.append(f"age={age_filter}")
+    if country_filter and country_filter != "all":
+        parts.append(f"country={country_filter}")
+    if category_filter and category_filter != "all":
+        # Category names have spaces + special chars; quote to keep the line parseable.
+        cat_clean = category_filter[:64].replace('"', '\\"')
+        parts.append(f'category="{cat_clean}"')
+    logger.info(" ".join(parts))
+
+
 def _normalize_creator_handle(handle: str) -> str:
     """Normalize a YouTube handle for exact DB lookup."""
     return (handle or "").strip().lstrip("@").lower()
@@ -3781,10 +3860,17 @@ def get_creators(
         if cursor_value is None and offset:
             query = query.offset(offset)
 
+        # Per-invocation ID so the metrics line, the warning/error log, and any
+        # correlated upstream request log can be joined by grep in the aggregate.
+        req_id = uuid.uuid4().hex[:8]
+        # Query wall-clock (includes retry backoffs from _db_execute_readonly).
+        _query_t0 = time.perf_counter()
+
         # Execute query (count already included in select if needed)
         try:
             response = _db_execute_readonly(lambda: query.execute())
         except Exception as e:
+            _query_dur_ms = int((time.perf_counter() - _query_t0) * 1000)
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
                 exact_creator = _find_creator_by_normalized_handle(search)
                 if exact_creator:
@@ -3792,6 +3878,24 @@ def get_creators(
                     logger.warning(
                         "Creator broad search timed out for %r; returned exact handle fallback",
                         search,
+                    )
+                    _log_get_creators_metrics(
+                        req_id=req_id,
+                        status="timeout_57014_handle_fallback",
+                        duration_ms=_query_dur_ms,
+                        sort=sort,
+                        limit=limit,
+                        offset=offset,
+                        return_count=return_count,
+                        search=search,
+                        grade_filter=grade_filter,
+                        language_filter=language_filter,
+                        activity_filter=activity_filter,
+                        age_filter=age_filter,
+                        country_filter=country_filter,
+                        category_filter=category_filter,
+                        rows=1,
+                        total_count=1 if return_count else None,
                     )
                     if return_count:
                         return CreatorsResult([exact_creator], 1)
@@ -3801,6 +3905,22 @@ def get_creators(
                         "Creator broad search timed out for handle-like query %r; "
                         "returning empty exact-search result",
                         search,
+                    )
+                    _log_get_creators_metrics(
+                        req_id=req_id,
+                        status="timeout_57014_handle_empty",
+                        duration_ms=_query_dur_ms,
+                        sort=sort,
+                        limit=limit,
+                        offset=offset,
+                        return_count=return_count,
+                        search=search,
+                        grade_filter=grade_filter,
+                        language_filter=language_filter,
+                        activity_filter=activity_filter,
+                        age_filter=age_filter,
+                        country_filter=country_filter,
+                        category_filter=category_filter,
                     )
                     if return_count:
                         return CreatorsResult([], 0)
@@ -3873,6 +3993,25 @@ def get_creators(
                 # services/outreach_lists).  Returning CreatorsResult to the
                 # latter shape would iterate as (creators, total_count, degraded)
                 # and crash the first .get() call.
+                _log_get_creators_metrics(
+                    req_id=req_id,
+                    status=(
+                        "pool_exhausted" if _is_connection_pool_timeout(e) else "timeout_57014"
+                    ),
+                    duration_ms=_query_dur_ms,
+                    sort=sort,
+                    limit=limit,
+                    offset=offset,
+                    return_count=return_count,
+                    search=search,
+                    grade_filter=grade_filter,
+                    language_filter=language_filter,
+                    activity_filter=activity_filter,
+                    age_filter=age_filter,
+                    country_filter=country_filter,
+                    category_filter=category_filter,
+                    degraded=True,
+                )
                 if return_count:
                     return CreatorsResult([], 0, degraded=True)
                 return []
@@ -3884,7 +4023,24 @@ def get_creators(
                 f"age={age_filter}, country={country_filter}, category={category_filter}]",
                 exc_info=True,
             )
+            _log_get_creators_metrics(
+                req_id=req_id,
+                status=f"error_{type(e).__name__}",
+                duration_ms=_query_dur_ms,
+                sort=sort,
+                limit=limit,
+                offset=offset,
+                return_count=return_count,
+                search=search,
+                grade_filter=grade_filter,
+                language_filter=language_filter,
+                activity_filter=activity_filter,
+                age_filter=age_filter,
+                country_filter=country_filter,
+                category_filter=category_filter,
+            )
             raise
+        _query_dur_ms = int((time.perf_counter() - _query_t0) * 1000)
         creators = response.data if response.data else []
         total_count = (
             _mv_count
@@ -3896,28 +4052,23 @@ def get_creators(
         for idx, creator in enumerate(creators, 1):
             creator["_rank"] = offset + idx
 
-        # Log results
-        filters_applied = []
-        if search:
-            filters_applied.append(f"search='{search}'")
-        if grade_filter != "all":
-            filters_applied.append(f"grade={grade_filter}")
-        if language_filter != "all":
-            filters_applied.append(f"language={language_filter}")
-        if activity_filter != "all":
-            filters_applied.append(f"activity={activity_filter}")
-        if age_filter != "all":
-            filters_applied.append(f"age={age_filter}")
-        if country_filter != "all":
-            filters_applied.append(f"country={country_filter}")
-        if category_filter != "all":
-            filters_applied.append(f"category={category_filter}")
-
-        filters_str = ", ".join(filters_applied) if filters_applied else "none"
-        logger.info(
-            f"Retrieved {len(creators)} creators "
-            f"(sort={sort}, filters=[{filters_str}], limit={limit}, offset={offset})"
-            + (f", total_count={total_count}" if return_count else "")
+        _log_get_creators_metrics(
+            req_id=req_id,
+            status="ok",
+            duration_ms=_query_dur_ms,
+            sort=sort,
+            limit=limit,
+            offset=offset,
+            return_count=return_count,
+            search=search,
+            grade_filter=grade_filter,
+            language_filter=language_filter,
+            activity_filter=activity_filter,
+            age_filter=age_filter,
+            country_filter=country_filter,
+            category_filter=category_filter,
+            rows=len(creators),
+            total_count=total_count if return_count else None,
         )
 
         if return_count:
