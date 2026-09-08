@@ -619,11 +619,23 @@ def _rpc_with_retry(
 ):
     """
     Call ``supabase_client.rpc(rpc_name, params).execute()`` with retry logic
-    for transient HTTP/2 transport errors ("Server disconnected").
+    for transient upstream failures.
 
-    Only ``_RETRIABLE_TRANSPORT_ERRORS`` are retried.  PostgREST errors
-    (bad SQL, auth failures, etc.) are re-raised immediately so genuinely
-    broken RPCs don't spin through unnecessary retries.
+    Two classes of error are retried:
+
+    1. HTTP/2 transport errors (``_RETRIABLE_TRANSPORT_ERRORS``) — server
+       disconnected, broken pipe on cold-warm serverless transitions, etc.
+    2. Upstream gateway HTTP 5xx wrapped in ``postgrest.APIError``
+       (Kong 502/503/504 when Supabase's own gateway times out to PostgREST,
+       Cloudflare 520-524 when Supabase's origin is unreachable).  These
+       arrive as APIError because the gateway body isn't JSON.
+
+    Application-level PostgREST errors (bad SQL, RLS, auth, missing column)
+    use non-numeric string codes (``PGRST116``, ``42883``) and are re-raised
+    immediately so genuinely broken RPCs don't spin through retries.
+
+    Only safe for idempotent reads — a 504 can happen after Postgres already
+    executed the request, so retrying a mutation could double-write.
 
     Args:
         max_attempts: Total attempts (default 3 = 1 original + 2 retries).
@@ -653,22 +665,23 @@ def _rpc_with_retry(
             )
             time.sleep(delay)
         except Exception as exc:
-            # Cloudflare 5xx from Supabase's origin comes through as postgrest
-            # APIError (not an httpx transport error) because Cloudflare returns
-            # an HTML error page that fails JSON parsing.  Retry those; everything
-            # else (bad SQL, RLS, auth) propagates immediately.
-            from db import _is_cf_upstream_5xx
+            # Upstream gateway 5xx (Kong 502/503/504, Cloudflare 520-524) comes
+            # through as postgrest APIError because the gateway body isn't JSON.
+            # Retry those; everything else (bad SQL, RLS, auth) propagates.
+            from db import _is_transient_upstream_gateway_error
 
-            if not _is_cf_upstream_5xx(exc):
+            if not _is_transient_upstream_gateway_error(exc):
                 raise
             last_exc = exc
             if attempt == max_attempts:
                 break
             delay = min(max_delay_s, base_delay_s * (2 ** (attempt - 1)))
             delay *= 0.85 + random.random() * 0.30  # ±15 % jitter
+            gateway_code = getattr(exc, "code", "?")
             logger.warning(
-                "[Lists] %s Cloudflare 5xx from origin (attempt %d/%d), retrying in %.2fs",
+                "[Lists] %s upstream gateway %s (attempt %d/%d), retrying in %.2fs",
                 rpc_name,
+                gateway_code,
                 attempt,
                 max_attempts,
                 delay,

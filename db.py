@@ -132,13 +132,15 @@ def _is_transient_transport_readonly(exc: BaseException) -> bool:
     blind retry on a mutation could duplicate rows; callers must guarantee
     the operation is a pure read (SELECT, GET, RPC without side effects).
 
-    Also matches Cloudflare 5xx errors wrapped in postgrest.APIError, which
-    happen when Supabase's origin is temporarily unreachable (Cloudflare
-    returns an HTML error page that postgrest-py can't parse as JSON).
+    Also matches transient upstream-gateway errors wrapped in postgrest.APIError
+    (Cloudflare 520-524 when Supabase origin is unreachable, Kong 502/503/504
+    when Supabase's own gateway times out to PostgREST/Postgres).  postgrest-py
+    can't parse the non-JSON error body and wraps it as APIError with the
+    numeric status in .code.
     """
     if _is_transient_disconnect(exc):
         return True
-    if _is_cf_upstream_5xx(exc):
+    if _is_transient_upstream_gateway_error(exc):
         return True
 
     def _matches(e: BaseException) -> bool:
@@ -152,28 +154,45 @@ def _is_transient_transport_readonly(exc: BaseException) -> bool:
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
-# Cloudflare 5xx codes returned when Supabase's origin is temporarily
-# unreachable.  Codes chosen from the CF error reference:
-#   520 unknown, 521 origin down, 522 connection timeout,
-#   523 origin unreachable, 524 timeout waiting for response.
-_CF_UPSTREAM_5XX_CODES = frozenset({520, 521, 522, 523, 524})
+# HTTP status codes returned by an upstream gateway (Supabase's Kong or
+# Cloudflare in front of it) when the request never got a normal response
+# from Postgres:
+#   502  Bad Gateway            (Kong ↔ PostgREST)
+#   503  Service Unavailable    (Supabase overload)
+#   504  Gateway Timeout        (Kong timed out waiting for PostgREST)
+#   520  Unknown Error          (Cloudflare)
+#   521  Web Server Is Down     (Cloudflare)
+#   522  Connection Timed Out   (Cloudflare)
+#   523  Origin Is Unreachable  (Cloudflare)
+#   524  A Timeout Occurred     (Cloudflare)
+#
+# All of these are transient upstream failures worth a small retry.  They can
+# happen post-dispatch (esp. 503/504/520/524), so callers must guarantee the
+# operation is idempotent; use with _db_execute_readonly, never _db_execute.
+_TRANSIENT_UPSTREAM_HTTP_CODES = frozenset({502, 503, 504, 520, 521, 522, 523, 524})
 
 
-def _is_cf_upstream_5xx(exc: BaseException) -> bool:
-    """True for postgrest.APIError wrapping a Cloudflare 5xx from Supabase's origin.
+def _is_transient_upstream_gateway_error(exc: BaseException) -> bool:
+    """True for postgrest.APIError wrapping a transient upstream 5xx.
 
-    postgrest-py raises APIError with the raw HTML error page in .details and
-    the Cloudflare status in .code (int).  Application-level PostgREST errors
-    (bad SQL, missing column, RLS denial) do NOT set .code to a CF 5xx, so
-    matching on the code range is precise and won't retry genuine bugs.
+    postgrest-py raises APIError with the raw non-JSON body in .details and
+    the numeric HTTP status in .code.  Application-level PostgREST errors
+    (bad SQL, missing column, RLS denial) use string codes like 'PGRST116'
+    or Postgres SQL states like '42883' — never these HTTP status codes —
+    so matching on the numeric code range is precise and won't retry
+    genuine bugs.
     """
     if type(exc).__name__ != "APIError":
         return False
     code = getattr(exc, "code", None)
     try:
-        return int(code) in _CF_UPSTREAM_5XX_CODES
+        return int(code) in _TRANSIENT_UPSTREAM_HTTP_CODES
     except (TypeError, ValueError):
         return False
+
+
+# Backwards-compatible alias for external callers (db_lists._rpc_with_retry).
+_is_cf_upstream_5xx = _is_transient_upstream_gateway_error
 
 
 # ---------------------------------------------------------------------------
