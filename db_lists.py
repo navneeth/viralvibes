@@ -696,14 +696,126 @@ NEW_CHANNEL_MAX_AGE_DAYS = 365
 _LISTS_META_TTL_SECONDS = 600  # 10 min — data changes at most a few times/day
 _lists_meta_cache: tuple[float, dict[str, int]] | None = None
 
-_TOP_CATEGORIES_TTL_SECONDS = 600  # 10 min — category counts change only on worker runs
+# 4 h TTLs on the top_* caches (was 10 min).  These aggregates are backed by
+# materialized views the worker refreshes hourly at most, so refetching every
+# 10 min was pure DB pressure with no data freshness benefit.  Per Sep-2026
+# production report, contention on these MV refreshes was a primary driver of
+# API-layer 504s; longer TTL cuts the RPC volume ~24×.
+_TOP_CATEGORIES_TTL_SECONDS = 4 * 60 * 60
 _top_categories_cache: tuple[float, list[tuple[str, int]]] | None = None
 
-_TOP_COUNTRIES_TTL_SECONDS = 600  # 10 min — same change cadence as categories
+_TOP_COUNTRIES_TTL_SECONDS = 4 * 60 * 60
 _top_countries_cache: tuple[float, list[tuple[str, int]]] | None = None
 
-_TOP_LANGUAGES_TTL_SECONDS = 600  # 10 min — same change cadence as categories
+_TOP_LANGUAGES_TTL_SECONDS = 4 * 60 * 60
 _top_languages_cache: tuple[float, list[tuple[str, int]]] | None = None
+
+
+# Static ordered snapshots used as a last-resort fallback when the RPC fails
+# AND we have no cached snapshot from a prior successful call.  These lists
+# are ordered so the hero-strip renders a plausible flag/emoji row during an
+# outage; counts are placeholders (30..1) — the UI tooltip shows them but
+# they're intentionally not real numbers, so any monitoring that sees
+# "count=30" for the top row can identify a fallback event.
+_STATIC_TOP_COUNTRIES: list[tuple[str, int]] = [
+    (code, 30 - i)
+    for i, code in enumerate(
+        [
+            "US",
+            "IN",
+            "BR",
+            "GB",
+            "JP",
+            "KR",
+            "ID",
+            "DE",
+            "MX",
+            "RU",
+            "FR",
+            "ES",
+            "TR",
+            "CA",
+            "PH",
+            "VN",
+            "EG",
+            "PK",
+            "TH",
+            "IT",
+            "PL",
+            "AR",
+            "MY",
+            "PE",
+            "SA",
+            "CO",
+            "NG",
+            "ZA",
+            "AU",
+            "BD",
+        ]
+    )
+]
+
+_STATIC_TOP_LANGUAGES: list[tuple[str, int]] = [
+    (code, 30 - i)
+    for i, code in enumerate(
+        [
+            "en",
+            "es",
+            "pt",
+            "hi",
+            "ja",
+            "ko",
+            "id",
+            "ru",
+            "ar",
+            "tr",
+            "fr",
+            "de",
+            "it",
+            "vi",
+            "th",
+            "zh",
+            "tl",
+            "bn",
+            "ur",
+            "pl",
+            "uk",
+            "ms",
+            "ta",
+            "sv",
+            "ro",
+            "cs",
+            "hu",
+            "nl",
+            "el",
+            "no",
+        ]
+    )
+]
+
+# YouTube's fixed 15-topic taxonomy — canonical labels.
+_STATIC_TOP_CATEGORIES: list[tuple[str, int]] = [
+    (name, 15 - i)
+    for i, name in enumerate(
+        [
+            "Music",
+            "Entertainment",
+            "Gaming",
+            "People & Blogs",
+            "Comedy",
+            "Education",
+            "Sports",
+            "Howto & Style",
+            "Film & Animation",
+            "Science & Technology",
+            "News & Politics",
+            "Autos & Vehicles",
+            "Pets & Animals",
+            "Travel & Events",
+            "Nonprofits & Activism",
+        ]
+    )
+]
 
 
 def clear_lists_meta_cache() -> None:
@@ -1604,6 +1716,46 @@ def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
         return []
 
 
+def _stale_or_static_countries(limit: int) -> list[tuple[str, int]]:
+    """RPC-failure fallback: prefer expired cache over the static snapshot.
+
+    Never scans the creators table — that used to be the fallback via
+    ``_scan_column_counts``, but under load the scan was more expensive than
+    the RPC that failed, amplifying pressure on an already-saturated DB.
+    """
+    if _top_countries_cache is not None:
+        _, stale = _top_countries_cache
+        logger.warning("[Lists] countries RPC failed — serving stale cache")
+        return stale[:limit]
+    logger.warning("[Lists] countries RPC failed and no cache — serving static snapshot")
+    return _STATIC_TOP_COUNTRIES[:limit]
+
+
+def _stale_or_static_languages(limit: int) -> list[tuple[str, int]]:
+    """RPC-failure fallback for languages — see _stale_or_static_countries."""
+    if _top_languages_cache is not None:
+        _, stale = _top_languages_cache
+        logger.warning("[Lists] languages RPC failed — serving stale cache")
+        return stale[:limit]
+    logger.warning("[Lists] languages RPC failed and no cache — serving static snapshot")
+    return _STATIC_TOP_LANGUAGES[:limit]
+
+
+def _stale_or_static_categories(limit: int) -> list[tuple[str, int]]:
+    """RPC-failure fallback for categories — see _stale_or_static_countries.
+
+    Categories differ slightly: the caller merges the result with the fixed
+    YouTube taxonomy afterwards, so a small static snapshot here is still
+    projected onto the full taxonomy by ``_merge_with_fixed_topic_categories``.
+    """
+    if _top_categories_cache is not None:
+        _, stale = _top_categories_cache
+        logger.warning("[Lists] categories RPC failed — serving stale cache")
+        return stale[:limit]
+    logger.warning("[Lists] categories RPC failed and no cache — serving static snapshot")
+    return _STATIC_TOP_CATEGORIES[:limit]
+
+
 # ─── Public RPC-backed aggregation functions ─────────────────────────────────
 
 
@@ -1631,7 +1783,7 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     full = _fetch_top_counts(
         "get_top_countries_with_counts",
         "country_code",
-        lambda lim: _scan_column_counts("country_code", lim),
+        _stale_or_static_countries,
         200,  # fetch all so any limit can be served from cache
     )
     _top_countries_cache = (now, full)
@@ -1663,7 +1815,7 @@ def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     full = _fetch_top_counts(
         "get_top_languages_with_counts",
         "language_code",
-        lambda lim: _scan_column_counts("default_language", lim),
+        _stale_or_static_languages,
         300,  # fetch all so any limit can be served from cache
     )
     _top_languages_cache = (now, full)
@@ -1831,7 +1983,7 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     raw_counts = _fetch_top_counts(
         "get_top_categories_with_counts",
         "category",
-        _scan_categories_fallback,
+        _stale_or_static_categories,
         fetch_limit,
     )
     merged = _merge_with_fixed_topic_categories(raw_counts)
