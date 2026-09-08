@@ -19,6 +19,7 @@ from db import _log_get_creators_metrics, _METRICS_PREFIX
 @pytest.fixture
 def metrics_line(caplog):
     """Return the last INFO record emitted by _log_get_creators_metrics."""
+
     def _run(**kwargs):
         caplog.clear()
         with caplog.at_level(logging.INFO, logger="vv_db"):
@@ -27,6 +28,7 @@ def metrics_line(caplog):
         assert info_lines, "expected exactly one INFO metrics line"
         assert len(info_lines) == 1
         return info_lines[0]
+
     return _run
 
 
