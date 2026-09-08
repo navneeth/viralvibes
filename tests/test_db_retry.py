@@ -112,7 +112,7 @@ def test_readonly_matches_when_cause_is_write_error():
     assert _is_transient_transport_readonly(wrapped) is True
 
 
-# ── Cloudflare 5xx from Supabase's origin (postgrest.APIError) ───────────
+# ── Transient upstream gateway 5xx (CF + Kong) wrapped in postgrest.APIError
 
 _APIError = _named_exc("APIError")
 
@@ -124,8 +124,20 @@ def _apierror(code):
     return exc
 
 
-@pytest.mark.parametrize("code", [520, 521, 522, 523, 524])
-def test_cf_upstream_5xx_matches_all_known_codes(code):
+@pytest.mark.parametrize(
+    "code",
+    [
+        502,  # Kong bad gateway to PostgREST
+        503,  # Supabase overload
+        504,  # Kong timeout to PostgREST (observed in production)
+        520,  # Cloudflare unknown
+        521,  # Cloudflare origin down
+        522,  # Cloudflare connection timeout
+        523,  # Cloudflare origin unreachable
+        524,  # Cloudflare timeout waiting for response
+    ],
+)
+def test_upstream_gateway_matches_all_known_codes(code):
     assert _is_cf_upstream_5xx(_apierror(code)) is True
 
 
@@ -135,23 +147,27 @@ def test_cf_upstream_5xx_matches_all_known_codes(code):
         _apierror(200),
         _apierror(400),
         _apierror(404),
-        _apierror(500),  # generic 500 is not a CF upstream signal
+        _apierror(500),  # generic 500 is not a gateway signal
         _apierror(525),  # SSL handshake, not upstream unreachable
         _apierror(None),
         _apierror("not-a-number"),
+        _apierror("PGRST116"),  # PostgREST application error code
+        _apierror("42883"),  # Postgres SQL state
         _named_exc("APIError")("no code attribute"),
         Exception("522 in message but wrong type"),
     ],
 )
-def test_cf_upstream_5xx_rejects_unrelated(exc):
+def test_upstream_gateway_rejects_unrelated(exc):
     assert _is_cf_upstream_5xx(exc) is False
 
 
-def test_readonly_matches_cf_upstream_5xx():
-    assert _is_transient_transport_readonly(_apierror(522)) is True
+@pytest.mark.parametrize("code", [502, 503, 504, 520, 522, 524])
+def test_readonly_matches_upstream_gateway(code):
+    assert _is_transient_transport_readonly(_apierror(code)) is True
 
 
-def test_strict_does_not_match_cf_upstream_5xx():
-    # CF 5xx may represent post-dispatch state (esp. 520, 524) so the
+@pytest.mark.parametrize("code", [502, 503, 504, 522, 524])
+def test_strict_does_not_match_upstream_gateway(code):
+    # Gateway 5xx may represent post-dispatch state (esp. 504/524) so the
     # write-safe predicate must NOT match; only the read-only predicate does.
-    assert _is_transient_disconnect(_apierror(522)) is False
+    assert _is_transient_disconnect(_apierror(code)) is False
