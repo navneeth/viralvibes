@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for views/creators.py: 49.53%</title>
+    <title>Coverage for views/creators.py: 50.31%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>views<span class="sep">/</span>creators.py</b>:
-            <span class="pc_cov">49.53%</span>
+            <span class="pc_cov">50.31%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -56,10 +56,10 @@
         </aside>
         <h2>
             <span class="text">970 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">536<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">434<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">541<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">429<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">3<span class="text"> excluded</span></button>
-            <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">71<span class="text"> partial</span></button>
+            <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">70<span class="text"> partial</span></button>
         </h2>
         <p class="text">
             <a id="prevFileLink" class="nav" href="z_ccd67909ff75f620_compare_py.html">&#xab; prev</a> &nbsp; &nbsp;
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_ccd67909ff75f620_dashboard_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.0">coverage.py v7.16.0</a>,
-            created at 2026-09-08 01:21 +0000
+            created at 2026-09-08 02:31 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1394,17 +1394,17 @@
     <p class="run run2"><span class="n"><a id="t1310" href="#t1310">1310</a></span><span class="t">    <span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t1311" href="#t1311">1311</a></span><span class="t">    <span class="nam">language_options</span> <span class="op">=</span> <span class="op">[</span><span class="op">(</span><span class="str">&quot;all&quot;</span><span class="op">,</span> <span class="str">&quot;All&quot;</span><span class="op">,</span> <span class="str">&quot;&#127757;&quot;</span><span class="op">)</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t1312" href="#t1312">1312</a></span><span class="t">    <span class="nam">_lang_source</span> <span class="op">=</span> <span class="nam">top_languages</span> <span class="key">or</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="par run show_par"><span class="n"><a id="t1313" href="#t1313">1313</a></span><span class="t">    <span class="key">if</span> <span class="nam">_lang_source</span><span class="op">:</span>&nbsp;</span><span class="r"><span class="annotate short">1313&#x202F;&#x219B;&#x202F;1314</span><span class="annotate long">line 1313 didn't jump to line 1314 because the condition on line 1313 was never true</span></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1314" href="#t1314">1314</a></span><span class="t">        <span class="key">for</span> <span class="nam">_lang_code</span><span class="op">,</span> <span class="nam">_lang_count</span> <span class="key">in</span> <span class="nam">_lang_source</span><span class="op">[</span><span class="op">:</span><span class="num">7</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1315" href="#t1315">1315</a></span><span class="t">            <span class="key">if</span> <span class="key">not</span> <span class="nam">_lang_code</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1313" href="#t1313">1313</a></span><span class="t">    <span class="key">if</span> <span class="nam">_lang_source</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1314" href="#t1314">1314</a></span><span class="t">        <span class="key">for</span> <span class="nam">_lang_code</span><span class="op">,</span> <span class="nam">_lang_count</span> <span class="key">in</span> <span class="nam">_lang_source</span><span class="op">[</span><span class="op">:</span><span class="num">7</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="par run show_par"><span class="n"><a id="t1315" href="#t1315">1315</a></span><span class="t">            <span class="key">if</span> <span class="key">not</span> <span class="nam">_lang_code</span><span class="op">:</span>&nbsp;</span><span class="r"><span class="annotate short">1315&#x202F;&#x219B;&#x202F;1316</span><span class="annotate long">line 1315 didn't jump to line 1316 because the condition on line 1315 was never true</span></span></p>
     <p class="mis show_mis"><span class="n"><a id="t1316" href="#t1316">1316</a></span><span class="t">                <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1317" href="#t1317">1317</a></span><span class="t">            <span class="nam">language_options</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1318" href="#t1318">1318</a></span><span class="t">                <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1319" href="#t1319">1319</a></span><span class="t">                    <span class="nam">_lang_code</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1320" href="#t1320">1320</a></span><span class="t">                    <span class="nam">get_language_name</span><span class="op">(</span><span class="nam">_lang_code</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1321" href="#t1321">1321</a></span><span class="t">                    <span class="nam">get_language_emoji</span><span class="op">(</span><span class="nam">_lang_code</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1322" href="#t1322">1322</a></span><span class="t">                <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t1323" href="#t1323">1323</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1317" href="#t1317">1317</a></span><span class="t">            <span class="nam">language_options</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t1318" href="#t1318">1318</a></span><span class="t">                <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t1319" href="#t1319">1319</a></span><span class="t">                    <span class="nam">_lang_code</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t1320" href="#t1320">1320</a></span><span class="t">                    <span class="nam">get_language_name</span><span class="op">(</span><span class="nam">_lang_code</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t1321" href="#t1321">1321</a></span><span class="t">                    <span class="nam">get_language_emoji</span><span class="op">(</span><span class="nam">_lang_code</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t1322" href="#t1322">1322</a></span><span class="t">                <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t1323" href="#t1323">1323</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1324" href="#t1324">1324</a></span><span class="t">    <span class="key">else</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t1325" href="#t1325">1325</a></span><span class="t">        <span class="nam">language_options</span><span class="op">.</span><span class="nam">extend</span><span class="op">(</span><span class="nam">_fallback_languages</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1326" href="#t1326">1326</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -1486,9 +1486,9 @@
     <p class="run"><span class="n"><a id="t1402" href="#t1402">1402</a></span><span class="t">    <span class="nam">country_options</span> <span class="op">=</span> <span class="op">[</span><span class="op">(</span><span class="str">&quot;all&quot;</span><span class="op">,</span> <span class="str">&quot;All&quot;</span><span class="op">,</span> <span class="str">&quot;&#127757;&quot;</span><span class="op">)</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1403" href="#t1403">1403</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1404" href="#t1404">1404</a></span><span class="t">    <span class="com"># Add top countries from database stats</span>&nbsp;</span><span class="r"></span></p>
-    <p class="par run show_par"><span class="n"><a id="t1405" href="#t1405">1405</a></span><span class="t">    <span class="key">for</span> <span class="nam">country_code</span><span class="op">,</span> <span class="nam">count</span> <span class="key">in</span> <span class="nam">top_countries</span><span class="op">[</span><span class="op">:</span><span class="num">8</span><span class="op">]</span> <span class="key">if</span> <span class="nam">top_countries</span> <span class="key">else</span> <span class="op">[</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"><span class="annotate short">1405&#x202F;&#x219B;&#x202F;1406</span><span class="annotate long">line 1405 didn't jump to line 1406 because the loop on line 1405 never started</span></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1406" href="#t1406">1406</a></span><span class="t">        <span class="nam">flag</span> <span class="op">=</span> <span class="nam">get_country_flag</span><span class="op">(</span><span class="nam">country_code</span><span class="op">)</span> <span class="key">or</span> <span class="str">&quot;&#127988;&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t1407" href="#t1407">1407</a></span><span class="t">        <span class="nam">country_options</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="op">(</span><span class="nam">country_code</span><span class="op">,</span> <span class="fst">f&quot;</span><span class="op">{</span><span class="nam">flag</span><span class="op">}</span><span class="fst"> </span><span class="op">{</span><span class="nam">country_code</span><span class="op">.</span><span class="nam">upper</span><span class="op">(</span><span class="op">)</span><span class="op">}</span><span class="fst">&quot;</span><span class="op">,</span> <span class="nam">flag</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1405" href="#t1405">1405</a></span><span class="t">    <span class="key">for</span> <span class="nam">country_code</span><span class="op">,</span> <span class="nam">count</span> <span class="key">in</span> <span class="nam">top_countries</span><span class="op">[</span><span class="op">:</span><span class="num">8</span><span class="op">]</span> <span class="key">if</span> <span class="nam">top_countries</span> <span class="key">else</span> <span class="op">[</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1406" href="#t1406">1406</a></span><span class="t">        <span class="nam">flag</span> <span class="op">=</span> <span class="nam">get_country_flag</span><span class="op">(</span><span class="nam">country_code</span><span class="op">)</span> <span class="key">or</span> <span class="str">&quot;&#127988;&quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t1407" href="#t1407">1407</a></span><span class="t">        <span class="nam">country_options</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="op">(</span><span class="nam">country_code</span><span class="op">,</span> <span class="fst">f&quot;</span><span class="op">{</span><span class="nam">flag</span><span class="op">}</span><span class="fst"> </span><span class="op">{</span><span class="nam">country_code</span><span class="op">.</span><span class="nam">upper</span><span class="op">(</span><span class="op">)</span><span class="op">}</span><span class="fst">&quot;</span><span class="op">,</span> <span class="nam">flag</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1408" href="#t1408">1408</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t1409" href="#t1409">1409</a></span><span class="t">    <span class="com"># Country pills use a custom label format (flag + code only), so built manually</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t1410" href="#t1410">1410</a></span><span class="t">    <span class="nam">country_pills</span> <span class="op">=</span> <span class="nam">Div</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
@@ -5723,7 +5723,7 @@
             <a class="nav" href="z_ccd67909ff75f620_dashboard_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.0">coverage.py v7.16.0</a>,
-            created at 2026-09-08 01:21 +0000
+            created at 2026-09-08 02:31 +0000
         </p>
     </div>
 </footer>
