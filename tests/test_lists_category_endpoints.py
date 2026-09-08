@@ -79,7 +79,7 @@ def test_get_top_categories_with_counts_projects_onto_fixed_taxonomy(monkeypatch
     monkeypatch.setattr(db_lists, "_top_categories_cache", None)  # bypass process-level cache
     monkeypatch.setattr(
         db_lists,
-        "_fetch_top_counts",
+        "_try_top_counts_rpc",
         lambda *args, **kwargs: [
             ("Music", 100),
             ("Technology", 80),
@@ -99,7 +99,7 @@ def test_get_top_categories_with_counts_respects_smaller_limit_and_tie_order(mon
     monkeypatch.setattr(db_lists, "_top_categories_cache", None)  # bypass process-level cache
     monkeypatch.setattr(
         db_lists,
-        "_fetch_top_counts",
+        "_try_top_counts_rpc",
         lambda *args, **kwargs: [
             ("Technology", 80),
             ("Music", 80),
@@ -116,7 +116,7 @@ def test_get_top_categories_with_counts_zero_limit_returns_empty(monkeypatch):
     monkeypatch.setattr(db_lists, "_top_categories_cache", None)  # bypass process-level cache
     monkeypatch.setattr(
         db_lists,
-        "_fetch_top_counts",
+        "_try_top_counts_rpc",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not fetch")),
     )
 

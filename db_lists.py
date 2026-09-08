@@ -793,26 +793,29 @@ _STATIC_TOP_LANGUAGES: list[tuple[str, int]] = [
     )
 ]
 
-# YouTube's fixed 15-topic taxonomy — canonical labels.
+# YouTube's fixed 15-topic taxonomy — must use canonical labels from
+# YOUTUBE_TOPIC_CATEGORY_LABELS so _merge_with_fixed_topic_categories keeps
+# the counts instead of discarding them.  Ordered by rough popularity so
+# the hero-strip renders a plausible category row during an outage.
 _STATIC_TOP_CATEGORIES: list[tuple[str, int]] = [
     (name, 15 - i)
     for i, name in enumerate(
         [
             "Music",
             "Entertainment",
-            "Gaming",
-            "People & Blogs",
-            "Comedy",
-            "Education",
-            "Sports",
-            "Howto & Style",
-            "Film & Animation",
-            "Science & Technology",
-            "News & Politics",
-            "Autos & Vehicles",
-            "Pets & Animals",
-            "Travel & Events",
-            "Nonprofits & Activism",
+            "Video game culture",
+            "Humour",
+            "Knowledge",
+            "Lifestyle (sociology)",
+            "Association football",
+            "Film",
+            "Technology",
+            "Fashion",
+            "Food",
+            "Health",
+            "Vehicle",
+            "Tourism",
+            "Business",
         ]
     )
 ]
@@ -1682,8 +1685,11 @@ def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
     Client-side fallback: GROUP BY a single non-null creators column.
 
     Scans up to ``_MAX_FALLBACK_FETCH`` rows and returns the top *limit*
-    ``(value, count)`` tuples sorted by count descending.  Used by the
-    country and language fallbacks when their RPC is unavailable.
+    ``(value, count)`` tuples sorted by count descending.  Still used by
+    ``_get_observed_topic_categories`` for slug/taxonomy expansion; the
+    three user-facing ``get_top_*_with_counts`` functions no longer use it
+    because a full table scan under load amplifies the pressure that made
+    the RPC fail in the first place.
 
     Args:
         column: Column name in the ``creators`` table (e.g. ``"country_code"``).
@@ -1716,47 +1722,38 @@ def _scan_column_counts(column: str, limit: int) -> list[tuple[str, int]]:
         return []
 
 
-def _stale_or_static_countries(limit: int) -> list[tuple[str, int]]:
-    """RPC-failure fallback: prefer expired cache over the static snapshot.
-
-    Never scans the creators table — that used to be the fallback via
-    ``_scan_column_counts``, but under load the scan was more expensive than
-    the RPC that failed, amplifying pressure on an already-saturated DB.
-    """
-    if _top_countries_cache is not None:
-        _, stale = _top_countries_cache
-        logger.warning("[Lists] countries RPC failed — serving stale cache")
-        return stale[:limit]
-    logger.warning("[Lists] countries RPC failed and no cache — serving static snapshot")
-    return _STATIC_TOP_COUNTRIES[:limit]
-
-
-def _stale_or_static_languages(limit: int) -> list[tuple[str, int]]:
-    """RPC-failure fallback for languages — see _stale_or_static_countries."""
-    if _top_languages_cache is not None:
-        _, stale = _top_languages_cache
-        logger.warning("[Lists] languages RPC failed — serving stale cache")
-        return stale[:limit]
-    logger.warning("[Lists] languages RPC failed and no cache — serving static snapshot")
-    return _STATIC_TOP_LANGUAGES[:limit]
-
-
-def _stale_or_static_categories(limit: int) -> list[tuple[str, int]]:
-    """RPC-failure fallback for categories — see _stale_or_static_countries.
-
-    Categories differ slightly: the caller merges the result with the fixed
-    YouTube taxonomy afterwards, so a small static snapshot here is still
-    projected onto the full taxonomy by ``_merge_with_fixed_topic_categories``.
-    """
-    if _top_categories_cache is not None:
-        _, stale = _top_categories_cache
-        logger.warning("[Lists] categories RPC failed — serving stale cache")
-        return stale[:limit]
-    logger.warning("[Lists] categories RPC failed and no cache — serving static snapshot")
-    return _STATIC_TOP_CATEGORIES[:limit]
-
-
 # ─── Public RPC-backed aggregation functions ─────────────────────────────────
+
+
+def _try_top_counts_rpc(
+    rpc_name: str, key_name: str, fetch_limit: int
+) -> list[tuple[str, int]] | None:
+    """Call a top-counts RPC and return parsed data, or None if unavailable.
+
+    Returns None (never raises) when there is no Supabase client, when the
+    RPC raises, or when it returns an empty payload.  The three
+    ``get_top_*_with_counts`` functions use None as their "did not get fresh
+    data" signal so they can serve stale/static without refreshing the cache
+    timestamp.
+    """
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        logger.warning("[Lists] %s: no Supabase client", rpc_name)
+        return None
+    try:
+        resp = _rpc_with_retry(supabase_client, rpc_name, {"p_limit": fetch_limit})
+    except Exception as e:
+        logger.error(
+            "[Lists] %s RPC failed — will serve stale cache or static snapshot. Error: %s",
+            rpc_name,
+            e,
+            exc_info=True,
+        )
+        return None
+    if not resp.data:
+        logger.warning("[Lists] %s RPC returned no data", rpc_name)
+        return None
+    return [(row[key_name], row["creator_count"]) for row in resp.data]
 
 
 def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
@@ -1767,11 +1764,14 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     Used for the "By Country" tab and the /creators hero flag strip.
 
     Delegates to the ``get_top_countries_with_counts`` Supabase RPC
-    (see db/migrations/002_lists_page_rpc_functions.sql) with a
-    client-side column-scan fallback if the RPC is unavailable.
+    (see db/migrations/002_lists_page_rpc_functions.sql).
 
     Results are cached in-process for ``_TOP_COUNTRIES_TTL_SECONDS`` seconds
-    so repeated requests (e.g. filter-bar renders) don't each hit the DB.
+    on a fresh RPC success only.  When the RPC fails or returns empty, the
+    prior (expired) cache is served without refreshing its timestamp so the
+    next request retries immediately; if no cache exists at all, a static
+    top-30 snapshot is served with placeholder counts (30..1) chosen so
+    monitoring can identify fallback events.
     """
     global _top_countries_cache
     now = time.monotonic()
@@ -1780,14 +1780,18 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         if now - ts < _TOP_COUNTRIES_TTL_SECONDS:
             return full[:limit]
 
-    full = _fetch_top_counts(
-        "get_top_countries_with_counts",
-        "country_code",
-        _stale_or_static_countries,
-        200,  # fetch all so any limit can be served from cache
-    )
-    _top_countries_cache = (now, full)
-    return full[:limit]
+    fresh = _try_top_counts_rpc("get_top_countries_with_counts", "country_code", 200)
+    if fresh:
+        _top_countries_cache = (now, fresh)
+        return fresh[:limit]
+
+    if _top_countries_cache is not None:
+        _, stale = _top_countries_cache
+        logger.warning("[Lists] countries — serving stale cache (timestamp preserved)")
+        return stale[:limit]
+
+    logger.warning("[Lists] countries — no cache, serving static snapshot")
+    return _STATIC_TOP_COUNTRIES[:limit]
 
 
 def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
@@ -1798,12 +1802,14 @@ def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     Used for the /creators filter bar and hero language stats.
 
     Delegates to the ``get_top_languages_with_counts`` Supabase RPC
-    (see db/migrations/003_shared_stats_rpc_update.sql) with a
-    client-side column-scan fallback.  Note: the DB column is
-    ``default_language`` while the RPC returns it as ``language_code``;
-    the fallback scans the raw column name directly.
+    (see db/migrations/003_shared_stats_rpc_update.sql).
 
-    Results are cached in-process for ``_TOP_LANGUAGES_TTL_SECONDS`` seconds.
+    Results are cached in-process for ``_TOP_LANGUAGES_TTL_SECONDS`` seconds
+    on a fresh RPC success only.  When the RPC fails or returns empty, the
+    prior (expired) cache is served without refreshing its timestamp so the
+    next request retries immediately; if no cache exists at all, a static
+    top-30 snapshot is served with placeholder counts (30..1) chosen so
+    monitoring can identify fallback events.
     """
     global _top_languages_cache
     now = time.monotonic()
@@ -1812,14 +1818,18 @@ def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         if now - ts < _TOP_LANGUAGES_TTL_SECONDS:
             return full[:limit]
 
-    full = _fetch_top_counts(
-        "get_top_languages_with_counts",
-        "language_code",
-        _stale_or_static_languages,
-        300,  # fetch all so any limit can be served from cache
-    )
-    _top_languages_cache = (now, full)
-    return full[:limit]
+    fresh = _try_top_counts_rpc("get_top_languages_with_counts", "language_code", 300)
+    if fresh:
+        _top_languages_cache = (now, fresh)
+        return fresh[:limit]
+
+    if _top_languages_cache is not None:
+        _, stale = _top_languages_cache
+        logger.warning("[Lists] languages — serving stale cache (timestamp preserved)")
+        return stale[:limit]
+
+    logger.warning("[Lists] languages — no cache, serving static snapshot")
+    return _STATIC_TOP_LANGUAGES[:limit]
 
 
 def get_lists_meta() -> dict:
@@ -1964,6 +1974,14 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
 
     Returns list of (category_name, creator_count) tuples.
     Used for the "By Category" tab and the /creators filter dropdown.
+
+    Cached in-process for ``_TOP_CATEGORIES_TTL_SECONDS`` seconds on a fresh
+    RPC success only.  When the RPC fails or returns empty, the prior
+    (expired) cache is served without refreshing its timestamp so the next
+    request retries immediately; if no cache exists at all, a static
+    canonical-taxonomy snapshot is served (labels from
+    ``YOUTUBE_TOPIC_CATEGORY_LABELS`` so ``_merge_with_fixed_topic_categories``
+    preserves the counts).
     """
     global _top_categories_cache
 
@@ -1980,19 +1998,26 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
 
     # Fetch enough rows to cover the full fixed taxonomy before projection.
     fetch_limit = max(limit, TOTAL_TOPIC_CATEGORIES)
-    raw_counts = _fetch_top_counts(
-        "get_top_categories_with_counts",
-        "category",
-        _stale_or_static_categories,
-        fetch_limit,
-    )
-    merged = _merge_with_fixed_topic_categories(raw_counts)
-    full = merged[:TOTAL_TOPIC_CATEGORIES]
+    fresh_raw = _try_top_counts_rpc("get_top_categories_with_counts", "category", fetch_limit)
 
-    # Cache the full taxonomy-sized result; individual callers slice from it.
-    _top_categories_cache = (now, full)
+    if fresh_raw:
+        merged = _merge_with_fixed_topic_categories(fresh_raw)
+        full = merged[:TOTAL_TOPIC_CATEGORIES]
+        _top_categories_cache = (now, full)
+        return full[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
-    return full[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+    # RPC failed or empty — serve stale without refreshing timestamp so the
+    # next request retries.
+    if _top_categories_cache is not None:
+        _, stale = _top_categories_cache
+        logger.warning("[Lists] categories — serving stale cache (timestamp preserved)")
+        return stale[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+
+    # No prior cache — project the static snapshot through the same fixed
+    # taxonomy pass so the return shape matches a normal call exactly.
+    logger.warning("[Lists] categories — no cache, serving static snapshot")
+    merged = _merge_with_fixed_topic_categories(_STATIC_TOP_CATEGORIES)
+    return merged[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
 
 def suggest_primary_categories(q: str, limit: int = 8) -> list[tuple[str, int]]:
