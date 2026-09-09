@@ -6,6 +6,7 @@ Specialized functions for the /lists page tab content.
 import json
 import logging
 import random
+import threading
 import time
 from typing import Callable, NamedTuple
 from urllib.parse import unquote, urlparse
@@ -645,10 +646,18 @@ def _rpc_with_retry(
     """
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+    # Share db.py's process-wide concurrency cap: facet/list RPCs and
+    # get_creators calls both count against the same limit, since they all
+    # multiplex over the same small set of HTTP/2 connections on this
+    # instance. Imported lazily to avoid a hard import-time dependency loop
+    # (db.py already imports from db_lists inside get_creator_hero_stats).
+    from db import _supabase_request_semaphore
+
     last_exc: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            return supabase_client.rpc(rpc_name, params).execute()
+            with _supabase_request_semaphore:
+                return supabase_client.rpc(rpc_name, params).execute()
         except _RETRIABLE_TRANSPORT_ERRORS as exc:
             last_exc = exc
             if attempt == max_attempts:
@@ -695,6 +704,7 @@ NEW_CHANNEL_MAX_AGE_DAYS = 365
 
 _LISTS_META_TTL_SECONDS = 600  # 10 min — data changes at most a few times/day
 _lists_meta_cache: tuple[float, dict[str, int]] | None = None
+_lists_meta_lock = threading.Lock()
 
 # 4 h TTLs on the top_* caches (was 10 min).  These aggregates are backed by
 # materialized views the worker refreshes hourly at most, so refetching every
@@ -703,12 +713,24 @@ _lists_meta_cache: tuple[float, dict[str, int]] | None = None
 # API-layer 504s; longer TTL cuts the RPC volume ~24×.
 _TOP_CATEGORIES_TTL_SECONDS = 4 * 60 * 60
 _top_categories_cache: tuple[float, list[tuple[str, int]]] | None = None
+_top_categories_lock = threading.Lock()
 
 _TOP_COUNTRIES_TTL_SECONDS = 4 * 60 * 60
 _top_countries_cache: tuple[float, list[tuple[str, int]]] | None = None
+_top_countries_lock = threading.Lock()
 
 _TOP_LANGUAGES_TTL_SECONDS = 4 * 60 * 60
 _top_languages_cache: tuple[float, list[tuple[str, int]]] | None = None
+_top_languages_lock = threading.Lock()
+
+# Single-flight note: each *_lock above exists because a warm Vercel/Fluid
+# process can receive many concurrent requests that all miss the TTL cache
+# at once (right after expiry, or on a fresh instance). Without a lock, N
+# concurrent callers each fire an identical RPC simultaneously — exactly the
+# "5-10 near-identical get_top_*_with_counts calls in the same millisecond"
+# pattern seen in production logs. With the lock, only the first caller past
+# a cold/expired cache actually hits the DB; the rest block briefly and then
+# read the value it just populated (or the stale/static fallback it chose).
 
 
 # Static ordered snapshots used as a last-resort fallback when the RPC fails
@@ -1780,18 +1802,25 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         if now - ts < _TOP_COUNTRIES_TTL_SECONDS:
             return full[:limit]
 
-    fresh = _try_top_counts_rpc("get_top_countries_with_counts", "country_code", 200)
-    if fresh:
-        _top_countries_cache = (now, fresh)
-        return fresh[:limit]
+    with _top_countries_lock:
+        now = time.monotonic()
+        if _top_countries_cache is not None:
+            ts, full = _top_countries_cache
+            if now - ts < _TOP_COUNTRIES_TTL_SECONDS:
+                return full[:limit]
 
-    if _top_countries_cache is not None:
-        _, stale = _top_countries_cache
-        logger.warning("[Lists] countries — serving stale cache (timestamp preserved)")
-        return stale[:limit]
+        fresh = _try_top_counts_rpc("get_top_countries_with_counts", "country_code", 200)
+        if fresh:
+            _top_countries_cache = (now, fresh)
+            return fresh[:limit]
 
-    logger.warning("[Lists] countries — no cache, serving static snapshot")
-    return _STATIC_TOP_COUNTRIES[:limit]
+        if _top_countries_cache is not None:
+            _, stale = _top_countries_cache
+            logger.warning("[Lists] countries — serving stale cache (timestamp preserved)")
+            return stale[:limit]
+
+        logger.warning("[Lists] countries — no cache, serving static snapshot")
+        return _STATIC_TOP_COUNTRIES[:limit]
 
 
 def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
@@ -1818,18 +1847,25 @@ def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         if now - ts < _TOP_LANGUAGES_TTL_SECONDS:
             return full[:limit]
 
-    fresh = _try_top_counts_rpc("get_top_languages_with_counts", "language_code", 300)
-    if fresh:
-        _top_languages_cache = (now, fresh)
-        return fresh[:limit]
+    with _top_languages_lock:
+        now = time.monotonic()
+        if _top_languages_cache is not None:
+            ts, full = _top_languages_cache
+            if now - ts < _TOP_LANGUAGES_TTL_SECONDS:
+                return full[:limit]
 
-    if _top_languages_cache is not None:
-        _, stale = _top_languages_cache
-        logger.warning("[Lists] languages — serving stale cache (timestamp preserved)")
-        return stale[:limit]
+        fresh = _try_top_counts_rpc("get_top_languages_with_counts", "language_code", 300)
+        if fresh:
+            _top_languages_cache = (now, fresh)
+            return fresh[:limit]
 
-    logger.warning("[Lists] languages — no cache, serving static snapshot")
-    return _STATIC_TOP_LANGUAGES[:limit]
+        if _top_languages_cache is not None:
+            _, stale = _top_languages_cache
+            logger.warning("[Lists] languages — serving stale cache (timestamp preserved)")
+            return stale[:limit]
+
+        logger.warning("[Lists] languages — no cache, serving static snapshot")
+        return _STATIC_TOP_LANGUAGES[:limit]
 
 
 def get_lists_meta() -> dict:
@@ -1864,27 +1900,33 @@ def get_lists_meta() -> dict:
         expires_at, cached_meta = _lists_meta_cache
         if expires_at > time.monotonic():
             return cached_meta.copy()
-        _lists_meta_cache = None
 
-    try:
-        resp = supabase_client.rpc("get_lists_meta").execute()
-        if resp.data:
-            row = resp.data[0]
-            meta = {
-                "total_creators": int(row.get("total_creators") or 0),
-                "total_countries": int(row.get("total_countries") or 0),
-                "total_categories": TOTAL_TOPIC_CATEGORIES,
-                # total_languages added in migration 003; defaults to 0 on older DBs
-                "total_languages": int(row.get("total_languages") or 0),
-            }
-            _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
-            return meta.copy()
-        logger.warning("[Lists] get_lists_meta RPC returned no data")
-        return _get_lists_meta_cached_tables()
+    with _lists_meta_lock:
+        if _lists_meta_cache:
+            expires_at, cached_meta = _lists_meta_cache
+            if expires_at > time.monotonic():
+                return cached_meta.copy()
+            _lists_meta_cache = None
 
-    except Exception as e:
-        logger.exception(f"Error fetching lists meta via RPC: {e}")
-        return _get_lists_meta_cached_tables()
+        try:
+            resp = supabase_client.rpc("get_lists_meta").execute()
+            if resp.data:
+                row = resp.data[0]
+                meta = {
+                    "total_creators": int(row.get("total_creators") or 0),
+                    "total_countries": int(row.get("total_countries") or 0),
+                    "total_categories": TOTAL_TOPIC_CATEGORIES,
+                    # total_languages added in migration 003; defaults to 0 on older DBs
+                    "total_languages": int(row.get("total_languages") or 0),
+                }
+                _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
+                return meta.copy()
+            logger.warning("[Lists] get_lists_meta RPC returned no data")
+            return _get_lists_meta_cached_tables()
+
+        except Exception as e:
+            logger.exception(f"Error fetching lists meta via RPC: {e}")
+            return _get_lists_meta_cached_tables()
 
 
 def _get_lists_meta_cached_tables() -> dict:
@@ -1996,28 +2038,35 @@ def get_top_categories_with_counts(limit: int = 10) -> list[tuple[str, int]]:
         if now - cached_at < _TOP_CATEGORIES_TTL_SECONDS:
             return cached_result[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
-    # Fetch enough rows to cover the full fixed taxonomy before projection.
-    fetch_limit = max(limit, TOTAL_TOPIC_CATEGORIES)
-    fresh_raw = _try_top_counts_rpc("get_top_categories_with_counts", "category", fetch_limit)
+    with _top_categories_lock:
+        now = time.monotonic()
+        if _top_categories_cache is not None:
+            cached_at, cached_result = _top_categories_cache
+            if now - cached_at < _TOP_CATEGORIES_TTL_SECONDS:
+                return cached_result[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
-    if fresh_raw:
-        merged = _merge_with_fixed_topic_categories(fresh_raw)
-        full = merged[:TOTAL_TOPIC_CATEGORIES]
-        _top_categories_cache = (now, full)
-        return full[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+        # Fetch enough rows to cover the full fixed taxonomy before projection.
+        fetch_limit = max(limit, TOTAL_TOPIC_CATEGORIES)
+        fresh_raw = _try_top_counts_rpc("get_top_categories_with_counts", "category", fetch_limit)
 
-    # RPC failed or empty — serve stale without refreshing timestamp so the
-    # next request retries.
-    if _top_categories_cache is not None:
-        _, stale = _top_categories_cache
-        logger.warning("[Lists] categories — serving stale cache (timestamp preserved)")
-        return stale[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+        if fresh_raw:
+            merged = _merge_with_fixed_topic_categories(fresh_raw)
+            full = merged[:TOTAL_TOPIC_CATEGORIES]
+            _top_categories_cache = (now, full)
+            return full[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
-    # No prior cache — project the static snapshot through the same fixed
-    # taxonomy pass so the return shape matches a normal call exactly.
-    logger.warning("[Lists] categories — no cache, serving static snapshot")
-    merged = _merge_with_fixed_topic_categories(_STATIC_TOP_CATEGORIES)
-    return merged[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+        # RPC failed or empty — serve stale without refreshing timestamp so the
+        # next request retries.
+        if _top_categories_cache is not None:
+            _, stale = _top_categories_cache
+            logger.warning("[Lists] categories — serving stale cache (timestamp preserved)")
+            return stale[: min(limit, TOTAL_TOPIC_CATEGORIES)]
+
+        # No prior cache — project the static snapshot through the same fixed
+        # taxonomy pass so the return shape matches a normal call exactly.
+        logger.warning("[Lists] categories — no cache, serving static snapshot")
+        merged = _merge_with_fixed_topic_categories(_STATIC_TOP_CATEGORIES)
+        return merged[: min(limit, TOTAL_TOPIC_CATEGORIES)]
 
 
 def suggest_primary_categories(q: str, limit: int = 8) -> list[tuple[str, int]]:
