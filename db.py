@@ -221,7 +221,48 @@ _DISCONNECT_RETRY_JITTER_S = 0.5  # random addend to spread retries and avoid sy
 # 3 * _SUPABASE_TIMEOUT_S + backoff (~30-40s) instead of unbounded — the
 # frontend/reverse-proxy timeout should still be set shorter than that so the
 # user gets a fast, honest error rather than a hung page.
-_SUPABASE_TIMEOUT_S = float(os.environ.get("SUPABASE_TIMEOUT_S", "10"))
+_DEFAULT_SUPABASE_TIMEOUT_S = 10.0
+_DEFAULT_SUPABASE_MAX_CONCURRENT_REQUESTS = 20
+
+
+def _read_positive_env(
+    var_name: str, default: float, *, cast: type = float, min_value: float = 0.1
+) -> float:
+    """Parse a positive numeric env var, falling back to default on any error.
+
+    Returning to a sane default (with a WARNING) is preferable to raising at
+    module import — bad config would otherwise take the whole app down
+    instead of surfacing as a controlled error at query time.
+    """
+    raw = os.environ.get(var_name)
+    if raw is None:
+        return default
+    try:
+        parsed = cast(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "%s=%r is not a valid %s; using default %s",
+            var_name,
+            raw,
+            cast.__name__,
+            default,
+        )
+        return default
+    if parsed < min_value:
+        logger.warning(
+            "%s=%s is below the safe minimum %s; using default %s",
+            var_name,
+            parsed,
+            min_value,
+            default,
+        )
+        return default
+    return parsed
+
+
+_SUPABASE_TIMEOUT_S = _read_positive_env(
+    "SUPABASE_TIMEOUT_S", _DEFAULT_SUPABASE_TIMEOUT_S, cast=float, min_value=0.5
+)
 
 # ---------------------------------------------------------------------------
 # Outbound request concurrency limiter
@@ -240,7 +281,19 @@ _SUPABASE_TIMEOUT_S = float(os.environ.get("SUPABASE_TIMEOUT_S", "10"))
 # it. Tune via SUPABASE_MAX_CONCURRENT_REQUESTS; keep it comfortably below
 # the HTTP/2 stream ceiling (100) to leave headroom for retries. db_lists.py
 # imports this same semaphore so facet/list RPCs count against one shared cap.
-_SUPABASE_MAX_CONCURRENT_REQUESTS = int(os.environ.get("SUPABASE_MAX_CONCURRENT_REQUESTS", "20"))
+#
+# The semaphore is acquired PER RETRY ATTEMPT (inside _db_execute) so a
+# request sleeping in tenacity backoff does not hold a slot — an earlier
+# design that wrapped the whole retry() in `with _supabase_request_semaphore`
+# would let sleeping retries starve fresh healthy requests.
+_SUPABASE_MAX_CONCURRENT_REQUESTS = int(
+    _read_positive_env(
+        "SUPABASE_MAX_CONCURRENT_REQUESTS",
+        _DEFAULT_SUPABASE_MAX_CONCURRENT_REQUESTS,
+        cast=int,
+        min_value=1,
+    )
+)
 _supabase_request_semaphore = threading.BoundedSemaphore(_SUPABASE_MAX_CONCURRENT_REQUESTS)
 
 _with_disconnect_retry = retry(
@@ -283,8 +336,15 @@ def _db_execute(fn):
 
         _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
     """
-    with _supabase_request_semaphore:
-        return _with_disconnect_retry(fn)()
+
+    def _attempt():
+        # Acquire per-attempt so tenacity's backoff sleep does NOT hold a
+        # concurrency slot; sleeping retries would otherwise starve fresh
+        # healthy requests when the DB is under load.
+        with _supabase_request_semaphore:
+            return fn()
+
+    return _with_disconnect_retry(_attempt)()
 
 
 def _db_execute_readonly(fn):
@@ -295,8 +355,12 @@ def _db_execute_readonly(fn):
     server already received some of the request bytes — retrying such an
     operation would be unsafe for INSERT / UPDATE / UPSERT.
     """
-    with _supabase_request_semaphore:
-        return _with_readonly_retry(fn)()
+
+    def _attempt():
+        with _supabase_request_semaphore:
+            return fn()
+
+    return _with_readonly_retry(_attempt)()
 
 
 # ==============================================================

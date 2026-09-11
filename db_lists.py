@@ -1909,7 +1909,10 @@ def get_lists_meta() -> dict:
             _lists_meta_cache = None
 
         try:
-            resp = supabase_client.rpc("get_lists_meta").execute()
+            # Route through _rpc_with_retry so this call gets the same
+            # transport/gateway retry treatment as the other lists RPCs and
+            # (transitively) the same shared outbound-concurrency cap.
+            resp = _rpc_with_retry(supabase_client, "get_lists_meta", {})
             if resp.data:
                 row = resp.data[0]
                 meta = {
