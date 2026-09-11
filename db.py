@@ -11,21 +11,23 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Protocol, NamedTuple, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Tuple
 
 from supabase import Client, create_client
+from supabase.client import ClientOptions
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
     wait_exponential_jitter,
-    retry_if_exception_type,
-    retry_if_exception,
-    before_sleep_log,
 )
 
 from constants import (
@@ -207,6 +209,93 @@ _DISCONNECT_RETRY_INITIAL_S = 0.5  # min wait — gives httpcore time to evict t
 _DISCONNECT_RETRY_MAX_S = 2.0  # upper cap per retry interval
 _DISCONNECT_RETRY_JITTER_S = 0.5  # random addend to spread retries and avoid synchronized spikes
 
+# ---------------------------------------------------------------------------
+# Client-side request timeout
+# ---------------------------------------------------------------------------
+# Without an explicit timeout, postgrest-py/httpx will happily wait on a slow
+# or hung upstream far longer than any user is willing to stare at a page.
+# Observed incident: a single get_creators() call took 362s to fail because
+# each of the 3 retry attempts was allowed to hang indefinitely before the
+# transport finally raised ReadTimeout. Capping this at the client means the
+# *worst case* total time for a call that retries 3x is roughly
+# 3 * _SUPABASE_TIMEOUT_S + backoff (~30-40s) instead of unbounded — the
+# frontend/reverse-proxy timeout should still be set shorter than that so the
+# user gets a fast, honest error rather than a hung page.
+_DEFAULT_SUPABASE_TIMEOUT_S = 10.0
+_DEFAULT_SUPABASE_MAX_CONCURRENT_REQUESTS = 20
+
+
+def _read_positive_env(
+    var_name: str, default: float, *, cast: type = float, min_value: float = 0.1
+) -> float:
+    """Parse a positive numeric env var, falling back to default on any error.
+
+    Returning to a sane default (with a WARNING) is preferable to raising at
+    module import — bad config would otherwise take the whole app down
+    instead of surfacing as a controlled error at query time.
+    """
+    raw = os.environ.get(var_name)
+    if raw is None:
+        return default
+    try:
+        parsed = cast(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "%s=%r is not a valid %s; using default %s",
+            var_name,
+            raw,
+            cast.__name__,
+            default,
+        )
+        return default
+    if parsed < min_value:
+        logger.warning(
+            "%s=%s is below the safe minimum %s; using default %s",
+            var_name,
+            parsed,
+            min_value,
+            default,
+        )
+        return default
+    return parsed
+
+
+_SUPABASE_TIMEOUT_S = _read_positive_env(
+    "SUPABASE_TIMEOUT_S", _DEFAULT_SUPABASE_TIMEOUT_S, cast=float, min_value=0.5
+)
+
+# ---------------------------------------------------------------------------
+# Outbound request concurrency limiter
+# ---------------------------------------------------------------------------
+# Vercel Fluid compute can route many concurrent requests into the same warm
+# process, and all of them share the single module-level `supabase_client`
+# (and therefore a small number of underlying HTTP/2 connections). Without a
+# cap, a burst of concurrent page loads (or a scraper hitting many distinct
+# filter combinations at once) can exceed the HTTP/2 client's own concurrent
+# stream ceiling (httpcore's "Max outbound streams is 100, 100 open"), which
+# then cascades into dropped connections and a retry storm for every other
+# in-flight request on the same instance.
+#
+# This semaphore caps how many Supabase calls this *process* may have
+# in-flight at once, regardless of how many concurrent page requests land on
+# it. Tune via SUPABASE_MAX_CONCURRENT_REQUESTS; keep it comfortably below
+# the HTTP/2 stream ceiling (100) to leave headroom for retries. db_lists.py
+# imports this same semaphore so facet/list RPCs count against one shared cap.
+#
+# The semaphore is acquired PER RETRY ATTEMPT (inside _db_execute) so a
+# request sleeping in tenacity backoff does not hold a slot — an earlier
+# design that wrapped the whole retry() in `with _supabase_request_semaphore`
+# would let sleeping retries starve fresh healthy requests.
+_SUPABASE_MAX_CONCURRENT_REQUESTS = int(
+    _read_positive_env(
+        "SUPABASE_MAX_CONCURRENT_REQUESTS",
+        _DEFAULT_SUPABASE_MAX_CONCURRENT_REQUESTS,
+        cast=int,
+        min_value=1,
+    )
+)
+_supabase_request_semaphore = threading.BoundedSemaphore(_SUPABASE_MAX_CONCURRENT_REQUESTS)
+
 _with_disconnect_retry = retry(
     retry=retry_if_exception(_is_transient_disconnect),
     stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
@@ -247,7 +336,15 @@ def _db_execute(fn):
 
         _db_execute(lambda: supabase_client.rpc("my_rpc").execute())
     """
-    return _with_disconnect_retry(fn)()
+
+    def _attempt():
+        # Acquire per-attempt so tenacity's backoff sleep does NOT hold a
+        # concurrency slot; sleeping retries would otherwise starve fresh
+        # healthy requests when the DB is under load.
+        with _supabase_request_semaphore:
+            return fn()
+
+    return _with_disconnect_retry(_attempt)()
 
 
 def _db_execute_readonly(fn):
@@ -258,7 +355,12 @@ def _db_execute_readonly(fn):
     server already received some of the request bytes — retrying such an
     operation would be unsafe for INSERT / UPDATE / UPSERT.
     """
-    return _with_readonly_retry(fn)()
+
+    def _attempt():
+        with _supabase_request_semaphore:
+            return fn()
+
+    return _with_readonly_retry(_attempt)()
 
 
 # ==============================================================
@@ -356,7 +458,15 @@ def init_supabase() -> Optional[Client]:
         return None
 
     try:
-        client = create_client(url, key)
+        client = create_client(
+            url,
+            key,
+            options=ClientOptions(
+                postgrest_client_timeout=_SUPABASE_TIMEOUT_S,
+                storage_client_timeout=_SUPABASE_TIMEOUT_S,
+                schema="public",
+            ),
+        )
 
         # Test the connection
         client.auth.get_session()
@@ -924,7 +1034,6 @@ def queue_invalid_creators_for_retry(
         return 0
 
     try:
-
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_since_last_sync)
 
         # Statuses to retry:
@@ -990,7 +1099,7 @@ def queue_invalid_creators_for_retry(
 
         if queued_count > 0:
             logger.info(
-                f"Auto-retry: queued {queued_count} creators " f"({skipped_count} already pending)"
+                f"Auto-retry: queued {queued_count} creators ({skipped_count} already pending)"
             )
 
         return queued_count
@@ -1325,12 +1434,14 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
 
     try:
         resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("status,creator_id")
-            .eq("input_query", normalised)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
+            lambda: (
+                supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                .select("status,creator_id")
+                .eq("input_query", normalised)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
         )
         if not resp.data:
             # Row doesn't exist yet — likely a timing race right after submission.
@@ -1798,11 +1909,13 @@ def get_creator_stats(creator_id: str) -> Optional[Dict[str, Any]]:
         # with 406/PGRST116 when 0 rows are returned, causing a noisy
         # exception log for every legitimate "creator not found" case.
         response = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select("*")
-            .eq("id", creator_id)
-            .limit(1)
-            .execute()
+            lambda: (
+                supabase_client.table(CREATOR_TABLE)
+                .select("*")
+                .eq("id", creator_id)
+                .limit(1)
+                .execute()
+            )
         )
 
         if response.data:
@@ -1837,19 +1950,21 @@ def get_category_peer_benchmarks(category: str) -> dict[str, float]:
 
     try:
         resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select(
-                "current_view_count,"
-                "current_video_count,"
-                "views_change_30d,"
-                "current_subscribers,"
-                "engagement_score"
+            lambda: (
+                supabase_client.table(CREATOR_TABLE)
+                .select(
+                    "current_view_count,"
+                    "current_video_count,"
+                    "views_change_30d,"
+                    "current_subscribers,"
+                    "engagement_score"
+                )
+                .eq("sync_status", "synced")
+                .eq("primary_category", category)
+                .gt("current_video_count", 0)
+                .gt("current_subscribers", 0)
+                .execute()
             )
-            .eq("sync_status", "synced")
-            .eq("primary_category", category)
-            .gt("current_video_count", 0)
-            .gt("current_subscribers", 0)
-            .execute()
         )
         rows = resp.data or []
         if not rows:
@@ -1937,21 +2052,23 @@ def get_category_leaderboard(category: str, limit: int = 5) -> list[dict]:
     safe_limit = max(1, min(10, limit))
     try:
         resp = _db_execute(
-            lambda: supabase_client.table(CREATOR_TABLE)
-            .select(
-                "id,"
-                "channel_name,"
-                "channel_thumbnail_url,"
-                "custom_url,"
-                "engagement_score,"
-                "current_subscribers"
+            lambda: (
+                supabase_client.table(CREATOR_TABLE)
+                .select(
+                    "id,"
+                    "channel_name,"
+                    "channel_thumbnail_url,"
+                    "custom_url,"
+                    "engagement_score,"
+                    "current_subscribers"
+                )
+                .eq("sync_status", "synced")
+                .eq("primary_category", category)
+                .gt("engagement_score", 0)
+                .order("engagement_score", desc=True)
+                .limit(safe_limit)
+                .execute()
             )
-            .eq("sync_status", "synced")
-            .eq("primary_category", category)
-            .gt("engagement_score", 0)
-            .order("engagement_score", desc=True)
-            .limit(safe_limit)
-            .execute()
         )
         return resp.data or []
     except Exception:
@@ -2795,12 +2912,14 @@ def get_embedding_peers(
     try:
         # Step 1: fetch the full ranked peer_list (one lightweight JSONB read).
         resp = _db_execute(
-            lambda: supabase_client.table(_CREATOR_PEERS_TABLE)
-            .select("peer_list")
-            .eq("creator_id", creator_id)
-            .eq("peer_type", peer_type)
-            .limit(1)
-            .execute()
+            lambda: (
+                supabase_client.table(_CREATOR_PEERS_TABLE)
+                .select("peer_list")
+                .eq("creator_id", creator_id)
+                .eq("peer_type", peer_type)
+                .limit(1)
+                .execute()
+            )
         )
         rows = resp.data or []
         if not rows:
@@ -2830,10 +2949,9 @@ def get_embedding_peers(
         for i in range(0, len(fetch_ids), _HYDRATION_BATCH_SIZE):
             batch = fetch_ids[i : i + _HYDRATION_BATCH_SIZE]
             batch_resp = _db_execute(
-                lambda b=batch: supabase_client.table(CREATOR_TABLE)
-                .select(fields)
-                .in_("id", b)
-                .execute()
+                lambda b=batch: (
+                    supabase_client.table(CREATOR_TABLE).select(fields).in_("id", b).execute()
+                )
             )
             for c in batch_resp.data or []:
                 creators_by_id[c["id"]] = c
@@ -3449,11 +3567,13 @@ def _find_creator_by_normalized_handle(
     for candidate in (normalized_handle, f"@{normalized_handle}"):
         try:
             resp = _db_execute(
-                lambda c=candidate: supabase_client.table(CREATOR_TABLE)
-                .select(select)
-                .ilike("custom_url", c)
-                .limit(1)
-                .execute()
+                lambda c=candidate: (
+                    supabase_client.table(CREATOR_TABLE)
+                    .select(select)
+                    .ilike("custom_url", c)
+                    .limit(1)
+                    .execute()
+                )
             )
             if resp.data:
                 return resp.data[0]
@@ -3514,11 +3634,13 @@ def _get_category_count_from_mv(normalized_category: str) -> int | None:
         return None
     try:
         resp = _db_execute(
-            lambda: supabase_client.table("mv_category_counts")
-            .select("creator_count")
-            .eq("category", normalized_category)
-            .maybe_single()
-            .execute()
+            lambda: (
+                supabase_client.table("mv_category_counts")
+                .select("creator_count")
+                .eq("category", normalized_category)
+                .maybe_single()
+                .execute()
+            )
         )
         if resp and resp.data:
             return int(resp.data.get("creator_count", 0))
@@ -3859,8 +3981,7 @@ def get_creators(
                     "%" + "%".join(words) + "%" if len(words) > 1 else f"%{normalized_category}%"
                 )
                 query = query.or_(
-                    f"primary_category.ilike.{ilike_pattern},"
-                    f"topic_categories.ilike.{ilike_pattern}"
+                    f"primary_category.ilike.{ilike_pattern},topic_categories.ilike.{ilike_pattern}"
                 )
 
         # Keyset/cursor pagination optimization
@@ -4291,6 +4412,12 @@ def is_admin(user_id: str | None) -> bool:
 # section shows real numbers instead of zeroes.
 _HERO_STATS_TTL_SECONDS = 300
 _hero_stats_cache: tuple[float, dict] | None = None
+# Single-flight lock: when the cache is cold/expired and several concurrent
+# requests land on the same warm instance at once (common under Fluid
+# compute), only the first should actually call the RPC; the rest wait for
+# it and reuse its result instead of each firing an identical RPC pair
+# (get_creator_hero_stats + get_lists_meta) simultaneously.
+_hero_stats_lock = threading.Lock()
 
 
 def clear_hero_stats_cache() -> None:
@@ -4335,6 +4462,26 @@ def get_creator_hero_stats() -> dict:
         ts, cached = _hero_stats_cache
         if now - ts < _HERO_STATS_TTL_SECONDS:
             return cached
+
+    # Cache looked cold/expired. Acquire the single-flight lock before doing
+    # any work: if several concurrent requests raced past the check above
+    # (common under Fluid compute's shared-process concurrency), only the
+    # first one through actually calls the RPCs — everyone else blocks
+    # briefly here and then re-checks the cache, which the winner will have
+    # just populated.
+    with _hero_stats_lock:
+        now = _time.monotonic()
+        if _hero_stats_cache is not None:
+            ts, cached = _hero_stats_cache
+            if now - ts < _HERO_STATS_TTL_SECONDS:
+                return cached
+        return _refresh_hero_stats(now)
+
+
+def _refresh_hero_stats(now: float) -> dict:
+    """Actually call the hero-stats RPCs. Only invoked while holding
+    ``_hero_stats_lock`` from ``get_creator_hero_stats()`` above."""
+    global _hero_stats_cache
 
     if not supabase_client:
         if _hero_stats_cache:
@@ -4420,11 +4567,13 @@ def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         resp = _db_execute(
-            lambda: supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
-            .select("stats_json")
-            .eq("category", category)
-            .limit(1)
-            .execute()
+            lambda: (
+                supabase_client.table(CATEGORY_STATS_CACHE_TABLE)
+                .select("stats_json")
+                .eq("category", category)
+                .limit(1)
+                .execute()
+            )
         )
         # .single() raises PGRST116 on 0 rows; use .limit(1) + list check instead.
         if not resp.data:
@@ -4659,8 +4808,8 @@ def refresh_hero_stats_cache() -> dict[str, Any]:
             if view_label == "mv_category_counts":
                 try:
                     from db_lists import (
-                        clear_top_categories_cache,
                         clear_category_creators_cache,
+                        clear_top_categories_cache,
                     )
 
                     clear_top_categories_cache()
@@ -4801,11 +4950,13 @@ def count_contact_inquiries_from_ip(client_ip: str, *, within_minutes: int = 60)
 
     try:
         resp = _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
-            .select("id", count="exact")
-            .eq("client_ip", client_ip)
-            .gte("created_at", cutoff)
-            .execute()
+            lambda: (
+                supabase_client.table(CONTACT_INQUIRIES_TABLE)
+                .select("id", count="exact")
+                .eq("client_ip", client_ip)
+                .gte("created_at", cutoff)
+                .execute()
+            )
         )
     except Exception:
         logger.exception("count_contact_inquiries_from_ip: lookup failed for %s", client_ip)
@@ -4820,15 +4971,17 @@ def mark_contact_inquiry_forwarded(inquiry_id: int) -> bool:
         return False
     try:
         _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
-            .update(
-                {
-                    "forwarded_at": datetime.now(timezone.utc).isoformat(),
-                    "forward_error": None,
-                }
+            lambda: (
+                supabase_client.table(CONTACT_INQUIRIES_TABLE)
+                .update(
+                    {
+                        "forwarded_at": datetime.now(timezone.utc).isoformat(),
+                        "forward_error": None,
+                    }
+                )
+                .eq("id", inquiry_id)
+                .execute()
             )
-            .eq("id", inquiry_id)
-            .execute()
         )
         return True
     except Exception:
@@ -4846,10 +4999,12 @@ def mark_contact_inquiry_forward_error(inquiry_id: int, error: str) -> bool:
         return False
     try:
         _db_execute(
-            lambda: supabase_client.table(CONTACT_INQUIRIES_TABLE)
-            .update({"forward_error": (error or "")[:1000]})
-            .eq("id", inquiry_id)
-            .execute()
+            lambda: (
+                supabase_client.table(CONTACT_INQUIRIES_TABLE)
+                .update({"forward_error": (error or "")[:1000]})
+                .eq("id", inquiry_id)
+                .execute()
+            )
         )
         return True
     except Exception:
