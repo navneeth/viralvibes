@@ -3437,14 +3437,21 @@ _SORT_MIGRATION_HINT: dict[str, str] = {
 # field reads that need to be added here explicitly instead of coming
 # through silently on a wildcard.
 #
+# CRITICAL: only add columns that actually exist on the creators table
+# (cross-check against worker/creator_worker.py write payloads).  A column
+# name that grep finds in view code but that is not a real DB column will
+# silently .get(...)-default under SELECT * but will produce a PostgREST
+# 42703 "column X does not exist" 500 error under this explicit list.
+# Ghost columns removed after production incident: `thumbnail_url`, `bio`.
+#
 # When adding a caller that reads a NEW column, add the column name here
 # AND to tests/test_creators_select_columns.py so the omission is caught.
 _CREATORS_LIST_COLUMNS = (
     # Identity / routing
     "id,channel_id,custom_url,"
     # Display
-    "channel_name,channel_url,channel_thumbnail_url,thumbnail_url,banner_image_url,"
-    "channel_description,bio,keywords,"
+    "channel_name,channel_url,channel_thumbnail_url,banner_image_url,"
+    "channel_description,keywords,"
     # Categorisation
     "primary_category,topic_categories,country_code,default_language,"
     # Stats (subs / views / videos + 30-day deltas)
