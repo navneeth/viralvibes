@@ -3429,6 +3429,38 @@ _SORT_MIGRATION_HINT: dict[str, str] = {
     "oldest_channel": "058",
 }
 
+# Explicit column list for get_creators() listing queries.  Replaces the
+# previous SELECT *, which shipped ~100 columns per row (including large
+# JSONB / TEXT payloads) even though the /creators card + downstream callers
+# only read the fields enumerated below.  Cuts payload size and server
+# serialisation cost roughly in half, and lets us grep views/routes for new
+# field reads that need to be added here explicitly instead of coming
+# through silently on a wildcard.
+#
+# When adding a caller that reads a NEW column, add the column name here
+# AND to tests/test_creators_select_columns.py so the omission is caught.
+_CREATORS_LIST_COLUMNS = (
+    # Identity / routing
+    "id,channel_id,custom_url,"
+    # Display
+    "channel_name,channel_url,channel_thumbnail_url,thumbnail_url,banner_image_url,"
+    "channel_description,bio,keywords,"
+    # Categorisation
+    "primary_category,topic_categories,country_code,default_language,"
+    # Stats (subs / views / videos + 30-day deltas)
+    "current_subscribers,current_view_count,current_video_count,"
+    "subscribers_change_30d,views_change_30d,videos_change_30d,"
+    # Engagement / quality
+    "engagement_score,quality_grade,monthly_uploads,"
+    "avg_views_10,avg_days_between_uploads,"
+    # Age / time
+    "channel_age_days,published_at,last_updated_at,last_synced_at,"
+    # Flags
+    "is_made_for_kids,has_long_upload_status,hidden_subscriber_count,official,"
+    # Bookkeeping
+    "sync_status"
+)
+
 
 # Prefix used for every structured metrics line so operators can grep by it,
 # e.g. `grep '\[Metrics\] op=get_creators' | awk ...` to feed a dashboard.
@@ -3484,9 +3516,10 @@ def _log_get_creators_metrics(
                   [total=N] [degraded=1] [search="q"] [grade=A+] [country=US] ...
 
     Only non-default filters are included so lines stay short.  The columns
-    field is always ``columns=*`` because the query does ``.select("*")`` —
-    documented explicitly so future changes (e.g. narrowing SELECT) can be
-    correlated with query cost changes.
+    field is always ``columns=list`` because the query does
+    ``.select(_CREATORS_LIST_COLUMNS, ...)`` — a narrowed column list rather than
+    a wildcard.  Documented explicitly so future changes (e.g. re-widening back
+    to ``*`` for a specific caller) can be correlated with a duration change.
     """
     parts: list[str] = [
         _METRICS_PREFIX,
@@ -3494,7 +3527,7 @@ def _log_get_creators_metrics(
         f"req_id={req_id}",
         f"status={status}",
         f"dur_ms={duration_ms}",
-        "columns=*",
+        "columns=list",
         f"sort={sort}",
         f"limit={limit}",
         f"offset={offset}",
@@ -3849,9 +3882,12 @@ def get_creators(
             if _mv_count is not None:
                 _use_mv_count = True
 
-        # Start query - must call .select() to get a builder with filter methods
+        # Start query - must call .select() to get a builder with filter methods.
+        # Uses the explicit _CREATORS_LIST_COLUMNS list (not "*") to reduce
+        # payload size, serialisation time, and network egress on every page load.
         query = supabase_client.table(CREATOR_TABLE).select(
-            "*", count="exact" if (return_count and not _use_mv_count) else None
+            _CREATORS_LIST_COLUMNS,
+            count="exact" if (return_count and not _use_mv_count) else None,
         )
 
         # Filter out incomplete creators (ensure data quality)

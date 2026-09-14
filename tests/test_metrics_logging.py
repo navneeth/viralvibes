@@ -1,7 +1,7 @@
 """Regression tests for _log_get_creators_metrics format.
 
 The format is grep/parse-friendly:
-    [Metrics] op=get_creators req_id=... status=... dur_ms=... columns=* sort=...
+    [Metrics] op=get_creators req_id=... status=... dur_ms=... columns=list sort=...
               limit=... offset=... return_count=1|0 rows=... [total=N] [degraded=1]
               [search="q"] [grade=A+] [lang=en] [activity=active] [age=new]
               [country=US] [category="Name"]
@@ -59,7 +59,7 @@ def test_metrics_prefix_and_core_fields(metrics_line):
     assert "req_id=abcd1234" in line
     assert "status=ok" in line
     assert "dur_ms=125" in line
-    assert "columns=*" in line
+    assert "columns=list" in line
     assert "sort=views" in line
     assert "limit=50" in line
     assert "offset=0" in line
