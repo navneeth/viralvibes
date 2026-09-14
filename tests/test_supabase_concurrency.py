@@ -73,38 +73,60 @@ def _bounded_wait(sem: threading.Semaphore, timeout_s: float) -> bool:
 def test_semaphore_released_during_retry_backoff(monkeypatch):
     """A tenacity-driven retry must NOT hold the concurrency slot while sleeping.
 
-    Fills the semaphore with a mock _db_execute call that fails once (forcing
-    a backoff), and asserts a second concurrent caller can grab a slot while
-    the first is still in its retry sleep.
-    """
-    # Make the semaphore small so we can saturate it in one call, and shrink
-    # the backoff so the test stays fast.
-    monkeypatch.setattr(db, "_supabase_request_semaphore", threading.BoundedSemaphore(1))
+    Verified with a controlled barrier that makes the ordering unambiguous:
 
-    # First call: fails once with a retriable transport error, then succeeds.
+    - The flaky function raises on attempt #1 (retry backoff begins).
+    - Attempt #2 blocks on ``proceed`` and cannot return until we release it.
+    - The second caller waits for ``first_attempt_raised`` before touching the
+      semaphore, so any successful acquire is provably during the backoff
+      sleep — the retry attempt has not yet completed.
+    - If the semaphore is held across the sleep (the bug this test guards
+      against), the second caller times out and ``proceed`` is never set,
+      so the whole test hangs to the outer join timeout instead of quietly
+      passing on eventual acquisition.
+    """
+    sem = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(db, "_supabase_request_semaphore", sem)
+
+    first_attempt_raised = threading.Event()
+    proceed = threading.Event()
+    second_acquired_during_backoff = threading.Event()
+    first_finished = threading.Event()
     call_count = {"n": 0}
 
     def _flaky_fn():
         call_count["n"] += 1
         if call_count["n"] == 1:
-            # Set __cause__ so the strict predicate matches via cause chain too.
+            # Signal that we are about to enter tenacity's backoff sleep.
+            first_attempt_raised.set()
             raise _TransientDisconnect("Server disconnected")
+        # Attempt #2 waits on `proceed` — will only be set by the second
+        # caller after it has acquired the semaphore.  This makes the
+        # "acquired during backoff, not after retry finished" property
+        # provable rather than probabilistic.
+        assert proceed.wait(timeout=3.0), "second caller never signalled proceed"
         return "ok"
 
-    # Second caller polls whether it can grab a slot during the first call's
-    # retry backoff.  Runs in a thread so the first call can proceed.
-    second_got_slot = threading.Event()
-    first_finished = threading.Event()
-
     def _second_caller():
-        # Poll for up to 3s; if per-attempt semaphore works, we should get
-        # a slot well before then.
-        got = _bounded_wait(db._supabase_request_semaphore, timeout_s=3.0)
-        if got:
-            second_got_slot.set()
-            db._supabase_request_semaphore.release()
-
-    t = threading.Thread(target=_second_caller, daemon=True)
+        # Only touch the semaphore once we know the retry is in its sleep.
+        assert first_attempt_raised.wait(timeout=2.0), "first attempt never raised"
+        # Acquire with a bounded wait.  If the slot is held across backoff,
+        # this blocks forever (the retry can't finish because it's waiting
+        # on `proceed`, which we only set after acquiring); the timeout
+        # keeps the test bounded either way.
+        got = sem.acquire(timeout=2.0)
+        try:
+            # Must acquire BEFORE the first caller finishes — that's what
+            # "released during backoff" means.  Guard against a phantom win
+            # in case tenacity's backoff was extremely short and the retry
+            # somehow completed before we got here.
+            if got and not first_finished.is_set():
+                second_acquired_during_backoff.set()
+        finally:
+            if got:
+                sem.release()
+            # Always release the retry so the test can finish.
+            proceed.set()
 
     def _first_caller():
         try:
@@ -112,19 +134,16 @@ def test_semaphore_released_during_retry_backoff(monkeypatch):
         finally:
             first_finished.set()
 
-    t2 = threading.Thread(target=_first_caller, daemon=True)
-    # Start the first caller which will acquire the slot, fail, release
-    # during backoff sleep, retry, and succeed.
-    t2.start()
-    # Give the first caller a moment to start executing and hit its retry.
-    time.sleep(0.05)
-    # Start the polling second caller now — it should see the slot free
-    # while the first is sleeping in tenacity backoff.
-    t.start()
-    t.join(timeout=3.5)
-    t2.join(timeout=5.0)
+    t_first = threading.Thread(target=_first_caller, daemon=True)
+    t_second = threading.Thread(target=_second_caller, daemon=True)
+    t_first.start()
+    t_second.start()
+
+    t_second.join(timeout=5.0)
+    t_first.join(timeout=5.0)
+
     assert first_finished.is_set(), "first caller never completed"
-    assert second_got_slot.is_set(), (
-        "second caller could not acquire the slot during the first caller's "
+    assert second_acquired_during_backoff.is_set(), (
+        "second caller could not acquire the slot DURING the first caller's "
         "retry backoff — the semaphore is being held across sleeps"
     )

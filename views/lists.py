@@ -160,7 +160,9 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
     current_views = safe_get_value(creator, "current_view_count", 0)
     current_videos = safe_get_value(creator, "current_video_count", 0)
     country_code = safe_get_value(creator, "country_code", "")
-    language = safe_get_value(creator, "language", "en")
+    # DB column is `default_language`; the historical `language` key silently
+    # defaulted to "en" for every row because that column does not exist.
+    language = safe_get_value(creator, "default_language", "en")
     subs_change = safe_get_value(creator, "subscribers_change_30d", 0)
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 

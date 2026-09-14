@@ -3702,6 +3702,12 @@ def _get_ranked_creator_search(
     including empty result sets. Returns ``(False, [])`` when ``return_count`` is
     ``False`` or ``(False, CreatorsResult([], 0))`` when ``return_count`` is
     ``True``, allowing callers to fall back to the legacy query.
+
+    Perf note: the ``search_creators_ranked`` RPC currently returns ``c.*`` as a
+    JSONB payload (see db/migrations/038_ranked_creator_search_rpc.sql), so this
+    path bypasses the explicit ``_CREATORS_LIST_COLUMNS`` projection applied on
+    the direct-query path.  Follow-up SQL migration should narrow the RPC's
+    SELECT to the same columns for consistent /creators payload size.
     """
     if not supabase_client or not hasattr(supabase_client, "rpc"):
         return False, CreatorsResult([], 0) if return_count else []
