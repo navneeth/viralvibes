@@ -2500,7 +2500,6 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     rank = safe_get_value(creator, "_rank", "—")
     thumbnail_url = (
         safe_get_value(creator, "channel_thumbnail_url")
-        or safe_get_value(creator, "thumbnail_url")
         or "https://via.placeholder.com/64x64?text=No+Image"
     )
     channel_age_days = safe_get_value(creator, "channel_age_days", 0)
@@ -2599,9 +2598,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
         # ── Context ───────────────────────────────────────────────────────────
         # Topic categories rendered as clean emoji pills with Wikipedia links, plus
         _render_topic_categories(safe_get_value(creator, "topic_categories")),
-        _render_bio(
-            safe_get_value(creator, "bio") or safe_get_value(creator, "channel_description")
-        ),
+        _render_bio(safe_get_value(creator, "channel_description")),
         # ── Metrics ───────────────────────────────────────────────────────────
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
         # Performance metrics grid: avg views/video, total videos, views/sub, est. revenue

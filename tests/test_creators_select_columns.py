@@ -31,10 +31,8 @@ REQUIRED_COLUMNS = frozenset(
         "channel_name",
         "channel_url",
         "channel_thumbnail_url",
-        "thumbnail_url",
         "banner_image_url",
         "channel_description",
-        "bio",
         "keywords",
         # Categorisation
         "primary_category",

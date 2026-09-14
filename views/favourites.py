@@ -23,11 +23,7 @@ def _render_creator_row(creator: dict) -> Tr:
     creator_id = creator.get("id", "")
     channel_name = creator.get("channel_name") or "Unknown"
     channel_id = creator.get("channel_id", "")
-    thumbnail = (
-        creator.get("channel_thumbnail_url")
-        or creator.get("thumbnail_url")
-        or "/static/favicon.jpeg"
-    )
+    thumbnail = creator.get("channel_thumbnail_url") or "/static/favicon.jpeg"
     channel_url = creator.get("channel_url") or f"https://www.youtube.com/channel/{channel_id}"
     current_subs = int(creator.get("current_subscribers") or 0)
     current_views = int(creator.get("current_view_count") or 0)
