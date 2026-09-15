@@ -787,14 +787,29 @@ def FooterLinkGroup(title: str, links: list[tuple[str, str]]) -> Div:
     )
 
 
-def _SocialIcon(icon: str, href: str, label: str, icon_cls: str = "size-4") -> A:
+def _SocialIcon(
+    icon: str,
+    href: str,
+    label: str,
+    icon_cls: str = "size-4",
+    icon_px: int | None = None,
+) -> A:
     """Award-SaaS-style circular social icon button.
 
     Resting state: muted icon in a subtle bordered pill.
     Hover: border + icon shift to red, gentle scale + background tint.
+
+    ``icon_px``, when set, is passed as explicit ``height``/``width`` kwargs
+    to ``UkIcon`` so the rendered SVG matches that pixel size regardless of
+    UIkit's cls-based defaults.  Required for the YouTube icon per Google's
+    branding guidelines (20 px minimum, 24 px preferred).
     """
+    icon_kwargs: dict = {"cls": icon_cls}
+    if icon_px is not None:
+        icon_kwargs["height"] = icon_px
+        icon_kwargs["width"] = icon_px
     return A(
-        UkIcon(icon, cls=icon_cls),
+        UkIcon(icon, **icon_kwargs),
         href=href,
         target="_blank",
         rel="noopener noreferrer",
@@ -842,8 +857,16 @@ def footer():
                 ),
                 Div(
                     _SocialIcon(
-                        "youtube", SOCIALS["youtube"], "ViralVibes on YouTube", icon_cls="size-5"
-                    ),  # 20px — YouTube branding minimum
+                        "youtube",
+                        SOCIALS["youtube"],
+                        "ViralVibes on YouTube",
+                        # 24 px — YouTube branding minimum is 20 px; UkIcon's
+                        # cls-based sizing (size-5) is not honoured as a hard
+                        # size by UIkit, so explicit height/width kwargs are
+                        # required to keep the icon above the floor.
+                        icon_cls="size-6",
+                        icon_px=24,
+                    ),
                     _SocialIcon("x", SOCIALS["x"], "ViralVibes on X (Twitter)"),
                     _SocialIcon("linkedin", SOCIALS["linkedin"], "ViralVibes on LinkedIn"),
                     cls="flex items-center gap-3",
