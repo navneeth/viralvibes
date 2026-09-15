@@ -205,24 +205,41 @@ _YT_TRIANGLE = "M9.609 15.601V8.408l6.264 3.602z"
 _YT_PUNCHOUT = _YT_RECT + " M15.873 12.010L9.609 8.408V15.601z"
 
 
-def YtIcon(variant: str = "branded", size: int = 20) -> NotStr:
+# Minimum YouTube brand-icon size in CSS pixels.  Google's YouTube API
+# branding guidelines set a 20 px floor for digital media; we use 24 px
+# by default to match the stricter public brand guidance while giving
+# 4 px of headroom for hairline anti-aliasing.
+_YT_BRAND_MIN_PX = 24
+
+
+def YtIcon(variant: str = "branded", size: int = _YT_BRAND_MIN_PX) -> NotStr:
     """Inline SVG YouTube play-button icon.
 
     variant="branded" — red rectangle, white triangle (for light/transparent bg).
     variant="mono"    — white evenodd punch-out shape (for use inside a red button).
-    Both meet the 20 px minimum size requirement from the YouTube API branding guidelines.
+
+    Both meet the 20 px minimum from the YouTube API branding guidelines.  The
+    inline ``style`` sets ``min-width``/``min-height`` + ``flex-shrink: 0`` so
+    the icon can never render below 20 px inside a flex container that would
+    otherwise squish it (this was the failure mode observed on creator cards).
     """
+    render_size = max(size, 20)
+    style_guard = (
+        f"min-width:{render_size}px;min-height:{render_size}px;" "flex-shrink:0;flex-grow:0;"
+    )
     if variant == "mono":
         return NotStr(
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"'
-            f' width="{size}" height="{size}" aria-hidden="true" focusable="false">'
+            f' width="{render_size}" height="{render_size}" style="{style_guard}"'
+            f' aria-hidden="true" focusable="false">'
             f'<path fill="#fff" fill-rule="evenodd" d="{_YT_PUNCHOUT}"/>'
             f"</svg>"
         )
     # branded (default)
     return NotStr(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"'
-        f' width="{size}" height="{size}" aria-hidden="true" focusable="false">'
+        f' width="{render_size}" height="{render_size}" style="{style_guard}"'
+        f' aria-hidden="true" focusable="false">'
         f'<path fill="#FF0000" d="{_YT_RECT}"/>'
         f'<path fill="#fff" d="{_YT_TRIANGLE}"/>'
         f"</svg>"
@@ -255,7 +272,7 @@ def YoutubeChannelButton(
     <a>) instead of an <a>.  Pair with onclick_js for the click handler.
     """
     pad = "px-3 py-1.5 text-xs" if size == "sm" else "px-4 py-2 text-sm"
-    icon_size = 20  # always ≥20px per YouTube branding guidelines
+    icon_size = _YT_BRAND_MIN_PX  # 24 px — YouTube branding min is 20, we use 24
 
     if variant == "ghost":
         icon = YtIcon("branded", size=icon_size)

@@ -635,9 +635,11 @@ def AnalysisFormCard(compact: bool = False) -> Div:
             ),
             # Input group with leading icon + trailing paste
             Div(
-                # Leading YouTube icon
+                # Leading YouTube icon — 24 px per YouTube branding minimum.
+                # UkIcon's cls-based sizing is not honoured as a hard size by
+                # UIkit, so we pass explicit height/width kwargs.
                 Div(
-                    UkIcon("youtube", cls="w-5 h-5 text-red-600"),
+                    UkIcon("youtube", height=24, width=24, cls="text-red-600"),
                     cls="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2",
                 ),
                 # Input field – clean, minimal border
