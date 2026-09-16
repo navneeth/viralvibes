@@ -123,11 +123,12 @@ def ViralVibesButton(
 # ---------------------------------------------------------------------------
 # Metric provenance badges
 #
-# Two visual tiers, deliberately distinct colours:
-#   fx   (violet) — already in components/cards.py — calculated from YouTube API data
+# Three visual tiers, deliberately distinct colours:
+#   yt   (sky)    — sourced directly from the YouTube API
+#   fx   (violet) — calculated arithmetically from YouTube API data
 #   est. (amber)  — ViralVibes model/estimate; not a figure YouTube provides
 #
-# Both follow the same accessibility pattern: title + tabindex + aria_label.
+# All three follow the same accessibility pattern: title + tabindex + aria_label.
 # ---------------------------------------------------------------------------
 
 _EST_REVENUE_DETAIL = (
@@ -139,6 +140,10 @@ _EST_REVENUE_DETAIL = (
 _EST_MOMENTUM_DETAIL = (
     "ViralVibes-computed score derived from 30-day subscriber and view velocity. "
     "YouTube doesn\u2019t provide a momentum or growth-velocity metric via its API."
+)
+_FX_DEFAULT_DETAIL = (
+    "Calculated by ViralVibes from raw YouTube API values \u2014 not a figure "
+    "YouTube returns directly."
 )
 
 
@@ -166,11 +171,57 @@ def YtSourceBadge() -> Span:
     return Span(
         "yt",
         title=tip,
+        tabindex="0",
+        aria_label=f"YouTube API source \u2014 {tip}",
         cls=(
             "text-[9px] font-mono font-bold tracking-wide "
             "px-1.5 py-0.5 rounded "
             "bg-sky-50 text-sky-600 border border-sky-200 "
-            "cursor-default select-none"
+            "cursor-default select-none "
+            "focus:outline-none focus:ring-1 focus:ring-sky-300"
+        ),
+    )
+
+
+def FxBadge(detail: str = "") -> Span:
+    """Violet \u2018fx\u2019 badge for metrics arithmetically calculated from YouTube API data."""
+    tip = detail or _FX_DEFAULT_DETAIL
+    return Span(
+        "fx",
+        title=tip,
+        tabindex="0",
+        aria_label=f"Calculated metric \u2014 {tip}",
+        cls=(
+            "text-[9px] font-mono font-bold tracking-wide "
+            "px-1.5 py-0.5 rounded "
+            "bg-violet-50 text-violet-600 border border-violet-200 "
+            "cursor-default select-none "
+            "focus:outline-none focus:ring-1 focus:ring-violet-300"
+        ),
+    )
+
+
+def PlaylistProvenanceFooter() -> Div:
+    """One-line YouTube-source disclaimer for the playlist analysis dashboard.
+
+    Mirrors the attribution block used on the creator card so users see a
+    consistent, policy-compliant explanation of which numbers come from the
+    YouTube API and which ones ViralVibes calculates.
+    """
+    return Div(
+        Div(
+            YtSourceBadge(),
+            FxBadge(),
+            cls="flex items-center gap-1.5 shrink-0",
+        ),
+        P(
+            "View, like, comment and duration counts sourced directly from the "
+            "YouTube API. Engagement rates, averages and rankings are "
+            "ViralVibes-calculated from those values.",
+            cls="text-[11px] text-muted-foreground leading-relaxed",
+        ),
+        cls=(
+            "flex items-start gap-2 px-3 py-2 mb-6 rounded-md " "bg-gray-50 border border-gray-200"
         ),
     )
 

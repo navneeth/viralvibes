@@ -30,6 +30,8 @@ from monsterui.all import *
 # )
 from components import styled_div
 from components.buttons import (
+    FxBadge,
+    YtSourceBadge,
     small_badge,
 )
 from components.cards import (
@@ -492,32 +494,46 @@ def AnalyticsHeader(
                             if missing_note
                             else None
                         ),
-                        # Quick stats row
+                        # Quick stats row — each numeric metric is paired with a
+                        # provenance micro-badge so users can tell YouTube-API
+                        # figures apart from ViralVibes-calculated ones.
                         (
                             Div(
-                                # Views badge
                                 (
-                                    small_badge(format_number(total_views), icon="eye")
+                                    Div(
+                                        YtSourceBadge(),
+                                        small_badge(format_number(total_views), icon="eye"),
+                                        cls="flex items-center gap-1",
+                                    )
                                     if total_views
                                     else None
                                 ),
-                                # Engagement badge
                                 (
-                                    small_badge(
-                                        f"{eng_display}% engagement",
-                                        icon="heart",
-                                        kind="info",
+                                    Div(
+                                        FxBadge(
+                                            detail=(
+                                                "Aggregate engagement rate calculated "
+                                                "by ViralVibes as (total likes + total "
+                                                "comments) ÷ total views. YouTube does "
+                                                "not return this figure directly."
+                                            )
+                                        ),
+                                        small_badge(
+                                            f"{eng_display}% engagement",
+                                            icon="heart",
+                                            kind="info",
+                                        ),
+                                        cls="flex items-center gap-1",
                                     )
                                     if engagement_rate
                                     else None
                                 ),
-                                # Date badge
                                 (
                                     small_badge(f"Analyzed {processed_date}", icon="calendar")
                                     if processed_date
                                     else None
                                 ),
-                                cls="flex flex-wrap items-center gap-2 mt-2",
+                                cls="flex flex-wrap items-center gap-3 mt-2",
                             )
                             if (total_views or engagement_rate or processed_date)
                             else None

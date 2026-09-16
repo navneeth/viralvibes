@@ -9,6 +9,7 @@ from components import (
     thumbnail_cell,
     title_cell,
 )
+from components.buttons import FxBadge, YtSourceBadge
 from utils import (
     format_duration,
     format_number,
@@ -32,6 +33,40 @@ COLUMNS = {
     "Category": ("Category Emoji", "Category Emoji"),
 }
 DISPLAY_HEADERS = list(COLUMNS.keys())
+
+# Column-level data provenance for policy-compliant labelling.  "yt" columns
+# render values coming straight from the YouTube API; "fx" columns are
+# arithmetically derived by ViralVibes; None means no badge (identity fields
+# where the source is self-evident).
+_HEADER_PROVENANCE: dict[str, str | None] = {
+    "Rank": None,
+    "Title": None,
+    "Thumbnail": None,
+    "Views": "yt",
+    "Likes": "yt",
+    "Comments": "yt",
+    "Duration": "yt",
+    "Engagement Rate": "fx",
+    "Category": None,
+}
+
+_ENGAGEMENT_FX_DETAIL = (
+    "Engagement Rate = (Likes + Comments) \u00f7 Views \u00d7 100. "
+    "Calculated by ViralVibes from raw YouTube counts; YouTube does not "
+    "return this figure directly."
+)
+
+
+def _provenance_badge(header: str):
+    """Return the appropriate provenance micro-badge for a display header, or None."""
+    kind = _HEADER_PROVENANCE.get(header)
+    if kind == "yt":
+        return YtSourceBadge()
+    if kind == "fx":
+        if header == "Engagement Rate":
+            return FxBadge(detail=_ENGAGEMENT_FX_DETAIL)
+        return FxBadge()
+    return None
 
 
 def get_sort_col(header: str) -> str:
@@ -168,28 +203,33 @@ def render_playlist_table(
     thead = Thead(
         Tr(
             *[
-                (
-                    Th(
-                        A(
-                            h
-                            + (
-                                " ▲"
-                                if h == valid_sort and valid_order == "asc"
-                                else (" ▼" if h == valid_sort and valid_order == "desc" else "")
-                            ),
-                            href="#",
-                            hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order(h)}",
-                            hx_target="#playlist-table-container",
-                            hx_swap="outerHTML",
-                            cls="text-white font-semibold hover:underline",
+                Th(
+                    Div(
+                        (
+                            A(
+                                h
+                                + (
+                                    " \u25b2"
+                                    if h == valid_sort and valid_order == "asc"
+                                    else (
+                                        " \u25bc"
+                                        if h == valid_sort and valid_order == "desc"
+                                        else ""
+                                    )
+                                ),
+                                href="#",
+                                hx_get=f"/validate/full?playlist_url={quote_plus(playlist_url)}&sort_by={quote_plus(h)}&order={next_order(h)}",
+                                hx_target="#playlist-table-container",
+                                hx_swap="outerHTML",
+                                cls="text-white font-semibold hover:underline",
+                            )
+                            if h in sortable_map
+                            else Span(h, cls="text-white font-semibold")
                         ),
-                        cls="px-4 py-2 text-sm text-left",
-                    )
-                    if h in sortable_map
-                    else Th(
-                        h,
-                        cls="px-4 py-2 text-sm text-white font-semibold text-left",
-                    )
+                        _provenance_badge(h),
+                        cls="flex items-center gap-1.5",
+                    ),
+                    cls="px-4 py-2 text-sm text-left",
                 )
                 for h in svc_headers
             ],

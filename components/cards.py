@@ -1205,24 +1205,10 @@ def MetricCard(
     formula: str | None = None,
 ) -> Card:
     """Create a clean metric card with icon, value, and context."""
-    # fx badge: shown only on calculated metrics (Tableau / Amplitude convention)
-    fx_badge = (
-        Span(
-            "fx",
-            title=formula,
-            tabindex="0",
-            aria_label=f"Calculated metric — {formula}",
-            cls=(
-                "text-[9px] font-mono font-bold tracking-wide "
-                "px-1.5 py-0.5 rounded "
-                "bg-violet-50 text-violet-400 "
-                "cursor-default select-none "
-                "focus:outline-none focus:ring-1 focus:ring-violet-300"
-            ),
-        )
-        if formula
-        else None
-    )
+    from components.buttons import FxBadge
+
+    # fx badge shown only on calculated metrics (Tableau / Amplitude convention).
+    fx_badge = FxBadge(detail=formula) if formula else None
     return Card(
         Div(
             UkIcon(icon, cls=f"text-{color}-500", height=28, width=28),

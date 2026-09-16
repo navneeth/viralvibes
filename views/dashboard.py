@@ -6,6 +6,7 @@ from fasthtml.core import HtmxHeaders
 from monsterui.all import *
 from starlette.responses import StreamingResponse
 
+from components.buttons import PlaylistProvenanceFooter
 from components.modals import ExportModal, ShareModal
 from components.steps import StepProgress
 from components.tables import VideoExtremesSection
@@ -164,6 +165,8 @@ def render_full_dashboard(
             ),
             cls="grid grid-cols-1 md:grid-cols-2 gap-6 items-start mb-8",
         ),
+        # Row 1.5: One-line YouTube-source disclaimer (policy compliance).
+        PlaylistProvenanceFooter(),
         # Row 2: Table
         render_playlist_table(
             df=df,
