@@ -33,6 +33,7 @@ from components.buttons import (
 
 
 def test_yt_badge_carries_source_attribution():
+    """The YouTube badge identifies directly sourced API values."""
     html = str(YtSourceBadge())
     assert ">yt<" in html
     assert "YouTube API" in html
@@ -41,6 +42,7 @@ def test_yt_badge_carries_source_attribution():
 
 
 def test_fx_badge_carries_calculated_attribution():
+    """The calculated badge identifies values derived by ViralVibes."""
     html = str(FxBadge())
     assert ">fx<" in html
     assert "Calculated" in html or "calculated" in html.lower()
@@ -49,6 +51,7 @@ def test_fx_badge_carries_calculated_attribution():
 
 
 def test_fx_badge_accepts_custom_detail():
+    """A calculated badge exposes its metric-specific formula."""
     html = str(FxBadge(detail="Engagement Rate = (Likes + Comments) / Views"))
     assert "Likes + Comments" in html
 
@@ -59,6 +62,7 @@ def test_fx_badge_accepts_custom_detail():
 
 
 def test_playlist_provenance_footer_names_both_sources():
+    """The playlist footer explains direct and calculated data sources."""
     html = str(PlaylistProvenanceFooter())
     # Must mention YouTube API as the direct source.
     assert "YouTube API" in html
@@ -75,6 +79,7 @@ def test_playlist_provenance_footer_names_both_sources():
 
 
 def test_hero_stats_are_labelled_with_provenance():
+    """Hero metrics render the provenance badge for each value type."""
     from ui_components import AnalyticsHeader
 
     html = str(
@@ -97,6 +102,7 @@ def test_hero_stats_are_labelled_with_provenance():
 
 
 def test_hero_without_metrics_omits_badges():
+    """A hero without numeric metrics does not render provenance badges."""
     from ui_components import AnalyticsHeader
 
     html = str(
@@ -118,6 +124,7 @@ def test_hero_without_metrics_omits_badges():
 
 
 def _minimal_row() -> dict[str, Any]:
+    """Return the smallest playlist row needed to render every table column."""
     return {
         "Rank": 1,
         "Title": "Sample Video",
@@ -139,9 +146,11 @@ def _minimal_row() -> dict[str, Any]:
 
 
 def test_playlist_table_headers_carry_provenance_badges():
+    """Rendered table headers include direct and calculated provenance badges."""
     from views.table import render_playlist_table
 
     def next_order(_col):
+        """Return a deterministic sort order for generated table links."""
         return "asc"
 
     html = to_xml(
