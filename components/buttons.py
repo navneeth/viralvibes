@@ -145,6 +145,19 @@ _FX_DEFAULT_DETAIL = (
     "Calculated by ViralVibes from raw YouTube API values \u2014 not a figure "
     "YouTube returns directly."
 )
+_PLAYLIST_ENGAGEMENT_DETAIL = (
+    "Playlist engagement rate: mean of per-video (Likes + Comments) \u00f7 "
+    "(Views + 1), averaged across the analysed videos. Calculated by "
+    "ViralVibes — YouTube does not return this figure directly."
+)
+_PLAYLIST_TOTAL_VIEWS_DETAIL = (
+    "Playlist total views: sum of per-video view counts across the analysed "
+    "videos. Calculated by ViralVibes from YouTube API values."
+)
+_RANK_FX_DETAIL = (
+    "Row rank under the current sort column and direction. Calculated by "
+    "ViralVibes; YouTube does not return a per-playlist ranking."
+)
 
 
 def EstimatedBadge(detail: str = "") -> Span:

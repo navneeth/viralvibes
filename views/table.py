@@ -9,7 +9,12 @@ from components import (
     thumbnail_cell,
     title_cell,
 )
-from components.buttons import FxBadge, YtSourceBadge
+from components.buttons import (
+    FxBadge,
+    YtSourceBadge,
+    _PLAYLIST_ENGAGEMENT_DETAIL,
+    _RANK_FX_DETAIL,
+)
 from utils import (
     format_duration,
     format_number,
@@ -39,7 +44,7 @@ DISPLAY_HEADERS = list(COLUMNS.keys())
 # arithmetically derived by ViralVibes; None means no badge (identity fields
 # where the source is self-evident).
 _HEADER_PROVENANCE: dict[str, str | None] = {
-    "Rank": None,
+    "Rank": "fx",
     "Title": None,
     "Thumbnail": None,
     "Views": "yt",
@@ -50,12 +55,6 @@ _HEADER_PROVENANCE: dict[str, str | None] = {
     "Category": None,
 }
 
-_ENGAGEMENT_FX_DETAIL = (
-    "Engagement Rate = (Likes + Comments) \u00f7 Views \u00d7 100. "
-    "Calculated by ViralVibes from raw YouTube counts; YouTube does not "
-    "return this figure directly."
-)
-
 
 def _provenance_badge(header: str):
     """Return the appropriate provenance micro-badge for a display header, or None."""
@@ -64,7 +63,9 @@ def _provenance_badge(header: str):
         return YtSourceBadge()
     if kind == "fx":
         if header == "Engagement Rate":
-            return FxBadge(detail=_ENGAGEMENT_FX_DETAIL)
+            return FxBadge(detail=_PLAYLIST_ENGAGEMENT_DETAIL)
+        if header == "Rank":
+            return FxBadge(detail=_RANK_FX_DETAIL)
         return FxBadge()
     return None
 
@@ -102,9 +103,20 @@ def build_table_footer(summary_stats, svc_headers):
             footer_cells.append(Td("", cls="px-4 py-3 font-bold text-left"))
 
         elif header == "Title":
-            # Add "Total / Avg" label in first numeric column (Title)
+            # Add "Total / Avg" label in first numeric column (Title).  One fx
+            # badge here covers the entire aggregate footer row rather than
+            # peppering every cell (all totals and averages are derived).
             if not label_added:
-                footer_cells.append(Td("Total / Avg", cls="px-4 py-3 font-bold text-left"))
+                footer_cells.append(
+                    Td(
+                        Div(
+                            Span("Total / Avg", cls="font-bold"),
+                            FxBadge(),
+                            cls="flex items-center gap-1.5",
+                        ),
+                        cls="px-4 py-3 text-left",
+                    )
+                )
                 label_added = True
 
         elif header == "Thumbnail":

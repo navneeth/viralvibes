@@ -93,10 +93,11 @@ def test_hero_stats_are_labelled_with_provenance():
             total_views=1_234_567,
         )
     )
-    # Total views must ride next to the yt badge.
-    assert ">yt<" in html
-    # Engagement rate must ride next to the fx badge.
+    # Both the aggregate total-views pill and the aggregate engagement pill
+    # are calculated (sum / mean respectively) so both ride the fx badge.
+    # A yt badge here would misclassify a derived aggregate as raw API data.
     assert ">fx<" in html
+    assert ">yt<" not in html
     # Sanity: the actual metric values still render.
     assert "engagement" in html.lower()
 
@@ -187,7 +188,7 @@ def test_playlist_table_headers_carry_provenance_badges():
         ("Comments", "yt"),
         ("Duration", "yt"),
         ("Engagement Rate", "fx"),
-        ("Rank", None),
+        ("Rank", "fx"),
         ("Title", None),
         ("Thumbnail", None),
         ("Category", None),
@@ -204,3 +205,47 @@ def test_header_provenance_mapping(header: str, expected_kind: str | None):
     else:
         rendered = str(badge)
         assert f">{expected_kind}<" in rendered
+
+
+def test_engagement_tooltip_matches_actual_formula():
+    """Tooltip must describe the mean-of-per-video-ratio formula that
+    ``services.youtube_transforms._enrich_dataframe`` actually uses, not an
+    aggregate ratio of totals (which is a different metric)."""
+    from components.buttons import _PLAYLIST_ENGAGEMENT_DETAIL
+
+    # Formula fingerprint: per-video ratio with +1 smoothing, then mean.
+    assert "Likes + Comments" in _PLAYLIST_ENGAGEMENT_DETAIL
+    assert "Views + 1" in _PLAYLIST_ENGAGEMENT_DETAIL
+    assert "mean" in _PLAYLIST_ENGAGEMENT_DETAIL.lower()
+
+
+def test_footer_total_avg_cell_carries_fx_badge():
+    """The aggregate footer row is entirely ViralVibes-calculated; one fx
+    badge next to the row label signals that without cluttering every cell."""
+    from views.table import build_table_footer
+
+    html = to_xml(
+        build_table_footer(
+            summary_stats={
+                "total_views": 100,
+                "total_likes": 10,
+                "total_comments": 2,
+                "avg_duration": 60,
+                "avg_engagement": 0.01,
+                "category_count": 1,
+            },
+            svc_headers=[
+                "Rank",
+                "Title",
+                "Thumbnail",
+                "Views",
+                "Likes",
+                "Comments",
+                "Duration",
+                "Engagement Rate",
+                "Category",
+            ],
+        )
+    )
+    assert "Total / Avg" in html
+    assert ">fx<" in html

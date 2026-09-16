@@ -32,6 +32,8 @@ from components import styled_div
 from components.buttons import (
     FxBadge,
     YtSourceBadge,
+    _PLAYLIST_ENGAGEMENT_DETAIL,
+    _PLAYLIST_TOTAL_VIEWS_DETAIL,
     small_badge,
 )
 from components.cards import (
@@ -501,7 +503,7 @@ def AnalyticsHeader(
                             Div(
                                 (
                                     Div(
-                                        YtSourceBadge(),
+                                        FxBadge(detail=_PLAYLIST_TOTAL_VIEWS_DETAIL),
                                         small_badge(format_number(total_views), icon="eye"),
                                         cls="flex items-center gap-1",
                                     )
@@ -510,14 +512,7 @@ def AnalyticsHeader(
                                 ),
                                 (
                                     Div(
-                                        FxBadge(
-                                            detail=(
-                                                "Aggregate engagement rate calculated "
-                                                "by ViralVibes as (total likes + total "
-                                                "comments) ÷ total views. YouTube does "
-                                                "not return this figure directly."
-                                            )
-                                        ),
+                                        FxBadge(detail=_PLAYLIST_ENGAGEMENT_DETAIL),
                                         small_badge(
                                             f"{eng_display}% engagement",
                                             icon="heart",
