@@ -10,7 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import pycountry
 
@@ -225,7 +225,13 @@ def creators_suggest_route(request):
 
 
 def creators_route(request, is_authenticated: bool = False, user_id: str | None = None):
-    """GET /creators - Creators discovery page."""
+    """Render creator discovery content or redirect canonicalizable requests.
+
+    A known ``@handle`` search redirects to its canonical creator profile.
+    Country phrases and out-of-range pages can also redirect; otherwise this
+    returns the rendered discovery page. Authenticated requests use ``user_id``
+    to load the user's favorite creators.
+    """
 
     # Get query parameters
     search = request.query_params.get("search", "")
@@ -246,11 +252,21 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         existing_creator = find_creator_by_handle(handle)
 
         if existing_creator:
-            # Creator exists - redirect to show their card in results
-            logger.info(
-                f"[HandleSearch] Found existing creator: {existing_creator.get('channel_name')}"
+            # Creator exists: send exact-handle intent to the canonical profile
+            # instead of paying for a broad ranked search + exact count.
+            canonical_handle = (
+                (existing_creator.get("custom_url") or handle).strip().lstrip("@").lower()
             )
-            # Fall through to normal search (will match by custom_url)
+            logger.info(
+                "[HandleSearch] Found existing creator: %s; redirecting to /creators/@%s",
+                existing_creator.get("channel_name"),
+                canonical_handle,
+            )
+            if canonical_handle:
+                return RedirectResponse(
+                    f"/creators/@{quote(canonical_handle, safe='')}",
+                    status_code=303,
+                )
         else:
             # Creator not in DB — flag it so the view shows the add CTA
             handle_not_found = True
