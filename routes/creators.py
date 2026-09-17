@@ -225,7 +225,13 @@ def creators_suggest_route(request):
 
 
 def creators_route(request, is_authenticated: bool = False, user_id: str | None = None):
-    """GET /creators - Creators discovery page."""
+    """Render creator discovery content or redirect canonicalizable requests.
+
+    A known ``@handle`` search redirects to its canonical creator profile.
+    Country phrases and out-of-range pages can also redirect; otherwise this
+    returns the rendered discovery page. Authenticated requests use ``user_id``
+    to load the user's favorite creators.
+    """
 
     # Get query parameters
     search = request.query_params.get("search", "")
