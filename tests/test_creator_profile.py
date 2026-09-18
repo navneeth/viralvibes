@@ -190,12 +190,14 @@ class TestCreatorsPage:
         assert r.status_code == 200
 
     def test_browse_page_out_of_range_page_redirects(self, monkeypatch):
-        """page > total_pages must redirect to the last valid page, not return a 500."""
+        """Requesting a page past the end of the actual data must redirect."""
         # Build a client that does NOT follow redirects so we can inspect the 303.
         no_redirect_client = TestClient(main.app, follow_redirects=False)
-        # 1 creator → 1 total page; requesting page=999 triggers the redirect.
-        # Default browse → return_count=False; hero_stats supplies total_creators.
-        self._patch_creators_db(monkeypatch, expected_return_count=False)
+        # New data-driven trigger: the redirect fires when the requested page
+        # returns zero rows and page > 1, regardless of what the (possibly
+        # approximate) total_count says.  Simulate that by mocking an empty
+        # result set on the out-of-range page.
+        self._patch_creators_db(monkeypatch, creators=[], expected_return_count=False)
         import routes.creators as rc
 
         monkeypatch.setattr(rc, "get_creator_hero_stats", lambda: {"total_creators": 1})

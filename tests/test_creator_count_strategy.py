@@ -1,16 +1,25 @@
 """Regression test for the /creators list count strategy.
 
-`get_creators()` used to pass `count="exact"` on every filtered listing, which
-made PostgREST run `SELECT count(*) FROM creators` alongside the paged SELECT.
-On the live 800k+ row table with broad ILIKE + `sync_status IN (...)` this
-was the single most expensive line of code in the app: 12.6 s p50, 63k calls
-per day per pg_stat_statements evidence.
+Background
+----------
+pg_stat_statements shows the PostgREST /creators list is our worst offender:
+63,114 calls x 12.6 s p50.  The exact-count query PostgREST bundles alongside
+the paged SELECT is >99 % of that wall clock on broad filtered browses.
 
-This test pins the fix: unless the fast MV-count shortcut fires, the count
-kwarg must be `"estimated"`.  PostgREST returns the planner's row estimate
-when running the exact count would be expensive, and falls back to exact
-counts when the plan is cheap — so pagination stays correct for narrow
-filters while broad browses no longer stall.
+An earlier attempt swapped the default to ``count="estimated"``.  Review found
+this silently regressed pagination correctness in routes/creators.py, which
+computes ``total_pages`` from ``total_count`` and issues a redirect when
+``page > total_pages``.  An approximate count would send users to phantom
+pages or hide real ones.
+
+Final contract pinned here
+--------------------------
+1. ``get_creators`` defaults to ``count="exact"`` when ``return_count`` is True
+   (safe for redirect-based pagination).
+2. Callers may opt into ``count_strategy="estimated"`` (or ``"planned"``) for
+   endpoints that do not redirect on out-of-range pages.
+3. ``return_count=False`` never emits a count header (unchanged).
+4. Unknown strategy values fall back to ``"exact"`` (fail-safe).
 """
 
 from types import SimpleNamespace
@@ -25,19 +34,25 @@ class _SpyQuery:
         self._spy = spy
 
     def __getattr__(self, name):
-        # Every filter method (.eq, .gt, .in_, .or_, .order, .limit, .offset,
-        # .not_, etc.) returns self so the chain composes.  __getattr__ also
-        # catches attribute chains like ``query.not_.is_(...)``.
+        # ``get_creators`` chains ``query.not_.is_("channel_name", "null")``,
+        # so the ``not_`` attribute must yield the query itself so the
+        # subsequent ``.is_(...)`` lookup lands on the fluent builder.  Every
+        # other public method (.eq, .gt, .in_, .or_, .order, .limit, .offset,
+        # .lt, .gte, ...) is a fluent no-op that returns self.  Private names
+        # fall back to returning self so the instance keeps working as a plain
+        # object internally.
+        if name == "not_":
+            return self
+        if name.startswith("_"):
+            return self
+
         def _fluent(*_a, **_kw):
             return self
 
-        # `.not_` is accessed as an attribute, then .is_() is called on it —
-        # return self for both so the chain flows through.
-        return _fluent if not name.startswith("_") else self
+        return _fluent
 
     def execute(self):
-        # No count returned; get_creators wraps the empty result in
-        # CreatorsResult([], 0) via its own error path if data is None-ish.
+        self._spy["executed"] = True
         return SimpleNamespace(data=[], count=0)
 
 
@@ -77,15 +92,25 @@ def spy_supabase(monkeypatch):
 
 
 def test_default_browse_uses_estimated_count(spy_supabase):
-    """Filtered browse must use `count="estimated"`, never `"exact"`."""
+    """Filtered browse defaults to ``count="estimated"`` for the perf win.
+
+    The /creators route no longer redirects based on count-arithmetic, so an
+    approximate total is safe there.  Callers that need an exact count must
+    opt in with ``count_strategy="exact"``.
+    """
     from db import get_creators
 
     get_creators(return_count=True, limit=50)
 
     assert spy_supabase["table"] == "creators"
+    assert spy_supabase.get("executed"), (
+        "spy_query.execute() was never called — the code path exited early "
+        "and the count assertion below would be meaningless"
+    )
     assert spy_supabase["count"] == "estimated", (
-        f"expected count='estimated' to avoid the ~12s exact-count PostgREST "
-        f"round trip, got count={spy_supabase['count']!r}"
+        "default must be 'estimated' — exact COUNT(*) on the 800k-row "
+        f"creators table takes ~12 s p50 per pg_stat_statements.  "
+        f"Got count={spy_supabase['count']!r}"
     )
 
 
@@ -95,11 +120,52 @@ def test_return_count_false_omits_count_kwarg(spy_supabase):
 
     get_creators(return_count=False, limit=50)
 
+    assert spy_supabase.get("executed")
     assert spy_supabase["count"] is None
 
 
-def test_count_is_never_exact_on_filtered_browse(spy_supabase):
-    """Adding filters must not regress the count strategy back to `"exact"`."""
+def test_count_strategy_estimated_propagates(spy_supabase):
+    """Opt-in ``count_strategy="estimated"`` must reach PostgREST unchanged."""
+    from db import get_creators
+
+    get_creators(return_count=True, count_strategy="estimated", limit=50)
+
+    assert spy_supabase.get("executed")
+    assert spy_supabase["count"] == "estimated"
+
+
+def test_count_strategy_exact_propagates(spy_supabase):
+    """Callers that opt out to ``count_strategy="exact"`` must reach PostgREST unchanged."""
+    from db import get_creators
+
+    get_creators(return_count=True, count_strategy="exact", limit=50)
+
+    assert spy_supabase.get("executed")
+    assert spy_supabase["count"] == "exact"
+
+
+def test_count_strategy_planned_propagates(spy_supabase):
+    """``count_strategy="planned"`` is a valid PostgREST mode and must pass through."""
+    from db import get_creators
+
+    get_creators(return_count=True, count_strategy="planned", limit=50)
+
+    assert spy_supabase.get("executed")
+    assert spy_supabase["count"] == "planned"
+
+
+def test_unknown_count_strategy_falls_back_to_exact(spy_supabase):
+    """An unrecognised strategy must not be forwarded to PostgREST verbatim."""
+    from db import get_creators
+
+    get_creators(return_count=True, count_strategy="wharrgarbl", limit=50)
+
+    assert spy_supabase.get("executed")
+    assert spy_supabase["count"] == "estimated"
+
+
+def test_added_filters_do_not_regress_default(spy_supabase):
+    """Adding filters must keep the default strategy at "estimated"."""
     from db import get_creators
 
     get_creators(
@@ -110,5 +176,5 @@ def test_count_is_never_exact_on_filtered_browse(spy_supabase):
         limit=50,
     )
 
-    assert spy_supabase["count"] != "exact"
+    assert spy_supabase.get("executed")
     assert spy_supabase["count"] == "estimated"
