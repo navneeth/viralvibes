@@ -2807,11 +2807,25 @@ def _render_pagination(
     start_result = (page - 1) * per_page + 1
     end_result = min(page * per_page, total_count)
 
+    # When any filter is active the total came from PostgREST count=estimated
+    # (see db.get_creators docstring) so it's approximate; prefix with '~' so
+    # users don't treat it as an exact figure.
+    _count_is_approx = (
+        bool(search)
+        or grade_filter != "all"
+        or language_filter != "all"
+        or activity_filter != "all"
+        or age_filter != "all"
+        or country_filter != "all"
+        or category_filter != "all"
+    )
+    _total_prefix = "~" if _count_is_approx else ""
+
     return Div(
         # Results summary
         Div(
             P(
-                f"Showing {start_result:,}–{end_result:,} of {total_count:,} creators",
+                f"Showing {start_result:,}\u2013{end_result:,} of {_total_prefix}{total_count:,} creators",
                 cls=_CLS_MUTED_SM,
             ),
             cls="text-center mb-4",

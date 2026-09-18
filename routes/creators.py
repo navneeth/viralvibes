@@ -471,10 +471,14 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # Calculate total pages
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
 
-    # Handle out-of-range pages: redirect to last valid page
-    # This prevents confusing "no results" UI when page > total_pages
-    if total_count > 0 and page > total_pages:
-        # Build redirect URL to last page with all filters preserved
+    # Data-driven pagination recovery.  The old logic redirected when
+    # ``page > total_pages`` using count-arithmetic — that path is unsafe
+    # under count="estimated" (the total may be off by a large factor) and
+    # is design-flawed anyway: users don't page-crawl this endpoint, they
+    # search.  Redirect only when the requested page actually produced no
+    # rows and we're past the first page.  Correct under both exact and
+    # estimated counts, and covers user typos like ``?page=999``.
+    if page > 1 and not creators:
         redirect_params = {
             "search": search,
             "sort": sort,
@@ -484,7 +488,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             "age": age_filter,
             "country": country_filter,
             "category": category_filter,
-            "page": str(total_pages),
+            "page": "1",
             "per_page": str(per_page),
         }
         redirect_url = f"/creators?{urlencode(redirect_params)}"

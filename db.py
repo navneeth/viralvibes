@@ -3765,6 +3765,7 @@ def get_creators(
     offset: int = 0,
     return_count: bool = False,
     cursor_value: any = None,  # New: for keyset/cursor pagination
+    count_strategy: str = "estimated",
 ) -> list[dict] | CreatorsResult:
     """
     Fetch creators for frontend display with comprehensive filtering and sorting.
@@ -3801,6 +3802,17 @@ def get_creators(
         limit: Maximum number of results (default 50)
         offset: Number of results to skip (for pagination)
         return_count: If True, returns CreatorsResult with total_count
+        count_strategy: PostgREST count mode when return_count is True.
+            Defaults to "estimated": PostgREST returns the planner's row
+            estimate for expensive plans and an exact count for cheap plans,
+            avoiding the ~12 s COUNT(*) round trip on broad filtered browses
+            over the 800k-row table.  The /creators route no longer relies on
+            an authoritative total for pagination — it redirects to page 1
+            when a requested page returns zero rows, which is correct under
+            both exact and estimated counts.  Callers that need an exact
+            count (e.g. admin tooling, deep pagination beyond the tail)
+            should pass count_strategy="exact".  "planned" is accepted for
+            completeness.  Ignored when the MV shortcut fires.
 
     Returns:
         List of creator dicts with _rank position added (1-based index)
@@ -3898,9 +3910,18 @@ def get_creators(
         # Start query - must call .select() to get a builder with filter methods.
         # Uses the explicit _CREATORS_LIST_COLUMNS list (not "*") to reduce
         # payload size, serialisation time, and network egress on every page load.
+        #
+        # Count strategy defaults to "estimated" now that routes/creators.py
+        # redirects on empty result pages (data-driven) instead of on
+        # count-arithmetic — so an approximate total is safe.  Unknown values
+        # fall back to the same default so a typo cannot silently regress
+        # production to a different behaviour.
+        _resolved_count_strategy = (
+            count_strategy if count_strategy in ("exact", "planned", "estimated") else "estimated"
+        )
         query = supabase_client.table(CREATOR_TABLE).select(
             _CREATORS_LIST_COLUMNS,
-            count="exact" if (return_count and not _use_mv_count) else None,
+            count=_resolved_count_strategy if (return_count and not _use_mv_count) else None,
         )
 
         # Filter out incomplete creators (ensure data quality)
