@@ -153,7 +153,8 @@ def test_find_creator_by_normalized_handle_uses_readonly_retry(monkeypatch):
     result = __import__("db")._find_creator_by_normalized_handle("alejoigoa")
 
     assert result is None
-    assert used["readonly"] == 2
+    # RPC + "alejoigoa" + "@alejoigoa" fallback attempts; all are readonly reads.
+    assert used["readonly"] == 3
 
 
 # ── Transient upstream gateway 5xx (CF + Kong) wrapped in postgrest.APIError
