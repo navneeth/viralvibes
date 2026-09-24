@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.1">coverage.py v7.16.1</a>,
-            created at 2026-09-18 02:34 +0000
+            created at 2026-09-24 16:43 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -3673,7 +3673,7 @@
     <p class="pln"><span class="n"><a id="t3589" href="#t3589">3589</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3590" href="#t3590">3590</a></span><span class="t">    <span class="key">if</span> <span class="nam">hasattr</span><span class="op">(</span><span class="nam">supabase_client</span><span class="op">,</span> <span class="str">&quot;rpc&quot;</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3591" href="#t3591">3591</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t3592" href="#t3592">3592</a></span><span class="t">            <span class="nam">resp</span> <span class="op">=</span> <span class="nam">_db_execute</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t3592" href="#t3592">3592</a></span><span class="t">            <span class="nam">resp</span> <span class="op">=</span> <span class="nam">_db_execute_readonly</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3593" href="#t3593">3593</a></span><span class="t">                <span class="key">lambda</span><span class="op">:</span> <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">rpc</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3594" href="#t3594">3594</a></span><span class="t">                    <span class="str">&quot;find_creator_by_normalized_handle&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3595" href="#t3595">3595</a></span><span class="t">                    <span class="op">{</span><span class="str">&quot;p_handle&quot;</span><span class="op">:</span> <span class="nam">normalized_handle</span><span class="op">}</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
@@ -3690,7 +3690,7 @@
     <p class="pln"><span class="n"><a id="t3606" href="#t3606">3606</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3607" href="#t3607">3607</a></span><span class="t">    <span class="key">for</span> <span class="nam">candidate</span> <span class="key">in</span> <span class="op">(</span><span class="nam">normalized_handle</span><span class="op">,</span> <span class="fst">f&quot;</span><span class="fst">@</span><span class="op">{</span><span class="nam">normalized_handle</span><span class="op">}</span><span class="fst">&quot;</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t3608" href="#t3608">3608</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t3609" href="#t3609">3609</a></span><span class="t">            <span class="nam">resp</span> <span class="op">=</span> <span class="nam">_db_execute</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t3609" href="#t3609">3609</a></span><span class="t">            <span class="nam">resp</span> <span class="op">=</span> <span class="nam">_db_execute_readonly</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3610" href="#t3610">3610</a></span><span class="t">                <span class="key">lambda</span> <span class="nam">c</span><span class="op">=</span><span class="nam">candidate</span><span class="op">:</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3611" href="#t3611">3611</a></span><span class="t">                    <span class="nam">supabase_client</span><span class="op">.</span><span class="nam">table</span><span class="op">(</span><span class="nam">CREATOR_TABLE</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis mis2 show_mis"><span class="n"><a id="t3612" href="#t3612">3612</a></span><span class="t">                    <span class="op">.</span><span class="nam">select</span><span class="op">(</span><span class="nam">select</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -5173,7 +5173,7 @@
             <a class="nav" href="db_lists_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.1">coverage.py v7.16.1</a>,
-            created at 2026-09-18 02:34 +0000
+            created at 2026-09-24 16:43 +0000
         </p>
     </div>
 </footer>
