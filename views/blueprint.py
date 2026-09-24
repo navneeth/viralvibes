@@ -18,8 +18,8 @@ from __future__ import annotations
 from fasthtml.common import *
 from monsterui.all import *
 
-from components.buttons import EstimatedBadge
 from utils import format_number, safe_get_value
+from utils.metric_provenance import CreatorProvenanceFooter, provenance_badge_for_label
 from utils.blueprint import ActionResult, CreatorSignals
 from views.creators import creator_profile_url
 
@@ -209,41 +209,29 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
         growth_str = f"{sub_growth:.2f}%"
 
     return Div(
-        _stat_chip("Avg views / video", vpv_str),
+        _stat_chip(
+            "Avg views / video",
+            vpv_str,
+            label_badge=provenance_badge_for_label("Avg views / video"),
+        ),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip(
             "Category p75 VPV",
             peer_str,
-            label_badge=EstimatedBadge(
-                detail=(
-                    "75th-percentile views per video across channels in the same category. "
-                    "Computed by ViralVibes from aggregate channel data — not a YouTube metric."
-                )
-            ),
+            label_badge=provenance_badge_for_label("Category p75 VPV"),
         ),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip(
             "Reach multiplier (30d)",
             viral_str,
             highlight=viral_highlight,
-            label_badge=EstimatedBadge(
-                detail=(
-                    "Net 30-day view change ÷ total subscribers. "
-                    "Above 1× means views grew by more than the channel's subscriber count in the past month. "
-                    "Computed by ViralVibes — not provided by YouTube's API."
-                )
-            ),
+            label_badge=provenance_badge_for_label("Reach multiplier (30d)"),
         ),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip(
             "Sub growth (30d)",
             growth_str,
-            label_badge=EstimatedBadge(
-                detail=(
-                    "30-day subscriber change ÷ current subscribers, expressed as a percentage. "
-                    "Computed by ViralVibes from YouTube channel data."
-                )
-            ),
+            label_badge=provenance_badge_for_label("Sub growth (30d)"),
         ),
         cls=(
             "flex items-center rounded-xl bg-muted/40 border border-border "
@@ -392,6 +380,7 @@ def render_blueprint_page(
             cls="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3",
         ),
         render_diagnostic_strip(signals),
+        CreatorProvenanceFooter(),
         cls="mb-8",
     )
 

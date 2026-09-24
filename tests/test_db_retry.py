@@ -112,6 +112,50 @@ def test_readonly_matches_when_cause_is_write_error():
     assert _is_transient_transport_readonly(wrapped) is True
 
 
+def test_find_creator_by_normalized_handle_uses_readonly_retry(monkeypatch):
+    """Transient read timeouts on creator handle lookups must use the readonly retry policy."""
+
+    class FakeTable:
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def ilike(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            return type("Resp", (), {"data": []})()
+
+    class FakeClient:
+        def rpc(self, *args, **kwargs):
+            raise _ReadTimeout("read timeout")
+
+        def table(self, *_args, **_kwargs):
+            return FakeTable()
+
+    used = {"readonly": 0}
+
+    def readonly_wrapper(fn):
+        used["readonly"] += 1
+        return fn()
+
+    monkeypatch.setattr("db.supabase_client", FakeClient())
+    monkeypatch.setattr(
+        "db._db_execute",
+        lambda fn: (_ for _ in ()).throw(
+            AssertionError("write-safe retry path should not be used")
+        ),
+    )
+    monkeypatch.setattr("db._db_execute_readonly", readonly_wrapper)
+
+    result = __import__("db")._find_creator_by_normalized_handle("alejoigoa")
+
+    assert result is None
+    assert used["readonly"] == 2
+
+
 # ── Transient upstream gateway 5xx (CF + Kong) wrapped in postgrest.APIError
 
 _APIError = _named_exc("APIError")

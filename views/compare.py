@@ -20,7 +20,8 @@ from utils.creator_metrics import (
 )
 from views.creators import get_topic_category_emoji
 from components.add_creator import AddCreatorForm
-from components.buttons import YoutubeChannelButton
+from components.buttons import FxBadge, YtSourceBadge, EstimatedBadge, YoutubeChannelButton
+from utils.metric_provenance import CreatorProvenanceFooter, provenance_badge_for_label
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -342,6 +343,23 @@ def render_compare_pick_page(
     )
 
 
+def _metric_label(label: str, *, align: str = "center") -> Div:
+    """Metric name with optional yt/fx/est. provenance badge."""
+    badge = provenance_badge_for_label(label)
+    align_cls = {
+        "center": "justify-center",
+        "left": "justify-start",
+        "right": "justify-end",
+    }.get(align, "justify-center")
+    if badge is None:
+        return Span(label, cls="text-xs text-muted-foreground")
+    return Div(
+        Span(label, cls="text-xs text-muted-foreground"),
+        badge,
+        cls=f"flex items-center gap-1 {align_cls}",
+    )
+
+
 def _how_to_read_card() -> Div:
     """Compact explainer shown above the first metric section.
 
@@ -391,7 +409,16 @@ def _how_to_read_card() -> Div:
             Span("·", cls="text-muted-foreground/40 text-xs mx-2"),
             Span("💡", cls="text-sm"),
             Span("notable difference worth acting on", cls="text-xs text-muted-foreground"),
-            cls="flex items-center flex-wrap gap-1 mb-3",
+            cls="flex items-center flex-wrap gap-1 mb-2",
+        ),
+        Div(
+            YtSourceBadge(),
+            Span("YouTube API", cls="text-xs text-muted-foreground mr-3"),
+            FxBadge(),
+            Span("calculated", cls="text-xs text-muted-foreground mr-3"),
+            EstimatedBadge(),
+            Span("ViralVibes estimate", cls="text-xs text-muted-foreground"),
+            cls="flex items-center flex-wrap gap-1.5 mb-3",
         ),
         # Collapsible glossary — uses native <details> so no JS required
         Details(
@@ -494,14 +521,23 @@ def _metric_row(
 
     bar = _ratio_bar(raw_a or 0.001, raw_b or 0.001, colour_a, colour_b) if show_bar else None
 
+    label_mobile = Div(
+        _metric_label(label, align="left"),
+        cls="col-span-3 sm:hidden block mb-1",
+    )
+    label_desktop = Div(
+        _metric_label(label, align="center"),
+        cls="hidden sm:block",
+    )
+
     return Div(
         # 3-column: left value | bar | right value
         # On mobile the bar collapses to a line between the two values
         Div(
-            Span(label, cls="text-xs text-muted-foreground col-span-3 sm:hidden block mb-1"),
+            label_mobile,
             Div(disp_a, cls="flex-1 text-right"),
             Div(
-                Span(label, cls="text-xs text-muted-foreground text-center hidden sm:block"),
+                label_desktop,
                 bar,
                 cls="w-32 sm:w-40 flex flex-col items-center justify-center px-2 shrink-0",
             ),
@@ -889,7 +925,10 @@ def render_compare_page(
         _col_labels(),
         # Engagement dot meters
         Div(
-            Span("Engagement", cls="text-xs text-muted-foreground col-span-3 sm:hidden block mb-1"),
+            Div(
+                _metric_label("Engagement", align="left"),
+                cls="col-span-3 sm:hidden block mb-1",
+            ),
             Div(
                 Span(f"{eng_a:.1f}/10", cls="text-sm font-semibold text-foreground mr-2"),
                 _dot_meter(eng_a, filled_cls="bg-blue-500"),
@@ -897,8 +936,8 @@ def render_compare_page(
                 cls="flex items-center gap-1 flex-1 justify-end",
             ),
             Div(
-                Span("Engagement", cls="text-xs text-muted-foreground text-center hidden sm:block"),
-                cls="w-32 sm:w-40 flex flex-col items-center justify-center px-2 shrink-0",
+                _metric_label("Engagement", align="center"),
+                cls="w-32 sm:w-40 flex flex-col items-center justify-center px-2 shrink-0 hidden sm:flex",
             ),
             Div(
                 _trophy(eng_b > eng_a),
@@ -1138,6 +1177,7 @@ def render_compare_page(
         growth_section,
         quality_section,
         output_section,
+        CreatorProvenanceFooter(),
         verdict_section,
         cls="max-w-4xl mx-auto px-4 pb-16 pt-6",
     )
