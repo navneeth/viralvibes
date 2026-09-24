@@ -3589,7 +3589,7 @@ def _find_creator_by_normalized_handle(
 
     if hasattr(supabase_client, "rpc"):
         try:
-            resp = _db_execute(
+            resp = _db_execute_readonly(
                 lambda: supabase_client.rpc(
                     "find_creator_by_normalized_handle",
                     {"p_handle": normalized_handle},
@@ -3606,7 +3606,7 @@ def _find_creator_by_normalized_handle(
 
     for candidate in (normalized_handle, f"@{normalized_handle}"):
         try:
-            resp = _db_execute(
+            resp = _db_execute_readonly(
                 lambda c=candidate: (
                     supabase_client.table(CREATOR_TABLE)
                     .select(select)
