@@ -48,8 +48,13 @@ def _extract_youtube_target(raw: str) -> str | None:
 
     parsed = urlparse(raw)
     if parsed.scheme and parsed.netloc:
-        host = parsed.netloc.lower()
-        if "youtube.com" in host or "youtu.be" in host:
+        host = (parsed.hostname or "").lower()
+        is_youtube_host = (
+            host == "youtu.be"
+            or host == "youtube.com"
+            or host.endswith(".youtube.com")
+        )
+        if is_youtube_host:
             if parsed.path.startswith("/@"):
                 return parsed.path[2:]
             if parsed.path.startswith("/channel/"):
