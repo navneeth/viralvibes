@@ -70,6 +70,24 @@ def _extract_youtube_target(raw: str) -> str | None:
     return None
 
 
+def _is_youtube_url_candidate(text: str) -> bool:
+    parsed = urlparse(text)
+    host = parsed.hostname
+    if host is None:
+        parsed = urlparse(f"//{text}")
+        host = parsed.hostname
+    if host is None:
+        return False
+
+    host = host.lower()
+    return (
+        host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtu.be"
+        or host.endswith(".youtu.be")
+    )
+
+
 def classify_creator_search(raw: str) -> SearchIntent:
     """Classify a raw creator-search input into a single, typed intent.
 
@@ -93,7 +111,7 @@ def classify_creator_search(raw: str) -> SearchIntent:
             display="",
         )
 
-    if "youtube.com" in text.lower() or "youtu.be" in text.lower() or "/@" in text:
+    if _is_youtube_url_candidate(text) or "/@" in text:
         extracted = _extract_youtube_target(text)
         if extracted:
             if CHANNEL_ID_RE.fullmatch(extracted):
