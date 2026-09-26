@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from enum import Enum, auto
+from urllib.parse import urlparse
+
+
+class SearchIntentKind(Enum):
+    EXACT_HANDLE = auto()
+    CHANNEL_ID = auto()
+    TEXT_SEARCH = auto()
+    INVALID_HANDLE = auto()
+
+
+@dataclass(frozen=True)
+class SearchIntent:
+    kind: SearchIntentKind
+    raw: str
+    normalized: str | None
+    display: str
+    error: str | None = None
+
+
+# Matches db._HANDLE_RE exactly (1-100 chars) — production's existing bound.
+# YouTube's real handle rule is narrower (3-30 chars), but tightening here
+# without first auditing real stored custom_url values risks reclassifying
+# an already-findable handle as INVALID_HANDLE the moment this is wired in.
+# Track tightening this as a separate, data-verified follow-up — not blocking
+# this PR.
+HANDLE_BODY_RE = re.compile(r"^[a-zA-Z0-9._-]{1,100}$")
+CHANNEL_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
+URL_HANDLE_RE = re.compile(r"(?:youtube\.com/(?:@|channel/)|youtu\.be/)([A-Za-z0-9._-]+)", re.I)
+# Right shape/length for a channel id but wrong case (e.g. a real UC id that
+# got lowercased somewhere upstream). Channel ids are case-sensitive, so this
+# is deliberately excluded from CHANNEL_ID_RE. It's also excluded from
+# EXACT_HANDLE below — treating it as a handle would offer to add a creator
+# whose "handle" is an obviously-garbled channel id — so it falls through to
+# a normal text search instead.
+_CHANNEL_ID_SHAPE_CI_RE = re.compile(r"^uc[a-z0-9_-]{22}$", re.IGNORECASE)
+
+
+def normalize_handle(handle_or_slug: str) -> str:
+    """Normalize a YouTube handle to the same canonical form used by the DB index.
+
+    The DB index uses PostgreSQL's `ltrim(custom_url, '@')`, which strips only
+    leading `@` characters. This Python helper must match the same behavior.
+    """
+    if handle_or_slug is None:
+        return ""
+    value = str(handle_or_slug).strip()
+    if not value:
+        return ""
+    return value.lstrip("@").lower()
+
+
+def _extract_youtube_target(raw: str) -> str | None:
+    """Extract a candidate handle or channel id from a YouTube URL string.
+
+    Only returns a value for URL shapes that unambiguously identify a
+    single handle or channel id (``/@handle``, ``/channel/UC...``). Any
+    other YouTube URL path — legacy ``/c/...``, ``/user/...``, search
+    result pages, etc. — returns None so the caller falls through to
+    TEXT_SEARCH on the original raw string, rather than treating an
+    opaque path fragment as an invalid handle.
+    """
+    if not raw:
+        return None
+
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        host = (parsed.hostname or "").lower()
+        is_youtube_host = (
+            host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
+        )
+        if is_youtube_host:
+            if parsed.path.startswith("/@"):
+                return parsed.path[2:]
+            if parsed.path.startswith("/channel/"):
+                return parsed.path[len("/channel/") :]
+            return None  # /c/, /user/, /results, etc. — not a single identifier
+
+    match = URL_HANDLE_RE.search(raw)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _is_youtube_url_candidate(text: str) -> bool:
+    parsed = urlparse(text)
+    host = parsed.hostname
+    if host is None:
+        parsed = urlparse(f"//{text}")
+        host = parsed.hostname
+    if host is None:
+        return False
+
+    host = host.lower()
+    return (
+        host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtu.be"
+        or host.endswith(".youtu.be")
+    )
+
+
+def classify_creator_search(raw: str) -> SearchIntent:
+    """Classify a raw creator-search input into a single, typed intent.
+
+    The result is designed to be consumed by the route, the view, and the add-queue
+    without each layer re-deriving intent from a raw string.
+    """
+    if raw is None:
+        return SearchIntent(
+            kind=SearchIntentKind.TEXT_SEARCH,
+            raw="",
+            normalized=None,
+            display="",
+        )
+
+    text = str(raw).strip()
+    if not text:
+        return SearchIntent(
+            kind=SearchIntentKind.TEXT_SEARCH,
+            raw="",
+            normalized=None,
+            display="",
+        )
+
+    if _is_youtube_url_candidate(text) or "/@" in text:
+        extracted = _extract_youtube_target(text)
+        if extracted:
+            if CHANNEL_ID_RE.fullmatch(extracted):
+                return SearchIntent(
+                    kind=SearchIntentKind.CHANNEL_ID,
+                    raw=text,
+                    normalized=extracted,
+                    display=extracted,
+                )
+            normalized = normalize_handle(extracted)
+            if HANDLE_BODY_RE.fullmatch(normalized):
+                return SearchIntent(
+                    kind=SearchIntentKind.EXACT_HANDLE,
+                    raw=text,
+                    normalized=normalized,
+                    display=f"@{normalized}",
+                )
+            return SearchIntent(
+                kind=SearchIntentKind.INVALID_HANDLE,
+                raw=text,
+                normalized=None,
+                display="",
+                error="Handles must be 1–100 characters and use letters, numbers, dots, underscores, or dashes.",
+            )
+
+    if any(ch.isspace() for ch in text):
+        return SearchIntent(
+            kind=SearchIntentKind.TEXT_SEARCH,
+            raw=text,
+            normalized=None,
+            display=text,
+        )
+
+    if CHANNEL_ID_RE.fullmatch(text):
+        return SearchIntent(
+            kind=SearchIntentKind.CHANNEL_ID,
+            raw=text,
+            normalized=text,
+            display=text,
+        )
+
+    if text.startswith("@"):
+        normalized = normalize_handle(text)
+        if HANDLE_BODY_RE.fullmatch(normalized):
+            return SearchIntent(
+                kind=SearchIntentKind.EXACT_HANDLE,
+                raw=text,
+                normalized=normalized,
+                display=f"@{normalized}",
+            )
+        return SearchIntent(
+            kind=SearchIntentKind.INVALID_HANDLE,
+            raw=text,
+            normalized=None,
+            display="",
+            error="Handles must be 1–100 characters and use letters, numbers, dots, underscores, or dashes.",
+        )
+
+    if _CHANNEL_ID_SHAPE_CI_RE.fullmatch(text):
+        return SearchIntent(
+            kind=SearchIntentKind.TEXT_SEARCH,
+            raw=text,
+            normalized=None,
+            display=text,
+        )
+
+    if HANDLE_BODY_RE.fullmatch(text):
+        normalized = normalize_handle(text)
+        return SearchIntent(
+            kind=SearchIntentKind.EXACT_HANDLE,
+            raw=text,
+            normalized=normalized,
+            display=f"@{normalized}",
+        )
+
+    return SearchIntent(
+        kind=SearchIntentKind.TEXT_SEARCH,
+        raw=text,
+        normalized=None,
+        display=text,
+    )
