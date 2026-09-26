@@ -47,6 +47,7 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
+from services.creator_search_intent import classify_creator_search
 from controllers.auth_routes import require_auth, safe_local_return_url
 from views.compare import render_compare_page, render_compare_pick_page
 from views.creators import (
@@ -64,6 +65,38 @@ from views.blueprint import render_blueprint_page
 from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
+
+
+def _log_search_intent_shadow(search: str, old_branch: str) -> None:
+    """PR2a: log what the new shared classifier would decide, alongside
+    today's live branch decision, without acting on it. Purely additive —
+    exists to measure agreement/disagreement rate on real traffic before
+    any later PR wires the classifier's output into actual control flow.
+
+    old_branch is one of: "redirect" (today's code found an existing
+    creator for an @-prefixed search and is about to redirect),
+    "handle_miss" (today's code detected an @-prefixed search with no
+    matching creator), or "text_search" (today's code is treating this as
+    a normal broad-filter search — including bare, non-@ tokens).
+    """
+    try:
+        intent = classify_creator_search(search)
+        agree = (
+            old_branch in ("redirect", "handle_miss")
+            and intent.kind.name in ("EXACT_HANDLE", "CHANNEL_ID")
+        ) or (old_branch == "text_search" and intent.kind.name == "TEXT_SEARCH")
+        logger.info(
+            "search_intent_shadow",
+            extra={
+                "old_branch": old_branch,
+                "new_kind": intent.kind.name,
+                "agree": agree,
+            },
+        )
+    except Exception:
+        # Shadow logging must never affect the real request — swallow and
+        # move on rather than letting a classifier bug break search.
+        logger.exception("search_intent_shadow: classification failed")
 
 
 def _parse_compare_id(raw: str | None) -> str:
@@ -263,6 +296,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                 canonical_handle,
             )
             if canonical_handle:
+                _log_search_intent_shadow(search, old_branch="redirect")
                 return RedirectResponse(
                     f"/creators/@{quote(canonical_handle, safe='')}",
                     status_code=303,
@@ -288,6 +322,11 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
             except Exception as e:
                 logger.exception(f"[HandleSearch] Error fetching handle {handle}: {e}")
                 # Fall through to normal search
+
+    if search.strip():
+        _log_search_intent_shadow(
+            search, old_branch="handle_miss" if handle_not_found else "text_search"
+        )
 
     # ═══════════════════════════════════════════════════════════════
     # NORMAL SEARCH MODE
