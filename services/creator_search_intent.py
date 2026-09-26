@@ -22,9 +22,22 @@ class SearchIntent:
     error: str | None = None
 
 
-HANDLE_BODY_RE = re.compile(r"^[a-zA-Z0-9._-]{3,30}$")
+# Matches db._HANDLE_RE exactly (1-100 chars) — production's existing bound.
+# YouTube's real handle rule is narrower (3-30 chars), but tightening here
+# without first auditing real stored custom_url values risks reclassifying
+# an already-findable handle as INVALID_HANDLE the moment this is wired in.
+# Track tightening this as a separate, data-verified follow-up — not blocking
+# this PR.
+HANDLE_BODY_RE = re.compile(r"^[a-zA-Z0-9._-]{1,100}$")
 CHANNEL_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
 URL_HANDLE_RE = re.compile(r"(?:youtube\.com/(?:@|channel/)|youtu\.be/)([A-Za-z0-9._-]+)", re.I)
+# Right shape/length for a channel id but wrong case (e.g. a real UC id that
+# got lowercased somewhere upstream). Channel ids are case-sensitive, so this
+# is deliberately excluded from CHANNEL_ID_RE. It's also excluded from
+# EXACT_HANDLE below — treating it as a handle would offer to add a creator
+# whose "handle" is an obviously-garbled channel id — so it falls through to
+# a normal text search instead.
+_CHANNEL_ID_SHAPE_CI_RE = re.compile(r"^uc[a-z0-9_-]{22}$", re.IGNORECASE)
 
 
 def normalize_handle(handle_or_slug: str) -> str:
@@ -42,7 +55,15 @@ def normalize_handle(handle_or_slug: str) -> str:
 
 
 def _extract_youtube_target(raw: str) -> str | None:
-    """Extract a candidate handle or channel id from a YouTube URL string."""
+    """Extract a candidate handle or channel id from a YouTube URL string.
+
+    Only returns a value for URL shapes that unambiguously identify a
+    single handle or channel id (``/@handle``, ``/channel/UC...``). Any
+    other YouTube URL path — legacy ``/c/...``, ``/user/...``, search
+    result pages, etc. — returns None so the caller falls through to
+    TEXT_SEARCH on the original raw string, rather than treating an
+    opaque path fragment as an invalid handle.
+    """
     if not raw:
         return None
 
@@ -50,19 +71,14 @@ def _extract_youtube_target(raw: str) -> str | None:
     if parsed.scheme and parsed.netloc:
         host = (parsed.hostname or "").lower()
         is_youtube_host = (
-            host == "youtu.be"
-            or host == "youtube.com"
-            or host.endswith(".youtube.com")
+            host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
         )
         if is_youtube_host:
             if parsed.path.startswith("/@"):
                 return parsed.path[2:]
             if parsed.path.startswith("/channel/"):
                 return parsed.path[len("/channel/") :]
-            if parsed.path.startswith("/@"):
-                return parsed.path[2:]
-            if parsed.path.startswith("/"):
-                return parsed.path.lstrip("/")
+            return None  # /c/, /user/, /results, etc. — not a single identifier
 
     match = URL_HANDLE_RE.search(raw)
     if match:
@@ -134,7 +150,7 @@ def classify_creator_search(raw: str) -> SearchIntent:
                 raw=text,
                 normalized=None,
                 display="",
-                error="Handles must be 3–30 characters and use letters, numbers, dots, underscores, or dashes.",
+                error="Handles must be 1–100 characters and use letters, numbers, dots, underscores, or dashes.",
             )
 
     if any(ch.isspace() for ch in text):
@@ -167,7 +183,15 @@ def classify_creator_search(raw: str) -> SearchIntent:
             raw=text,
             normalized=None,
             display="",
-            error="Handles must be 3–30 characters and use letters, numbers, dots, underscores, or dashes.",
+            error="Handles must be 1–100 characters and use letters, numbers, dots, underscores, or dashes.",
+        )
+
+    if _CHANNEL_ID_SHAPE_CI_RE.fullmatch(text):
+        return SearchIntent(
+            kind=SearchIntentKind.TEXT_SEARCH,
+            raw=text,
+            normalized=None,
+            display=text,
         )
 
     if HANDLE_BODY_RE.fullmatch(text):
