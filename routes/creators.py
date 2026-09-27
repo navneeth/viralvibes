@@ -1068,8 +1068,8 @@ class _CountsCacheEntry:
 
     Wraps the cached payload, expiry, and a ``Lock`` so concurrent requests
     can't both miss-and-refill (which would fan 6 DB probes out into 12+).
-    The lock is only held around the cache read/write; the actual probe
-    fan-out happens outside it so a slow refresh never blocks readers.
+    A refresh holds the lock through the probe fan-out; callers can still
+    serve stale data without waiting while that refresh is in progress.
     """
 
     data: dict[str, int] | None = None
@@ -1088,66 +1088,82 @@ def get_aplus_category_counts() -> dict[str, int]:
     Cached in-process for ``_APLUS_COUNTS_TTL_S`` seconds. Returns the last
     successful payload on transient failure, or zeros on cold-start failure
     so the rail still renders gracefully.
+
+    Only one caller performs the refresh per cache-miss window — otherwise
+    each concurrent miss can launch its own six-query burst. Callers that
+    find a refresh in progress serve stale data immediately when available.
+    A cold-cache caller waits for the in-flight refresh because there is no
+    cached result to serve.
     """
     import time
 
-    now = time.monotonic()
-    with _aplus_counts_cache.lock:
+    acquired = _aplus_counts_cache.lock.acquire(blocking=False)
+    if not acquired:
+        stale = _aplus_counts_cache.data
+        if stale is not None:
+            return stale
+        _aplus_counts_cache.lock.acquire()
+
+    try:
+        now = time.monotonic()
         if _aplus_counts_cache.data is not None and now < _aplus_counts_cache.expires_at:
             return _aplus_counts_cache.data
         prev_payload = _aplus_counts_cache.data  # snapshot for failure fallback
 
-    def _probe(slug: str | None, label: str | None) -> tuple[str, int, bool]:
-        """Return (key, count, success). success=False only on exception."""
+        def _probe(slug: str | None, label: str | None) -> tuple[str, int, bool]:
+            """Return (key, count, success). success=False only on exception."""
+            try:
+                res = get_creators(
+                    sort="subscribers",
+                    grade_filter="A+",
+                    category_filter=label or "all",
+                    limit=1,
+                    offset=0,
+                    return_count=True,
+                )
+                return (slug or "all"), int(res.total_count or 0), True
+            except Exception:
+                logger.exception("get_aplus_category_counts: probe failed for %s", slug)
+                return (slug or "all"), 0, False
+
+        probes: list[tuple[str | None, str | None]] = [(None, None)]
+        probes.extend((slug, label) for slug, label in TOP_CATEGORY_SLUGS.items())
+
+        counts: dict[str, int] = {}
+        failed_probes: int = 0
         try:
-            res = get_creators(
-                sort="subscribers",
-                grade_filter="A+",
-                category_filter=label or "all",
-                limit=1,
-                offset=0,
-                return_count=True,
-            )
-            return (slug or "all"), int(res.total_count or 0), True
+            with ThreadPoolExecutor(max_workers=len(probes)) as pool:
+                futures = [pool.submit(_probe, slug, label) for slug, label in probes]
+                for fut in as_completed(futures):
+                    key, n, ok = fut.result()
+                    counts[key] = n
+                    if not ok:
+                        failed_probes += 1
         except Exception:
-            logger.exception("get_aplus_category_counts: probe failed for %s", slug)
-            return (slug or "all"), 0, False
+            logger.exception("get_aplus_category_counts: pool failed")
+            _aplus_counts_cache.expires_at = time.monotonic() + _APLUS_COUNTS_RETRY_TTL_S
+            if prev_payload is not None:
+                return prev_payload  # serve stale rather than break the rail
+            zeros = {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
+            _aplus_counts_cache.data = zeros
+            return zeros
 
-    probes: list[tuple[str | None, str | None]] = [(None, None)]
-    probes.extend((slug, label) for slug, label in TOP_CATEGORY_SLUGS.items())
+        # Serve stale only when probes actually raised — not merely returned zero.
+        # A genuine all-zero result (valid DB state) must be cached and served as-is.
+        if failed_probes and prev_payload is not None:
+            logger.warning(
+                "get_aplus_category_counts: %d probe(s) failed; serving stale cache",
+                failed_probes,
+            )
+            # Short TTL so the next refresh retries soon rather than on every request.
+            _aplus_counts_cache.expires_at = time.monotonic() + _APLUS_COUNTS_RETRY_TTL_S
+            return prev_payload
 
-    counts: dict[str, int] = {}
-    failed_probes: int = 0
-    try:
-        with ThreadPoolExecutor(max_workers=len(probes)) as pool:
-            futures = [pool.submit(_probe, slug, label) for slug, label in probes]
-            for fut in as_completed(futures):
-                key, n, ok = fut.result()
-                counts[key] = n
-                if not ok:
-                    failed_probes += 1
-    except Exception:
-        logger.exception("get_aplus_category_counts: pool failed")
-        if prev_payload is not None:
-            return prev_payload  # serve stale rather than break the rail
-        return {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
-
-    # Serve stale only when probes actually raised — not merely returned zero.
-    # A genuine all-zero result (valid DB state) must be cached and served as-is.
-    if failed_probes and prev_payload is not None:
-        logger.warning(
-            "get_aplus_category_counts: %d probe(s) failed; serving stale cache",
-            failed_probes,
-        )
-        # Short TTL so the next refresh retries soon rather than on every request.
-        with _aplus_counts_cache.lock:
-            _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_RETRY_TTL_S
-        return prev_payload
-
-    with _aplus_counts_cache.lock:
         _aplus_counts_cache.data = counts
-        _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_TTL_S
-    return counts
+        _aplus_counts_cache.expires_at = time.monotonic() + _APLUS_COUNTS_TTL_S
+        return counts
+    finally:
+        _aplus_counts_cache.lock.release()
 
 
 @dataclass(frozen=True)
