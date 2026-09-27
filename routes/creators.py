@@ -1068,8 +1068,8 @@ class _CountsCacheEntry:
 
     Wraps the cached payload, expiry, and a ``Lock`` so concurrent requests
     can't both miss-and-refill (which would fan 6 DB probes out into 12+).
-    The lock is only held around the cache read/write; the actual probe
-    fan-out happens outside it so a slow refresh never blocks readers.
+    A refresh holds the lock through the probe fan-out; callers can still
+    serve stale data without waiting while that refresh is in progress.
     """
 
     data: dict[str, int] | None = None
@@ -1089,18 +1089,23 @@ def get_aplus_category_counts() -> dict[str, int]:
     successful payload on transient failure, or zeros on cold-start failure
     so the rail still renders gracefully.
 
-    The lock is held for the *entire* refresh, not just the check — a prior
-    version released it before the fan-out, which meant every concurrent
-    request that saw a cold cache independently launched its own 6-query
-    burst (2 concurrent misses -> 12 simultaneous DB queries, 3 -> 18, etc).
-    That was confirmed as the cause of a connection-pool thundering herd in
-    production. Now only one request performs the refresh per cache-miss
-    window; the rest block briefly on the lock and then read its result.
+    Only one caller performs the refresh per cache-miss window — otherwise
+    each concurrent miss can launch its own six-query burst. Callers that
+    find a refresh in progress serve stale data immediately when available.
+    A cold-cache caller waits for the in-flight refresh because there is no
+    cached result to serve.
     """
     import time
 
-    now = time.monotonic()
-    with _aplus_counts_cache.lock:
+    acquired = _aplus_counts_cache.lock.acquire(blocking=False)
+    if not acquired:
+        stale = _aplus_counts_cache.data
+        if stale is not None:
+            return stale
+        _aplus_counts_cache.lock.acquire()
+
+    try:
+        now = time.monotonic()
         if _aplus_counts_cache.data is not None and now < _aplus_counts_cache.expires_at:
             return _aplus_counts_cache.data
         prev_payload = _aplus_counts_cache.data  # snapshot for failure fallback
@@ -1136,9 +1141,12 @@ def get_aplus_category_counts() -> dict[str, int]:
                         failed_probes += 1
         except Exception:
             logger.exception("get_aplus_category_counts: pool failed")
+            _aplus_counts_cache.expires_at = time.monotonic() + _APLUS_COUNTS_RETRY_TTL_S
             if prev_payload is not None:
                 return prev_payload  # serve stale rather than break the rail
-            return {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
+            zeros = {key: 0 for key in ("all", *TOP_CATEGORY_SLUGS.keys())}
+            _aplus_counts_cache.data = zeros
+            return zeros
 
         # Serve stale only when probes actually raised — not merely returned zero.
         # A genuine all-zero result (valid DB state) must be cached and served as-is.
@@ -1148,12 +1156,14 @@ def get_aplus_category_counts() -> dict[str, int]:
                 failed_probes,
             )
             # Short TTL so the next refresh retries soon rather than on every request.
-            _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_RETRY_TTL_S
+            _aplus_counts_cache.expires_at = time.monotonic() + _APLUS_COUNTS_RETRY_TTL_S
             return prev_payload
 
         _aplus_counts_cache.data = counts
-        _aplus_counts_cache.expires_at = now + _APLUS_COUNTS_TTL_S
+        _aplus_counts_cache.expires_at = time.monotonic() + _APLUS_COUNTS_TTL_S
         return counts
+    finally:
+        _aplus_counts_cache.lock.release()
 
 
 @dataclass(frozen=True)
