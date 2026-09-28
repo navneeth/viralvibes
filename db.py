@@ -29,9 +29,7 @@ from tenacity import (
     wait_exponential,
     wait_exponential_jitter,
 )
-
 from constants import (
-    BROWSEABLE_SYNC_STATUSES,
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
@@ -4660,8 +4658,9 @@ def refresh_category_stats_cache() -> int:
     into category_stats_cache. Called by worker/bootstrap_creators.py (Pass 4).
 
     Strategy: one batched RPC (``get_all_category_box_stats`` from migration
-    061) computes stats for every synced primary_category in a single GROUP BY
-    heap pass, then one bulk upsert writes them into the cache table.
+    061/062) computes stats for every synced primary_category in a single
+    GROUP BY heap pass and returns a scalar JSON aggregate to avoid the
+    PostgREST row cap, then one bulk upsert writes them into the cache table.
 
     Replaces the previous N+1 pattern (1 SELECT DISTINCT + N per-category
     RPCs, each ~8 s) that cost ~274 x 8 s per pass in pg_stat_statements.
@@ -4676,8 +4675,41 @@ def refresh_category_stats_cache() -> int:
         return 0
 
     try:
-        resp = supabase_client.rpc("get_all_category_box_stats").execute()
-        rows = resp.data or []
+        rpc_started = time.monotonic()
+        try:
+            resp = _db_execute(lambda: supabase_client.rpc("get_all_category_box_stats").execute())
+        except Exception:
+            logger.exception(
+                "refresh_category_stats_cache: batched RPC failed after %.0fms "
+                "(server duration unavailable)",
+                (time.monotonic() - rpc_started) * 1000,
+            )
+            raise
+        rpc_duration_ms = (time.monotonic() - rpc_started) * 1000
+        payload = resp.data
+
+        # Migration 062 returns one scalar JSON object containing every
+        # category, so PostgREST's table-row cap cannot silently truncate it.
+        # Accept the migration 061 list response during a rolling deployment.
+        if isinstance(payload, dict) and "categories" in payload:
+            category_stats = payload.get("categories")
+            server_duration_ms = payload.get("duration_ms")
+            if isinstance(category_stats, dict):
+                rows = [
+                    {"category": category, "stats_json": stats}
+                    for category, stats in category_stats.items()
+                ]
+            else:
+                rows = []
+        else:
+            server_duration_ms = None
+            rows = payload or []
+
+        logger.info(
+            "refresh_category_stats_cache: batched RPC completed in %.0fms (server: %s)",
+            rpc_duration_ms,
+            f"{server_duration_ms}ms" if server_duration_ms is not None else "unavailable",
+        )
 
         if not rows:
             logger.warning("refresh_category_stats_cache: no synced categories found")

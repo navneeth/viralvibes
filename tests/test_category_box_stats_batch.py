@@ -7,10 +7,11 @@ per-category ``get_category_box_stats(p_category)`` RPC — an N+1 pattern
 whose 5.7 M shared-blocks-per-call cost was flat-lining the DB during
 worker refreshes.
 
-Migration 061 introduces ``get_all_category_box_stats()`` which returns
-``(category, stats_json)`` rows for every synced primary_category in a
-single GROUP BY heap pass.  ``db.refresh_category_stats_cache`` now calls
-that RPC exactly once per pass and bulk-upserts the result.
+Migration 061 introduces ``get_all_category_box_stats()`` which computes
+every synced primary_category in one GROUP BY heap pass. Migration 062
+returns the complete result as one scalar JSON aggregate, avoiding the
+PostgREST table-row cap. ``db.refresh_category_stats_cache`` calls that RPC
+exactly once per pass and bulk-upserts the result.
 
 Final contract pinned here
 --------------------------
@@ -104,6 +105,13 @@ def _stats_row(category: str, count: int) -> dict:
     }
 
 
+def _aggregate_payload(*rows: dict, duration_ms: int = 12) -> dict:
+    return {
+        "categories": {row["category"]: row["stats_json"] for row in rows},
+        "duration_ms": duration_ms,
+    }
+
+
 def test_refresh_uses_single_batched_rpc(monkeypatch):
     """Exactly one RPC per pass, and it must be the batched one."""
     from db import refresh_category_stats_cache
@@ -112,7 +120,7 @@ def test_refresh_uses_single_batched_rpc(monkeypatch):
     _install_client(
         monkeypatch,
         spy,
-        [_stats_row("Gaming", 42), _stats_row("Music", 7), _stats_row("Tech", 3)],
+        _aggregate_payload(_stats_row("Gaming", 42), _stats_row("Music", 7), _stats_row("Tech", 3)),
     )
 
     result = refresh_category_stats_cache()
@@ -132,7 +140,7 @@ def test_refresh_does_not_call_deprecated_distinct_rpc(monkeypatch):
     from db import refresh_category_stats_cache
 
     spy: dict = {}
-    _install_client(monkeypatch, spy, [_stats_row("Gaming", 42)])
+    _install_client(monkeypatch, spy, _aggregate_payload(_stats_row("Gaming", 42)))
 
     refresh_category_stats_cache()
 
@@ -157,7 +165,7 @@ def test_upsert_payload_matches_cache_schema(monkeypatch):
     _install_client(
         monkeypatch,
         spy,
-        [_stats_row("Gaming", 42), _stats_row("Music", 7)],
+        _aggregate_payload(_stats_row("Gaming", 42), _stats_row("Music", 7)),
     )
 
     refresh_category_stats_cache()
@@ -175,10 +183,9 @@ def test_upsert_payload_matches_cache_schema(monkeypatch):
         )
 
     categories = [row["category"] for row in spy["upsert_rows"]]
-    assert categories == ["Gaming", "Music"], (
-        "row ordering from the RPC must be preserved into the upsert payload "
-        "so operators can compare pg_stat_statements traces with cache-table "
-        f"contents; got {categories!r}"
+    assert set(categories) == {"Gaming", "Music"}, (
+        "the aggregate includes each requested category; JSON object order is "
+        f"not part of the RPC contract: got {categories!r}"
     )
 
 
@@ -192,7 +199,7 @@ def test_empty_rpc_response_returns_zero_without_raising(monkeypatch):
     from db import refresh_category_stats_cache
 
     spy: dict = {}
-    _install_client(monkeypatch, spy, [])
+    _install_client(monkeypatch, spy, _aggregate_payload())
 
     result = refresh_category_stats_cache()
 
@@ -205,6 +212,8 @@ def test_empty_rpc_response_returns_zero_without_raising(monkeypatch):
 @pytest.mark.parametrize(
     "bad_row",
     [
+        None,  # non-mapping row
+        42,  # scalar row
         {"category": None, "stats_json": {"count": 1}},  # missing category
         {"category": "Music", "stats_json": None},  # missing stats
         {"category": "Music", "stats_json": "not-a-dict"},  # wrong type
@@ -239,6 +248,23 @@ def test_supabase_client_none_returns_zero(monkeypatch):
     monkeypatch.setattr(db, "supabase_client", None)
 
     assert db.refresh_category_stats_cache() == 0
+
+
+def test_refresh_routes_rpc_through_db_execute(monkeypatch):
+    import db
+
+    spy: dict = {}
+    _install_client(monkeypatch, spy, _aggregate_payload(_stats_row("Gaming", 42)))
+    calls = []
+
+    def execute_with_recording(fn):
+        calls.append(True)
+        return fn()
+
+    monkeypatch.setattr(db, "_db_execute", execute_with_recording)
+
+    assert db.refresh_category_stats_cache() == 1
+    assert calls == [True]
 
 
 def test_rpc_exception_logs_and_returns_zero(monkeypatch):
