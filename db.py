@@ -30,6 +30,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 from constants import (
+    BROWSEABLE_SYNC_STATUSES,
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
     CREATOR_SYNC_JOBS_TABLE,
     CREATOR_TABLE,
