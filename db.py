@@ -4688,6 +4688,9 @@ def refresh_category_stats_cache() -> int:
         malformed = []
 
         for row in rows:
+            if not isinstance(row, dict):
+                malformed.append(row)
+                continue
             category = row.get("category")
             stats = row.get("stats_json")
             if not category or not isinstance(stats, dict):
