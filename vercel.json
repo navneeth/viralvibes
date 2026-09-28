@@ -1,5 +1,6 @@
 {
   "buildCommand": "python scripts/generate_sitemap.py",
+  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"gh-pages\" ]; then exit 0; else exit 1; fi",
   "regions": ["sin1", "iad1"],
   "github": {
     "deploymentEnabled": {

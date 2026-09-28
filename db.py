@@ -29,7 +29,6 @@ from tenacity import (
     wait_exponential,
     wait_exponential_jitter,
 )
-
 from constants import (
     BROWSEABLE_SYNC_STATUSES,
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
@@ -4659,8 +4658,16 @@ def refresh_category_stats_cache() -> int:
     Recompute box plot percentile stats for every distinct category and upsert
     into category_stats_cache. Called by worker/bootstrap_creators.py (Pass 4).
 
-    Strategy: 1 query to fetch all distinct categories, then 1 RPC call per
-    category (percentile math stays in Postgres), then 1 bulk upsert at the end.
+    Strategy: one batched RPC (``get_all_category_box_stats`` from migration
+    061/062) computes stats for every synced primary_category in a single
+    GROUP BY heap pass and returns a scalar JSON aggregate to avoid the
+    PostgREST row cap, then one bulk upsert writes them into the cache table.
+
+    Replaces the previous N+1 pattern (1 SELECT DISTINCT + N per-category
+    RPCs, each ~8 s) that cost ~274 x 8 s per pass in pg_stat_statements.
+    Per-row stats_json shape is identical to the single-category RPC from
+    migration 006, so the cache read path (get_cached_category_box_stats) is
+    unchanged.
 
     Returns:
         Number of categories successfully refreshed.
@@ -4669,64 +4676,86 @@ def refresh_category_stats_cache() -> int:
         return 0
 
     try:
-        # Fetch all distinct categories via RPC — avoids the PostgREST server-side
-        # row limit (default 1,000) that silently truncated results when using a
-        # plain table query against 100k+ qualifying rows.
-        # Uses the RPC_DISTINCT_SYNCED_CATEGORIES RPC (migration 020) which does
-        # a DB-side SELECT DISTINCT backed by idx_creators_category_synced.
-        cats_resp = supabase_client.rpc(RPC_DISTINCT_SYNCED_CATEGORIES).execute()
-        categories = [
-            row["primary_category"] for row in (cats_resp.data or []) if row.get("primary_category")
-        ]
+        rpc_started = time.monotonic()
+        try:
+            resp = _db_execute(lambda: supabase_client.rpc("get_all_category_box_stats").execute())
+        except Exception:
+            logger.exception(
+                "refresh_category_stats_cache: batched RPC failed after %.0fms "
+                "(server duration unavailable)",
+                (time.monotonic() - rpc_started) * 1000,
+            )
+            raise
+        rpc_duration_ms = (time.monotonic() - rpc_started) * 1000
+        payload = resp.data
 
-        if not categories:
+        # Migration 062 returns one scalar JSON object containing every
+        # category, so PostgREST's table-row cap cannot silently truncate it.
+        # Accept the migration 061 list response during a rolling deployment.
+        if isinstance(payload, dict) and "categories" in payload:
+            category_stats = payload.get("categories")
+            server_duration_ms = payload.get("duration_ms")
+            if isinstance(category_stats, dict):
+                rows = [
+                    {"category": category, "stats_json": stats}
+                    for category, stats in category_stats.items()
+                ]
+            else:
+                rows = []
+        else:
+            server_duration_ms = None
+            rows = payload or []
+
+        logger.info(
+            "refresh_category_stats_cache: batched RPC completed in %.0fms (server: %s)",
+            rpc_duration_ms,
+            f"{server_duration_ms}ms" if server_duration_ms is not None else "unavailable",
+        )
+
+        if not rows:
             logger.warning("refresh_category_stats_cache: no synced categories found")
             return 0
 
-        logger.info("refresh_category_stats_cache: refreshing %d categories", len(categories))
-
+        refreshed_at = datetime.now(timezone.utc).isoformat()
         rows_to_upsert = []
-        failed = []
+        malformed = []
 
-        for category in categories:
-            try:
-                resp = supabase_client.rpc(
-                    "get_category_box_stats", {"p_category": category}
-                ).execute()
-
-                stats = resp.data[0] if isinstance(resp.data, list) else resp.data
-                if not stats:
-                    logger.warning(
-                        "refresh_category_stats_cache: empty RPC response for '%s'",
-                        category,
-                    )
-                    failed.append(category)
-                    continue
-
-                rows_to_upsert.append(
-                    {
-                        "category": category,
-                        "stats_json": stats,
-                        "creator_count": stats.get("count", 0),
-                        "refreshed_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-
-            except Exception:
-                logger.exception("refresh_category_stats_cache: RPC failed for '%s'", category)
-                failed.append(category)
+        for row in rows:
+            if not isinstance(row, dict):
+                malformed.append(row)
+                continue
+            category = row.get("category")
+            stats = row.get("stats_json")
+            if not category or not isinstance(stats, dict):
+                # Defensive: skip a single bad row instead of aborting the
+                # whole pass.  Malformed rows should be impossible given the
+                # RPC's fixed jsonb_build_object shape, but a schema drift on
+                # either side must not take out the entire refresh.
+                malformed.append(category)
+                continue
+            rows_to_upsert.append(
+                {
+                    "category": category,
+                    "stats_json": stats,
+                    "creator_count": stats.get("count", 0),
+                    "refreshed_at": refreshed_at,
+                }
+            )
 
         if rows_to_upsert:
             supabase_client.table(CATEGORY_STATS_CACHE_TABLE).upsert(
                 rows_to_upsert, on_conflict="category"
             ).execute()
-            logger.info("refresh_category_stats_cache: upserted %d rows", len(rows_to_upsert))
+            logger.info(
+                "refresh_category_stats_cache: upserted %d rows via batched RPC",
+                len(rows_to_upsert),
+            )
 
-        if failed:
+        if malformed:
             logger.warning(
-                "refresh_category_stats_cache: %d categories failed: %s",
-                len(failed),
-                failed,
+                "refresh_category_stats_cache: skipped %d malformed rows: %s",
+                len(malformed),
+                malformed,
             )
 
         return len(rows_to_upsert)
