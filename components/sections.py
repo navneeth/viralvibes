@@ -25,10 +25,10 @@ from constants import (
     GAP_2,
     ICONS_PATH,
     SECTION_BASE,
+    SOCIALS,
     THEME,
     faqs,
     testimonials,
-    SOCIALS,
 )
 
 

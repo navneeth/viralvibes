@@ -5116,8 +5116,8 @@ def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, 
         )
         desc = (
             f"Browse {format_number(total_count)} high-engagement YouTube creators across "
-            "every niche. Ranked by engagement quality and audience signal — "
-            "updated daily."
+            "every niche. Ranked by engagement quality and audience signal. "
+            "Check each creator record for its last-updated timestamp."
         )
         return h1, lede, desc
 
@@ -5130,7 +5130,8 @@ def _top_intro_copy(category_label: str | None, total_count: int) -> tuple[str, 
     )
     desc = (
         f"Discover {format_number(total_count)} top {category_label.lower()} "
-        "YouTube creators. Ranked by engagement quality and reach — updated daily."
+        "YouTube creators. Ranked by engagement quality and reach. "
+        "Check each creator record for its last-updated timestamp."
     )
     return h1, lede, desc
 

@@ -3,8 +3,9 @@ Application constants for ViralVibes.
 Centralized configuration for UI components, styling, and feature data.
 """
 
-from fasthtml.components import Path, Svg
 import os
+
+from fasthtml.components import Path, Svg
 
 # =============================================================================
 # WORKER CONFIGURATION
@@ -128,7 +129,6 @@ TRUST_MARKERS = [
     "No credit card required",
     "Real performance data, not vanity metrics",
     "1 Million+ ranked creators",
-    "Updated daily",
 ]
 
 # =============================================================================
@@ -248,7 +248,7 @@ LISTS_FEATURE_TABS = [
         "icon": "trending-up",
         "description": "Channels gaining momentum right now — before their rates double. "
         "Ranked by 30-day subscriber and engagement velocity.",
-        "highlight": "Updated daily",
+        "highlight": "Freshness varies",
     },
 ]
 
