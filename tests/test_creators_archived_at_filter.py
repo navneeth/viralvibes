@@ -63,6 +63,13 @@ class _TableSpy:
         self._data = data
         self._my_is_calls: List[tuple] = []
         self._my_not_is_calls: List[tuple] = []
+        # Default operation; .update()/.insert()/.delete() override before
+        # the chain reaches .execute() so each snapshot records WHICH kind of
+        # query the filter chain was composed for.  Without this, assertions
+        # that “every UPDATE carries filter X” collapse into “at least one
+        # query carries filter X” and a future refactor that adds a guarded
+        # SELECT but drops the guard from an UPDATE passes falsely.
+        self._my_operation: str = "select"
 
     # Chain terminators we want to assert on explicitly.
 
@@ -72,15 +79,26 @@ class _TableSpy:
         return self
 
     def update(self, payload: Dict[str, Any]) -> "_TableSpy":
+        self._my_operation = "update"
         self._spy.setdefault("update_payloads", []).append((self._table, dict(payload)))
         return self
 
+    def insert(self, payload: Any) -> "_TableSpy":
+        self._my_operation = "insert"
+        return self
+
+    def delete(self) -> "_TableSpy":
+        self._my_operation = "delete"
+        return self
+
     def execute(self):
-        # Snapshot THIS query's filter list so the test can assert the
-        # archived_at exclusion is present on each query independently.
+        # Snapshot THIS query's filter list AND operation so the test can
+        # assert the archived_at exclusion is present on each UPDATE query
+        # independently — not just “somewhere in the function”.
         self._spy.setdefault("executed_queries", []).append(
             {
                 "table": self._table,
+                "operation": self._my_operation,
                 "is_calls": list(self._my_is_calls),
                 "not_is_calls": list(self._my_not_is_calls),
             }
@@ -247,19 +265,24 @@ def test_archive_permanently_failed_writes_archived_at(monkeypatch):
         f"constraint) — got {payload.get('sync_status')!r}"
     )
 
-    # Idempotency guard: the UPDATE must be filtered by .is_(archived_at,
-    # null) so repeated bootstrap passes don't overwrite the original
-    # terminal marker nor double-count the archive in metrics.
-    creators_queries = [
-        q for q in spy.get("executed_queries", []) if q["table"] == db.CREATOR_TABLE
+    # Idempotency guard: every creators-table UPDATE must be filtered by
+    # .is_(archived_at, null) so repeated bootstrap passes don't overwrite
+    # the original terminal marker nor double-count the archive in metrics.
+    # Asserting on each UPDATE snapshot individually (not just "somewhere
+    # in the function") catches a future refactor that keeps the guard on a
+    # SELECT but drops it from one or more UPDATEs.
+    creators_updates = [
+        q
+        for q in spy.get("executed_queries", [])
+        if q["table"] == db.CREATOR_TABLE and q["operation"] == "update"
     ]
-    assert creators_queries, "no UPDATE query reached execute() on creators"
-    assert any(("archived_at", "null") in q["is_calls"] for q in creators_queries), (
-        "archive_permanently_failed_creators UPDATE must include "
-        ".is_(archived_at, null) to avoid overwriting the existing terminal "
-        "marker on repeated passes.  Filters seen: "
-        f"{[q['is_calls'] for q in creators_queries]!r}"
-    )
+    assert creators_updates, "no UPDATE query reached execute() on creators"
+    for idx, query in enumerate(creators_updates, 1):
+        assert ("archived_at", "null") in query["is_calls"], (
+            f"creators UPDATE #{idx} must include .is_(archived_at, null) to "
+            "avoid overwriting the existing terminal marker on repeated "
+            f"passes.  This UPDATE's filters: is_calls={query['is_calls']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
