@@ -32,6 +32,7 @@ dev environment and would make the test module uncollectable.
 from __future__ import annotations
 
 import pathlib
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -44,16 +45,29 @@ import pytest
 
 
 class _TableSpy:
-    """Fluent query builder that records calls and returns a pre-seeded response."""
+    """Fluent query builder that records calls per-execute so each SELECT is
+    inspected on its own merits.
+
+    ``.is_()`` and ``.not_.is_()`` calls are collected on the per-instance
+    builder as a query is composed.  On ``.execute()`` the recorded filter
+    list is snapshotted into ``spy["executed_queries"]`` as one entry per
+    query, so assertions can verify each query *individually* contains the
+    archived_at exclusion instead of relying on a global call count — the
+    latter is defeated by a refactor that puts both filters in one branch
+    and omits them from the other.
+    """
 
     def __init__(self, spy: dict, table_name: str, data: Any):
         self._spy = spy
         self._table = table_name
         self._data = data
+        self._my_is_calls: List[tuple] = []
+        self._my_not_is_calls: List[tuple] = []
 
     # Chain terminators we want to assert on explicitly.
 
     def is_(self, col: str, val: Any) -> "_TableSpy":
+        self._my_is_calls.append((col, val))
         self._spy.setdefault("is_calls", []).append((self._table, col, val))
         return self
 
@@ -62,6 +76,15 @@ class _TableSpy:
         return self
 
     def execute(self):
+        # Snapshot THIS query's filter list so the test can assert the
+        # archived_at exclusion is present on each query independently.
+        self._spy.setdefault("executed_queries", []).append(
+            {
+                "table": self._table,
+                "is_calls": list(self._my_is_calls),
+                "not_is_calls": list(self._my_not_is_calls),
+            }
+        )
         self._spy.setdefault("executed", []).append(self._table)
         return SimpleNamespace(data=self._data)
 
@@ -90,6 +113,7 @@ class _NotProxy:
         self._parent = parent
 
     def is_(self, col: str, val: Any) -> _TableSpy:
+        self._parent._my_not_is_calls.append((col, val))
         self._parent._spy.setdefault("not_is_calls", []).append((self._parent._table, col, val))
         return self._parent
 
@@ -112,34 +136,36 @@ class _RoutingClient:
 
 
 def test_queue_invalid_filters_on_archived_at_in_both_branches(monkeypatch):
-    """Both sub-queries (failed-and-stale, never-synced) must exclude archived rows."""
+    """BOTH sub-queries must filter out archived rows, verified per-query."""
     import db
 
     spy: dict = {}
-    # Empty responses mean the function skips the bulk-queue step and returns 0,
-    # which is fine: we only care that the SELECTs were composed correctly.
     monkeypatch.setattr(db, "supabase_client", _RoutingClient(spy))
-    # queue_creator_sync_bulk also talks to Supabase; neutralise it so the
-    # assertion focuses on the two SELECTs we actually care about.
     monkeypatch.setattr(db, "queue_creator_sync_bulk", lambda *_a, **_kw: (0, 0))
 
     db.queue_invalid_creators_for_retry(hours_since_last_sync=24, batch_size=50)
 
-    is_calls = spy.get("is_calls", [])
-    archived_filters = [c for c in is_calls if c[1] == "archived_at" and c[2] == "null"]
-    assert len(archived_filters) == 2, (
-        "queue_invalid_creators_for_retry MUST filter out archived rows in both "
-        "the failed-and-stale branch and the never-synced branch, otherwise "
-        "permanently-failed creators get re-queued every bootstrap pass.  "
-        f"Expected 2 .is_(archived_at, null) calls, got {len(archived_filters)}.  "
-        f"Full is_calls: {is_calls!r}"
+    # queue_invalid_creators_for_retry fires exactly two SELECTs: the
+    # failed-and-stale branch and the never-synced branch.  Checking the
+    # aggregate .is_() count across the whole function is defeated by a
+    # future refactor that duplicates the filter in one branch and drops it
+    # from the other — pin the invariant per-execute() instead.
+    executed_queries = spy.get("executed_queries", [])
+    creators_queries = [q for q in executed_queries if q["table"] == db.CREATOR_TABLE]
+    assert len(creators_queries) == 2, (
+        "Expected exactly two SELECTs against the creators table (failed-and-"
+        f"stale + never-synced), got {len(creators_queries)}.  All executed "
+        f"queries: {executed_queries!r}"
     )
-    # Both calls must target the creators table — a stray filter on the jobs
-    # table would be a different bug entirely.
-    tables = {c[0] for c in archived_filters}
-    assert tables == {
-        db.CREATOR_TABLE
-    }, f"archived_at filter must target the creators table only, got {tables!r}"
+
+    for idx, query in enumerate(creators_queries, 1):
+        assert ("archived_at", "null") in query["is_calls"], (
+            f"SELECT #{idx} on creators MUST include .is_(archived_at, null) "
+            "to exclude permanently-failed creators from the requeue; without "
+            "it, this branch re-queues archived rows every bootstrap pass.  "
+            f"This query's filters: is_calls={query['is_calls']!r}, "
+            f"not_is_calls={query['not_is_calls']!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +174,7 @@ def test_queue_invalid_filters_on_archived_at_in_both_branches(monkeypatch):
 
 
 def test_archive_permanently_failed_writes_archived_at(monkeypatch):
-    """The UPDATE payload MUST include archived_at as the terminal state marker."""
+    """The UPDATE payload MUST carry a valid ISO archived_at AND guard idempotency."""
     import db
 
     spy: dict = {}
@@ -195,8 +221,27 @@ def test_archive_permanently_failed_writes_archived_at(monkeypatch):
         "has already been archived and will re-queue it.  Payload keys: "
         f"{sorted(payload.keys())!r}"
     )
+
+    # The value must be a parseable ISO 8601 timestamp — a non-empty string
+    # alone is not enough protection against a future refactor that writes
+    # a placeholder sentinel like "pending" or an empty string.
+    archived_at_value = payload["archived_at"]
+    assert isinstance(archived_at_value, str) and archived_at_value, (
+        f"archived_at must be a non-empty ISO timestamp string, got " f"{archived_at_value!r}"
+    )
+    try:
+        parsed = datetime.fromisoformat(archived_at_value)
+    except ValueError as exc:
+        pytest.fail(f"archived_at={archived_at_value!r} does not parse as ISO 8601: {exc}")
+    # Must be timezone-aware — a naive datetime would make the terminal
+    # marker ambiguous across timezones and break ordering/comparison
+    # downstream.
+    assert parsed.tzinfo is not None, (
+        f"archived_at must be timezone-aware (UTC), got naive datetime " f"{archived_at_value!r}"
+    )
+
     # sync_status must remain within the DB CHECK allowlist.  "archived" is
-    # NOT a permitted value — see db.py L1794-1803 context.
+    # NOT a permitted value — see db.py context near the archive call.
     assert payload.get("sync_status") == "failed", (
         "sync_status in the archive payload must stay 'failed' (DB CHECK "
         f"constraint) — got {payload.get('sync_status')!r}"
@@ -213,15 +258,21 @@ def test_worker_source_filters_on_archived_at():
 
     Pinned via source-text inspection because the worker module imports
     googleapiclient, which is not available in every dev environment and
-    would make the test module uncollectable if imported here.
+    would make the test module uncollectable if imported here.  Comment-only
+    lines are skipped so a stray mention of the filter in a docstring or
+    code comment cannot satisfy the invariant.
     """
     worker_src = pathlib.Path("worker/creator_worker.py").read_text(encoding="utf-8")
     needle = '.is_("archived_at", "null")'
-    assert needle in worker_src, (
-        f"worker/creator_worker.py must contain {needle!r} on its stale-check "
-        "SELECT to exclude archived creators from the requeue path.  Removing "
-        "this filter re-opens the ghost-column failure mode even though the "
-        "column now exists."
+
+    code_lines = [line for line in worker_src.splitlines() if not line.lstrip().startswith("#")]
+    code_src = "\n".join(code_lines)
+
+    assert needle in code_src, (
+        f"worker/creator_worker.py must contain {needle!r} as executable code "
+        "(not just a comment) on its stale-check SELECT to exclude archived "
+        "creators from the requeue path.  Removing this filter re-opens the "
+        "ghost-column failure mode even though the column now exists."
     )
 
 
