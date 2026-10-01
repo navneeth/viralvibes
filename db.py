@@ -1801,6 +1801,12 @@ def archive_permanently_failed_creators(max_retries: int = 3) -> int:
                     )
                 except Exception:
                     pass
+                # ``.is_("archived_at", "null")`` keeps the UPDATE idempotent:
+                # on the first pass archived_at is NULL so the filter matches
+                # and the row is sealed; on every subsequent pass the filter
+                # fails and the UPDATE returns zero rows, so archived_count
+                # reflects only *newly* archived creators and the original
+                # terminal timestamp is preserved.
                 result = (
                     supabase_client.table(CREATOR_TABLE)
                     .update(
@@ -1811,6 +1817,7 @@ def archive_permanently_failed_creators(max_retries: int = 3) -> int:
                         }
                     )
                     .eq("id", creator_id)
+                    .is_("archived_at", "null")
                     .execute()
                 )
 
