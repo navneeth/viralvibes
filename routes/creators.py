@@ -413,6 +413,41 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         "category": "all",
     }
 
+    # ── Anonymous facet gate ─────────────────────────────────────────────────
+    # Facet filters (grade/language/activity/age/country/category) are
+    # authenticated-only.  Anonymous visitors who craft a filtered URL get
+    # the filters silently stripped server-side so the slow 6-facet DB path
+    # cannot be fired without a session — this is the fix for the Oct 2026
+    # crawler incident where narrow facet combos saturated the connection
+    # pool.  Search is intentionally NOT gated.  The attempted filter values
+    # are preserved into the sign-in return_url so a sign-up round-trip
+    # lands on the filtered view the user actually wanted.
+    _filter_params_stripped: dict[str, str] = {}
+    if not is_authenticated:
+        for _key, _default in _FILTER_DEFAULTS.items():
+            _requested = request.query_params.get(_key, _default)
+            if _requested != _default:
+                _filter_params_stripped[_key] = _requested
+        if _filter_params_stripped:
+            grade_filter = "all"
+            language_filter = "all"
+            activity_filter = "all"
+            age_filter = "all"
+            country_filter = "all"
+            category_filter = "all"
+            logger.info(
+                "[AnonFilterGate] stripped facets=%s for anonymous visitor; "
+                "preserving in return_url",
+                sorted(_filter_params_stripped.keys()),
+            )
+
+    # Build the return URL the UI sign-in CTA uses so the user lands back on
+    # the filtered view after signing in.  When no strip happened this is
+    # None and the view falls back to its own default copy.
+    _filter_gate_return_url: str | None = None
+    if _filter_params_stripped:
+        _filter_gate_return_url = f"/creators?{urlencode(dict(request.query_params))}"
+
     if handle_not_found:
         creators = []
         total_count = 0
@@ -588,6 +623,8 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         handle_not_found=handle_not_found,
         compare_a_id=_parse_compare_id(request.query_params.get("a")),
         degraded=degraded,
+        anon_filters_stripped=bool(_filter_params_stripped),
+        anon_filter_return_url=_filter_gate_return_url,
     )
 
 
