@@ -89,6 +89,7 @@ db/
 | `last_synced_at` | timestamptz | YES | - | Last successful worker sync |
 | `last_updated_at` | timestamp | YES | `now()` | Last DB update timestamp |
 | `sync_error_message` | text | YES | - | Error message if sync failed |
+| `archived_at` | timestamptz | YES | - | Terminal state marker — non-null means permanent failure (migration 063). Queue/stale-check paths exclude via `archived_at IS NULL`. |
 | | | | | |
 | **Discovery Metadata** | | | | |
 | `first_seen_at` | timestamp | YES | `now()` | When creator was first added to DB |
