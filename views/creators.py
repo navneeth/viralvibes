@@ -56,6 +56,7 @@ from services.contact_extractor import extract_social_links
 from components.add_creator import AddCreatorForm
 from components.buttons import (
     EstimatedBadge,
+    SignUpNudge,
     YtSourceBadge,
     YoutubeChannelButton,
     _EST_MOMENTUM_DETAIL,
@@ -767,6 +768,8 @@ def render_creators_page(
     handle_not_found: bool = False,
     compare_a_id: str = "",
     degraded: bool = False,
+    anon_filters_stripped: bool = False,
+    anon_filter_return_url: str | None = None,
 ) -> Div:
     """
     Analytics-first creator discovery dashboard.
@@ -825,6 +828,20 @@ def render_creators_page(
         # Lazy-imported to keep this module's import surface lean and to avoid
         # a circular components ⇄ routes graph when routes/creators imports views.
         _render_editors_shortlist_rail(),
+        # Anonymous facet-gate banner — only renders when the server stripped
+        # a filter request from an anonymous visitor.  Preserves attempted
+        # filter state in the sign-in return_url so the user lands on the
+        # view they wanted after signing up.
+        (
+            SignUpNudge(
+                feature="filtered creator discovery",
+                benefit="Narrow by country, language, grade, category and more — "
+                "free with any ViralVibes account.",
+                return_url=anon_filter_return_url or "/creators",
+            )
+            if anon_filters_stripped
+            else None
+        ),
         # Filter controls (sticky bar)
         _render_filter_bar(
             search=search,
