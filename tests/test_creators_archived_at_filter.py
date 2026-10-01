@@ -247,6 +247,20 @@ def test_archive_permanently_failed_writes_archived_at(monkeypatch):
         f"constraint) — got {payload.get('sync_status')!r}"
     )
 
+    # Idempotency guard: the UPDATE must be filtered by .is_(archived_at,
+    # null) so repeated bootstrap passes don't overwrite the original
+    # terminal marker nor double-count the archive in metrics.
+    creators_queries = [
+        q for q in spy.get("executed_queries", []) if q["table"] == db.CREATOR_TABLE
+    ]
+    assert creators_queries, "no UPDATE query reached execute() on creators"
+    assert any(("archived_at", "null") in q["is_calls"] for q in creators_queries), (
+        "archive_permanently_failed_creators UPDATE must include "
+        ".is_(archived_at, null) to avoid overwriting the existing terminal "
+        "marker on repeated passes.  Filters seen: "
+        f"{[q['is_calls'] for q in creators_queries]!r}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Invariant 3: worker/creator_worker.py keeps the archived_at exclusion.
