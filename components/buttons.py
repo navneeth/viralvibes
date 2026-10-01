@@ -1,6 +1,7 @@
 """Button components for the ViralVibes application."""
 
 from typing import Optional
+from urllib.parse import urlencode
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -432,7 +433,11 @@ def SignUpNudge(
             A(
                 UkIcon("log-in", cls="size-4"),
                 Span("Sign in with Google"),
-                href=f"/login?return_url={return_url}",
+                # urlencode so nested '?' / '&' / '+' in return_url (e.g.
+                # /creators?grade=A%2B&country=US) don't collide with the
+                # outer /login query string.  Matches the idiom already used
+                # in components/modals.py, views/blueprint.py, views/lists.py.
+                href=f"/login?{urlencode({'return_url': return_url})}",
                 cls=(ButtonT.primary, "inline-flex items-center gap-2 flex-shrink-0 text-sm"),
             ),
         ),

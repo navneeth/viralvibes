@@ -24,6 +24,9 @@ Contract pinned here
    intact (regression fence against over-stripping).
 5. Anonymous + default URL -> no gate noise, ``get_creators`` called with
    defaults, no return-URL contamination.
+6. ``SignUpNudge``'s rendered ``href`` percent-encodes the whole nested
+   ``return_url`` so inner ``?`` / ``&`` / ``+`` don't collide with the
+   outer ``/login`` query string.
 """
 
 from __future__ import annotations
@@ -249,3 +252,60 @@ def test_anonymous_default_browse_does_not_trigger_gate(monkeypatch):
     render_kwargs = captured.get("render_kwargs", {})
     assert render_kwargs.get("anon_filters_stripped") is False
     assert render_kwargs.get("anon_filter_return_url") is None
+
+
+# ---------------------------------------------------------------------------
+# Invariant 6: SignUpNudge's rendered href percent-encodes the return_url.
+# ---------------------------------------------------------------------------
+
+
+def test_signup_nudge_encodes_nested_return_url():
+    """The whole ``return_url`` must be percent-encoded into the ``/login``
+    href so inner ``?``, ``&``, and ``+`` don't collide with the outer
+    query string.  Without this fix every facet past the first one is
+    silently discarded during the auth round-trip and ``A%2B`` is decoded
+    as ``A+`` / ``A `` by intermediate parsers."""
+    from fasthtml.common import to_xml
+
+    from components.buttons import SignUpNudge
+
+    nudge = SignUpNudge(
+        feature="filtered creator discovery",
+        benefit="Narrow by country, language, grade, category and more.",
+        return_url="/creators?grade=A%2B&country=US&category=Gaming",
+    )
+    html = to_xml(nudge)
+
+    # Positive: the whole nested URL is encoded as one return_url value.
+    # Expected encoded form: /creators%3Fgrade%3DA%252B%26country%3DUS%26category%3DGaming
+    assert "return_url=%2Fcreators%3F" in html, (
+        "SignUpNudge must percent-encode the nested return_url so its '?' "
+        "becomes '%3F' in the /login href; raw interpolation lets the inner "
+        "'?' collide with the outer query string.  Rendered href fragment: "
+        f"{html[:400]!r}"
+    )
+    # The nested '&' separators must survive as '%26' so every facet past
+    # the first one isn't silently lost.
+    assert html.count("%26") >= 2, (
+        "SignUpNudge must encode EACH nested '&' as '%26' so facets past "
+        "the first survive the auth round-trip.  Rendered href fragment: "
+        f"{html[:400]!r}"
+    )
+    # Negative: the raw separators MUST NOT appear inside the href value,
+    # which would be the symptom of raw interpolation.  Guard against the
+    # fragile fix of only escaping some separators but not others.
+    _login_start = html.find("/login?")
+    assert _login_start != -1, "SignUpNudge rendered no /login href"
+    _href_end = html.find('"', _login_start)
+    _login_href = html[_login_start:_href_end]
+    # The ONLY '&' in a correctly-encoded href is the outer ampersand
+    # between /login's own query params (there are none in SignUpNudge),
+    # so finding any '&' in the href value proves nested '&' leaked.
+    assert "&" not in _login_href, (
+        "Raw '&' leaked into the /login href value, meaning the nested "
+        f"return_url wasn't properly encoded.  Href: {_login_href!r}"
+    )
+    assert "?" not in _login_href[len("/login?") :], (
+        "A nested '?' leaked into the /login href value, meaning the "
+        f"return_url wasn't properly encoded.  Href: {_login_href!r}"
+    )
