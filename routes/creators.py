@@ -276,6 +276,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # view so it can show the "add this creator" banner even when other
     # creators appear in search results.
     handle_not_found: bool = False
+    handle_add_state: str = ""
 
     if search.strip().startswith("@"):
         handle = search.strip()
@@ -302,9 +303,30 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                     status_code=303,
                 )
         else:
-            # Creator not in DB — flag it so the view shows the add CTA
+            # Creator not in DB — check whether an add request is already in
+            # flight so a refresh of the same search does not look like a miss.
+            job = get_creator_add_request_status(handle, if_missing="none")
+            if job and job.get("status") == "completed" and job.get("creator_id"):
+                logger.info(
+                    "[HandleSearch] Add job completed for %s; redirecting to /creator/%s",
+                    handle,
+                    job["creator_id"],
+                )
+                _log_search_intent_shadow(search, old_branch="redirect")
+                return RedirectResponse(
+                    f"/creator/{job['creator_id']}",
+                    status_code=303,
+                )
             handle_not_found = True
-            logger.info(f"[HandleSearch] Creator not found in DB: {handle}")
+            if job and job.get("status") == "failed":
+                handle_add_state = "failed"
+            elif job and job.get("status") == "processing":
+                handle_add_state = "pending"
+            logger.info(
+                "[HandleSearch] Creator not found in DB: %s add_state=%s",
+                handle,
+                handle_add_state or "none",
+            )
 
             try:
                 youtube_api = None  # YouTubeBackendAPI()
@@ -621,6 +643,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
         handle_not_found=handle_not_found,
+        handle_add_state=handle_add_state,
         compare_a_id=_parse_compare_id(request.query_params.get("a")),
         degraded=degraded,
         anon_filters_stripped=bool(_filter_params_stripped),

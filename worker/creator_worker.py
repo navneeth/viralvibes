@@ -1362,6 +1362,11 @@ async def handle_resolve_and_add_job(
                 "current_view_count": 0,
                 "current_video_count": 0,
             }
+            # Stamp the handle the user searched so /creators?search=@handle
+            # can resolve via find_creator_by_handle before full stats sync.
+            # Matches add_creator_by_handle: lowercase, no leading @.
+            if not input_query.startswith("UC"):
+                stub["custom_url"] = input_query.lstrip("@").lower()
             insert_resp = supabase_client.table(CREATOR_TABLE).insert(stub).execute()
             if not insert_resp.data:
                 raise RuntimeError(f"Failed to insert creator stub for {channel_id}")
