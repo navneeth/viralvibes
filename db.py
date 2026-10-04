@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Literal, NamedTuple, Optional, Protocol, Tuple
 
 from supabase import Client, create_client
 from supabase.client import ClientOptions
@@ -1296,8 +1296,8 @@ def queue_creator_add_request(
         1. Input matches UC ID or @handle format.
         2. Creator not already in ``creators`` table (by channel_id or custom_url).
         3. No pending ``resolve_and_add`` job for the same ``input_query`` exists
-           (enforced by partial unique index; also checked explicitly for a clear
-           error message).
+           (enforced by partial unique index). A duplicate pending job is treated
+           as success so the UI can keep polling the existing request.
         4. Per-user rate limit: max ``CREATOR_ADD_REQUEST_LIMIT`` requests per
            ``CREATOR_ADD_REQUEST_WINDOW_HOURS`` hours.
 
@@ -1306,7 +1306,8 @@ def queue_creator_add_request(
         user_id:     Authenticated user UUID (from session).
 
     Returns:
-        ``(True, "queued", None)`` on success.
+        ``(True, "queued", None)`` on success or when an identical request is
+        already pending (the UI polls the existing job).
         ``(False, message, None)`` on validation or DB failure.
         ``(False, message, creator_id)`` when the creator already exists in the DB.
     """
@@ -1355,11 +1356,12 @@ def queue_creator_add_request(
             .execute()
         )
         if dup.data:
-            return (
-                False,
-                "A request for this creator is already pending — please check back soon.",
-                None,
+            logger.info(
+                "Creator add request already pending: input=%s user=%s",
+                normalised,
+                user_id,
             )
+            return True, "queued", None
 
         # ── 4. Rate limit ─────────────────────────────────────────────────────
         window_start = (
@@ -1409,11 +1411,42 @@ def queue_creator_add_request(
         return False, "Failed to queue request — please try again.", None
 
     except Exception as e:
+        error_text = str(e).lower()
+        if "idx_creator_sync_jobs_pending_resolve" in error_text:
+            try:
+                pending = (
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                    .select("id")
+                    .eq("input_query", normalised)
+                    .eq("job_type", "resolve_and_add")
+                    .eq("status", "pending")
+                    .limit(1)
+                    .execute()
+                )
+            except Exception:
+                logger.debug(
+                    "Could not confirm pending creator add request for %s",
+                    normalised,
+                    exc_info=True,
+                )
+            else:
+                if pending.data:
+                    logger.info(
+                        "Creator add request won by concurrent submission: input=%s user=%s",
+                        normalised,
+                        user_id,
+                    )
+                    return True, "queued", None
+
         logger.exception("Error queuing creator add request for %s: %s", normalised, e)
         return False, "An unexpected error occurred — please try again.", None
 
 
-def get_creator_add_request_status(input_query: str) -> Optional[dict]:
+def get_creator_add_request_status(
+    input_query: str,
+    *,
+    if_missing: Literal["processing", "none"] = "processing",
+) -> Optional[dict]:
     """
     Return the status of the most recent resolve_and_add job for *input_query*.
 
@@ -1423,6 +1456,12 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
 
     Returns a dict with keys status and creator_id, or None
     if no matching job is found or the input is invalid.
+
+    ``if_missing`` controls the empty-row case:
+      - ``"processing"`` (default) — poll path; a missing row is treated as a
+        submit/read race so HTMX keeps polling.
+      - ``"none"`` — search path; a missing row means the handle was never
+        queued, so callers can show the add CTA instead of a spinner.
     """
     if not supabase_client:
         return None
@@ -1443,7 +1482,10 @@ def get_creator_add_request_status(input_query: str) -> Optional[dict]:
             )
         )
         if not resp.data:
-            # Row doesn't exist yet — likely a timing race right after submission.
+            # Poll path: row may not be visible yet right after insert.
+            # Search path: no job exists — caller should show the add CTA.
+            if if_missing == "none":
+                return None
             return {"status": "processing", "creator_id": None}
 
         row = resp.data[0]

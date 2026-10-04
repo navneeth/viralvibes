@@ -203,8 +203,8 @@ class TestQueueCreatorAddRequest:
         monkeypatch.setattr(db_module, "supabase_client", fake_client)
 
         ok, msg, creator_id = db_module.queue_creator_add_request("@channel", "user-1")
-        assert ok is False
-        assert "already pending" in msg.lower()
+        assert ok is True
+        assert msg == "queued"
         assert creator_id is None
 
     def test_rate_limit_exceeded(self, monkeypatch):
@@ -257,6 +257,38 @@ class TestQueueCreatorAddRequest:
         assert ok is True
         assert msg == "queued"
         assert creator_id is None
+
+    def test_unique_conflict_with_pending_job_is_success(self, monkeypatch):
+        import db as db_module
+
+        jobs_call_count = {"n": 0}
+
+        def make_table(name):
+            if name == db_module.CREATOR_TABLE:
+                return _chainable(_make_supabase_resp(data=[]))
+
+            jobs_call_count["n"] += 1
+            if jobs_call_count["n"] == 1:
+                return _chainable(_make_supabase_resp(data=[]))  # duplicate check
+            if jobs_call_count["n"] == 2:
+                return _chainable(_make_supabase_resp(data=[], count=0))  # rate limit
+            if jobs_call_count["n"] == 3:
+                insert = _chainable(_make_supabase_resp())
+                insert.execute.side_effect = Exception(
+                    'duplicate key value violates unique constraint "idx_creator_sync_jobs_pending_resolve"'
+                )
+                return insert
+            return _chainable(_make_supabase_resp(data=[{"id": 99}]))  # concurrent job
+
+        monkeypatch.setattr(
+            db_module,
+            "supabase_client",
+            SimpleNamespace(table=make_table),
+        )
+
+        ok, msg, creator_id = db_module.queue_creator_add_request("@channel", "user-1")
+
+        assert (ok, msg, creator_id) == (True, "queued", None)
 
     def test_no_supabase_client(self, monkeypatch):
         import db as db_module
@@ -573,6 +605,59 @@ class TestCreatorsRequestEndpoint:
         r = authenticated_client.post("/creators/request", data={"q": "@MrBeast"})
         assert r.status_code == 200
         assert "/creator/existing-uuid" in r.text
+
+
+class TestCreatorSearchPendingAdd:
+    def test_pending_handle_search_renders_immediate_status_poll(self):
+        from fasthtml.common import to_xml
+        from views.creators import _render_empty_state
+
+        html = to_xml(
+            _render_empty_state(
+                "@MrBeast",
+                "all",
+                False,
+                is_authenticated=True,
+                handle_add_state="pending",
+            )
+        )
+
+        assert "/creators/add-status?q=%40MrBeast" in html
+        assert 'hx-trigger="load, every 15s"' in html
+
+    def test_anonymous_pending_handle_search_is_static(self):
+        from fasthtml.common import to_xml
+        from views.creators import _render_empty_state
+
+        html = to_xml(
+            _render_empty_state(
+                "@MrBeast",
+                "all",
+                False,
+                is_authenticated=False,
+                handle_add_state="pending",
+            )
+        )
+
+        assert "Processing" in html
+        assert "hx-get" not in html
+
+    def test_failed_handle_search_shows_failure_and_retry_cta(self):
+        from fasthtml.common import to_xml
+        from views.creators import _render_empty_state
+
+        html = to_xml(
+            _render_empty_state(
+                "@MrBeast",
+                "all",
+                False,
+                is_authenticated=True,
+                handle_add_state="failed",
+            )
+        )
+
+        assert "couldn't find that creator" in html.lower()
+        assert "Add @MrBeast to ViralVibes" in html
 
 
 # ===========================================================================

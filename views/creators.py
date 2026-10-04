@@ -413,14 +413,20 @@ def render_add_creator_status_result(
     status: str,
     creator_id: str = "",
     input_query: str = "",
+    poll_on_load: bool = False,
+    poll: bool = True,
 ) -> Div:
     """
     HTMX partial returned by GET /creators/add-status.
 
     ``status`` values:
-        - ``"processing"`` — still in progress; card re-polls every 3 s.
+        - ``"processing"`` — still in progress; card re-polls every 15 s.
         - ``"completed"``  — creator is ready; renders a "View profile →" link.
         - ``"failed"``     — worker could not resolve the creator.
+
+    ``poll_on_load`` is True when this card is rendered on a full page (search
+    empty state) so the first status check happens immediately. Set ``poll``
+    False for static feedback when the viewer cannot access the poll endpoint.
     """
     if status == "completed" and creator_id:
         return Div(
@@ -464,16 +470,19 @@ def render_add_creator_status_result(
             "border border-red-200 dark:border-red-800",
         )
 
-    # Still processing — wait 15s before the next check.
-    # No 'load' trigger here: this card was just fetched (via the 15s poll on
-    # the queued card), so firing immediately would create a rapid re-poll loop.
+    # Still processing. Full-page empty state uses poll_on_load so a refresh
+    # that lands after the worker finished swaps to "Creator added!" immediately.
+    # The poll endpoint itself must not include 'load' or it re-fires in a loop.
     status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
-    poll_attrs = dict(
-        hx_get=status_url,
-        hx_trigger="every 15s",
-        hx_target="this",
-        hx_swap="outerHTML",
-    )
+    poll_attrs = {}
+    if poll:
+        trigger = "load, every 15s" if poll_on_load else "every 15s"
+        poll_attrs = dict(
+            hx_get=status_url,
+            hx_trigger=trigger,
+            hx_target="this",
+            hx_swap="outerHTML",
+        )
     return Div(
         Div(
             cls="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0"
@@ -766,6 +775,7 @@ def render_creators_page(
     is_authenticated: bool = False,
     favourite_ids: set[str] | None = None,
     handle_not_found: bool = False,
+    handle_add_state: str = "",
     compare_a_id: str = "",
     degraded: bool = False,
     anon_filters_stripped: bool = False,
@@ -913,7 +923,12 @@ def render_creators_page(
             )
             if creators
             else _render_empty_state(
-                search, grade_filter, has_active_filters, is_authenticated, degraded=degraded
+                search,
+                grade_filter,
+                has_active_filters,
+                is_authenticated,
+                degraded=degraded,
+                handle_add_state=handle_add_state,
             )
         ),
         # Sign-in CTA for logged-out visitors
@@ -2901,6 +2916,7 @@ def _render_empty_state(
     has_active_filters: bool,
     is_authenticated: bool = False,
     degraded: bool = False,
+    handle_add_state: str = "",
 ) -> Div:
     """Empty state when no creators found.
 
@@ -2968,7 +2984,7 @@ def _render_empty_state(
     _is_handle_intent = _s and (_s.startswith("@") or bool(_HANDLE_LIKE_RE.match(_s)))
     if _is_handle_intent:
         prefill = _s if _s.startswith("@") else f"@{_s}"
-        add_cta = AddCreatorForm(
+        add_form = AddCreatorForm(
             is_authenticated,
             prefill=prefill,
             return_url=f"/creators?search={quote_plus(search)}",
@@ -2976,6 +2992,21 @@ def _render_empty_state(
             size="md",
             align="center",
         )
+        if handle_add_state == "pending":
+            add_cta = render_add_creator_status_result(
+                status="processing",
+                input_query=prefill,
+                poll_on_load=is_authenticated,
+                poll=is_authenticated,
+            )
+        elif handle_add_state == "failed":
+            add_cta = Div(
+                render_add_creator_status_result(status="failed"),
+                add_form,
+                cls="w-full space-y-3",
+            )
+        else:
+            add_cta = add_form
 
         return Card(
             Div(

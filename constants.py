@@ -137,6 +137,7 @@ TRUST_MARKERS = [
 SOCIALS = {
     "x": "https://x.com/viralvibesfyi",
     "linkedin": "https://linkedin.com/company/viralvibesfyi",  # placeholder — swap when real
+    "instagram": "https://www.instagram.com/viralvibes.app/",
     "youtube": "https://www.youtube.com/@viralvibesfyi",
 }
 
