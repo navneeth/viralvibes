@@ -414,6 +414,7 @@ def render_add_creator_status_result(
     creator_id: str = "",
     input_query: str = "",
     poll_on_load: bool = False,
+    poll: bool = True,
 ) -> Div:
     """
     HTMX partial returned by GET /creators/add-status.
@@ -424,8 +425,8 @@ def render_add_creator_status_result(
         - ``"failed"``     — worker could not resolve the creator.
 
     ``poll_on_load`` is True when this card is rendered on a full page (search
-    empty state) so the first status check happens immediately. The poll
-    endpoint must keep it False to avoid a request loop.
+    empty state) so the first status check happens immediately. Set ``poll``
+    False for static feedback when the viewer cannot access the poll endpoint.
     """
     if status == "completed" and creator_id:
         return Div(
@@ -473,13 +474,15 @@ def render_add_creator_status_result(
     # that lands after the worker finished swaps to "Creator added!" immediately.
     # The poll endpoint itself must not include 'load' or it re-fires in a loop.
     status_url = f"/creators/add-status?{urlencode({'q': input_query})}"
-    trigger = "load, every 15s" if poll_on_load else "every 15s"
-    poll_attrs = dict(
-        hx_get=status_url,
-        hx_trigger=trigger,
-        hx_target="this",
-        hx_swap="outerHTML",
-    )
+    poll_attrs = {}
+    if poll:
+        trigger = "load, every 15s" if poll_on_load else "every 15s"
+        poll_attrs = dict(
+            hx_get=status_url,
+            hx_trigger=trigger,
+            hx_target="this",
+            hx_swap="outerHTML",
+        )
     return Div(
         Div(
             cls="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin shrink-0"
@@ -2981,7 +2984,7 @@ def _render_empty_state(
     _is_handle_intent = _s and (_s.startswith("@") or bool(_HANDLE_LIKE_RE.match(_s)))
     if _is_handle_intent:
         prefill = _s if _s.startswith("@") else f"@{_s}"
-        add_cta = AddCreatorForm(
+        add_form = AddCreatorForm(
             is_authenticated,
             prefill=prefill,
             return_url=f"/creators?search={quote_plus(search)}",
@@ -2989,6 +2992,21 @@ def _render_empty_state(
             size="md",
             align="center",
         )
+        if handle_add_state == "pending":
+            add_cta = render_add_creator_status_result(
+                status="processing",
+                input_query=prefill,
+                poll_on_load=is_authenticated,
+                poll=is_authenticated,
+            )
+        elif handle_add_state == "failed":
+            add_cta = Div(
+                render_add_creator_status_result(status="failed"),
+                add_form,
+                cls="w-full space-y-3",
+            )
+        else:
+            add_cta = add_form
 
         return Card(
             Div(

@@ -1411,6 +1411,33 @@ def queue_creator_add_request(
         return False, "Failed to queue request — please try again.", None
 
     except Exception as e:
+        error_text = str(e).lower()
+        if "idx_creator_sync_jobs_pending_resolve" in error_text:
+            try:
+                pending = (
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                    .select("id")
+                    .eq("input_query", normalised)
+                    .eq("job_type", "resolve_and_add")
+                    .eq("status", "pending")
+                    .limit(1)
+                    .execute()
+                )
+            except Exception:
+                logger.debug(
+                    "Could not confirm pending creator add request for %s",
+                    normalised,
+                    exc_info=True,
+                )
+            else:
+                if pending.data:
+                    logger.info(
+                        "Creator add request won by concurrent submission: input=%s user=%s",
+                        normalised,
+                        user_id,
+                    )
+                    return True, "queued", None
+
         logger.exception("Error queuing creator add request for %s: %s", normalised, e)
         return False, "An unexpected error occurred — please try again.", None
 
