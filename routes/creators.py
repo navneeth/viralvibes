@@ -278,9 +278,11 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     handle_not_found: bool = False
     handle_add_state: str = ""
 
-    if search.strip().startswith("@"):
-        handle = search.strip()
-        logger.info(f"[HandleSearch] Detected handle search: {handle}")
+    raw_search = search.strip()
+    search_intent = classify_creator_search(raw_search) if raw_search else None
+    if search_intent and search_intent.kind.name == "EXACT_HANDLE":
+        handle = raw_search if raw_search.startswith("@") else f"@{search_intent.normalized}"
+        logger.info(f"[HandleSearch] Detected exact handle search: {handle}")
 
         # Check if creator already exists in DB
         existing_creator = find_creator_by_handle(handle)

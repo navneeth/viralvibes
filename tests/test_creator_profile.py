@@ -177,6 +177,25 @@ class TestCreatorsPage:
         assert r.status_code == 303
         assert r.headers["location"] == "/creators/@testchannel"
 
+    def test_browse_page_bare_handle_redirects_before_broad_search(self, monkeypatch):
+        """Bare handle-like searches should also resolve via the exact lookup path."""
+        import routes.creators as rc
+
+        no_redirect_client = TestClient(main.app, follow_redirects=False)
+        creator = {**FAKE_CREATOR, "custom_url": "@TestChannel"}
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: creator)
+        monkeypatch.setattr(
+            rc,
+            "get_creators",
+            lambda **kw: pytest.fail("bare exact-handle search should not call get_creators"),
+        )
+
+        r = no_redirect_client.get("/creators?search=TestChannel")
+
+        assert r.status_code == 303
+        assert r.headers["location"] == "/creators/@testchannel"
+
     def test_browse_page_with_multiple_filters(self, client, monkeypatch):
         """Multiple filter params combined must render without errors."""
         self._patch_creators_db(monkeypatch, expected_return_count=True)
