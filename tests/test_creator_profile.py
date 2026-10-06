@@ -196,6 +196,66 @@ class TestCreatorsPage:
         assert r.status_code == 303
         assert r.headers["location"] == "/creators/@testchannel"
 
+    def test_bare_term_exact_handle_miss_falls_through_to_broad_search(self, monkeypatch):
+        """A bare handle-like miss should continue to normal broad search results."""
+        import routes.creators as rc
+        from db import CreatorsResult
+
+        no_redirect_client = TestClient(main.app, follow_redirects=False)
+        calls = {"get_creators": 0}
+
+        def _fake_get_creators(**kw):
+            calls["get_creators"] += 1
+            assert kw.get("search") == "gaming"
+            assert kw.get("return_count") is True
+            return CreatorsResult(creators=[FAKE_CREATOR], total_count=1)
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: None)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_add_request_status",
+            lambda handle, if_missing="none": None,
+        )
+        monkeypatch.setattr(rc, "get_creators", _fake_get_creators)
+        monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
+        monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
+        monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
+        monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=5: [])
+        monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
+
+        r = no_redirect_client.get("/creators?search=gaming")
+
+        assert r.status_code == 200
+        assert calls["get_creators"] == 1
+        assert "Test Channel" in r.text
+
+    def test_explicit_at_handle_miss_skips_broad_search(self, monkeypatch):
+        """An explicit @handle miss should render handle-not-found mode."""
+        import routes.creators as rc
+
+        no_redirect_client = TestClient(main.app, follow_redirects=False)
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: None)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_add_request_status",
+            lambda handle, if_missing="none": None,
+        )
+        monkeypatch.setattr(
+            rc,
+            "get_creators",
+            lambda **kw: pytest.fail("explicit @handle miss should not call get_creators"),
+        )
+        monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
+        monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
+        monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
+        monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=5: [])
+        monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
+
+        r = no_redirect_client.get("/creators?search=@UnknownHandle")
+
+        assert r.status_code == 200
+
     def test_browse_page_with_multiple_filters(self, client, monkeypatch):
         """Multiple filter params combined must render without errors."""
         self._patch_creators_db(monkeypatch, expected_return_count=True)

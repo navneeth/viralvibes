@@ -319,16 +319,24 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                     f"/creator/{job['creator_id']}",
                     status_code=303,
                 )
-            handle_not_found = True
-            if job and job.get("status") == "failed":
-                handle_add_state = "failed"
-            elif job and job.get("status") == "processing":
-                handle_add_state = "pending"
-            logger.info(
-                "[HandleSearch] Creator not found in DB: %s add_state=%s",
-                handle,
-                handle_add_state or "none",
-            )
+            if raw_search.startswith("@"):
+                # Reserve handle-not-found mode for explicit @ intent only.
+                # Bare-term misses should continue to broad text search.
+                handle_not_found = True
+                if job and job.get("status") == "failed":
+                    handle_add_state = "failed"
+                elif job and job.get("status") == "processing":
+                    handle_add_state = "pending"
+                logger.info(
+                    "[HandleSearch] Creator not found in DB: %s add_state=%s",
+                    handle,
+                    handle_add_state or "none",
+                )
+            else:
+                logger.info(
+                    "[HandleSearch] Bare-term exact-handle miss for %s; continuing broad search",
+                    handle,
+                )
 
             try:
                 youtube_api = None  # YouTubeBackendAPI()
