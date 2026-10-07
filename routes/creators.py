@@ -563,6 +563,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                 degraded = creators_result.degraded
             else:
                 creators = creators_result
+                degraded = getattr(creators_result, "degraded", False)
                 _hero_total = hero_stats.get("total_creators")
                 total_count = (
                     _hero_total
