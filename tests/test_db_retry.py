@@ -9,7 +9,12 @@ the server has partially received a request.
 
 import pytest
 
-from db import _is_cf_upstream_5xx, _is_transient_disconnect, _is_transient_transport_readonly
+from db import (
+    _is_cf_upstream_5xx,
+    _is_transient_disconnect,
+    _is_transient_readonly_without_read_timeout,
+    _is_transient_transport_readonly,
+)
 
 
 def _named_exc(name: str):
@@ -112,6 +117,24 @@ def test_readonly_matches_when_cause_is_write_error():
     assert _is_transient_transport_readonly(wrapped) is True
 
 
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _ReadError("read error"),
+        _RemoteProtocolError("Server disconnected"),
+    ],
+)
+def test_listing_readonly_retry_matches_transient_errors_except_timeouts(exc):
+    assert _is_transient_readonly_without_read_timeout(exc) is True
+
+
+def test_listing_readonly_retry_excludes_wrapped_read_timeout():
+    root = _ReadTimeout("read timeout")
+    wrapped = Exception("query failed")
+    wrapped.__cause__ = root
+    assert _is_transient_readonly_without_read_timeout(wrapped) is False
+
+
 def test_find_creator_by_normalized_handle_uses_readonly_retry(monkeypatch):
     """Transient read timeouts on creator handle lookups must use the readonly retry policy."""
 
@@ -167,6 +190,10 @@ def _apierror(code):
     exc = _APIError("origin unreachable")
     exc.code = code  # type: ignore[attr-defined]
     return exc
+
+
+def test_listing_readonly_retry_matches_transient_gateway_error():
+    assert _is_transient_readonly_without_read_timeout(_apierror(503)) is True
 
 
 @pytest.mark.parametrize(

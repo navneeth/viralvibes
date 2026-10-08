@@ -127,6 +127,16 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
+def _is_read_timeout_error(exc: BaseException) -> bool:
+    """Return True for an HTTP client read timeout, including wrapped causes."""
+    current: BaseException | None = exc
+    while current is not None:
+        if type(current).__name__ == "ReadTimeout":
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _is_transient_transport_readonly(exc: BaseException) -> bool:
     """Broader transport-error match — ONLY safe for idempotent reads.
 
@@ -155,6 +165,11 @@ def _is_transient_transport_readonly(exc: BaseException) -> bool:
         )
 
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
+
+
+def _is_transient_readonly_without_read_timeout(exc: BaseException) -> bool:
+    """Retry transient read failures except client read timeouts on listings."""
+    return not _is_read_timeout_error(exc) and _is_transient_transport_readonly(exc)
 
 
 # HTTP status codes returned by an upstream gateway (Supabase's Kong or
@@ -322,6 +337,18 @@ _with_readonly_retry = retry(
     reraise=True,
 )
 
+_with_readonly_retry_without_read_timeout = retry(
+    retry=retry_if_exception(_is_transient_readonly_without_read_timeout),
+    stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(
+        initial=_DISCONNECT_RETRY_INITIAL_S,
+        max=_DISCONNECT_RETRY_MAX_S,
+        jitter=_DISCONNECT_RETRY_JITTER_S,
+    ),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+
 
 def _db_execute(fn):
     """Invoke a zero-arg callable that runs a postgrest-py query, retrying
@@ -360,6 +387,21 @@ def _db_execute_readonly(fn):
             return fn()
 
     return _with_readonly_retry(_attempt)()
+
+
+def _db_execute_readonly_without_read_timeout(fn):
+    """Retry transient idempotent reads except client read timeouts.
+
+    Listing queries can be expensive on a large table. Retrying a client
+    read timeout can leave overlapping work on the database, so those are
+    handled as degraded results by the caller instead.
+    """
+
+    def _attempt():
+        with _supabase_request_semaphore:
+            return fn()
+
+    return _with_readonly_retry_without_read_timeout(_attempt)()
 
 
 # ==============================================================
@@ -3455,14 +3497,22 @@ class CreatorsResult(NamedTuple):
     """Result from get_creators with pagination metadata.
 
     ``degraded`` is True when the empty result is a fallback from a statement
-    timeout or connection-pool exhaustion, not a genuine zero-match query.
-    Routes surface this to the UI so users see "try loosening filters"
-    instead of "no creators match", which is misleading during an outage.
+    timeout, client read timeout, or connection-pool exhaustion, not a genuine
+    zero-match query. Routes surface this to the UI instead of showing a
+    misleading "no creators match" state.
     """
 
     creators: list[dict]
     total_count: int
     degraded: bool = False
+
+
+class CreatorListResult(list[dict]):
+    """List-compatible result that records a degraded listing timeout."""
+
+    def __init__(self, creators: list[dict], *, degraded: bool = False):
+        super().__init__(creators)
+        self.degraded = degraded
 
 
 # Sort keys grouped by which composite index migration covers them.  Used by
@@ -3473,6 +3523,7 @@ _SORT_MIGRATION_HINT: dict[str, str] = {
     "views": "048",
     "subscribers": "048",
     "engagement": "048",
+    "recent": "064",
     "newest_channel": "058",
     "oldest_channel": "058",
 }
@@ -3566,7 +3617,8 @@ def _log_get_creators_metrics(
 
     Format::
 
-        [Metrics] op=get_creators req_id=... status=ok|timeout_57014|pool_exhausted|error
+        [Metrics] op=get_creators req_id=... status=ok|timeout_57014|read_timeout|pool_exhausted
+              |timeout_57014_handle_fallback|timeout_57014_handle_empty|error_<type>
                   dur_ms=... sort=... limit=... offset=... return_count=1|0 rows=...
                   [total=N] [degraded=1] [search="q"] [grade=A+] [country=US] ...
 
@@ -4109,7 +4161,11 @@ def get_creators(
             else:
                 query = query.gt(sort_field, cursor_value)
             # Note: For compound keys (e.g., sort_field + id), extend this logic
-        query = query.order(sort_field, desc=descending).limit(limit)
+        if sort == "recent":
+            query = query.order(sort_field, desc=descending, nullsfirst=False)
+        else:
+            query = query.order(sort_field, desc=descending)
+        query = query.limit(limit)
         # If cursor_value is not provided, fallback to offset for first page or legacy clients
         if cursor_value is None and offset:
             query = query.offset(offset)
@@ -4117,12 +4173,14 @@ def get_creators(
         # Per-invocation ID so the metrics line, the warning/error log, and any
         # correlated upstream request log can be joined by grep in the aggregate.
         req_id = uuid.uuid4().hex[:8]
-        # Query wall-clock (includes retry backoffs from _db_execute_readonly).
+        # Query wall-clock (includes retry backoffs from the listing-safe policy).
         _query_t0 = time.perf_counter()
 
         # Execute query (count already included in select if needed)
         try:
-            response = _db_execute_readonly(lambda: query.execute())
+            # Retry transient idempotent failures, but not client read timeouts
+            # that may leave an expensive database scan running.
+            response = _db_execute_readonly_without_read_timeout(lambda: query.execute())
         except Exception as e:
             _query_dur_ms = int((time.perf_counter() - _query_t0) * 1000)
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
@@ -4201,7 +4259,8 @@ def get_creators(
             # newest_channel / oldest_channel sorts have no covering partial index
             # on published_at and timeout consistently on large tables (57014,
             # observed Aug 2026) — returning empty is far better UX than a 500.
-            if _is_statement_timeout_error(e) or _is_connection_pool_timeout(e):
+            is_read_timeout = _is_read_timeout_error(e)
+            if _is_statement_timeout_error(e) or _is_connection_pool_timeout(e) or is_read_timeout:
                 if _is_connection_pool_timeout(e):
                     logger.warning(
                         "req_id=%s get_creators — connection pool exhausted (PGRST003), returning empty. "
@@ -4220,15 +4279,34 @@ def get_creators(
                         country_filter,
                         category_filter,
                     )
+                elif is_read_timeout:
+                    logger.warning(
+                        "req_id=%s get_creators client read timed out — returning degraded result. "
+                        "Sort: %s, Limit: %s, Offset: %s, Search: %r, "
+                        "Filters: [grade=%s, lang=%s, activity=%s, age=%s, "
+                        "country=%s, category=%s].",
+                        req_id,
+                        sort,
+                        limit,
+                        offset,
+                        search[:256] if isinstance(search, str) else search,
+                        grade_filter,
+                        language_filter,
+                        activity_filter,
+                        age_filter,
+                        country_filter,
+                        category_filter,
+                    )
                 else:
                     # Migrations 048 and 058 both create grade-LEADING composite
                     # indexes: (quality_grade, <sort_col> DESC).  They only help
                     # queries that also filter by a specific grade equality.  When
                     # grade_filter is 'all' the composite can't be seeked, so the
-                    # hint would be actively misleading.
+                    # hint would be actively misleading. Migration 064's Recent
+                    # index covers the full browseable status set and needs no grade.
                     migration_hint = (
                         _SORT_MIGRATION_HINT.get(sort)
-                        if grade_filter in ("A+", "A", "B+", "B", "C")
+                        if sort == "recent" or grade_filter in ("A+", "A", "B+", "B", "C")
                         else None
                     )
                     if migration_hint:
@@ -4266,7 +4344,9 @@ def get_creators(
                 _log_get_creators_metrics(
                     req_id=req_id,
                     status=(
-                        "pool_exhausted" if _is_connection_pool_timeout(e) else "timeout_57014"
+                        "read_timeout"
+                        if is_read_timeout
+                        else "pool_exhausted" if _is_connection_pool_timeout(e) else "timeout_57014"
                     ),
                     duration_ms=_query_dur_ms,
                     sort=sort,
@@ -4284,7 +4364,7 @@ def get_creators(
                 )
                 if return_count:
                     return CreatorsResult([], 0, degraded=True)
-                return []
+                return CreatorListResult([], degraded=True)
 
             logger.error(
                 f"req_id={req_id} Query execution failed: {type(e).__name__}: {str(e)}\n"
