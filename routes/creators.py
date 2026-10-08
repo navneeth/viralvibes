@@ -585,7 +585,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # search.  Redirect only when the requested page actually produced no
     # rows and we're past the first page.  Correct under both exact and
     # estimated counts, and covers user typos like ``?page=999``.
-    if page > 1 and not creators:
+    if page > 1 and not creators and not degraded:
         redirect_params = {
             "search": search,
             "sort": sort,

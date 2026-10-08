@@ -97,6 +97,12 @@ def test_metrics_degraded_flag(metrics_line):
     assert "degraded=1" in line
 
 
+def test_metrics_read_timeout_status_is_supported(metrics_line):
+    line = metrics_line(**{**_BASE, "status": "read_timeout", "degraded": True})
+    assert "status=read_timeout" in line
+    assert "degraded=1" in line
+
+
 def test_metrics_return_count_false(metrics_line):
     line = metrics_line(**{**_BASE, "return_count": False, "total_count": None})
     assert "return_count=0" in line

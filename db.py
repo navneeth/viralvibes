@@ -127,6 +127,16 @@ def _is_transient_disconnect(exc: BaseException) -> bool:
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
 
 
+def _is_read_timeout_error(exc: BaseException) -> bool:
+    """Return True for an HTTP client read timeout, including wrapped causes."""
+    current: BaseException | None = exc
+    while current is not None:
+        if type(current).__name__ == "ReadTimeout":
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _is_transient_transport_readonly(exc: BaseException) -> bool:
     """Broader transport-error match — ONLY safe for idempotent reads.
 
@@ -155,6 +165,11 @@ def _is_transient_transport_readonly(exc: BaseException) -> bool:
         )
 
     return _matches(exc) or (exc.__cause__ is not None and _matches(exc.__cause__))
+
+
+def _is_transient_readonly_without_read_timeout(exc: BaseException) -> bool:
+    """Retry transient read failures except client read timeouts on listings."""
+    return not _is_read_timeout_error(exc) and _is_transient_transport_readonly(exc)
 
 
 # HTTP status codes returned by an upstream gateway (Supabase's Kong or
@@ -322,6 +337,18 @@ _with_readonly_retry = retry(
     reraise=True,
 )
 
+_with_readonly_retry_without_read_timeout = retry(
+    retry=retry_if_exception(_is_transient_readonly_without_read_timeout),
+    stop=stop_after_attempt(_DISCONNECT_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(
+        initial=_DISCONNECT_RETRY_INITIAL_S,
+        max=_DISCONNECT_RETRY_MAX_S,
+        jitter=_DISCONNECT_RETRY_JITTER_S,
+    ),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+
 
 def _db_execute(fn):
     """Invoke a zero-arg callable that runs a postgrest-py query, retrying
@@ -360,6 +387,21 @@ def _db_execute_readonly(fn):
             return fn()
 
     return _with_readonly_retry(_attempt)()
+
+
+def _db_execute_readonly_without_read_timeout(fn):
+    """Retry transient idempotent reads except client read timeouts.
+
+    Listing queries can be expensive on a large table. Retrying a client
+    read timeout can leave overlapping work on the database, so those are
+    handled as degraded results by the caller instead.
+    """
+
+    def _attempt():
+        with _supabase_request_semaphore:
+            return fn()
+
+    return _with_readonly_retry_without_read_timeout(_attempt)()
 
 
 # ==============================================================
@@ -3455,9 +3497,9 @@ class CreatorsResult(NamedTuple):
     """Result from get_creators with pagination metadata.
 
     ``degraded`` is True when the empty result is a fallback from a statement
-    timeout or connection-pool exhaustion, not a genuine zero-match query.
-    Routes surface this to the UI so users see "try loosening filters"
-    instead of "no creators match", which is misleading during an outage.
+    timeout, client read timeout, or connection-pool exhaustion, not a genuine
+    zero-match query. Routes surface this to the UI instead of showing a
+    misleading "no creators match" state.
     """
 
     creators: list[dict]
@@ -3466,7 +3508,7 @@ class CreatorsResult(NamedTuple):
 
 
 class CreatorListResult(list[dict]):
-    """List-compatible result that records a transient listing failure."""
+    """List-compatible result that records a degraded listing timeout."""
 
     def __init__(self, creators: list[dict], *, degraded: bool = False):
         super().__init__(creators)
@@ -3575,7 +3617,8 @@ def _log_get_creators_metrics(
 
     Format::
 
-        [Metrics] op=get_creators req_id=... status=ok|timeout_57014|pool_exhausted|error
+        [Metrics] op=get_creators req_id=... status=ok|timeout_57014|read_timeout|pool_exhausted
+              |timeout_57014_handle_fallback|timeout_57014_handle_empty|error_<type>
                   dur_ms=... sort=... limit=... offset=... return_count=1|0 rows=...
                   [total=N] [degraded=1] [search="q"] [grade=A+] [country=US] ...
 
@@ -3696,16 +3739,6 @@ def _is_connection_pool_timeout(exc: Exception) -> bool:
     """
     text = str(exc).lower()
     return "pgrst003" in text or "timed out acquiring connection from connection pool" in text
-
-
-def _is_read_timeout_error(exc: BaseException) -> bool:
-    """Return True for an HTTP client read timeout, including wrapped causes."""
-    current: BaseException | None = exc
-    while current is not None:
-        if type(current).__name__ == "ReadTimeout":
-            return True
-        current = current.__cause__ or current.__context__
-    return False
 
 
 def _is_handle_like_search(search: str) -> bool:
@@ -4128,7 +4161,11 @@ def get_creators(
             else:
                 query = query.gt(sort_field, cursor_value)
             # Note: For compound keys (e.g., sort_field + id), extend this logic
-        query = query.order(sort_field, desc=descending).limit(limit)
+        if sort == "recent":
+            query = query.order(sort_field, desc=descending, nullsfirst=False)
+        else:
+            query = query.order(sort_field, desc=descending)
+        query = query.limit(limit)
         # If cursor_value is not provided, fallback to offset for first page or legacy clients
         if cursor_value is None and offset:
             query = query.offset(offset)
@@ -4136,15 +4173,14 @@ def get_creators(
         # Per-invocation ID so the metrics line, the warning/error log, and any
         # correlated upstream request log can be joined by grep in the aggregate.
         req_id = uuid.uuid4().hex[:8]
-        # Query wall-clock (includes retry backoffs from _db_execute).
+        # Query wall-clock (includes retry backoffs from the listing-safe policy).
         _query_t0 = time.perf_counter()
 
         # Execute query (count already included in select if needed)
         try:
-            # Listing scans can take a long time on a large table. Retrying a
-            # read timeout can keep the same expensive query running and
-            # amplify load; use only the pre-dispatch retry policy here.
-            response = _db_execute(lambda: query.execute())
+            # Retry transient idempotent failures, but not client read timeouts
+            # that may leave an expensive database scan running.
+            response = _db_execute_readonly_without_read_timeout(lambda: query.execute())
         except Exception as e:
             _query_dur_ms = int((time.perf_counter() - _query_t0) * 1000)
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
