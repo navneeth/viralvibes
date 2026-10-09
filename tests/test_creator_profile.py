@@ -9,10 +9,50 @@ Coverage:
   5. GET /creators?page=999  — out-of-range page redirects to last valid page
 """
 
+from html.parser import HTMLParser
+
 import pytest
 from starlette.testclient import TestClient
 
 import main
+
+
+class SearchStatusParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.status_attributes = None
+        self.spinner_attributes = None
+        self.status_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if attributes.get("id") == "creator-search-status":
+            self.status_attributes = attributes
+            self.status_depth = 1
+        elif self.status_depth:
+            if "loading" in attributes.get("class", "").split():
+                self.spinner_attributes = attributes
+            if tag not in {
+                "area",
+                "base",
+                "br",
+                "col",
+                "embed",
+                "hr",
+                "img",
+                "input",
+                "link",
+                "meta",
+                "param",
+                "source",
+                "track",
+                "wbr",
+            }:
+                self.status_depth += 1
+
+    def handle_endtag(self, tag):
+        if self.status_depth:
+            self.status_depth -= 1
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +188,65 @@ class TestCreatorsPage:
         assert 'id="creator-search-status"' in r.text
         assert 'role="status"' in r.text
         assert 'aria-live="polite"' in r.text
-        assert 'id="creator-search-status"' in r.text and "hidden" in r.text
-        assert 'aria-hidden="true"' in r.text
+        status_parser = SearchStatusParser()
+        status_parser.feed(r.text)
+        assert status_parser.status_attributes is not None
+        assert "hidden" in status_parser.status_attributes
+        assert status_parser.spinner_attributes is not None
+        assert status_parser.spinner_attributes.get("aria-hidden") == "true"
         assert "Searching creators…" in r.text
         assert 'aria-label="Search creators"' in r.text
+
+    def test_search_form_browser_interactions(self, client, monkeypatch):
+        playwright = pytest.importorskip("playwright.sync_api")
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
+        response = client.get("/creators")
+        with playwright.sync_playwright() as browser_driver:
+            browser = browser_driver.chromium.launch()
+            page = browser.new_page()
+            page.clock.install()
+            page.route("**/*", lambda route: route.abort())
+            page.set_content(response.text)
+            page.evaluate(
+                """() => {
+                window.submitPrevented = [];
+                document.getElementById('creator-search-form').addEventListener('submit', event => {
+                    window.submitPrevented.push(event.defaultPrevented);
+                    event.preventDefault();
+                });
+            }"""
+            )
+            form = page.locator("#creator-search-form")
+            status = page.locator("#creator-search-status")
+            submit = page.locator("#creator-search-submit")
+            assert status.evaluate("element => element.hidden")
+            assert submit.is_enabled()
+            form.evaluate("element => element.requestSubmit()")
+            assert not status.evaluate("element => element.hidden")
+            assert submit.is_disabled()
+            form.evaluate("element => element.requestSubmit()")
+            assert page.evaluate("window.submitPrevented") == [False, True]
+            page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow'))")
+            assert status.evaluate("element => element.hidden")
+            assert submit.is_enabled()
+            assert form.get_attribute("data-pending") is None
+            form.evaluate("element => element.requestSubmit()")
+            page.keyboard.press("Escape")
+            assert status.evaluate("element => element.hidden")
+            assert submit.is_enabled()
+            if page.evaluate("Boolean(window.navigation)"):
+                form.evaluate("element => element.requestSubmit()")
+                page.evaluate("window.navigation.dispatchEvent(new Event('navigateerror'))")
+                assert status.evaluate("element => element.hidden")
+                assert submit.is_enabled()
+            form.evaluate("element => element.requestSubmit()")
+            page.clock.fast_forward(15000)
+            assert status.evaluate("element => element.hidden")
+            assert submit.is_enabled()
+            assert form.get_attribute("data-pending") is None
+            form.evaluate("element => element.requestSubmit()")
+            assert submit.is_disabled()
+            browser.close()
 
     def test_browse_page_contains_page_title(self, client, monkeypatch):
         """Page title should reference Creators."""

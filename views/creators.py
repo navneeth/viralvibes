@@ -1255,7 +1255,7 @@ def _render_filter_bar(
             cls="flex items-center gap-2",
         ),
         Div(
-            Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary"), aria_hidden=True),
+            Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary"), aria_hidden="true"),
             Span("Searching creators…", cls="text-xs text-muted-foreground"),
             id="creator-search-status",
             role="status",
@@ -1276,7 +1276,9 @@ def _render_filter_bar(
                 const form = document.getElementById("creator-search-form");
                 const status = document.getElementById("creator-search-status");
                 const submit = document.getElementById("creator-search-submit");
+                let recoveryTimer;
                 const reset = () => {
+                    window.clearTimeout(recoveryTimer);
                     delete form.dataset.pending;
                     status.hidden = true;
                     status.classList.remove("flex");
@@ -1291,7 +1293,14 @@ def _render_filter_bar(
                     status.hidden = false;
                     status.classList.add("flex");
                     submit.disabled = true;
+                    recoveryTimer = window.setTimeout(reset, 15000);
                 });
+                window.addEventListener("keydown", (event) => {
+                    if (event.key === "Escape") reset();
+                });
+                if (window.navigation) {
+                    window.navigation.addEventListener("navigateerror", reset);
+                }
                 window.addEventListener("pageshow", reset);
             })();
             """
