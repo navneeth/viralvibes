@@ -1212,35 +1212,56 @@ def _render_filter_bar(
     search_bar = Form(
         Div(
             Div(
-                UkIcon("search", cls="size-4 text-muted-foreground"),
-                cls="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none",
+                Div(
+                    UkIcon("search", cls="size-4 text-muted-foreground"),
+                    cls="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none",
+                ),
+                Input(
+                    type="search",
+                    name="search",
+                    placeholder="Search creators, niches, countries, categories…",
+                    value=search,
+                    aria_label="Search creators",
+                    cls="w-full h-11 pl-10 pr-9 rounded-full border border-border bg-background "
+                    "text-foreground text-sm placeholder:text-muted-foreground/70 "
+                    "focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary "
+                    "transition-shadow",
+                    autofocus=bool(search),
+                ),
+                (
+                    A(
+                        "×",
+                        href=_clear_url,
+                        aria_label="Clear search",
+                        title="Clear search",
+                        cls="absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center "
+                        "justify-center rounded-full bg-muted-foreground/20 "
+                        "hover:bg-muted-foreground/35 text-foreground text-sm font-bold "
+                        "leading-none no-underline transition-colors",
+                    )
+                    if search
+                    else None
+                ),
+                cls="relative flex-1 min-w-0",
             ),
-            Input(
-                type="search",
-                name="search",
-                placeholder="Search creators, niches, countries, categories…",
-                value=search,
-                cls="w-full h-11 pl-10 pr-9 rounded-full border border-border bg-background "
-                "text-foreground text-sm placeholder:text-muted-foreground/70 "
-                "focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary "
-                "transition-shadow",
-                autofocus=bool(search),
+            Button(
+                "Search",
+                type="submit",
+                id="creator-search-submit",
+                cls="h-11 px-4 rounded-full bg-primary text-primary-foreground text-sm font-semibold "
+                "hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary/40 "
+                "disabled:opacity-60 disabled:cursor-wait",
             ),
-            (
-                A(
-                    "×",
-                    href=_clear_url,
-                    aria_label="Clear search",
-                    title="Clear search",
-                    cls="absolute right-3 top-1/2 -translate-y-1/2 size-5 flex items-center "
-                    "justify-center rounded-full bg-muted-foreground/20 "
-                    "hover:bg-muted-foreground/35 text-foreground text-sm font-bold "
-                    "leading-none no-underline transition-colors",
-                )
-                if search
-                else None
-            ),
-            cls="relative",
+            cls="flex items-center gap-2",
+        ),
+        Div(
+            Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary"), aria_hidden=True),
+            Span("Searching creators…", cls="text-xs text-muted-foreground"),
+            id="creator-search-status",
+            role="status",
+            aria_live="polite",
+            hidden=True,
+            cls="items-center gap-2 pt-1.5",
         ),
         Input(type="hidden", name="sort", value=sort),
         Input(type="hidden", name="grade", value=grade_filter),
@@ -1249,8 +1270,35 @@ def _render_filter_bar(
         Input(type="hidden", name="age", value=age_filter),
         Input(type="hidden", name="country", value=country_filter),
         Input(type="hidden", name="category", value=category_filter),
+        Script(
+            """
+            (() => {
+                const form = document.getElementById("creator-search-form");
+                const status = document.getElementById("creator-search-status");
+                const submit = document.getElementById("creator-search-submit");
+                const reset = () => {
+                    delete form.dataset.pending;
+                    status.hidden = true;
+                    status.classList.remove("flex");
+                    submit.disabled = false;
+                };
+                form.addEventListener("submit", (event) => {
+                    if (form.dataset.pending) {
+                        event.preventDefault();
+                        return;
+                    }
+                    form.dataset.pending = "true";
+                    status.hidden = false;
+                    status.classList.add("flex");
+                    submit.disabled = true;
+                });
+                window.addEventListener("pageshow", reset);
+            })();
+            """
+        ),
         method="GET",
         action="/creators",
+        id="creator-search-form",
     )
 
     # ═══════════════════════════════════════════════════════════════

@@ -138,6 +138,21 @@ class TestCreatorsPage:
         r = client.get("/creators")
         assert r.status_code == 200
 
+    def test_search_form_includes_submit_progress_feedback(self, client, monkeypatch):
+        """Search submission exposes an accessible, initially hidden loading status."""
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
+        r = client.get("/creators")
+        assert r.status_code == 200
+        assert 'id="creator-search-form"' in r.text
+        assert 'id="creator-search-submit"' in r.text
+        assert 'id="creator-search-status"' in r.text
+        assert 'role="status"' in r.text
+        assert 'aria-live="polite"' in r.text
+        assert 'id="creator-search-status"' in r.text and "hidden" in r.text
+        assert 'aria-hidden="true"' in r.text
+        assert "Searching creators…" in r.text
+        assert 'aria-label="Search creators"' in r.text
+
     def test_browse_page_contains_page_title(self, client, monkeypatch):
         """Page title should reference Creators."""
         self._patch_creators_db(monkeypatch, expected_return_count=False)
