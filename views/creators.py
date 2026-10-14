@@ -775,6 +775,7 @@ def render_creators_page(
     is_authenticated: bool = False,
     favourite_ids: set[str] | None = None,
     handle_not_found: bool = False,
+    exact_handle_not_found: bool = False,
     handle_add_state: str = "",
     compare_a_id: str = "",
     degraded: bool = False,
@@ -812,6 +813,7 @@ def render_creators_page(
         page_stats = calculate_creator_stats(creators)
         hero_stats = get_creator_hero_stats()
         stats = {**page_stats, **hero_stats}
+    database_size_estimate = stats.get("total_db_creators") or stats.get("total_creators") or 0
 
     # Check if any filters are active
     has_active_filters = (
@@ -868,6 +870,7 @@ def render_creators_page(
             top_languages=stats.get("top_languages", []) if stats else [],
             total_count=total_count,
             per_page=per_page,
+            database_size_estimate=database_size_estimate,
         ),
         # Compare-mode context banner — shown when the user arrived from the
         # "Search all creators" fallback on the compare pick page (?a=<uuid>).
@@ -897,6 +900,11 @@ def render_creators_page(
         (
             _render_handle_not_found_banner(search, is_authenticated)
             if handle_not_found and creators
+            else None
+        ),
+        (
+            _render_exact_handle_miss_banner(search)
+            if exact_handle_not_found and not search.strip().startswith("@") and creators
             else None
         ),
         # Creators grid or empty state
@@ -929,6 +937,8 @@ def render_creators_page(
                 is_authenticated,
                 degraded=degraded,
                 handle_add_state=handle_add_state,
+                exact_handle_not_found=exact_handle_not_found,
+                database_size_estimate=database_size_estimate,
             )
         ),
         # Sign-in CTA for logged-out visitors
@@ -1184,6 +1194,7 @@ def _render_filter_bar(
     top_languages: list = None,
     total_count: int = 0,
     per_page: int = 50,
+    database_size_estimate: int = 0,
 ) -> Div:
     """
     Clean horizontal card-based filter bar.
@@ -1208,6 +1219,12 @@ def _render_filter_bar(
         age=age_filter,
         country=country_filter,
         category=category_filter,
+    )
+    search_status_message = (
+        "Searching creators… About "
+        f"{format_number(database_size_estimate)} creator records; broad searches can take a few seconds."
+        if database_size_estimate
+        else "Searching creators… Broad searches can take a few seconds."
     )
     search_bar = Form(
         Div(
@@ -1256,7 +1273,11 @@ def _render_filter_bar(
         ),
         Div(
             Loading(cls=(LoadingT.ring, LoadingT.sm, "text-primary"), aria_hidden="true"),
-            Span("Searching creators…", cls="text-xs text-muted-foreground"),
+            Span(
+                search_status_message,
+                id="creator-search-status-message",
+                cls="text-xs text-muted-foreground",
+            ),
             id="creator-search-status",
             role="status",
             aria_live="polite",
@@ -1275,10 +1296,16 @@ def _render_filter_bar(
             (() => {
                 const form = document.getElementById("creator-search-form");
                 const status = document.getElementById("creator-search-status");
+                const statusMessage = document.getElementById("creator-search-status-message");
                 const submit = document.getElementById("creator-search-submit");
+                const initialMessage = statusMessage.textContent;
                 let recoveryTimer;
+                let progressTimers = [];
                 const reset = () => {
                     window.clearTimeout(recoveryTimer);
+                    progressTimers.forEach(window.clearTimeout);
+                    progressTimers = [];
+                    statusMessage.textContent = initialMessage;
                     delete form.dataset.pending;
                     status.hidden = true;
                     status.classList.remove("flex");
@@ -1293,6 +1320,16 @@ def _render_filter_bar(
                     status.hidden = false;
                     status.classList.add("flex");
                     submit.disabled = true;
+                    progressTimers = [
+                        window.setTimeout(() => {
+                            statusMessage.textContent =
+                                "Still searching creator profiles; text matches can take longer than handle lookups.";
+                        }, 3000),
+                        window.setTimeout(() => {
+                            statusMessage.textContent =
+                                "This is taking longer than usual. We’ll show results or explain if the search times out.";
+                        }, 8000),
+                    ];
                     recoveryTimer = window.setTimeout(reset, 15000);
                 });
                 window.addEventListener("keydown", (event) => {
@@ -2967,6 +3004,22 @@ def _render_handle_not_found_banner(search: str, is_authenticated: bool) -> Div:
     )
 
 
+def _render_exact_handle_miss_banner(search: str) -> Div:
+    """Explain that a bare handle-like query missed exactly but found text matches."""
+    return Div(
+        UkIcon("info", cls="size-4 text-blue-500 shrink-0 mt-0.5"),
+        P(
+            "No exact creator handle matched ",
+            Span(search.strip(), cls="font-semibold"),
+            ". Showing matches from creator names, profile text, categories, and keywords.",
+            cls="text-sm text-foreground",
+        ),
+        cls="flex items-start gap-2 mb-4 px-4 py-3 rounded-xl border border-blue-200 "
+        "bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800",
+        role="status",
+    )
+
+
 def _render_empty_state(
     search: str,
     grade_filter: str,
@@ -2974,6 +3027,8 @@ def _render_empty_state(
     is_authenticated: bool = False,
     degraded: bool = False,
     handle_add_state: str = "",
+    exact_handle_not_found: bool = False,
+    database_size_estimate: int = 0,
 ) -> Div:
     """Empty state when no creators found.
 
@@ -3000,17 +3055,45 @@ def _render_empty_state(
     # query — it misleads users into rewriting filters that would have worked.
     # ────────────────────────────────────────────────────────────────────────
     if degraded:
+        if search and exact_handle_not_found:
+            searched_scope = (
+                f"about {format_number(database_size_estimate)} creator records"
+                if database_size_estimate
+                else "the creator catalog"
+            )
+            timeout_heading = "Broader creator search is taking longer than expected"
+            timeout_message = (
+                f"No exact creator handle matched {search.strip()}. The broader search "
+                f"across {searched_scope} couldn't finish in time. "
+                "Try a more specific keyword or phrase, then search again."
+            )
+        elif search:
+            searched_scope = (
+                f"about {format_number(database_size_estimate)} creator records"
+                if database_size_estimate
+                else "the creator catalog"
+            )
+            timeout_heading = "Creator search is taking longer than expected"
+            timeout_message = (
+                f"We couldn't finish searching {searched_scope} in time. "
+                "Try a more specific keyword or phrase, then search again."
+            )
+        else:
+            timeout_heading = "This filter combination is taking too long"
+            timeout_message = (
+                "We couldn't finish the query in time. Try loosening one of "
+                "the filters — country or category usually helps most — or "
+                "try a broader sort like Subscribers or Views."
+            )
         return Card(
             Div(
                 Span("⏱️", cls="text-5xl block text-center mb-3"),
                 H2(
-                    "This filter combination is taking too long",
+                    timeout_heading,
                     cls="text-center text-xl font-bold mb-1",
                 ),
                 P(
-                    "We couldn't finish the query in time. Try loosening one of "
-                    "the filters — country or category usually helps most — or "
-                    "try a broader sort like Subscribers or Views.",
+                    timeout_message,
                     cls="text-center text-sm text-muted-foreground mb-5 max-w-md mx-auto",
                 ),
                 Div(
@@ -3038,6 +3121,24 @@ def _render_empty_state(
     # ────────────────────────────────────────────────────────────────────────
     # Strip once so "  @mrbeast" and "  mrbeast" both hit the handle path.
     _s = search.strip()
+    if exact_handle_not_found and _s and not _s.startswith("@"):
+        return Card(
+            Div(
+                Span("🔍", cls="text-5xl block text-center mb-3"),
+                H2(
+                    f'No creators match "{_s}"',
+                    cls="text-center text-xl font-bold mb-1",
+                ),
+                P(
+                    "No exact creator handle matched either. If you meant a specific "
+                    "creator, search using their @handle.",
+                    cls="text-center text-sm text-muted-foreground mb-5",
+                ),
+                Div(back_link, cls="flex justify-center mt-5"),
+                cls="p-10 space-y-0",
+            ),
+            cls="bg-background border border-border max-w-md mx-auto",
+        )
     _is_handle_intent = _s and (_s.startswith("@") or bool(_HANDLE_LIKE_RE.match(_s)))
     if _is_handle_intent:
         prefill = _s if _s.startswith("@") else f"@{_s}"

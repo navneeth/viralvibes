@@ -276,6 +276,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # view so it can show the "add this creator" banner even when other
     # creators appear in search results.
     handle_not_found: bool = False
+    exact_handle_not_found: bool = False
     handle_add_state: str = ""
 
     raw_search = search.strip()
@@ -319,6 +320,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                     f"/creator/{job['creator_id']}",
                     status_code=303,
                 )
+            exact_handle_not_found = True
             if raw_search.startswith("@"):
                 # Reserve handle-not-found mode for explicit @ intent only.
                 # Bare-term misses should continue to broad text search.
@@ -357,7 +359,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
 
     if search.strip():
         _log_search_intent_shadow(
-            search, old_branch="handle_miss" if handle_not_found else "text_search"
+            search, old_branch="handle_miss" if exact_handle_not_found else "text_search"
         )
 
     # ═══════════════════════════════════════════════════════════════
@@ -654,6 +656,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
         handle_not_found=handle_not_found,
+        exact_handle_not_found=exact_handle_not_found,
         handle_add_state=handle_add_state,
         compare_a_id=_parse_compare_id(request.query_params.get("a")),
         degraded=degraded,
