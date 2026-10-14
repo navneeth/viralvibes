@@ -1,4 +1,16 @@
+from types import SimpleNamespace
+
 import pytest
+
+
+class _LegacyQuery:
+    def __getattr__(self, name):
+        if name == "not_":
+            return self
+        return lambda *_args, **_kwargs: self
+
+    def execute(self):
+        return SimpleNamespace(data=[], count=0)
 
 
 @pytest.mark.parametrize(
@@ -17,16 +29,26 @@ def test_ranked_search_timeout_does_not_run_legacy_fallback(monkeypatch, error):
             raise error
 
     class Client:
+        def __init__(self):
+            self.table_calls = []
+
         def rpc(self, *_args, **_kwargs):
             return RpcCall()
 
-        def table(self, *_args, **_kwargs):
-            pytest.fail("ranked-search timeout must not launch the legacy table scan")
+        def table(self, name):
+            self.table_calls.append(name)
+            return _LegacyQuery()
 
-    monkeypatch.setattr(db, "supabase_client", Client())
+    client = Client()
+    monkeypatch.setattr(db, "supabase_client", client)
     monkeypatch.setattr(db, "_db_execute", lambda operation: operation())
+    monkeypatch.setattr(
+        db,
+        "_db_execute_readonly_without_read_timeout",
+        lambda operation: operation(),
+    )
 
-    attempted, result = db._get_ranked_creator_search(
+    result = db.get_creators(
         search="volleyball",
         sort="subscribers",
         limit=50,
@@ -34,10 +56,10 @@ def test_ranked_search_timeout_does_not_run_legacy_fallback(monkeypatch, error):
         return_count=True,
     )
 
-    assert attempted is True
     assert result.creators == []
     assert result.total_count == 0
     assert result.degraded is True
+    assert client.table_calls == []
 
 
 def test_ranked_search_non_timeout_error_keeps_legacy_fallback(monkeypatch):
@@ -48,13 +70,26 @@ def test_ranked_search_non_timeout_error_keeps_legacy_fallback(monkeypatch):
             raise RuntimeError("function search_creators_ranked does not exist")
 
     class Client:
+        def __init__(self):
+            self.table_calls = []
+
         def rpc(self, *_args, **_kwargs):
             return RpcCall()
 
-    monkeypatch.setattr(db, "supabase_client", Client())
-    monkeypatch.setattr(db, "_db_execute", lambda operation: operation())
+        def table(self, name):
+            self.table_calls.append(name)
+            return _LegacyQuery()
 
-    attempted, result = db._get_ranked_creator_search(
+    client = Client()
+    monkeypatch.setattr(db, "supabase_client", client)
+    monkeypatch.setattr(db, "_db_execute", lambda operation: operation())
+    monkeypatch.setattr(
+        db,
+        "_db_execute_readonly_without_read_timeout",
+        lambda operation: operation(),
+    )
+
+    result = db.get_creators(
         search="volleyball",
         sort="subscribers",
         limit=50,
@@ -62,6 +97,6 @@ def test_ranked_search_non_timeout_error_keeps_legacy_fallback(monkeypatch):
         return_count=True,
     )
 
-    assert attempted is False
     assert result.creators == []
     assert result.degraded is False
+    assert client.table_calls == ["creators"]

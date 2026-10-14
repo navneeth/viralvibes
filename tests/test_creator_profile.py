@@ -355,6 +355,34 @@ class TestCreatorsPage:
         assert "No exact creator handle matched" in r.text
         assert "profile text, categories, and keywords" in r.text
 
+    def test_bare_term_exact_handle_found_by_broad_search_clears_miss_banner(self, monkeypatch):
+        """A creator returned after the lookup miss is not presented as missing."""
+        import routes.creators as rc
+        from db import CreatorsResult
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: None)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_add_request_status",
+            lambda handle, if_missing="none": None,
+        )
+        monkeypatch.setattr(
+            rc,
+            "get_creators",
+            lambda **kw: CreatorsResult(creators=[FAKE_CREATOR], total_count=1),
+        )
+        monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
+        monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
+        monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
+        monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=5: [])
+        monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
+
+        response = TestClient(main.app, follow_redirects=False).get("/creators?search=TestChannel")
+
+        assert response.status_code == 200
+        assert "Test Channel" in response.text
+        assert "No exact creator handle matched" not in response.text
+
     def test_bare_handle_like_no_match_explains_exact_and_broad_searches(self, monkeypatch):
         """A bare keyword miss must not be presented as a handle-add result."""
         import routes.creators as rc

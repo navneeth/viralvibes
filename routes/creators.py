@@ -47,7 +47,7 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
-from services.creator_search_intent import classify_creator_search
+from services.creator_search_intent import classify_creator_search, normalize_handle
 from controllers.auth_routes import require_auth, safe_local_return_url
 from views.compare import render_compare_page, render_compare_pick_page
 from views.creators import (
@@ -576,6 +576,14 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         top_languages = _futures["languages"].result()
         top_categories = _futures["categories"].result()
         favourite_ids = _futures["favs"].result() if "favs" in _futures else set()
+
+    if exact_handle_not_found and search_intent and search_intent.normalized:
+        exact_handle = search_intent.normalized
+        if any(
+            normalize_handle(creator.get("custom_url") or "") == exact_handle
+            for creator in creators
+        ):
+            exact_handle_not_found = False
 
     # Calculate total pages
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
