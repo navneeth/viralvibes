@@ -181,6 +181,13 @@ class TestCreatorsPage:
     def test_search_form_includes_submit_progress_feedback(self, client, monkeypatch):
         """Search submission exposes an accessible, initially hidden loading status."""
         self._patch_creators_db(monkeypatch, expected_return_count=False)
+        import routes.creators as rc
+
+        monkeypatch.setattr(
+            rc,
+            "get_creator_hero_stats",
+            lambda: {"total_creators": 800000, "total_db_creators": 935397},
+        )
         r = client.get("/creators")
         assert r.status_code == 200
         assert 'id="creator-search-form"' in r.text
@@ -195,6 +202,8 @@ class TestCreatorsPage:
         assert status_parser.spinner_attributes is not None
         assert status_parser.spinner_attributes.get("aria-hidden") == "true"
         assert "Searching creators…" in r.text
+        assert "About 935.4K creator records" in r.text
+        assert "broad searches can take a few seconds" in r.text
         assert 'aria-label="Search creators"' in r.text
 
     def test_search_form_browser_interactions(self, client, monkeypatch):
@@ -224,6 +233,10 @@ class TestCreatorsPage:
             form.evaluate("element => element.requestSubmit()")
             assert not status.evaluate("element => element.hidden")
             assert submit.is_disabled()
+            page.clock.fast_forward(3000)
+            assert "Still searching creator profiles" in status.inner_text()
+            page.clock.fast_forward(5000)
+            assert "taking longer than usual" in status.inner_text()
             form.evaluate("element => element.requestSubmit()")
             assert page.evaluate("window.submitPrevented") == [False, True]
             page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow'))")
@@ -243,6 +256,7 @@ class TestCreatorsPage:
             page.clock.fast_forward(15000)
             assert status.evaluate("element => element.hidden")
             assert submit.is_enabled()
+            assert "broad searches can take a few seconds" in status.inner_text()
             assert form.get_attribute("data-pending") is None
             form.evaluate("element => element.requestSubmit()")
             assert submit.is_disabled()
@@ -338,6 +352,94 @@ class TestCreatorsPage:
         assert r.status_code == 200
         assert calls["get_creators"] == 1
         assert "Test Channel" in r.text
+        assert "No exact creator handle matched" in r.text
+        assert "profile text, categories, and keywords" in r.text
+
+    def test_bare_term_exact_handle_found_by_broad_search_clears_miss_banner(self, monkeypatch):
+        """A creator returned after the lookup miss is not presented as missing."""
+        import routes.creators as rc
+        from db import CreatorsResult
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: None)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_add_request_status",
+            lambda handle, if_missing="none": None,
+        )
+        monkeypatch.setattr(
+            rc,
+            "get_creators",
+            lambda **kw: CreatorsResult(creators=[FAKE_CREATOR], total_count=1),
+        )
+        monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
+        monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
+        monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
+        monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=5: [])
+        monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=4: [])
+
+        response = TestClient(main.app, follow_redirects=False).get("/creators?search=TestChannel")
+
+        assert response.status_code == 200
+        assert "Test Channel" in response.text
+        assert "No exact creator handle matched" not in response.text
+
+    def test_bare_handle_like_no_match_explains_exact_and_broad_searches(self, monkeypatch):
+        """A bare keyword miss must not be presented as a handle-add result."""
+        import routes.creators as rc
+        from db import CreatorsResult
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: None)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_add_request_status",
+            lambda handle, if_missing="none": None,
+        )
+        monkeypatch.setattr(rc, "get_creators", lambda **kw: CreatorsResult([], 0))
+        monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
+        monkeypatch.setattr(rc, "get_creator_hero_stats", make_empty_hero_stats)
+        monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
+        monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=5: [])
+        monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=9: [])
+
+        response = TestClient(main.app, follow_redirects=False).get("/creators?search=volleyball")
+
+        assert response.status_code == 200
+        assert 'No creators match "volleyball"' in response.text
+        assert "No exact creator handle matched either" in response.text
+        assert "Add @volleyball to ViralVibes" not in response.text
+
+    def test_bare_handle_like_timeout_preserves_exact_miss_feedback(self, monkeypatch):
+        """A broad-search timeout must not hide a completed exact-handle miss."""
+        import routes.creators as rc
+        from db import CreatorsResult
+
+        monkeypatch.setattr(rc, "find_creator_by_handle", lambda handle: None)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_add_request_status",
+            lambda handle, if_missing="none": None,
+        )
+        monkeypatch.setattr(
+            rc,
+            "get_creators",
+            lambda **kw: CreatorsResult([], 0, degraded=True),
+        )
+        monkeypatch.setattr(rc, "calculate_creator_stats", make_stub_page_stats)
+        monkeypatch.setattr(
+            rc,
+            "get_creator_hero_stats",
+            lambda: {"total_db_creators": 935397},
+        )
+        monkeypatch.setattr(rc, "get_top_countries_with_counts", lambda limit=8: [])
+        monkeypatch.setattr(rc, "get_top_languages_with_counts", lambda limit=7: [])
+        monkeypatch.setattr(rc, "get_top_categories_with_counts", lambda limit=9: [])
+
+        response = TestClient(main.app, follow_redirects=False).get("/creators?search=volleyball")
+
+        assert response.status_code == 200
+        assert "Broader creator search is taking longer than expected" in response.text
+        assert "No exact creator handle matched volleyball" in response.text
+        assert "935.4K creator records" in response.text
 
     def test_explicit_at_handle_miss_skips_broad_search(self, monkeypatch):
         """An explicit @handle miss should render handle-not-found mode."""

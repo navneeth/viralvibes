@@ -3805,10 +3805,9 @@ def _get_ranked_creator_search(
     """
     Use the ranked search RPC for unfiltered text search when available.
 
-    Returns ``(True, result)`` when the RPC was attempted successfully,
-    including empty result sets. Returns ``(False, [])`` when ``return_count`` is
-    ``False`` or ``(False, CreatorsResult([], 0))`` when ``return_count`` is
-    ``True``, allowing callers to fall back to the legacy query.
+    Returns ``(True, result)`` when the RPC succeeded, returned no matches, or
+    timed out. Timeouts return a degraded result and do not trigger the slower
+    legacy search. Other RPC errors return ``False`` so callers can fall back.
 
     Perf note: the ``search_creators_ranked`` RPC currently returns ``c.*`` as a
     JSONB payload (see db/migrations/038_ranked_creator_search_rpc.sql), so this
@@ -3831,7 +3830,21 @@ def _get_ranked_creator_search(
                 },
             ).execute()
         )
-    except Exception:
+    except Exception as exc:
+        if (
+            _is_statement_timeout_error(exc)
+            or _is_connection_pool_timeout(exc)
+            or _is_read_timeout_error(exc)
+            or _is_transient_upstream_gateway_error(exc)
+        ):
+            logger.warning(
+                "search_creators_ranked timed out for %r; skipping the slower legacy search fallback",
+                search,
+                exc_info=True,
+            )
+            if return_count:
+                return True, CreatorsResult([], 0, degraded=True)
+            return True, CreatorListResult([], degraded=True)
         logger.warning("search_creators_ranked RPC failed; falling back", exc_info=True)
         return False, CreatorsResult([], 0) if return_count else []
 

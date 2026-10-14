@@ -47,7 +47,7 @@ from db_lists import (
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
-from services.creator_search_intent import classify_creator_search
+from services.creator_search_intent import classify_creator_search, normalize_handle
 from controllers.auth_routes import require_auth, safe_local_return_url
 from views.compare import render_compare_page, render_compare_pick_page
 from views.creators import (
@@ -276,6 +276,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # view so it can show the "add this creator" banner even when other
     # creators appear in search results.
     handle_not_found: bool = False
+    exact_handle_not_found: bool = False
     handle_add_state: str = ""
 
     raw_search = search.strip()
@@ -319,6 +320,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
                     f"/creator/{job['creator_id']}",
                     status_code=303,
                 )
+            exact_handle_not_found = True
             if raw_search.startswith("@"):
                 # Reserve handle-not-found mode for explicit @ intent only.
                 # Bare-term misses should continue to broad text search.
@@ -357,7 +359,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
 
     if search.strip():
         _log_search_intent_shadow(
-            search, old_branch="handle_miss" if handle_not_found else "text_search"
+            search, old_branch="handle_miss" if exact_handle_not_found else "text_search"
         )
 
     # ═══════════════════════════════════════════════════════════════
@@ -575,6 +577,14 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         top_categories = _futures["categories"].result()
         favourite_ids = _futures["favs"].result() if "favs" in _futures else set()
 
+    if exact_handle_not_found and search_intent and search_intent.normalized:
+        exact_handle = search_intent.normalized
+        if any(
+            normalize_handle(creator.get("custom_url") or "") == exact_handle
+            for creator in creators
+        ):
+            exact_handle_not_found = False
+
     # Calculate total pages
     total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
 
@@ -654,6 +664,7 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
         is_authenticated=is_authenticated,
         favourite_ids=favourite_ids,
         handle_not_found=handle_not_found,
+        exact_handle_not_found=exact_handle_not_found,
         handle_add_state=handle_add_state,
         compare_a_id=_parse_compare_id(request.query_params.get("a")),
         degraded=degraded,
