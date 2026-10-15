@@ -111,9 +111,9 @@ def lists_route(request):
         )
 
         meta = f_meta.result()
-        # Only query the cached fallback when an older RPC omits this field.
+        # A zero is a valid count; only older RPCs that omit the field need a fallback.
         f_total_languages = (
-            pool.submit(_count_distinct_languages) if not meta.get("total_languages") else None
+            pool.submit(_count_distinct_languages) if "total_languages" not in meta else None
         )
         top_rated = f_top_rated.result()
         most_active = f_most_active.result()
@@ -144,7 +144,9 @@ def lists_route(request):
         # meta["total_languages"] comes from migration 003.  On older DB schemas
         # that predate the RPC column, fall back to _count_distinct_languages() —
         # pre-fetched above in parallel so there is no extra round-trip.
-        "total_languages": meta.get("total_languages") or total_languages_fallback,
+        "total_languages": (
+            meta["total_languages"] if "total_languages" in meta else total_languages_fallback
+        ),
     }
 
     return render_lists_page(
@@ -253,7 +255,10 @@ def lists_more_languages_route(request):
     try:
         total = int(request.query_params["total"])
     except (KeyError, TypeError, ValueError):
-        total = get_lists_meta().get("total_languages") or _count_distinct_languages()
+        meta = get_lists_meta()
+        total = (
+            meta["total_languages"] if "total_languages" in meta else _count_distinct_languages()
+        )
 
     groups = get_language_groups(
         offset=offset,

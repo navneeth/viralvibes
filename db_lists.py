@@ -965,11 +965,10 @@ def merge_language_variants(
 
 def _count_distinct_languages() -> int:
     """
-    Return the cached exact language count for synced creators.
+    Return the cached exact language count, falling back to a creator scan.
 
-    Reads the precomputed ``mv_lists_meta`` value so zero creator rows are
-    scanned or transferred.
-    Falls back to 0 on any error.
+    Reads ``mv_lists_meta`` when available. On older schemas without that view,
+    use the same client-side metadata fallback as ``get_lists_meta``.
 
     Used as a fallback for ``get_lists_meta`` on DB schemas that predate
     the ``total_languages`` column in the ``get_lists_meta`` RPC (migration 003).
@@ -981,11 +980,14 @@ def _count_distinct_languages() -> int:
         resp = supabase_client.table("mv_lists_meta").select("total_languages").limit(1).execute()
         if not resp.data:
             logger.warning("[Lists] mv_lists_meta returned no language count")
-            return 0
+            return int(_get_lists_meta_fallback()["total_languages"])
+        if "total_languages" not in resp.data[0]:
+            logger.warning("[Lists] mv_lists_meta row omitted total_languages")
+            return int(_get_lists_meta_fallback()["total_languages"])
         return int(resp.data[0].get("total_languages") or 0)
     except Exception as e:
         logger.exception("Error counting distinct languages: %s", e)
-        return 0
+        return int(_get_lists_meta_fallback()["total_languages"])
 
 
 def get_top_rated_creators(limit: int = 20) -> list[dict]:
@@ -1438,6 +1440,7 @@ def get_top_creators_by_languages(
             supabase_client.table("creators")
             .select("*")
             .in_("default_language", language_codes)
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .order("current_subscribers", desc=True)
@@ -1816,7 +1819,7 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
 
 def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     """
-    Get top content languages by creator count via DB-side RPC aggregation.
+    Get top content languages by synced creator count via DB-side RPC aggregation.
 
     Returns list of (language_code, creator_count) tuples.
     Used for the /creators filter bar and hero language stats.
@@ -1879,8 +1882,9 @@ def get_lists_meta() -> dict:
     requests during a single page render and is cleared by local metadata
     refresh helpers; other workers may briefly diverge until their TTL expires.
 
-    Note: if the DB RPC predates the ``total_languages`` column (migration
-    003), the key defaults to 0 gracefully via ``row.get(...) or 0``.
+    If the DB RPC predates the ``total_languages`` column (migration 003), the
+    returned metadata omits that key so callers can distinguish it from a
+    valid count of zero.
     """
     supabase_client = _get_supabase_client()
     if not supabase_client:
@@ -1910,9 +1914,9 @@ def get_lists_meta() -> dict:
                     "total_creators": int(row.get("total_creators") or 0),
                     "total_countries": int(row.get("total_countries") or 0),
                     "total_categories": TOTAL_TOPIC_CATEGORIES,
-                    # total_languages added in migration 003; defaults to 0 on older DBs
-                    "total_languages": int(row.get("total_languages") or 0),
                 }
+                if "total_languages" in row:
+                    meta["total_languages"] = int(row.get("total_languages") or 0)
                 _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
                 return meta.copy()
             logger.warning("[Lists] get_lists_meta RPC returned no data")
