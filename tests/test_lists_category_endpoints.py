@@ -152,6 +152,61 @@ def test_get_lists_meta_forces_fixed_total_categories(monkeypatch):
     assert meta["total_categories"] == db_lists.TOTAL_TOPIC_CATEGORIES
 
 
+def test_count_distinct_languages_reads_cached_metadata(monkeypatch):
+    query = MagicMock()
+    query.select.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[{"total_languages": 12}])
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    assert db_lists._count_distinct_languages() == 12
+    client.table.assert_called_once_with("mv_lists_meta")
+    query.select.assert_called_once_with("total_languages")
+    query.limit.assert_called_once_with(1)
+
+
+def test_lists_route_skips_language_count_fallback_when_meta_has_count(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "get_lists_meta",
+        lambda: {
+            "total_countries": 1,
+            "total_categories": 1,
+            "total_languages": 12,
+        },
+    )
+    for name in (
+        "get_top_rated_creators",
+        "get_most_active_creators",
+        "get_country_groups",
+        "get_category_groups",
+        "get_rising_creators",
+        "get_veteran_creators",
+        "get_new_channels",
+        "get_niche_heatmap_data",
+        "get_language_groups",
+    ):
+        monkeypatch.setattr(lists_routes, name, lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        lists_routes,
+        "_count_distinct_languages",
+        lambda: (_ for _ in ()).throw(AssertionError("fallback should be skipped")),
+    )
+    captured = {}
+
+    def _render(**kwargs):
+        captured.update(kwargs)
+        return captured
+
+    monkeypatch.setattr(lists_routes, "render_lists_page", _render)
+
+    result = lists_routes.lists_route(_req())
+
+    assert result["tab_data"]["total_languages"] == 12
+
+
 def test_lists_more_categories_route_uses_meta_and_renders(monkeypatch):
     monkeypatch.setattr(
         lists_routes,

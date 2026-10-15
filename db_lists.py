@@ -965,9 +965,10 @@ def merge_language_variants(
 
 def _count_distinct_languages() -> int:
     """
-    Return exact COUNT(DISTINCT default_language) for synced creators.
+    Return the cached exact language count for synced creators.
 
-    Uses Supabase's server-side count so zero rows are transferred.
+    Reads the precomputed ``mv_lists_meta`` value so zero creator rows are
+    scanned or transferred.
     Falls back to 0 on any error.
 
     Used as a fallback for ``get_lists_meta`` on DB schemas that predate
@@ -977,21 +978,11 @@ def _count_distinct_languages() -> int:
     if not supabase_client:
         return 0
     try:
-        resp = (
-            supabase_client.table("creators")
-            .select("default_language", count="exact")
-            .not_.is_("default_language", "null")
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", 0)
-            .limit(1)
-            .execute()
-        )
-        # count="exact" on a filtered query returns the filtered row count,
-        # not distinct count — so we fall back to the column-scan for accuracy.
-        # This is intentionally a lightweight call that avoids row transfer.
-        # For a true DISTINCT count without row transfer we rely on the RPC;
-        # this is just a best-effort approximate fallback.
-        return resp.count or 0
+        resp = supabase_client.table("mv_lists_meta").select("total_languages").limit(1).execute()
+        if not resp.data:
+            logger.warning("[Lists] mv_lists_meta returned no language count")
+            return 0
+        return int(resp.data[0].get("total_languages") or 0)
     except Exception as e:
         logger.exception("Error counting distinct languages: %s", e)
         return 0
