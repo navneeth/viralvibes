@@ -184,7 +184,11 @@ def test_count_distinct_languages_reads_cached_metadata(monkeypatch):
 
 def test_count_distinct_languages_falls_back_when_cached_metadata_is_unavailable(monkeypatch):
     monkeypatch.setattr(db_lists, "_get_lists_meta_fallback", lambda: {"total_languages": 7})
-    for data, error in (([], None), ([{}], None), (None, RuntimeError("missing view"))):
+
+    class APIError(Exception):
+        code = "42P01"
+
+    for data, error in (([], None), ([{}], None), (None, APIError("missing view"))):
         query = MagicMock()
         query.select.return_value = query
         query.limit.return_value = query
@@ -197,6 +201,21 @@ def test_count_distinct_languages_falls_back_when_cached_metadata_is_unavailable
         monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
 
         assert db_lists._count_distinct_languages() == 7
+
+
+def test_count_distinct_languages_does_not_scan_creators_after_transient_error(monkeypatch):
+    fallback = MagicMock(return_value={"total_languages": 7})
+    monkeypatch.setattr(db_lists, "_get_lists_meta_fallback", fallback)
+    query = MagicMock()
+    query.select.return_value = query
+    query.limit.return_value = query
+    query.execute.side_effect = TimeoutError("database read timed out")
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    assert db_lists._count_distinct_languages() == 0
+    fallback.assert_not_called()
 
 
 def test_get_top_creators_by_languages_uses_synced_population(monkeypatch):

@@ -965,10 +965,12 @@ def merge_language_variants(
 
 def _count_distinct_languages() -> int:
     """
-    Return the cached exact language count, falling back to a creator scan.
+    Return the cached language count, falling back to a bounded creator scan.
 
     Reads ``mv_lists_meta`` when available. On older schemas without that view,
-    use the same client-side metadata fallback as ``get_lists_meta``.
+    use the same client-side metadata fallback as ``get_lists_meta``. That
+    legacy fallback is approximate because it only scans a bounded number of
+    creator rows.
 
     Used as a fallback for ``get_lists_meta`` on DB schemas that predate
     the ``total_languages`` column in the ``get_lists_meta`` RPC (migration 003).
@@ -986,8 +988,19 @@ def _count_distinct_languages() -> int:
             return int(_get_lists_meta_fallback()["total_languages"])
         return int(resp.data[0].get("total_languages") or 0)
     except Exception as e:
+        if type(e).__name__ == "APIError" and getattr(e, "code", None) in {
+            "42P01",
+            "42703",
+            "PGRST204",
+            "PGRST205",
+        }:
+            logger.warning(
+                "[Lists] mv_lists_meta unavailable; using legacy language-count fallback: %s",
+                e,
+            )
+            return int(_get_lists_meta_fallback()["total_languages"])
         logger.exception("Error counting distinct languages: %s", e)
-        return int(_get_lists_meta_fallback()["total_languages"])
+        return 0
 
 
 def get_top_rated_creators(limit: int = 20) -> list[dict]:
