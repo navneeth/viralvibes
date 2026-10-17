@@ -245,7 +245,10 @@ def test_get_top_creators_by_categories_uses_text_search_without_containment(mon
 
     assert result["Lifestyle (sociology)"][0]["channel_name"] == "Lifestyle Channel"
     assert len(fake_client.calls) == 1
-    assert "ilike" in fake_client.calls[0]
+    assert fake_client.calls[0]["ilike"] == (
+        "topic_categories",
+        "%Lifestyle%sociology%",
+    )
     assert "filter" not in fake_client.calls[0]
 
 
