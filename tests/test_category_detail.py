@@ -235,6 +235,23 @@ def test_get_topic_category_creators_always_uses_ilike_directly(monkeypatch):
     assert "filter" not in fake_client.calls[0]
 
 
+def test_get_top_creators_by_categories_uses_text_search_without_containment(monkeypatch):
+    fake_client = _FakeSupabaseClient(
+        {"data": [{"channel_name": "Lifestyle Channel", "current_subscribers": 123}]}
+    )
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+
+    result = db_lists.get_top_creators_by_categories(["Lifestyle (sociology)"])
+
+    assert result["Lifestyle (sociology)"][0]["channel_name"] == "Lifestyle Channel"
+    assert len(fake_client.calls) == 1
+    assert fake_client.calls[0]["ilike"] == (
+        "topic_categories",
+        "%Lifestyle%sociology%",
+    )
+    assert "filter" not in fake_client.calls[0]
+
+
 def test_get_topic_category_creators_ilike_returns_count_and_creators(monkeypatch):
     fake_client = _FakeSupabaseClient(
         {

@@ -1,6 +1,19 @@
-# Allow all crawlers
+# These crawlers account for most requests but are not needed for search visibility.
+User-agent: meta-externalagent
+Disallow: /
+
+User-agent: Shapbot
+Disallow: /
+
+# Allow other crawlers
 User-agent: *
 Allow: /
+
+# Avoid expensive discovery queries and sort variants.
+Disallow: /creators?search=
+Disallow: /creators?sort=
+Disallow: /creators?*search=
+Disallow: /creators?*sort=
 
 # Crawlable content — explicit for clarity
 Allow: /creators

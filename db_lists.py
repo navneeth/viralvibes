@@ -367,16 +367,8 @@ def _apply_browseable_constraints(query):
     )
 
 
-def _apply_topic_category_filters(query, category: str):
-    """Apply filters shared by category group cards and detail pages."""
-    label = _topic_category_label(category)
-    if label:
-        query = query.filter("topic_categories", "cs", json.dumps([label]))
-    return _apply_browseable_constraints(query)
-
-
 def _apply_topic_category_text_filters(query, category: str):
-    """Fallback text filter for legacy rows that do not exact-match JSON labels."""
+    """Filter the text-backed topic_categories column with ILIKE."""
     pattern = _topic_category_ilike_pattern(category)
     if pattern:
         query = query.ilike("topic_categories", pattern)
@@ -428,27 +420,19 @@ def get_topic_category_creators(
             return cached_entry[1]  # type: ignore[return-value]
         return TopicCategoryPageResult([], 0) if return_count else []
 
-    def _run(use_text_fallback: bool = False):
+    def _run():
         query = supabase_client.table("creators").select(
             "*", count="exact" if return_count else None
         )
-        query = (
-            _apply_topic_category_text_filters(query, category_label)
-            if use_text_fallback
-            else _apply_topic_category_filters(query, category_label)
-        )
+        query = _apply_topic_category_text_filters(query, category_label)
         query = query.order("current_subscribers", desc=True).limit(limit)
         if offset:
             query = query.offset(offset)
         return query.execute()
 
     response = None
-    # topic_categories is a text column (not jsonb/text[]), so the PostgREST
-    # containment operator cs. always fails with 42883 ("operator does not
-    # exist: text @> unknown"). Skip the exact attempt entirely and go straight
-    # to the ilike fallback to avoid a guaranteed-failed round-trip.
     try:
-        response = _run(use_text_fallback=True)
+        response = _run()
     except Exception:
         if cached_entry:
             logger.warning(
@@ -1308,9 +1292,10 @@ def get_top_creators_by_categories(
     are not globally top-ranked (e.g. "Lifestyle (sociology)" has 4 700
     creators but none are in the global top 200, so it always returned empty).
 
-    This version issues one filtered query per distinct category token,
-    preferring exact JSONB containment and falling back to ILIKE when needed.
-    Each query is DB-filtered and returns only ``limit_per_category`` rows.
+    This version issues one filtered ILIKE query per distinct category token.
+    The ``topic_categories`` column stores JSON arrays as text, so PostgreSQL
+    containment operators are not valid for it. Each query returns only
+    ``limit_per_category`` rows.
 
     Why not OR-ILIKE batching?
     ───────────────────────────
@@ -1362,20 +1347,13 @@ def get_top_creators_by_categories(
 
     for ilike_term, matching_cats in term_to_cats.items():
 
-        def _run_query(*, jsonb_contains: str | None = None, ilike: str | None = None):
+        def _run_query():
             query = supabase_client.table("creators").select("*")
-            if jsonb_contains:
-                query = query.filter(
-                    "topic_categories",
-                    "cs",
-                    json.dumps([jsonb_contains]),
-                )
-            elif ilike:
-                # Use the word-level pattern builder: it handles URLs, underscore
-                # slugs, and space-separated labels without escaping the separator.
-                pattern = _topic_category_ilike_pattern(ilike)
-                if pattern:
-                    query = query.ilike("topic_categories", pattern)
+            # Use the word-level pattern builder: it handles URLs, underscore
+            # slugs, and space-separated labels without escaping the separator.
+            pattern = _topic_category_ilike_pattern(ilike_term)
+            if pattern:
+                query = query.ilike("topic_categories", pattern)
             return (
                 query.not_.is_("channel_name", "null")
                 .gt("current_subscribers", 0)
@@ -1384,40 +1362,12 @@ def get_top_creators_by_categories(
                 .execute()
             )
 
-        creators: list[dict] = []
-
-        # Tier 1 – JSONB containment with clean display label (fastest path).
-        label = _topic_category_label(ilike_term)
-        if label:
-            try:
-                r = _run_query(jsonb_contains=label)
-                creators = r.data or []
-            except Exception:
-                logger.debug(
-                    "JSONB label query failed for %r, trying URL tier", label, exc_info=True
-                )
-
-        # Tier 2 – JSONB containment with canonical Wikipedia URL.
-        if not creators:
-            jsonb_value = _topic_category_jsonb_value(ilike_term)
-            if jsonb_value:
-                try:
-                    r = _run_query(jsonb_contains=jsonb_value)
-                    creators = r.data or []
-                except Exception:
-                    logger.debug(
-                        "JSONB URL query failed for %r, falling back to ILIKE",
-                        jsonb_value,
-                        exc_info=True,
-                    )
-
-        # Tier 3 – ILIKE text search (handles any legacy storage format).
-        if not creators:
-            try:
-                r = _run_query(ilike=ilike_term)
-                creators = r.data or []
-            except Exception:
-                logger.exception("All query tiers failed for category %r", ilike_term)
+        try:
+            response = _run_query()
+            creators = response.data or []
+        except Exception:
+            logger.exception("Error fetching top creators for category %r", ilike_term)
+            creators = []
 
         # All keys that share this ilike_term get the same creator list.
         for cat in matching_cats:
