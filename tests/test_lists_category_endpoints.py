@@ -124,24 +124,22 @@ def test_get_top_categories_with_counts_zero_limit_returns_empty(monkeypatch):
 
 
 def test_get_lists_meta_forces_fixed_total_categories(monkeypatch):
-    class _RpcCall:
-        def execute(self):
-            return SimpleNamespace(
-                data=[
-                    {
-                        "total_creators": 10,
-                        "total_countries": 3,
-                        "total_categories": 999,
-                        "total_languages": 4,
-                    }
-                ]
-            )
-
-    class _Client:
-        def rpc(self, *_args, **_kwargs):
-            return _RpcCall()
-
-    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: _Client())
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: MagicMock())
+    monkeypatch.setattr(
+        db_lists,
+        "_rpc_with_retry",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            data=[
+                {
+                    "total_creators": 10,
+                    "total_countries": 3,
+                    "total_categories": 999,
+                    "total_languages": 4,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(db_lists, "_lists_meta_cache", None)
     db_lists.clear_lists_meta_cache()
 
     meta = db_lists.get_lists_meta()
@@ -150,6 +148,156 @@ def test_get_lists_meta_forces_fixed_total_categories(monkeypatch):
     assert meta["total_countries"] == 3
     assert meta["total_languages"] == 4
     assert meta["total_categories"] == db_lists.TOTAL_TOPIC_CATEGORIES
+
+
+def test_get_lists_meta_omits_language_count_when_rpc_does_not_supply_it(monkeypatch):
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: MagicMock())
+    monkeypatch.setattr(
+        db_lists,
+        "_rpc_with_retry",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            data=[{"total_creators": 10, "total_countries": 3}]
+        ),
+    )
+    monkeypatch.setattr(db_lists, "_lists_meta_cache", None)
+    db_lists.clear_lists_meta_cache()
+
+    meta = db_lists.get_lists_meta()
+
+    assert "total_languages" not in meta
+
+
+def test_count_distinct_languages_reads_cached_metadata(monkeypatch):
+    query = MagicMock()
+    query.select.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[{"total_languages": 12}])
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    assert db_lists._count_distinct_languages() == 12
+    client.table.assert_called_once_with("mv_lists_meta")
+    query.select.assert_called_once_with("total_languages")
+    query.limit.assert_called_once_with(1)
+
+
+def test_count_distinct_languages_falls_back_when_cached_metadata_is_unavailable(monkeypatch):
+    monkeypatch.setattr(db_lists, "_get_lists_meta_fallback", lambda: {"total_languages": 7})
+
+    class APIError(Exception):
+        code = "42P01"
+
+    for data, error in (([], None), ([{}], None), (None, APIError("missing view"))):
+        query = MagicMock()
+        query.select.return_value = query
+        query.limit.return_value = query
+        if error:
+            query.execute.side_effect = error
+        else:
+            query.execute.return_value = SimpleNamespace(data=data)
+        client = MagicMock()
+        client.table.return_value = query
+        monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+        assert db_lists._count_distinct_languages() == 7
+
+
+def test_count_distinct_languages_does_not_scan_creators_after_transient_error(monkeypatch):
+    fallback = MagicMock(return_value={"total_languages": 7})
+    monkeypatch.setattr(db_lists, "_get_lists_meta_fallback", fallback)
+    query = MagicMock()
+    query.select.return_value = query
+    query.limit.return_value = query
+    query.execute.side_effect = TimeoutError("database read timed out")
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    assert db_lists._count_distinct_languages() == 0
+    fallback.assert_not_called()
+
+
+def test_get_top_creators_by_languages_uses_synced_population(monkeypatch):
+    query = MagicMock()
+    query.select.return_value = query
+    query.in_.return_value = query
+    query.eq.return_value = query
+    query.not_.is_.return_value = query
+    query.gt.return_value = query
+    query.order.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[])
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    assert db_lists.get_top_creators_by_languages(["en"]) == {"en": []}
+    query.eq.assert_called_once_with("sync_status", "synced")
+
+
+def test_lists_route_skips_language_count_fallback_when_meta_has_count(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "get_lists_meta",
+        lambda: {
+            "total_countries": 1,
+            "total_categories": 1,
+            "total_languages": 0,
+        },
+    )
+    for name in (
+        "get_top_rated_creators",
+        "get_most_active_creators",
+        "get_country_groups",
+        "get_category_groups",
+        "get_rising_creators",
+        "get_veteran_creators",
+        "get_new_channels",
+        "get_niche_heatmap_data",
+        "get_language_groups",
+    ):
+        monkeypatch.setattr(lists_routes, name, lambda *args, **kwargs: [])
+    language_count_fallback = MagicMock()
+    monkeypatch.setattr(lists_routes, "_count_distinct_languages", language_count_fallback)
+    captured = {}
+
+    def _render(**kwargs):
+        captured.update(kwargs)
+        return captured
+
+    monkeypatch.setattr(lists_routes, "render_lists_page", _render)
+
+    result = lists_routes.lists_route(_req())
+
+    assert result["tab_data"]["total_languages"] == 0
+    language_count_fallback.assert_not_called()
+
+
+def test_lists_route_uses_language_count_fallback_when_meta_omits_field(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "get_lists_meta",
+        lambda: {"total_countries": 1, "total_categories": 1},
+    )
+    for name in (
+        "get_top_rated_creators",
+        "get_most_active_creators",
+        "get_country_groups",
+        "get_category_groups",
+        "get_rising_creators",
+        "get_veteran_creators",
+        "get_new_channels",
+        "get_niche_heatmap_data",
+        "get_language_groups",
+    ):
+        monkeypatch.setattr(lists_routes, name, lambda *args, **kwargs: [])
+    monkeypatch.setattr(lists_routes, "_count_distinct_languages", lambda: 7)
+    monkeypatch.setattr(lists_routes, "render_lists_page", lambda **kwargs: kwargs)
+
+    result = lists_routes.lists_route(_req())
+
+    assert result["tab_data"]["total_languages"] == 7
 
 
 def test_lists_more_categories_route_uses_meta_and_renders(monkeypatch):

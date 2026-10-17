@@ -965,10 +965,12 @@ def merge_language_variants(
 
 def _count_distinct_languages() -> int:
     """
-    Return exact COUNT(DISTINCT default_language) for synced creators.
+    Return the cached language count, falling back to a bounded creator scan.
 
-    Uses Supabase's server-side count so zero rows are transferred.
-    Falls back to 0 on any error.
+    Reads ``mv_lists_meta`` when available. On older schemas without that view,
+    use the same client-side metadata fallback as ``get_lists_meta``. That
+    legacy fallback is approximate because it only scans a bounded number of
+    creator rows.
 
     Used as a fallback for ``get_lists_meta`` on DB schemas that predate
     the ``total_languages`` column in the ``get_lists_meta`` RPC (migration 003).
@@ -977,22 +979,26 @@ def _count_distinct_languages() -> int:
     if not supabase_client:
         return 0
     try:
-        resp = (
-            supabase_client.table("creators")
-            .select("default_language", count="exact")
-            .not_.is_("default_language", "null")
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", 0)
-            .limit(1)
-            .execute()
-        )
-        # count="exact" on a filtered query returns the filtered row count,
-        # not distinct count — so we fall back to the column-scan for accuracy.
-        # This is intentionally a lightweight call that avoids row transfer.
-        # For a true DISTINCT count without row transfer we rely on the RPC;
-        # this is just a best-effort approximate fallback.
-        return resp.count or 0
+        resp = supabase_client.table("mv_lists_meta").select("total_languages").limit(1).execute()
+        if not resp.data:
+            logger.warning("[Lists] mv_lists_meta returned no language count")
+            return int(_get_lists_meta_fallback()["total_languages"])
+        if "total_languages" not in resp.data[0]:
+            logger.warning("[Lists] mv_lists_meta row omitted total_languages")
+            return int(_get_lists_meta_fallback()["total_languages"])
+        return int(resp.data[0].get("total_languages") or 0)
     except Exception as e:
+        if type(e).__name__ == "APIError" and getattr(e, "code", None) in {
+            "42P01",
+            "42703",
+            "PGRST204",
+            "PGRST205",
+        }:
+            logger.warning(
+                "[Lists] mv_lists_meta unavailable; using legacy language-count fallback: %s",
+                e,
+            )
+            return int(_get_lists_meta_fallback()["total_languages"])
         logger.exception("Error counting distinct languages: %s", e)
         return 0
 
@@ -1447,6 +1453,7 @@ def get_top_creators_by_languages(
             supabase_client.table("creators")
             .select("*")
             .in_("default_language", language_codes)
+            .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .order("current_subscribers", desc=True)
@@ -1825,7 +1832,7 @@ def get_top_countries_with_counts(limit: int = 10) -> list[tuple[str, int]]:
 
 def get_top_languages_with_counts(limit: int = 10) -> list[tuple[str, int]]:
     """
-    Get top content languages by creator count via DB-side RPC aggregation.
+    Get top content languages by synced creator count via DB-side RPC aggregation.
 
     Returns list of (language_code, creator_count) tuples.
     Used for the /creators filter bar and hero language stats.
@@ -1888,8 +1895,9 @@ def get_lists_meta() -> dict:
     requests during a single page render and is cleared by local metadata
     refresh helpers; other workers may briefly diverge until their TTL expires.
 
-    Note: if the DB RPC predates the ``total_languages`` column (migration
-    003), the key defaults to 0 gracefully via ``row.get(...) or 0``.
+    If the DB RPC predates the ``total_languages`` column (migration 003), the
+    returned metadata omits that key so callers can distinguish it from a
+    valid count of zero.
     """
     supabase_client = _get_supabase_client()
     if not supabase_client:
@@ -1919,9 +1927,9 @@ def get_lists_meta() -> dict:
                     "total_creators": int(row.get("total_creators") or 0),
                     "total_countries": int(row.get("total_countries") or 0),
                     "total_categories": TOTAL_TOPIC_CATEGORIES,
-                    # total_languages added in migration 003; defaults to 0 on older DBs
-                    "total_languages": int(row.get("total_languages") or 0),
                 }
+                if "total_languages" in row:
+                    meta["total_languages"] = int(row.get("total_languages") or 0)
                 _lists_meta_cache = (time.monotonic() + _LISTS_META_TTL_SECONDS, meta)
                 return meta.copy()
             logger.warning("[Lists] get_lists_meta RPC returned no data")

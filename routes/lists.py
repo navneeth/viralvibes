@@ -23,32 +23,32 @@ from db_lists import (
     get_top_categories_with_counts,
     get_top_countries_with_counts,
     get_top_languages_with_counts,
-    get_topic_category_country_creators,
     get_top_rated_creators,
+    get_topic_category_country_creators,
     get_topic_category_creators,
     get_veteran_creators,
     merge_language_variants,
     resolve_category_slug,
 )
+from services.rankings import resolve_country_slug, resolve_ranking_category_slug
 from views.lists import (
+    _unslugify,
+    render_categories_explorer_page,
+    render_category_creators_rows,
+    render_category_detail_page,
+    render_countries_explorer_page,
+    render_country_creators_rows,
+    render_country_detail_page,
+    render_language_creators_rows,
+    render_language_detail_page,
+    render_languages_explorer_page,
     render_lists_page,
     render_more_categories,
     render_more_countries,
     render_more_languages,
-    render_categories_explorer_page,
-    render_countries_explorer_page,
-    render_languages_explorer_page,
-    render_country_detail_page,
-    render_country_creators_rows,
-    render_category_detail_page,
-    render_category_creators_rows,
-    render_language_detail_page,
-    render_language_creators_rows,
-    render_ranking_detail_page,
     render_ranking_creators_rows,
-    _unslugify,
+    render_ranking_detail_page,
 )
-from services.rankings import resolve_country_slug, resolve_ranking_category_slug
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +109,12 @@ def lists_route(request):
         f_language_rankings = pool.submit(
             get_language_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP
         )
-        # Language count fallback: zero-row-transfer COUNT(DISTINCT) — cheap to
-        # pre-fetch; used only when meta["total_languages"] is absent (pre-003 DB)
-        f_total_languages = pool.submit(_count_distinct_languages)
 
         meta = f_meta.result()
+        # A zero is a valid count; only older RPCs that omit the field need a fallback.
+        f_total_languages = (
+            pool.submit(_count_distinct_languages) if "total_languages" not in meta else None
+        )
         top_rated = f_top_rated.result()
         most_active = f_most_active.result()
         country_rankings = f_country_rankings.result()
@@ -123,7 +124,9 @@ def lists_route(request):
         new_channels = f_new_channels.result()
         heatmap = f_heatmap.result()
         language_rankings = f_language_rankings.result()
-        total_languages_fallback = f_total_languages.result()
+        total_languages_fallback = (
+            f_total_languages.result() if f_total_languages is not None else 0
+        )
 
     # ── Assemble tab_data from parallel results ──────────────────────────────
     tab_data = {
@@ -141,7 +144,9 @@ def lists_route(request):
         # meta["total_languages"] comes from migration 003.  On older DB schemas
         # that predate the RPC column, fall back to _count_distinct_languages() —
         # pre-fetched above in parallel so there is no extra round-trip.
-        "total_languages": meta.get("total_languages") or total_languages_fallback,
+        "total_languages": (
+            meta["total_languages"] if "total_languages" in meta else total_languages_fallback
+        ),
     }
 
     return render_lists_page(
@@ -250,7 +255,10 @@ def lists_more_languages_route(request):
     try:
         total = int(request.query_params["total"])
     except (KeyError, TypeError, ValueError):
-        total = get_lists_meta().get("total_languages") or _count_distinct_languages()
+        meta = get_lists_meta()
+        total = (
+            meta["total_languages"] if "total_languages" in meta else _count_distinct_languages()
+        )
 
     groups = get_language_groups(
         offset=offset,
