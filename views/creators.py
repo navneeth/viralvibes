@@ -836,10 +836,11 @@ def render_creators_page(
             filtered_count=total_count,
             has_filters=has_active_filters,
         ),
-        # Editors' Shortlist rail — curated entry points into /creators/top.
-        # Lazy-imported to keep this module's import surface lean and to avoid
-        # a circular components ⇄ routes graph when routes/creators imports views.
-        _render_editors_shortlist_rail(),
+        # The shortlist is a browse entry point, not part of a user's search
+        # journey. Skip it on result pages; its cold-cache count refresh can
+        # issue six additional creator queries before the response is rendered.
+        # Keep the rail on the unfiltered landing page where it helps discovery.
+        _render_editors_shortlist_rail() if not search.strip() else None,
         # Anonymous facet-gate banner — only renders when the server stripped
         # a filter request from an anonymous visitor.  Preserves attempted
         # filter state in the sign-in return_url so the user lands on the
