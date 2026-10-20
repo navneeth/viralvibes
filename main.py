@@ -1932,8 +1932,8 @@ def creator_profile_by_handle(req, sess, handle: str):
     Call chain:
         main.py  @rt("/creators/@{handle}")
           └─ find_creator_by_handle(handle)               ← db.py
-          └─ creator_profile_route(req, uuid, user_id)    ← routes/creators.py
-               ├─ get_creator_stats(uuid)                  ← db.py
+          └─ creator_profile_route(req, uuid, user_id, creator_data)
+               ├─ reuses the resolved creator row (or fetches by UUID)
                ├─ render_creator_profile_page(creator)     ← views/creators.py
                └─ creator_profile_head(creator)            ← views/creators.py
     """
@@ -1949,7 +1949,12 @@ def creator_profile_by_handle(req, sess, handle: str):
         )
 
     creator_id = creator["id"]
-    result = creator_profile_route(req, creator_id, user_id=sess.get("user_id") if sess else None)
+    result = creator_profile_route(
+        req,
+        creator_id,
+        user_id=sess.get("user_id") if sess else None,
+        creator_data=creator,
+    )
 
     if isinstance(result, CreatorProfileResult):
         head_tags = creator_profile_head(result.creator)
