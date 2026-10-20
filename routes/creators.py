@@ -762,12 +762,7 @@ def _get_similar_creators(creator: dict) -> list[dict]:
     return []
 
 
-def creator_profile_route(
-    request,
-    creator_id: str,
-    user_id: str | None = None,
-    creator_data: dict | None = None,
-):
+def creator_profile_route(request, creator_id: str, user_id: str | None = None):
     """
     GET /creator/{creator_id} — Full profile page for a single creator.
 
@@ -776,19 +771,12 @@ def creator_profile_route(
         creator_id: Creator UUID (primary key of the creators table).
         user_id:    Optional user UUID from session.  When provided the page
                     will show the correct initial state for the favourite button.
-        creator_data: Optional creator row already resolved by a caller.
 
     Returns:
         CreatorProfileResult with the rendered profile and creator row, or a
         friendly 404 message Div for unknown creators.
     """
-    # The canonical handle route already fetched this same creators row.
-    # Reuse it when the id matches; retain the lookup for all other callers.
-    creator = (
-        creator_data
-        if creator_data and str(creator_data.get("id")) == str(creator_id)
-        else get_creator_stats(creator_id)
-    )
+    creator = get_creator_stats(creator_id)
 
     if not creator:
         logger.warning(f"[CreatorProfile] Creator not found: {creator_id}")
