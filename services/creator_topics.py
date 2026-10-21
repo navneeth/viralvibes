@@ -71,8 +71,11 @@ def parse_creator_topics(
         for item in payload[:200]:
             if not isinstance(item, dict) or not isinstance(item.get("kw"), str):
                 continue
-            phrase = " ".join(item["kw"].split())
-            if not phrase or len(phrase) > 120 or phrase.casefold() in seen:
+            keyword = item["kw"]
+            if len(keyword) > 120:
+                continue
+            phrase = " ".join(keyword.split())
+            if not phrase or phrase.casefold() in seen:
                 continue
             seen.add(phrase.casefold())
             topics.append(phrase)

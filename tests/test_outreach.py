@@ -216,22 +216,24 @@ def test_favourites_export_requires_sign_in():
 def test_public_lookalike_export_has_public_topics_only(monkeypatch):
     import routes.creators as creators_routes
 
-    creator = {
+    seed = {"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "channel_name": "Seed Creator"}
+    peer = {
         **CREATOR_WITH_EMAIL,
         "transcript_keywords": [{"kw": "=unsafe"}],
         "private_context": "private campaign idea",
     }
-    monkeypatch.setattr(creators_routes, "_resolve_seed_creator", lambda handle: creator)
+    monkeypatch.setattr(creators_routes, "_resolve_seed_creator", lambda handle: seed)
     monkeypatch.setattr(
-        creators_routes,
-        "get_embedding_peers",
-        lambda *args, **kw: ([creator, CREATOR_SOCIAL_ONLY], 2),
+        creators_routes, "get_embedding_peers", lambda *args, **kw: ([peer, CREATOR_SOCIAL_ONLY], 2)
     )
     response = TestClient(main.app).get("/creators/like/seed/export")
     rows = list(csv.DictReader(io.StringIO(response.text)))
     assert response.status_code == 200
     assert len(rows) == 1
+    assert rows[0]["Company"] == peer["channel_name"]
+    assert rows[0]["Email"] == "hello@readycreator.com"
     assert rows[0]["Content Topics"] == "'=unsafe"
+    assert seed["channel_name"] not in response.text
     assert "private campaign idea" not in response.text
 
 
