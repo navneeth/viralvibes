@@ -86,9 +86,10 @@ def parse_creator_topics(
         details = {}
 
     source = details.get("source")
-    counts = [details.get(key) for key in (
-        "sampled_video_count", "transcript_video_count", "description_video_count"
-    )]
+    counts = [
+        details.get(key)
+        for key in ("sampled_video_count", "transcript_video_count", "description_video_count")
+    ]
     valid_counts = all(type(count) is int and count >= 0 for count in counts)
     if valid_counts:
         sampled, transcripts, descriptions = counts
@@ -120,10 +121,15 @@ def creator_topic_export_fields(creator: dict[str, Any]) -> dict[str, str]:
         creator.get("transcript_keywords_metadata"),
         creator.get("transcript_keywords_updated_at"),
     )
-    return dict(zip(TOPIC_EXPORT_HEADERS, (
-        _csv_text("; ".join(profile.topics)),
-        profile.source_label if profile.topics else "",
-        profile.computed_at if profile.topics else "",
-        profile.uploaded_at if profile.topics else "",
-        _csv_text(profile.extractor_version) if profile.topics else "",
-    )))
+    return dict(
+        zip(
+            TOPIC_EXPORT_HEADERS,
+            (
+                _csv_text("; ".join(profile.topics)),
+                profile.source_label if profile.topics else "",
+                profile.computed_at if profile.topics else "",
+                profile.uploaded_at if profile.topics else "",
+                _csv_text(profile.extractor_version) if profile.topics else "",
+            ),
+        )
+    )
