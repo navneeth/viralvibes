@@ -2,9 +2,15 @@
 Tests for saved creator outreach exports.
 """
 
+import csv
+import io
+import json
+from base64 import b64encode
+
 import pytest
 from urllib.parse import urlparse
 from starlette.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
 import main
 from services.outreach import (
@@ -151,6 +157,95 @@ def test_outreach_csv_starts_with_email_header():
 
     assert csv_text.startswith(",".join(EMAIL_EXPORT_HEADERS[:3]))
     assert "hello@readycreator.com" in csv_text
+
+
+@pytest.mark.parametrize("path", ["/me/outreach/export", "/me/favourites/export"])
+def test_saved_exports_append_topics_without_private_context(monkeypatch, path):
+    import routes.outreach as outreach
+    from services.creator_topics import TOPIC_EXPORT_HEADERS
+
+    creator = {
+        **CREATOR_WITH_EMAIL,
+        "transcript_keywords": [{"kw": "mechanical keyboards", "score": 0.7}],
+        "transcript_keywords_updated_at": "2026-10-20T10:00:00Z",
+        "private_context": "private campaign idea",
+    }
+    monkeypatch.setattr(outreach, "get_user_favourite_creators", lambda *args, **kw: [creator])
+    monkeypatch.setattr(main, "get_user_favourite_creators", lambda *args, **kw: [creator])
+
+    middleware_config = next(
+        item for item in main.app.user_middleware if item.cls is SessionMiddleware
+    )
+    session_middleware = SessionMiddleware(main.app, **middleware_config.kwargs)
+    session_data = b64encode(
+        json.dumps(
+            {
+                "user_id": FAKE_USER_ID,
+                "auth": {"email": "test@example.com"},
+            }
+        ).encode()
+    )
+    client = TestClient(main.app)
+    client.cookies.set(
+        session_middleware.session_cookie,
+        session_middleware.signer.sign(session_data).decode(),
+    )
+    response = client.get(path, follow_redirects=False)
+    assert response.status_code == 200
+    reader = csv.DictReader(io.StringIO(response.text))
+    row = next(reader)
+    assert reader.fieldnames[-5:] == TOPIC_EXPORT_HEADERS
+    assert row["Content Topics"] == "mechanical keyboards"
+    assert row["Keyword Source"] == "Source unavailable"
+    assert row["Topics Computed At"] == ""
+    assert row["Topics Uploaded At"].startswith("2026-10-20")
+    assert "private campaign idea" not in response.text
+    if path == "/me/outreach/export":
+        assert reader.fieldnames[:23] == EMAIL_EXPORT_HEADERS[:23]
+        assert row["Email"] == "hello@readycreator.com"
+    else:
+        assert reader.fieldnames[:2] == ["channel_name", "channel_id"]
+
+
+def test_favourites_export_requires_sign_in():
+    response = TestClient(main.app).get("/me/favourites/export", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_public_lookalike_export_has_public_topics_only(monkeypatch):
+    import routes.creators as creators_routes
+
+    creator = {
+        **CREATOR_WITH_EMAIL,
+        "transcript_keywords": [{"kw": "=unsafe"}],
+        "private_context": "private campaign idea",
+    }
+    monkeypatch.setattr(creators_routes, "_resolve_seed_creator", lambda handle: creator)
+    monkeypatch.setattr(
+        creators_routes,
+        "get_embedding_peers",
+        lambda *args, **kw: ([creator, CREATOR_SOCIAL_ONLY], 2),
+    )
+    response = TestClient(main.app).get("/creators/like/seed/export")
+    rows = list(csv.DictReader(io.StringIO(response.text)))
+    assert response.status_code == 200
+    assert len(rows) == 1
+    assert rows[0]["Content Topics"] == "'=unsafe"
+    assert "private campaign idea" not in response.text
+
+
+def test_legacy_and_shared_export_builders_use_same_topic_projection():
+    from services.contact_extractor import ContactExtractorService
+    from services.creator_topics import TOPIC_EXPORT_HEADERS
+
+    creator = {**CREATOR_WITH_EMAIL, "transcript_keywords": [{"kw": "keyboards"}]}
+    legacy = build_outreach_rows([creator])[0]
+    shared = ContactExtractorService.build_creator_contact_row(creator)
+    assert EMAIL_EXPORT_HEADERS == ContactExtractorService.EMAIL_EXPORT_HEADERS
+    assert {key: legacy[key] for key in TOPIC_EXPORT_HEADERS} == {
+        key: shared[key] for key in TOPIC_EXPORT_HEADERS
+    }
 
 
 def test_outreach_page_renders_saved_creator_counts(monkeypatch):

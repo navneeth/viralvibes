@@ -105,6 +105,7 @@ from db import (
     _db_execute,
 )
 from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
+from services.creator_topics import TOPIC_EXPORT_HEADERS, creator_topic_export_fields
 from utils import (
     compute_dashboard_id,
     get_columns,
@@ -2304,6 +2305,7 @@ def toggle_favourite_list(req, sess, list_key: str = "", list_label: str = "", l
 
 
 @rt("/me/favourites/export.csv")
+@rt("/me/favourites/export")
 def me_favourites_export(req, sess):
     """Export the user's saved creators as a CSV file."""
     user_id = sess.get("user_id") if sess else None
@@ -2332,6 +2334,7 @@ def me_favourites_export(req, sess):
             "view_growth_30d",
             "last_synced_at",
         ]
+        + TOPIC_EXPORT_HEADERS
     )
     for c in creators:
         channel_id = c.get("channel_id") or ""
@@ -2356,6 +2359,7 @@ def me_favourites_export(req, sess):
                 c.get("view_growth_30d") or "",
                 c.get("last_synced_at") or "",
             ]
+            + list(creator_topic_export_fields(c).values())
         )
 
     return StarletteResponse(

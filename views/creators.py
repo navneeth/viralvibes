@@ -53,6 +53,7 @@ from utils.creator_metrics import (
 )
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
+from services.creator_topics import parse_creator_topics
 from components.add_creator import AddCreatorForm
 from components.buttons import (
     EstimatedBadge,
@@ -2198,55 +2199,31 @@ def _build_growth_trend(
     )
 
 
-def _render_content_dna_preview(transcript_keywords) -> Div | None:
-    """
-    Low-key preview strip for transcript_keywords (KeyBERT output).
-
-    Intentionally inconspicuous — plain chips inside a collapsed <details>
-    element so it doesn't affect the visual hierarchy during evaluation.
-    Only renders when the creator has keywords (migration 046 + Kaggle
-    write-back complete); returns None otherwise so no gap appears.
-
-    Data shape: [{"kw": "mechanical keyboards", "score": 0.68}, ...]
-    Scores are KeyBERT cosine-similarity, typically 0.40–0.75.
-    """
-    if not transcript_keywords:
+def _render_content_dna_preview(transcript_keywords, metadata=None, uploaded_at=None) -> Div | None:
+    """Render bounded topics with explicit source and date provenance."""
+    profile = parse_creator_topics(transcript_keywords, metadata, uploaded_at)
+    if not profile.topics:
         return None
-
-    if isinstance(transcript_keywords, str):
-        try:
-            transcript_keywords = json.loads(transcript_keywords)
-        except (json.JSONDecodeError, ValueError, TypeError):
-            return None
-
-    if not isinstance(transcript_keywords, list) or not transcript_keywords:
-        return None
-
-    def _fmt_score(score) -> str:
-        if score is None:
-            return "n/a"
-        try:
-            return f"{float(score):.2f}"
-        except (TypeError, ValueError):
-            return "n/a"
 
     chips = [
         Span(
-            k["kw"],
-            cls="px-2 py-0.5 rounded text-xs text-foreground/60 bg-muted border border-border/50",
-            title=f"relevance {_fmt_score(k.get('score'))}",
+            topic,
+            cls="px-2 py-0.5 rounded text-xs text-foreground/60 bg-muted border border-border/50 break-words max-w-full",
         )
-        for k in transcript_keywords[:12]
-        if isinstance(k, dict) and k.get("kw")
+        for topic in profile.topics[:12]
     ]
-    if not chips:
-        return None
+    labels = [profile.source_label]
+    if profile.computed_at:
+        labels.append(f"Computed {profile.computed_at[:10]}")
+    elif profile.uploaded_at:
+        labels.append(f"Uploaded {profile.uploaded_at[:10]}; computation date unavailable")
 
     return Details(
         Summary(
             "Content keywords",
             cls="text-xs text-muted-foreground cursor-pointer select-none py-0.5",
         ),
+        P(" | ".join(labels), cls="text-xs text-muted-foreground pt-2 break-words"),
         Div(*chips, cls="flex flex-wrap gap-1.5 pt-2"),
         cls="px-1",
     )
@@ -4879,7 +4856,14 @@ def render_creator_profile_page(
         cat_dist_card,
         *(
             [content_dna]
-            if (content_dna := _render_content_dna_preview(transcript_keywords)) is not None
+            if (
+                content_dna := _render_content_dna_preview(
+                    transcript_keywords,
+                    safe_get_value(creator, "transcript_keywords_metadata"),
+                    safe_get_value(creator, "transcript_keywords_updated_at"),
+                )
+            )
+            is not None
             else []
         ),
         cls="flex flex-col gap-4",

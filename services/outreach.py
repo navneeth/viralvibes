@@ -13,6 +13,7 @@ import io
 from typing import Any
 
 from services.contact_extractor import extract_contact_signals_from_creator
+from services.creator_topics import TOPIC_EXPORT_HEADERS, creator_topic_export_fields
 
 
 EMAIL_EXPORT_HEADERS = [
@@ -39,7 +40,7 @@ EMAIL_EXPORT_HEADERS = [
     "Country",
     "Language",
     "ViralVibes Profile URL",
-]
+] + TOPIC_EXPORT_HEADERS
 
 
 def _channel_url(creator: dict[str, Any]) -> str:
@@ -108,6 +109,7 @@ def creator_to_outreach_row(
         "ViralVibes Profile URL": (
             f"{base_url.rstrip('/')}/creator/{creator_id}" if creator_id else ""
         ),
+        **creator_topic_export_fields(creator),
     }
 
 

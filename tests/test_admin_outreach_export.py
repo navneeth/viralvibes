@@ -250,7 +250,7 @@ class TestContactExtractorService:
 
     def test_email_export_headers_count_and_order(self):
         headers = ContactExtractorService.EMAIL_EXPORT_HEADERS
-        assert len(headers) == 23
+        assert len(headers) == 28
         assert headers[0] == "Email"
         assert headers[1] == "First Name"
         assert "YouTube URL" in headers

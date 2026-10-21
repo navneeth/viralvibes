@@ -2958,7 +2958,8 @@ _PEER_CREATOR_FIELDS_WITH_CONTACT = (
     "country_code, default_language, "
     "has_contact_info, contact_signals_extracted_at, "
     "extracted_email, extracted_website, extracted_instagram, "
-    "extracted_x, extracted_tiktok, extracted_linkedin"
+    "extracted_x, extracted_tiktok, extracted_linkedin, "
+    "transcript_keywords, transcript_keywords_metadata, transcript_keywords_updated_at"
 )
 
 

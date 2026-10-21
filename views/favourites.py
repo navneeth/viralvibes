@@ -149,7 +149,7 @@ def render_favourites_page(creators: list[dict], user_name: str) -> Div:
                         A(
                             UkIcon("download", cls="w-4 h-4 mr-2"),
                             "Export CSV",
-                            href="/me/favourites/export.csv",
+                            href="/me/favourites/export",
                             cls="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg no-underline transition-colors mr-2",
                         ),
                         A(

@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from services.creator_topics import TOPIC_EXPORT_HEADERS, creator_topic_export_fields
+
 
 @dataclass(frozen=True)
 class ContactSignals:
@@ -258,7 +260,7 @@ class ContactExtractorService:
         "Country",
         "Language",
         "ViralVibes Profile URL",
-    ]
+    ] + TOPIC_EXPORT_HEADERS
 
     @staticmethod
     def extract_from_text(text: str) -> ContactSignals:
@@ -413,6 +415,7 @@ class ContactExtractorService:
             "ViralVibes Profile URL": (
                 f"{base_url.rstrip('/')}/creator/{creator_id}" if creator_id else ""
             ),
+            **creator_topic_export_fields(creator),
         }
 
     @staticmethod
