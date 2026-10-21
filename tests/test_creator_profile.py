@@ -17,6 +17,53 @@ from starlette.testclient import TestClient
 import main
 
 
+def test_topic_preview_labels_legacy_source_and_upload_date():
+    from fasthtml.common import to_xml
+    from views.creators import _render_content_dna_preview
+
+    html = to_xml(
+        _render_content_dna_preview(
+            [{"kw": "mechanical keyboards", "score": 0.7}],
+            uploaded_at="2026-10-20T10:00:00Z",
+        )
+    )
+    assert "mechanical keyboards" in html
+    assert "Source unavailable" in html
+    assert "Uploaded 2026-10-20; computation date unavailable" in html
+    assert "Computed" not in html
+    assert "relevance" not in html
+
+
+def test_topic_preview_escapes_phrases_and_labels_known_source():
+    from fasthtml.common import to_xml
+    from views.creators import _render_content_dna_preview
+
+    html = to_xml(
+        _render_content_dna_preview(
+            [{"kw": "<script>alert(1)</script>"}],
+            metadata={
+                "schema_version": 1,
+                "source": "description",
+                "sampled_video_count": 2,
+                "transcript_video_count": 0,
+                "description_video_count": 2,
+                "computed_at": "2026-10-19T10:00:00Z",
+            },
+        )
+    )
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "Video descriptions" in html
+    assert "Computed 2026-10-19" in html
+
+
+@pytest.mark.parametrize("payload", [None, "broken", [{"kw": None}], {"kw": "topic"}])
+def test_topic_preview_omits_unusable_payloads(payload):
+    from views.creators import _render_content_dna_preview
+
+    assert _render_content_dna_preview(payload) is None
+
+
 class SearchStatusParser(HTMLParser):
     def __init__(self):
         super().__init__()

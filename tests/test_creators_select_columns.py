@@ -15,6 +15,7 @@ When adding a caller that reads a NEW column, add both:
 """
 
 from db import _CREATORS_LIST_COLUMNS
+from db import _PEER_CREATOR_FIELDS_WITH_CONTACT
 
 
 # Every column the view / route / util layers were observed reading from
@@ -70,6 +71,15 @@ REQUIRED_COLUMNS = frozenset(
 
 def _split_columns(select_string: str) -> list[str]:
     return [c.strip() for c in select_string.split(",") if c.strip()]
+
+
+def test_peer_export_projection_includes_topic_provenance():
+    columns = set(_split_columns(_PEER_CREATOR_FIELDS_WITH_CONTACT))
+    assert {
+        "transcript_keywords",
+        "transcript_keywords_metadata",
+        "transcript_keywords_updated_at",
+    } <= columns
 
 
 def test_column_list_has_no_wildcard():
