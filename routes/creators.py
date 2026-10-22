@@ -267,7 +267,8 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     """
 
     # Get query parameters
-    search = request.query_params.get("search", "")
+    # Normalize once so whitespace-only submissions behave like no search.
+    search = request.query_params.get("search", "").strip()
 
     # ═══════════════════════════════════════════════════════════════
     # HANDLE SEARCH MODE (@username)
@@ -365,7 +366,6 @@ def creators_route(request, is_authenticated: bool = False, user_id: str | None 
     # ═══════════════════════════════════════════════════════════════
     # NORMAL SEARCH MODE
     # ═══════════════════════════════════════════════════════════════
-    search = request.query_params.get("search", "")
     # When the user typed an @handle, strip the leading @ before passing the
     # term to the SQL search.  custom_url is stored without the @, so leaving
     # it in causes ILIKE "%@mrbeast%" to match only on `keywords` (where some
