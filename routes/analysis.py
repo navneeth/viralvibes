@@ -8,7 +8,7 @@ the tool before and after a user submits a playlist.
 Design follows the /lists and /creators conventions:
   - Compact page header with theme tokens (text-foreground / text-muted-foreground)
   - Container(cls=ContainerT.xl) wrapper — consistent with the creators page
-  - FeaturePill reused from components.buttons (no bespoke pill HTML)
+    - Shared playlist form and official YouTube artwork
   - No hardcoded gray colours — all resolved via MonsterUI CSS vars
 """
 
@@ -30,17 +30,17 @@ from utils import format_number
 # ---------------------------------------------------------------------------
 
 
-def _page_header() -> Div:
+def _page_header(signed_in: bool = False) -> Div:
     """Compact page header: eyebrow label → H1 → subtitle → feature pills."""
     pills = [
-        ("chart-bar", "Engagement Metrics"),
-        ("trending-up", "Viral Patterns"),
-        ("users", "Audience Insights"),
-        ("zap", "Instant Results"),
+        ("chart-bar", "Video Statistics"),
+        ("trending-up", "Engagement Rates"),
+        ("clock", "Video Duration"),
+        ("history", "Saved Analyses"),
     ]
     return Div(
         P(
-            "YouTube Playlist Intelligence",
+            "YouTube Playlist Analysis",
             cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest",
         ),
         H1(
@@ -48,13 +48,21 @@ def _page_header() -> Div:
             cls="text-2xl sm:text-3xl font-bold text-foreground mt-1",
         ),
         P(
-            "Paste a playlist URL and get deep insights into views, engagement, "
-            "controversy scores, and viral patterns — in seconds.",
+            "Compare views, likes, comments, video duration, and calculated "
+            "engagement rates across a public YouTube playlist.",
             cls="text-muted-foreground mt-2 text-sm sm:text-base max-w-2xl",
         ),
         Div(
             *[FeaturePill(icon, label) for icon, label in pills],
             cls="flex flex-wrap gap-2 mt-4",
+        ),
+        P(
+            (
+                "New analyses are processed in the background."
+                if signed_in
+                else "Sign in to start an analysis."
+            ),
+            cls="text-xs text-muted-foreground mt-3",
         ),
         cls="mb-6 pt-6",
     )
@@ -71,17 +79,17 @@ def _insight_cards() -> Div:
         (
             "bar-chart-2",
             "Performance Metrics",
-            "Views, likes, comments, and dislikes broken down per video so you can spot your best content.",
+            "Compare views, likes, and comments for individual videos in the playlist.",
         ),
         (
             "trending-up",
-            "Engagement & Virality",
-            "Engagement rate and controversy score reveal which videos break through — and why.",
+            "Calculated Engagement",
+            "Compare engagement rates calculated from video likes, comments, and views.",
         ),
         (
             "clock",
             "Duration Analysis",
-            "Average video length and watch-time patterns help you find the optimal content format.",
+            "Review individual video durations and the average video length in the playlist.",
         ),
     ]
     return Div(
@@ -138,7 +146,7 @@ def _playlist_icon(title: str) -> str:
     return _DEFAULT_ICON
 
 
-def _sample_row(playlist: dict) -> Div:
+def _sample_row(playlist: dict) -> Button:
     """Single action row for one sample playlist."""
     title = playlist.get("title", "Untitled Playlist")
     url = playlist.get("url", "")
@@ -149,35 +157,35 @@ def _sample_row(playlist: dict) -> Div:
     # Defensive: null-check elements before accessing to avoid errors if template changes.
     _js = (
         "const urlInput = document.getElementById('playlist_url'); "
-        f"if (urlInput) urlInput.value = {url!r}; "
+        f"if (urlInput) {{ urlInput.value = {url!r}; "
+        "urlInput.dispatchEvent(new Event('input', {bubbles:true})); urlInput.focus(); } "
         "const form = document.getElementById('analysis-form'); "
         "if (form) form.scrollIntoView({behavior:'smooth',block:'start'});"
     )
 
-    return Div(
+    return Button(
         # Icon
         UkIcon(icon, cls="w-5 h-5 text-muted-foreground flex-none"),
         # Title
-        Span(title, cls="flex-1 text-sm font-medium text-foreground truncate"),
+        Span(title, cls="flex-1 min-w-0 text-left text-sm font-medium text-foreground break-words"),
         # Video count badge
         Span(
             f"{video_count:,} videos",
             cls="hidden sm:inline-flex text-xs text-muted-foreground whitespace-nowrap",
         ),
         # Analyze button
-        Button(
-            "Analyze →",
-            type="button",
+        Span(
+            "Use playlist",
             cls="text-xs font-medium text-primary hover:underline bg-transparent border-0 cursor-pointer p-0 whitespace-nowrap",
         ),
+        type="button",
+        aria_label=f"Use playlist: {title}",
         cls=(
-            "flex items-center gap-3 px-3 py-2.5 -mx-3 rounded-lg "
-            "hover:bg-muted/50 transition-colors "
+            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left "
+            "hover:bg-muted/50 transition-colors focus-visible:outline focus-visible:outline-2 "
             "border-b border-border last:border-b-0 cursor-pointer"
         ),
         onclick=_js,
-        role="button",
-        tabindex="0",
     )
 
 
@@ -192,7 +200,7 @@ def _sample_playlists() -> Div | None:
             Div(
                 UkIcon("sparkles", cls="w-4 h-4 text-muted-foreground"),
                 H2(
-                    "Popular playlists to try",
+                    "Sample playlists",
                     cls="text-base font-semibold text-foreground",
                 ),
                 cls="flex items-center gap-2",
@@ -206,9 +214,9 @@ def _sample_playlists() -> Div | None:
         # Rows
         Div(
             *[_sample_row(p) for p in KNOWN_PLAYLISTS],
-            cls="px-3",
+            cls="divide-y divide-border",
         ),
-        cls="border border-border rounded-2xl p-4 mb-8",
+        cls="border-t border-border pt-5 mb-8",
     )
 
 
@@ -324,7 +332,7 @@ def analysis_page_content(user_id: str | None = None) -> Div:
     """
     Full body content for the /analysis route (without nav/title wrapper).
     Composed of: page header → analysis form (compact) → insight cards
-                 → recent analyses (logged-in users only).
+                 → sample playlists → recent analyses (logged-in users only).
     Returns a bare Div — the caller (route handler) provides the Container.
 
     Args:
@@ -333,7 +341,7 @@ def analysis_page_content(user_id: str | None = None) -> Div:
     recent = _recent_analyses(user_id) if user_id else None
     samples = _sample_playlists()
     return Div(
-        _page_header(),
+        _page_header(signed_in=bool(user_id)),
         AnalysisFormCard(compact=True),
         _insight_cards(),
         *([] if samples is None else [samples]),

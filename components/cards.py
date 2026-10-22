@@ -5,10 +5,11 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from fasthtml.common import *
+from fasthtml.common import Label as HtmlLabel
 from monsterui.all import *
 
 from components.base import STEPS_CLS, DivCentered, styled_div
-from components.buttons import FeaturePill, cta, paste_button, progress_meter
+from components.buttons import FeaturePill, YouTubeBrandIcon, cta, paste_button, progress_meter
 from constants import (
     BENEFITS,
     CARD_BASE,
@@ -575,7 +576,7 @@ def AnalysisFormCard(compact: bool = False) -> Div:
                  the dedicated /analysis page which supplies its own header).
     """
     # Get a random prefill URL from the known playlists
-    prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS else ""
+    prefill_url = random.choice(KNOWN_PLAYLISTS)["url"] if KNOWN_PLAYLISTS and not compact else ""
 
     _hero = (
         []
@@ -621,26 +622,33 @@ def AnalysisFormCard(compact: bool = False) -> Div:
     return styled_div(
         *_hero,
         # --- Steps with better styling ---
-        styled_div(
-            id="steps-container",
-            children=[PlaylistSteps(completed_steps=0)],
-            cls="justify-center my-10 px-6",
+        (
+            styled_div(
+                id="steps-container",
+                children=[PlaylistSteps(completed_steps=0)],
+                cls="justify-center my-10 px-6",
+            )
+            if not compact
+            else None
         ),
         # Main form – clean modern input
         Form(
             # Input section with label and hint
-            Label(
-                "Playlist URL 🔗 ",
-                cls="block text-sm font-medium text-gray-700 mb-2",
+            HtmlLabel(
+                "Playlist URL",
+                fr="playlist_url",
+                cls="block text-sm font-medium text-foreground mb-2",
             ),
             # Input group with leading icon + trailing paste
             Div(
-                # Leading YouTube icon — 24 px per YouTube branding minimum.
-                # UkIcon's cls-based sizing is not honoured as a hard size by
-                # UIkit, so we pass explicit height/width kwargs.
-                Div(
-                    UkIcon("youtube", height=24, width=24, cls="text-red-600"),
-                    cls="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2",
+                A(
+                    YouTubeBrandIcon(),
+                    href="https://www.youtube.com/",
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    aria_label="YouTube",
+                    title="YouTube",
+                    cls="absolute left-2 top-1/2 -translate-y-1/2 rounded focus-visible:outline focus-visible:outline-2",
                 ),
                 # Input field – clean, minimal border
                 Input(
@@ -651,38 +659,44 @@ def AnalysisFormCard(compact: bool = False) -> Div:
                     value=prefill_url,
                     required=True,
                     cls=(
-                        "w-full pl-12 pr-12 py-4 text-gray-900 bg-white "
-                        "border border-gray-300 rounded-xl "
-                        "focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent "
-                        "shadow-sm hover:shadow transition-shadow duration-200"
+                        "w-full min-w-0 pl-16 pr-14 py-3 text-sm text-foreground bg-background "
+                        "border border-border rounded-md "
+                        "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     ),
+                    aria_describedby="playlist_url_status",
                 ),
                 # Paste button (trailing)
                 Div(
                     paste_button("playlist_url"),
                     cls="absolute right-3 top-1/2 -translate-y-1/2",
                 ),
-                # Status feedback
-                Span(
-                    "",
-                    id="playlist_url_status",
-                    cls="absolute -bottom-5 left-0 text-xs",
-                ),
-                cls="relative mb-6",
+                cls="relative",
+            ),
+            P(
+                "",
+                id="playlist_url_status",
+                cls="text-xs min-h-5 mt-1 mb-3",
+                role="status",
+                aria_live="polite",
             ),
             # Helper text
-            P(
-                "💡 Works with any public playlist. Paste the link and click the clipboard icon.",
-                cls="text-sm text-gray-500 text-center mb-8",
+            (
+                P(
+                    "💡 Works with any public playlist. Paste the link and click the clipboard icon.",
+                    cls="text-sm text-gray-500 text-center mb-8",
+                )
+                if not compact
+                else None
             ),
             # Primary CTA – modern red gradient
             Button(
-                Span(UkIcon("chart-bar", cls="w-5 h-5"), "Analyze Playlist"),
+                UkIcon("chart-bar", cls="w-4 h-4"),
+                "Analyze Playlist",
                 type="submit",
                 cls=(
-                    f"w-full {ButtonT.primary} {THEME['primary_hover']} transition-all duration-300 "
-                    "py-3 text-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.02] "
-                    "active:scale-95 flex items-center justify-center"
+                    f"{ButtonT.primary} w-full sm:w-auto px-5 py-3 text-sm font-semibold "
+                    "inline-flex items-center justify-center gap-2 rounded-md "
+                    "disabled:opacity-60 disabled:cursor-wait"
                 ),
             ),
             # Sample playlists (if available)
@@ -701,7 +715,7 @@ def AnalysisFormCard(compact: bool = False) -> Div:
                     ),
                     cls="mt-6",
                 )
-                if KNOWN_PLAYLISTS
+                if KNOWN_PLAYLISTS and not compact
                 else None
             ),
             # Loading indicator with better positioning
@@ -709,25 +723,31 @@ def AnalysisFormCard(compact: bool = False) -> Div:
                 id="loading",
                 cls=(LoadingT.bars, LoadingT.lg),
                 htmx_indicator=True,
+                aria_label="Loading playlist",
             ),
             # HTMX configuration
             hx_post="/validate/url",
             hx_target="#validation-feedback",
             hx_swap="innerHTML",
             hx_indicator="#loading",
-            cls="px-8 pb-8",
+            hx_disabled_elt="find button[type='submit']",
+            cls="p-4 sm:p-6" if compact else "px-8 pb-8",
         ),
         # --- Feedback + Results sections  ---
-        styled_div(id="validation-feedback", cls="mt-6 px-8"),
-        styled_div(id="preview-box", cls="mt-6 px-8"),
-        styled_div(id="result", cls="mt-8 px-8 pb-8"),
+        styled_div(id="validation-feedback", cls="px-4 sm:px-6", role="status", aria_live="polite"),
+        styled_div(id="preview-box", cls="px-4 sm:px-6", aria_live="polite"),
+        styled_div(id="result", cls="px-4 sm:px-6"),
         # --- Styling (outermost container only) ---
         cls=(
-            f"{THEME['card_base']} space-y-0 w-full my-12 rounded-2xl shadow-xl "
-            "border border-gray-200/70 overflow-hidden"
+            "w-full border border-border rounded-lg bg-background mb-6"
+            if compact
+            else (
+                f"{THEME['card_base']} space-y-0 w-full my-12 rounded-2xl shadow-xl "
+                "border border-gray-200/70 overflow-hidden"
+            )
         ),
-        style=FORM_CARD,
-        uk_scrollspy="cls: uk-animation-slide-bottom-small",
+        style=None if compact else FORM_CARD,
+        uk_scrollspy=None if compact else "cls: uk-animation-slide-bottom-small",
         id="analysis-form",
     )
 

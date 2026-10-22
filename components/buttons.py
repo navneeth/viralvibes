@@ -9,6 +9,20 @@ from monsterui.all import *
 from constants import STYLES
 
 
+def YouTubeBrandIcon(width: int = 52) -> Img:
+    """Official full-color artwork; width includes the supplied clear space."""
+    if width <= 0:
+        raise ValueError("YouTube icon width must be positive")
+    return Img(
+        src="/assets/icons/youtube-official-red.svg",
+        width=width,
+        height=round(width * 515.868 / 602.187, 3),
+        alt="",
+        aria_hidden="true",
+        style=f"width:{width}px;height:auto;flex-shrink:0;object-fit:contain;",
+    )
+
+
 def cta(text: str, icon: Optional[str] = None, kind: str = "full", **kwargs) -> Button:
     """Create a CTA using centralized CSS classes
     from main.css (kind='full'|'refresh'|'secondary')."""
@@ -61,21 +75,37 @@ def paste_button(target_id: str) -> Button:
     status_id = f"{target_id}_status"
     onclick = f"""
         const btn = this, input = document.getElementById('{target_id}'), status = document.getElementById('{status_id}');
+        clearTimeout(status._pasteStatusTimer);
+        if (!navigator.clipboard || !navigator.clipboard.readText) {{
+            status.textContent = 'Clipboard unavailable. Paste directly into the URL field.';
+            input.focus();
+            return;
+        }}
+        const initialValue = input.value;
+        let inputChanged = false;
+        const trackInput = () => {{ inputChanged = true; }};
+        input.addEventListener('input', trackInput, {{ once: true }});
         btn.disabled = true;
         navigator.clipboard.readText()
             .then(text => {{
+                if (inputChanged || input.value !== initialValue) return;
                 input.value = text.trim();
                 input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 status.textContent = '✓ Pasted';
-                status.className = 'text-green-600 text-xs font-semibold';
-                setTimeout(() => status.textContent = '', 1500);
+                status.classList.remove('text-red-600');
+                status.classList.add('text-green-600');
+                status._pasteStatusTimer = setTimeout(() => status.textContent = '', 1500);
             }})
             .catch(() => {{
-                status.textContent = '✗ Paste failed';
-                status.className = 'text-red-600 text-xs font-semibold';
-                setTimeout(() => status.textContent = '', 2000);
+                status.textContent = 'Clipboard access denied. Paste directly into the URL field.';
+                status.classList.remove('text-green-600');
+                status.classList.add('text-red-600');
+                input.focus();
             }})
-            .finally(() => btn.disabled = false);
+            .finally(() => {{
+                input.removeEventListener('input', trackInput);
+                btn.disabled = false;
+            }});
     """
 
     return Button(
@@ -278,7 +308,7 @@ _YT_BRAND_MIN_PX = 24
 
 
 def YtIcon(variant: str = "branded", size: int = _YT_BRAND_MIN_PX) -> NotStr:
-    """Inline SVG YouTube play-button icon.
+    """Legacy inline icon API; use YouTubeBrandIcon for new full-color usage.
 
     variant="branded" — red rectangle, white triangle (for light/transparent bg).
     variant="mono"    — white evenodd punch-out shape (for use inside a red button).

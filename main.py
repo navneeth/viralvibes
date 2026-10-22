@@ -1475,17 +1475,19 @@ def analysis(req, sess):
         logger.warning(
             f"Deferred job submission failed for {intended_playlist_url}; showing analysis form"
         )
-    _analysis_title = "YouTube Playlist Analyzer — Instant Engagement & Viral Score | ViralVibes"
+    _analysis_title = "YouTube Playlist Analysis | ViralVibes"
     _analysis_desc = (
-        "Paste any YouTube playlist URL and instantly see engagement rate, viral score, "
-        "view distribution and top-performing videos. Free, no sign-up required."
+        "Analyze public YouTube playlists. Compare video views, likes, comments, "
+        "duration, and calculated engagement rates. Sign in to start an analysis."
     )
-    return Titled(
-        _analysis_title,
-        Container(
-            NavComponent(oauth, req, sess),
-            analysis_page_content(user_id=user_id),
-            cls=ContainerT.xl,
+    return (
+        Title(_analysis_title),
+        Main(
+            Container(
+                NavComponent(oauth, req, sess),
+                analysis_page_content(user_id=user_id),
+                cls=ContainerT.xl,
+            ),
         ),
         *page_seo_tags(_analysis_title, _analysis_desc, "/analysis"),
     )
