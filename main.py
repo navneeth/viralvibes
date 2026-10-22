@@ -409,7 +409,8 @@ hdrs = Theme.red.headers(apex_charts=True)
 
 # Add custom CSS and JS to headers
 hdrs += (
-    Link(rel="stylesheet", href="/css/main.css"),
+    # v=2 invalidates the old URL, which Vercel previously cached as immutable.
+    Link(rel="stylesheet", href="/css/main.css?v=2"),
     Script(src="/js/index.js", defer=True),
     Script(src="/js/reveal.js", defer=True),
 )
