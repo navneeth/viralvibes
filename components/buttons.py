@@ -75,20 +75,26 @@ def paste_button(target_id: str) -> Button:
     status_id = f"{target_id}_status"
     onclick = f"""
         const btn = this, input = document.getElementById('{target_id}'), status = document.getElementById('{status_id}');
+        clearTimeout(status._pasteStatusTimer);
         if (!navigator.clipboard || !navigator.clipboard.readText) {{
             status.textContent = 'Clipboard unavailable. Paste directly into the URL field.';
             input.focus();
             return;
         }}
+        const initialValue = input.value;
+        let inputChanged = false;
+        const trackInput = () => {{ inputChanged = true; }};
+        input.addEventListener('input', trackInput, {{ once: true }});
         btn.disabled = true;
         navigator.clipboard.readText()
             .then(text => {{
+                if (inputChanged || input.value !== initialValue) return;
                 input.value = text.trim();
                 input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 status.textContent = '✓ Pasted';
                 status.classList.remove('text-red-600');
                 status.classList.add('text-green-600');
-                setTimeout(() => status.textContent = '', 1500);
+                status._pasteStatusTimer = setTimeout(() => status.textContent = '', 1500);
             }})
             .catch(() => {{
                 status.textContent = 'Clipboard access denied. Paste directly into the URL field.';
@@ -96,7 +102,10 @@ def paste_button(target_id: str) -> Button:
                 status.classList.add('text-red-600');
                 input.focus();
             }})
-            .finally(() => btn.disabled = false);
+            .finally(() => {{
+                input.removeEventListener('input', trackInput);
+                btn.disabled = false;
+            }});
     """
 
     return Button(

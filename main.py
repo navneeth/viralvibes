@@ -1484,11 +1484,8 @@ def analysis(req, sess):
         Title(_analysis_title),
         Main(
             Container(
-                Container(
-                    NavComponent(oauth, req, sess),
-                    analysis_page_content(user_id=user_id),
-                    cls=ContainerT.xl,
-                ),
+                NavComponent(oauth, req, sess),
+                analysis_page_content(user_id=user_id),
                 cls=ContainerT.xl,
             ),
         ),
