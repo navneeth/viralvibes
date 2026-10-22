@@ -5,6 +5,7 @@ Includes Google OAuth with token revocation support.
 """
 
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -408,8 +409,10 @@ def init_app_services(app):
 hdrs = Theme.red.headers(apex_charts=True)
 
 # Add custom CSS and JS to headers
+_main_css_path = Path(__file__).resolve().parent / "css" / "main.css"
+_main_css_version = hashlib.sha256(_main_css_path.read_bytes()).hexdigest()[:12]
 hdrs += (
-    Link(rel="stylesheet", href="/css/main.css"),
+    Link(rel="stylesheet", href=f"/css/main.css?v={_main_css_version}"),
     Script(src="/js/index.js", defer=True),
     Script(src="/js/reveal.js", defer=True),
 )
