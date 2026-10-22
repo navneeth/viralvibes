@@ -424,23 +424,50 @@ def HeaderCard() -> Div:
                         HERO_SUBHEADLINE,
                         cls="vv-sub vv-word delay-4",
                     ),
+                    Form(
+                        Label(
+                            "Search creators",
+                            **{"for": "home-creator-search"},
+                            cls="vv-search-label",
+                        ),
+                        Div(
+                            UkIcon("search", cls="vv-search-icon", aria_hidden="true"),
+                            Input(
+                                id="home-creator-search",
+                                name="search",
+                                type="search",
+                                placeholder="Creator name or @handle",
+                                aria_label="Search creators by name or handle",
+                                enterkeyhint="search",
+                                required=True,
+                                cls="vv-search-input",
+                            ),
+                            Button(
+                                "Search",
+                                type="submit",
+                                cls="vv-search-button",
+                            ),
+                            cls="vv-search-control",
+                        ),
+                        P(
+                            "Try a name or @handle, like ",
+                            Strong("@mrbeast"),
+                            ".",
+                            cls="vv-search-hint",
+                        ),
+                        action="/creators",
+                        method="get",
+                        enctype="application/x-www-form-urlencoded",
+                        role="search",
+                        cls="vv-search-form vv-word delay-5",
+                    ),
                     # Dual CTA row
                     Div(
                         A(
                             UkIcon("users", cls="w-5 h-5"),
                             Span("Explore Creators"),
                             href="/creators",
-                            style=(
-                                "display:inline-flex; align-items:center; gap:0.6rem;"
-                                "padding:0.72rem 1.4rem;"
-                                "background:#ef4444; color:#fff;"
-                                "font-weight:600; font-size:0.88rem;"
-                                "border-radius:0.6rem;"
-                                "text-decoration:none;"
-                                "box-shadow:0 0 0 1px rgba(239,68,68,0.2), 0 4px 14px rgba(239,68,68,0.4);"
-                                "animation:ring-pulse 2.4s ease-out infinite;"
-                                "transition:background 0.2s, box-shadow 0.2s, transform 0.15s;"
-                            ),
+                            cls="vv-secondary-cta",
                         ),
                         A(
                             UkIcon("list", cls="w-5 h-5"),
@@ -527,16 +554,7 @@ def HeaderCard() -> Div:
                         _product_switcher(),
                         style="padding:0.85rem;",
                     ),
-                    style=(
-                        "flex: 1;"
-                        "background: rgba(255,255,255,0.03);"
-                        "border: 1px solid rgba(255,255,255,0.08);"
-                        "border-radius: 0.9rem;"
-                        "overflow: hidden;"
-                        "margin: 1.5rem 2rem 1.5rem 0;"
-                        "position: relative; z-index:1;"
-                        "min-width:240px;"
-                    ),
+                    cls="vv-preview",
                 ),
                 cls="vv-layout",
             ),
