@@ -84,6 +84,43 @@ class TestPublicEndpoints:
         assert r.status_code == 200
         assert "ViralVibes" in r.text or "Decode YouTube virality" in r.text
 
+    def test_analysis_page_has_factual_title_and_sign_in_expectation(self, client):
+        response = client.get("/analysis")
+        assert response.status_code == 200
+        assert "YouTube Playlist Analysis | ViralVibes" in response.text
+        assert response.text.count("<h1") == 1
+        assert response.text.count("<main") == 1
+        assert "Sign in to start an analysis." in response.text
+        for claim in ("Instant Engagement", "Viral Score", "Instant Results", "watch-time"):
+            assert claim not in response.text
+
+    def test_analysis_restored_sections_render_for_signed_in_user(self, monkeypatch):
+        from fasthtml.common import to_xml
+        from routes.analysis import analysis_page_content
+
+        monkeypatch.setattr(
+            "routes.analysis.get_user_dashboards",
+            lambda *args, **kwargs: [{"dashboard_id": "saved", "title": "Saved playlist"}],
+        )
+        html = to_xml(analysis_page_content(user_id="user-1"))
+        assert html.index("What you'll discover") < html.index("Sample playlists")
+        assert html.index("Sample playlists") < html.index("Your recent analyses")
+        assert "Calculated Engagement" in html
+        assert "Duration Analysis" in html
+        assert html.count("Sample playlists") == 1
+        assert "Sign in to start an analysis." not in html
+
+    def test_analysis_sample_is_one_native_button(self):
+        from fasthtml.common import to_xml
+        from routes.analysis import _sample_row
+
+        html = to_xml(_sample_row({"title": "Sample", "url": TEST_PLAYLIST_URL}))
+        assert html.count("<button") == 1
+        assert 'type="button"' in html
+        assert 'role="button"' not in html
+        assert "dispatchEvent" in html
+        assert "focus()" in html
+
     def test_newsletter_signup_success(self, client, monkeypatch):
         """Test successful newsletter signup."""
         # Mock Supabase client

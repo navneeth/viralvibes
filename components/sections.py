@@ -17,6 +17,7 @@ from fasthtml.svg import Circle, G, Line, Svg, Title
 from monsterui.all import *
 
 from components.base import DivFullySpaced, DivHStacked, maxpx, maxrem, styled_div
+from components.buttons import YouTubeBrandIcon
 from components.cards import accordion, benefit
 from constants import (
     FLEX_BETWEEN,
@@ -793,34 +794,41 @@ def _SocialIcon(
     label: str,
     icon_cls: str = "size-4",
     icon_px: int | None = None,
+    *,
+    artwork=None,
 ) -> A:
-    """Award-SaaS-style circular social icon button.
+    """Shared social link with accessible naming and keyboard focus.
 
-    Resting state: muted icon in a subtle bordered pill.
-    Hover: border + icon shift to red, gentle scale + background tint.
-
-    ``icon_px``, when set, is passed as explicit ``height``/``width`` kwargs
-    to ``UkIcon`` so the rendered SVG matches that pixel size regardless of
-    UIkit's cls-based defaults.  Required for the YouTube icon per Google's
-    branding guidelines (20 px minimum, 24 px preferred).
+    Generic icons use a circular hover treatment. Custom artwork keeps its
+    intrinsic dimensions and colors, without scaling or decorative effects.
+    ``icon_px`` sets explicit dimensions for generic UIkit icons only.
     """
     icon_kwargs: dict = {"cls": icon_cls}
     if icon_px is not None:
         icon_kwargs["height"] = icon_px
         icon_kwargs["width"] = icon_px
     return A(
-        UkIcon(icon, **icon_kwargs),
+        artwork if artwork is not None else UkIcon(icon, **icon_kwargs),
         href=href,
         target="_blank",
         rel="noopener noreferrer",
         aria_label=label,
+        title=label,
         cls=(
-            "size-9 rounded-full flex items-center justify-center "
-            "border border-border bg-background text-muted-foreground "
-            "hover:border-red-500 hover:text-red-500 hover:bg-red-50 "
-            "dark:hover:bg-red-950/20 "
-            "hover:scale-110 "
-            "transition-all duration-200 ease-out"
+            (
+                "inline-flex items-center justify-center rounded "
+                "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            )
+            if artwork is not None
+            else (
+                "size-9 rounded-full flex items-center justify-center "
+                "border border-border bg-background text-muted-foreground "
+                "hover:border-red-500 hover:text-red-500 hover:bg-red-50 "
+                "dark:hover:bg-red-950/20 "
+                "hover:scale-110 "
+                "transition-all duration-200 ease-out "
+                "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            )
         ),
     )
 
@@ -860,12 +868,7 @@ def footer():
                         "youtube",
                         SOCIALS["youtube"],
                         "ViralVibes on YouTube",
-                        # 24 px — YouTube branding minimum is 20 px; UkIcon's
-                        # cls-based sizing (size-5) is not honoured as a hard
-                        # size by UIkit, so explicit height/width kwargs are
-                        # required to keep the icon above the floor.
-                        icon_cls="size-6",
-                        icon_px=24,
+                        artwork=YouTubeBrandIcon(),
                     ),
                     _SocialIcon("x", SOCIALS["x"], "ViralVibes on X (Twitter)"),
                     _SocialIcon("linkedin", SOCIALS["linkedin"], "ViralVibes on LinkedIn"),
