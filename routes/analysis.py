@@ -89,7 +89,7 @@ def _insight_cards() -> Div:
         (
             "clock",
             "Duration Analysis",
-            "Average video length and watch-time patterns help you find the optimal content format.",
+            "Review individual video durations and the average video length in the playlist.",
         ),
     ]
     return Div(
