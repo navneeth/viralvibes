@@ -645,7 +645,7 @@ class TestCreatorProfile:
             "recent_views_median": 1000,
             "recent_video_sample_size": 6,
             "outlier_scored_video_count": 6,
-            "outlier_method_version": "duration_adjusted_daily_views_percentile_v2",
+            "outlier_method_version": "duration_adjusted_daily_views_percentile_v3",
             "outlier_count": 1,
             "outlier_videos": [
                 {
@@ -657,8 +657,8 @@ class TestCreatorProfile:
                     "like_count": 250,
                     "outlier_percentile": 95.0,
                     "view_multiplier": 4.0,
-                    "observed_views_per_day": 200,
-                    "expected_views_per_day": 50,
+                    "observed_views_per_day": 200.4,
+                    "expected_views_per_day": 50.2,
                     "comparison_sample_size": 5,
                     "is_short": False,
                     "duration_sec": 190,
@@ -674,8 +674,8 @@ class TestCreatorProfile:
         assert "Breakout Video" in r.text
         assert "P95" in r.text
         assert "4.0x" in r.text
-        assert "200 views/day" in r.text
-        assert "Expected 50/day" in r.text
+        assert "200.4 views/day" in r.text
+        assert "Expected 50.2/day" in r.text
         assert "overflow-x-auto snap-x" in r.text
 
     def test_profile_shows_no_standout_state_when_sample_has_none(self, client, monkeypatch):
@@ -685,7 +685,7 @@ class TestCreatorProfile:
             "recent_views_median": 1000,
             "recent_video_sample_size": 8,
             "outlier_scored_video_count": 8,
-            "outlier_method_version": "duration_adjusted_daily_views_percentile_v2",
+            "outlier_method_version": "duration_adjusted_daily_views_percentile_v3",
             "outlier_count": 0,
             "outlier_videos": [],
         }

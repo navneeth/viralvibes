@@ -122,6 +122,20 @@ def test_equal_views_per_day_across_video_ages_are_not_standouts():
     assert result["outlier_videos"] == []
 
 
+def test_uploads_younger_than_one_day_are_not_scored():
+    videos = [
+        _video_item(0, 50_000, age_days=0),
+        _video_item(1, 2_000, age_days=2),
+        _video_item(2, 3_000, age_days=3),
+        _video_item(3, 4_000, age_days=4),
+    ]
+
+    result = _build_recent_video_intelligence(_playlist_items(4), videos, as_of=_AS_OF)
+
+    assert result["outlier_scored_video_count"] == 2
+    assert all(row["video_id"] != "video-00" for row in result["outlier_videos"])
+
+
 def test_recent_video_intelligence_returns_no_outliers_for_zero_median():
     videos = [_video_item(idx, 0) for idx in range(6)]
 
@@ -133,14 +147,21 @@ def test_recent_video_intelligence_returns_no_outliers_for_zero_median():
 
 
 def test_recent_video_intelligence_caps_stored_outliers_to_top_five():
-    views = [3000, 2700, 2400, 2100, 1800, 1650] + [100 * (10 + idx) for idx in range(6, 20)]
+    daily_rates = [400, 800, 300, 700, 200, 600] + [100] * 14
+    views = [rate * (10 + idx) for idx, rate in enumerate(daily_rates)]
     videos = [_video_item(idx, view_count) for idx, view_count in enumerate(views)]
 
     result = _build_recent_video_intelligence(_playlist_items(20), videos, as_of=_AS_OF)
 
     assert result["outlier_count"] == 6
     assert len(result["outlier_videos"]) == 5
-    assert result["outlier_videos"][0]["video_id"] == "video-00"
+    assert [row["video_id"] for row in result["outlier_videos"]] == [
+        "video-01",
+        "video-03",
+        "video-05",
+        "video-04",
+        "video-02",
+    ]
 
 
 def test_recent_video_intelligence_defaults_missing_likes_to_zero():
@@ -152,7 +173,6 @@ def test_recent_video_intelligence_defaults_missing_likes_to_zero():
     assert result["outlier_videos"][0]["like_count"] == 0
 
 
-@pytest.mark.skip(reason="Temporarily disabled for debugging")
 def test_recent_video_intelligence_processes_videos_with_empty_playlist_items():
     """Videos are still processed even if playlist_items is empty (only affects ordering)."""
     videos = [_video_item(idx, 100 * (10 + idx)) for idx in range(3)]

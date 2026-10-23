@@ -4504,8 +4504,8 @@ def render_creator_profile_page(
             )
             if has_current_method:
                 outlier_percentile = float(video.get("outlier_percentile") or 50)
-                observed_rate = int(video.get("observed_views_per_day") or 0)
-                expected_rate = int(video.get("expected_views_per_day") or 0)
+                observed_rate = float(video.get("observed_views_per_day") or 0)
+                expected_rate = float(video.get("expected_views_per_day") or 0)
                 comparison_count = int(video.get("comparison_sample_size") or 0)
                 score_position = min(100.0, max(50.0, outlier_percentile))
                 score_label = f"P{outlier_percentile:.0f} · {format_float(vid_multiplier, 1)}x"
@@ -4513,10 +4513,10 @@ def render_creator_profile_page(
                 score_details = [
                     Span(f"{format_number(vid_views)} total views", cls=_CLS_MUTED_XS),
                     Span(
-                        f"{format_number(observed_rate)} views/day",
+                        f"{format_float(observed_rate, 1)} views/day",
                         cls="text-xs font-medium text-foreground",
                     ),
-                    Span(f"Expected {format_number(expected_rate)}/day", cls=_CLS_MUTED_XS),
+                    Span(f"Expected {format_float(expected_rate, 1)}/day", cls=_CLS_MUTED_XS),
                     Span(
                         f"Compared with {comparison_count} earlier uploads",
                         cls=_CLS_MUTED_XS,

@@ -103,7 +103,7 @@ before deploying the updated creator worker and profile. It adds nullable
 `outlier_scored_video_count` and `outlier_method_version` columns; it does not
 backfill or rewrite existing `outlier_videos`. Profiles keep showing legacy
 raw-view-median results until the worker writes
-`duration_adjusted_daily_views_percentile_v2` on the next creator sync.
+`duration_adjusted_daily_views_percentile_v3` on the next creator sync.
 
 The new score is a duration-weighted empirical percentile of lifetime views/day
 against chronologically earlier uploads. There is no configurable multiplier

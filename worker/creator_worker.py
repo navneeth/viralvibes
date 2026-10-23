@@ -48,6 +48,7 @@ from constants import (
     CREATOR_WORKER_MAX_RETRIES,
     CREATOR_WORKER_POLL_INTERVAL,
     CREATOR_WORKER_RETRY_BASE,
+    MIN_OUTLIER_AGE_DAYS,
     OUTLIER_METHOD_VERSION,
 )
 from db import (
@@ -653,7 +654,7 @@ def _build_recent_video_intelligence(
     views/day among earlier uploads. Duration similarity affects peer weights;
     the candidate is excluded, and the median (P50) is the natural baseline.
     """
-    if not playlist_items or not video_items:
+    if not video_items:
         return _empty_recent_video_intelligence()
 
     sampled_at = as_of or datetime.now(timezone.utc)
@@ -738,7 +739,7 @@ def _build_recent_video_intelligence(
         if published_dt is None or row["view_count"] <= 0:
             continue
         age_days = (sampled_at - published_dt).total_seconds() / 86_400
-        if age_days > 0:
+        if age_days >= MIN_OUTLIER_AGE_DAYS:
             rates[row["video_id"]] = row["view_count"] / age_days
 
     outliers = []
@@ -1410,8 +1411,10 @@ async def handle_resolve_and_add_job(
     if not supabase_client:
         raise RuntimeError("Supabase client not initialized")
 
-    # STAGE 1: Mark as processing
-    mark_creator_sync_processing(job_id)
+    # Claim atomically before starting resolution/API work.
+    if not mark_creator_sync_processing(job_id):
+        logger.info("%s Job claim lost; another worker owns it", job_tag)
+        return False
 
     try:
         # STAGE 2: Determine channel_id
@@ -1520,6 +1523,23 @@ async def handle_resolve_and_add_job(
 # =============================================================================
 
 
+def _update_creator_snapshot(
+    creator_id: str,
+    payload: dict,
+    snapshot_started_at: datetime,
+):
+    """Write a creator snapshot only if it is newer than the stored sync."""
+    snapshot_iso = snapshot_started_at.isoformat()
+    return (
+        supabase_client.table(CREATOR_TABLE)
+        .update(payload)
+        .eq("id", creator_id)
+        .or_(f"last_synced_at.is.null,last_synced_at.lt.{snapshot_iso}")
+        .select("id")
+        .execute()
+    )
+
+
 async def handle_sync_job(
     job_id: int,
     creator_id: str,
@@ -1530,11 +1550,10 @@ async def handle_sync_job(
     Handle a single creator sync job with comprehensive error handling.
 
     Steps:
-    1. Fetch creator metadata (channel_id)
-    2. Mark job as processing
-    3. Fetch channel data from YouTube API
-    4. Update database with normalized data
-    5. Mark job as completed or failed
+    1. Claim the pending job
+    2. Fetch creator metadata and YouTube data
+    3. Write a snapshot only if it is newer than the stored sync
+    4. Mark the job as completed or failed
 
     Args:
         job_id: Sync job ID
@@ -1553,6 +1572,13 @@ async def handle_sync_job(
 
         if not supabase_client:
             raise RuntimeError("Supabase client not initialized")
+
+        # Claim before reading creator state or calling YouTube. A competing
+        # worker that fetched the same pending job must stop here.
+        if not mark_creator_sync_processing(job_id):
+            logger.info("%s Job claim lost; another worker owns it", job_tag)
+            return False
+        snapshot_started_at = datetime.now(timezone.utc)
 
         # STAGE 1: Fetch creator metadata (including previous stats for delta calculation)
         creator_response = (
@@ -1587,11 +1613,7 @@ async def handle_sync_job(
 
         logger.info(f"{job_tag} Creator: {channel_name} ({channel_id})")
 
-        # STAGE 2: Mark as processing
-        mark_creator_sync_processing(job_id)
-        logger.debug(f"{job_tag} Marked as processing")
-
-        # STAGE 3: Fetch channel data
+        # STAGE 2: Fetch channel data
         logger.info(f"{job_tag} Fetching data from YouTube API...")
         try:
             channel_data = await asyncio.wait_for(
@@ -1882,7 +1904,7 @@ async def handle_sync_job(
                 "sync_status": normalized_sync_status,
                 "sync_error_message": sync_error,
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
-                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+                "last_synced_at": snapshot_started_at.isoformat(),
             }
         )
 
@@ -1913,17 +1935,12 @@ async def handle_sync_job(
 
         # STAGE 4: Write to DB
         try:
-            result = (
-                supabase_client.table(CREATOR_TABLE)
-                .update(update_payload)
-                .eq("id", creator_id)
-                .execute()
-            )
+            result = _update_creator_snapshot(creator_id, update_payload, snapshot_started_at)
 
             if not result.data:
                 logger.warning(
-                    f"{job_tag} ⚠️  DB update returned no rows. "
-                    "Check that creator_id exists and RLS allows updates."
+                    f"{job_tag} Creator snapshot was not written; the row may have been removed "
+                    "or a newer sync may already be stored."
                 )
             else:
                 logger.info(f"{job_tag} ✅ DB updated ({len(update_payload)} fields written)")
@@ -1943,12 +1960,11 @@ async def handle_sync_job(
                 "sync_status": "synced_partial",
                 "sync_error_message": "Schema mismatch — synced with basic fields only",
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                "last_synced_at": snapshot_started_at.isoformat(),
             }
 
             try:
-                supabase_client.table(CREATOR_TABLE).update(minimal_payload).eq(
-                    "id", creator_id
-                ).execute()
+                _update_creator_snapshot(creator_id, minimal_payload, snapshot_started_at)
                 logger.info(f"{job_tag} ✅ Fallback write succeeded (core stats only)")
             except Exception as fallback_error:
                 logger.error(f"{job_tag} ❌ Both full and fallback updates failed:")
