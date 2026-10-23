@@ -8,8 +8,19 @@ def _playlist_items(count: int) -> list[dict]:
     return [{"contentDetails": {"videoId": f"video-{idx:02d}"}} for idx in range(count)]
 
 
-def _video_item(idx: int, views: int, likes: int = 10, category_id: str = "24") -> dict:
-    published = datetime(2026, 1, 31, tzinfo=timezone.utc) - timedelta(days=idx)
+_AS_OF = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+
+def _video_item(
+    idx: int,
+    views: int,
+    likes: int = 10,
+    category_id: str = "24",
+    duration_sec: int = 192,
+    age_days: int | None = None,
+) -> dict:
+    age_days = 10 + idx if age_days is None else age_days
+    published = _AS_OF - timedelta(days=age_days)
     return {
         "id": f"video-{idx:02d}",
         "snippet": {
@@ -23,30 +34,92 @@ def _video_item(idx: int, views: int, likes: int = 10, category_id: str = "24") 
             "likeCount": str(likes),
             "commentCount": "2",
         },
-        "contentDetails": {"duration": "PT3M12S"},
+        "contentDetails": {"duration": f"PT{duration_sec}S"},
     }
 
 
-def test_recent_video_intelligence_uses_even_sample_median():
+def test_recent_video_intelligence_keeps_raw_view_median_for_context():
     videos = [_video_item(idx, 900 if idx < 25 else 1100) for idx in range(50)]
 
-    result = _build_recent_video_intelligence(_playlist_items(50), videos)
+    result = _build_recent_video_intelligence(_playlist_items(50), videos, as_of=_AS_OF)
 
     assert result["recent_views_median"] == 1000
     assert result["recent_video_sample_size"] == 50
-    assert result["outlier_count"] == 0
 
 
-def test_recent_video_intelligence_flags_only_greater_than_3x_median():
-    views = [100, 100, 100, 300, 301]
-    videos = [_video_item(idx, view_count) for idx, view_count in enumerate(views)]
+def test_breakout_score_excludes_candidate_from_its_baseline():
+    videos = [
+        _video_item(0, 3_000, age_days=10),
+        _video_item(1, 2_000, age_days=20),
+    ]
 
-    result = _build_recent_video_intelligence(_playlist_items(5), videos)
+    result = _build_recent_video_intelligence(_playlist_items(2), videos, as_of=_AS_OF)
 
-    assert result["recent_views_median"] == 100
+    standout = result["outlier_videos"][0]
     assert result["outlier_count"] == 1
-    assert result["outlier_videos"][0]["video_id"] == "video-04"
-    assert result["outlier_videos"][0]["view_multiplier"] == 3.01
+    assert standout["video_id"] == "video-00"
+    assert standout["outlier_percentile"] == 100.0
+    assert standout["view_multiplier"] == 3.0
+    assert standout["expected_views_per_day"] == 100
+    assert standout["observed_views_per_day"] == 300
+    assert standout["comparison_sample_size"] == 1
+
+
+def test_breakout_score_is_age_normalized_without_a_fixed_multiplier_cutoff():
+    videos = [
+        _video_item(0, 1_500, age_days=10),
+        _video_item(1, 2_000, age_days=20),
+        _video_item(2, 3_000, age_days=30),
+        _video_item(3, 4_000, age_days=40),
+    ]
+
+    result = _build_recent_video_intelligence(_playlist_items(4), videos, as_of=_AS_OF)
+
+    assert result["outlier_count"] == 1
+    assert result["outlier_videos"][0]["video_id"] == "video-00"
+    assert result["outlier_videos"][0]["view_multiplier"] == 1.5
+
+
+def test_breakout_baseline_never_uses_later_uploads():
+    videos = [
+        _video_item(0, 100_000, age_days=10),
+        _video_item(1, 3_000, age_days=20),
+        _video_item(2, 3_000, age_days=30),
+    ]
+
+    result = _build_recent_video_intelligence(_playlist_items(3), videos, as_of=_AS_OF)
+
+    candidate = next(row for row in result["outlier_videos"] if row["video_id"] == "video-01")
+    assert candidate["expected_views_per_day"] == 100
+    assert candidate["view_multiplier"] == 1.5
+
+
+def test_baseline_weights_similar_video_durations_without_hard_buckets():
+    videos = [
+        _video_item(0, 14_400, duration_sec=60, age_days=10),
+        _video_item(1, 24_000, duration_sec=60, age_days=20),
+        _video_item(2, 200_000, duration_sec=1_200, age_days=20),
+    ]
+
+    result = _build_recent_video_intelligence(_playlist_items(3), videos, as_of=_AS_OF)
+
+    short_video = next(row for row in result["outlier_videos"] if row["video_id"] == "video-00")
+    assert short_video["outlier_percentile"] == 80.0
+    assert short_video["expected_views_per_day"] == 1_200
+    assert short_video["view_multiplier"] == 1.2
+
+
+def test_equal_views_per_day_across_video_ages_are_not_standouts():
+    videos = [
+        _video_item(0, 100, age_days=1),
+        _video_item(1, 1_000, age_days=10),
+        _video_item(2, 2_000, age_days=20),
+    ]
+
+    result = _build_recent_video_intelligence(_playlist_items(3), videos, as_of=_AS_OF)
+
+    assert result["outlier_count"] == 0
+    assert result["outlier_videos"] == []
 
 
 def test_recent_video_intelligence_returns_no_outliers_for_zero_median():
@@ -60,22 +133,21 @@ def test_recent_video_intelligence_returns_no_outliers_for_zero_median():
 
 
 def test_recent_video_intelligence_caps_stored_outliers_to_top_five():
-    views = [100] * 14 + [301, 450, 600, 750, 900, 1050]
+    views = [3000, 2700, 2400, 2100, 1800, 1650] + [100 * (10 + idx) for idx in range(6, 20)]
     videos = [_video_item(idx, view_count) for idx, view_count in enumerate(views)]
 
-    result = _build_recent_video_intelligence(_playlist_items(20), videos)
+    result = _build_recent_video_intelligence(_playlist_items(20), videos, as_of=_AS_OF)
 
     assert result["outlier_count"] == 6
     assert len(result["outlier_videos"]) == 5
-    assert result["outlier_videos"][0]["video_id"] == "video-19"
+    assert result["outlier_videos"][0]["video_id"] == "video-00"
 
 
 def test_recent_video_intelligence_defaults_missing_likes_to_zero():
-    videos = [_video_item(idx, 100) for idx in range(5)]
-    videos[-1]["statistics"].pop("likeCount")
-    videos[-1]["statistics"]["viewCount"] = "400"
+    videos = [_video_item(0, 4_000)] + [_video_item(idx, 50 * (10 + idx)) for idx in range(1, 5)]
+    videos[0]["statistics"].pop("likeCount")
 
-    result = _build_recent_video_intelligence(_playlist_items(5), videos)
+    result = _build_recent_video_intelligence(_playlist_items(5), videos, as_of=_AS_OF)
 
     assert result["outlier_videos"][0]["like_count"] == 0
 
@@ -83,10 +155,10 @@ def test_recent_video_intelligence_defaults_missing_likes_to_zero():
 @pytest.mark.skip(reason="Temporarily disabled for debugging")
 def test_recent_video_intelligence_processes_videos_with_empty_playlist_items():
     """Videos are still processed even if playlist_items is empty (only affects ordering)."""
-    videos = [_video_item(idx, 100) for idx in range(3)]
-    result = _build_recent_video_intelligence([], videos)
+    videos = [_video_item(idx, 100 * (10 + idx)) for idx in range(3)]
+    result = _build_recent_video_intelligence([], videos, as_of=_AS_OF)
 
-    assert result["recent_views_median"] == 100
+    assert result["recent_views_median"] == 1100
     assert result["recent_video_sample_size"] == 3
     assert result["outlier_count"] == 0
 
@@ -103,10 +175,10 @@ def test_recent_video_intelligence_returns_empty_payload_for_empty_video_items()
 def test_recent_video_intelligence_processes_videos_with_missing_video_id_in_playlist_items():
     """Videos are still processed if playlist_items lack videoId (doesn't affect content processing)."""
     playlist_items = [{"contentDetails": {}} for _ in range(3)]
-    videos = [_video_item(idx, 100) for idx in range(3)]
-    result = _build_recent_video_intelligence(playlist_items, videos)
+    videos = [_video_item(idx, 100 * (10 + idx)) for idx in range(3)]
+    result = _build_recent_video_intelligence(playlist_items, videos, as_of=_AS_OF)
 
-    assert result["recent_views_median"] == 100
+    assert result["recent_views_median"] == 1100
     assert result["recent_video_sample_size"] == 3
     assert result["outlier_count"] == 0
 
@@ -119,11 +191,11 @@ def test_recent_video_intelligence_skips_video_items_without_ids():
             "snippet": _video_item(0, 100)["snippet"],
             "statistics": _video_item(0, 100)["statistics"],
         },
-        _video_item(1, 100),
-        _video_item(2, 100),
+        _video_item(1, 1100),
+        _video_item(2, 1200),
     ]
-    result = _build_recent_video_intelligence(playlist_items, videos)
+    result = _build_recent_video_intelligence(playlist_items, videos, as_of=_AS_OF)
 
-    assert result["recent_views_median"] == 100
+    assert result["recent_views_median"] == 1150
     assert result["recent_video_sample_size"] == 2
     assert result["outlier_count"] == 0

@@ -30,6 +30,7 @@ from urllib.parse import urlencode, unquote, quote, quote_plus, urlparse
 from fasthtml.common import *
 from monsterui.all import *
 
+from constants import OUTLIER_METHOD_VERSION
 from utils import format_float, format_percentage
 from utils.dates import format_date_relative, is_data_stale
 from utils import format_number, safe_get_value, slugify
@@ -3564,6 +3565,9 @@ def render_creator_profile_page(
     recent_views_median = int(recent_views_median_raw) if recent_views_median_raw else None
     recent_video_sample_raw = safe_get_value(creator, "recent_video_sample_size")
     recent_video_sample_size = int(recent_video_sample_raw) if recent_video_sample_raw else 0
+    outlier_scored_raw = safe_get_value(creator, "outlier_scored_video_count")
+    outlier_scored_video_count = int(outlier_scored_raw) if outlier_scored_raw else 0
+    outlier_method_version = safe_get_value(creator, "outlier_method_version", "")
     outlier_count_raw = safe_get_value(creator, "outlier_count")
     outlier_count = int(outlier_count_raw) if outlier_count_raw else 0
     outlier_videos = safe_get_value(creator, "outlier_videos") or []
@@ -4479,129 +4483,182 @@ def render_creator_profile_page(
         body_cls="p-5",
     )
 
-    # ── Outlier discovery card (viral pattern identification) ────────────────
+    # ── Recent standouts: continuous, age- and duration-adjusted score ───────
     outlier_card = None
     if recent_video_sample_size > 0:
         outlier_rows = []
-        for video in outlier_videos[:3]:
+        has_current_method = outlier_method_version == OUTLIER_METHOD_VERSION
+        for video in outlier_videos[:5]:
             if not isinstance(video, dict) or not video.get("video_id"):
                 continue
             vid_id = video.get("video_id", "")
             vid_title = video.get("title") or "Untitled"
             vid_thumb = video.get("thumbnail_url") or ""
             vid_views = int(video.get("view_count") or 0)
-            vid_likes = int(video.get("like_count") or 0)
             vid_pub = video.get("published_at") or ""
             vid_multiplier = float(video.get("view_multiplier") or 0)
-            vid_url = f"https://www.youtube.com/watch?v={vid_id}"
+            vid_url = (
+                f"https://www.youtube.com/shorts/{vid_id}"
+                if video.get("is_short")
+                else f"https://www.youtube.com/watch?v={vid_id}"
+            )
+            if has_current_method:
+                outlier_percentile = float(video.get("outlier_percentile") or 50)
+                observed_rate = int(video.get("observed_views_per_day") or 0)
+                expected_rate = int(video.get("expected_views_per_day") or 0)
+                comparison_count = int(video.get("comparison_sample_size") or 0)
+                score_position = min(100.0, max(50.0, outlier_percentile))
+                score_label = f"P{outlier_percentile:.0f} · {format_float(vid_multiplier, 1)}x"
+                baseline_label = "P50 baseline"
+                score_details = [
+                    Span(f"{format_number(vid_views)} total views", cls=_CLS_MUTED_XS),
+                    Span(
+                        f"{format_number(observed_rate)} views/day",
+                        cls="text-xs font-medium text-foreground",
+                    ),
+                    Span(f"Expected {format_number(expected_rate)}/day", cls=_CLS_MUTED_XS),
+                    Span(
+                        f"Compared with {comparison_count} earlier uploads",
+                        cls=_CLS_MUTED_XS,
+                    ),
+                ]
+            else:
+                score_position = min(100.0, max(50.0, 100 * vid_multiplier / (1 + vid_multiplier)))
+                score_label = f"Legacy {format_float(vid_multiplier, 1)}x"
+                baseline_label = "Raw median baseline"
+                score_details = [
+                    Span(f"{format_number(vid_views)} total views", cls=_CLS_MUTED_XS),
+                    Span(
+                        f"Recent median {format_number(recent_views_median or 0)} views",
+                        cls=_CLS_MUTED_XS,
+                    ),
+                    Span(f"From last {recent_video_sample_size} uploads", cls=_CLS_MUTED_XS),
+                ]
             outlier_rows.append(
                 A(
-                    *(
-                        [
-                            Img(
-                                src=vid_thumb,
-                                alt=vid_title,
-                                cls="w-20 sm:w-24 aspect-video rounded-lg object-cover shrink-0 bg-accent",
-                                loading="lazy",
-                            )
-                        ]
-                        if vid_thumb
-                        else [
-                            Div(
-                                UkIcon("play", cls="w-5 h-5 text-muted-foreground"),
-                                cls="w-20 sm:w-24 aspect-video rounded-lg bg-accent flex items-center justify-center shrink-0",
-                            )
-                        ]
+                    Img(
+                        src=vid_thumb or "/static/favicon.jpeg",
+                        alt=vid_title,
+                        cls="w-full aspect-video rounded-md object-cover bg-accent",
+                        loading="lazy",
                     ),
                     Div(
                         Div(
                             P(
                                 vid_title,
-                                cls="text-sm font-semibold text-foreground line-clamp-2 leading-snug",
+                                cls="text-sm font-semibold text-foreground line-clamp-2 min-h-10",
                             ),
                             Span(
-                                f"{format_float(vid_multiplier, 1)}x",
-                                cls="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 shrink-0",
-                                title="Views compared with this channel's recent median",
+                                score_label,
+                                cls="text-sm font-bold text-amber-700 dark:text-amber-300 tabular-nums",
+                                title=(
+                                    "Empirical percentile and multiplier among prior, duration-similar uploads"
+                                    if has_current_method
+                                    else "Legacy raw-view multiple relative to the recent sample median"
+                                ),
                             ),
-                            cls="flex items-start gap-2",
+                            cls="flex items-start justify-between gap-2 mt-2",
                         ),
                         Div(
-                            Span(f"{format_number(vid_views)} views", cls=_CLS_MUTED_XS),
-                            *(
-                                [
-                                    Span("·", cls=_CLS_SEPARATOR),
-                                    Span(f"{format_number(vid_likes)} likes", cls=_CLS_MUTED_XS),
-                                ]
-                                if vid_likes
-                                else []
+                            Div(
+                                Span(baseline_label, cls="text-[10px] text-muted-foreground"),
+                                Span(
+                                    score_label,
+                                    cls="text-[10px] font-semibold text-amber-700 dark:text-amber-300",
+                                ),
+                                cls="flex items-center justify-between mb-1",
                             ),
-                            *(
-                                [
-                                    Span("·", cls=_CLS_SEPARATOR),
-                                    Span(format_date_relative(vid_pub), cls=_CLS_MUTED_XS),
-                                ]
-                                if vid_pub
-                                else []
+                            Div(
+                                Div(
+                                    cls="absolute top-0 bottom-0 left-1/2 w-px bg-muted-foreground/60"
+                                ),
+                                Div(
+                                    cls="absolute top-1/2 -translate-y-1/2 size-2 rounded-full bg-amber-500 ring-2 ring-background",
+                                    style=f"left:{score_position:.1f}%",
+                                ),
+                                cls="relative h-2 rounded-full bg-accent",
                             ),
-                            cls="flex items-center flex-wrap mt-1",
+                            cls="mt-3",
                         ),
-                        cls="min-w-0 flex-1",
+                        Div(
+                            *score_details,
+                            Span(
+                                format_date_relative(vid_pub) if vid_pub else "", cls=_CLS_MUTED_XS
+                            ),
+                            cls="flex flex-col gap-1 mt-3",
+                        ),
+                        cls="p-3",
                     ),
                     href=vid_url,
                     target="_blank",
                     rel="noopener noreferrer",
-                    cls="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/70 no-underline transition-colors",
+                    cls=(
+                        "w-64 sm:w-72 shrink-0 snap-start rounded-lg border border-border "
+                        "bg-card hover:bg-accent/40 no-underline transition-colors"
+                    ),
                 )
             )
 
         outlier_card = Card(
             Div(
                 UkIcon("sparkles", cls="w-4 h-4 text-amber-500 mr-2"),
-                H2("Viral Pattern", cls=_CLS_HEADING),
+                H2("Recent standouts", cls=_CLS_HEADING),
                 Span(
-                    f"{outlier_count} outlier" + ("" if outlier_count == 1 else "s"),
+                    f"{outlier_count} above P50" if has_current_method else "Legacy scores",
                     cls=(
                         "text-xs font-semibold px-2 py-0.5 rounded-full ml-auto "
-                        + (
-                            "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
-                            if outlier_count
-                            else "bg-accent text-muted-foreground"
-                        )
+                        "bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"
+                        if has_current_method
+                        else "text-xs font-semibold px-2 py-0.5 rounded-full ml-auto bg-accent text-muted-foreground"
                     ),
                 ),
                 cls="flex items-center mb-4",
             ),
-            Grid(
-                Div(
-                    Span("Median views", cls=_CLS_MUTED_XS),
-                    Span(
-                        format_number(recent_views_median) if recent_views_median else "—",
-                        cls="block text-sm font-bold text-foreground mt-0.5",
-                    ),
-                    cls="rounded-lg bg-accent/70 p-3",
+            P(
+                (
+                    "Ranked by empirical percentile of lifetime views/day among previous, "
+                    "duration-similar uploads. P50 is the baseline."
+                    if has_current_method
+                    else "Showing the previous raw-view median method until this creator refreshes."
                 ),
-                Div(
-                    Span("Sample", cls=_CLS_MUTED_XS),
-                    Span(
-                        f"Last {recent_video_sample_size}",
-                        cls="block text-sm font-bold text-foreground mt-0.5",
-                    ),
-                    cls="rounded-lg bg-accent/70 p-3",
+                cls="text-xs text-muted-foreground mb-3",
+            ),
+            P(
+                (
+                    f"Scored {outlier_scored_video_count} of {recent_video_sample_size} recent uploads."
+                    if has_current_method
+                    else f"Legacy result from the last {recent_video_sample_size} uploads."
                 ),
-                cols_sm=2,
-                cls="mb-3",
+                cls="text-xs text-muted-foreground mb-3",
             ),
             (
-                Div(*outlier_rows, cls="space-y-1")
+                Div(
+                    *outlier_rows,
+                    cls="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-2",
+                )
                 if outlier_rows
                 else Div(
-                    UkIcon("check-circle", cls="w-4 h-4 text-emerald-500 shrink-0"),
+                    UkIcon(
+                        (
+                            "check-circle"
+                            if has_current_method and outlier_scored_video_count
+                            else "info"
+                        ),
+                        cls="w-4 h-4 text-muted-foreground shrink-0",
+                    ),
                     P(
-                        f"No 3x breakouts in the last {recent_video_sample_size} uploads.",
+                        (
+                            "No uploads are above their duration-adjusted baseline."
+                            if has_current_method and outlier_scored_video_count
+                            else (
+                                "Not enough comparable view data to score this sample yet."
+                                if has_current_method
+                                else "No legacy outliers stored; the new score will appear on the next creator sync."
+                            )
+                        ),
                         cls="text-xs text-muted-foreground leading-relaxed",
                     ),
-                    cls="flex items-start gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800",
+                    cls="flex items-start gap-2 p-3 rounded-lg bg-accent/50",
                 )
             ),
             body_cls="p-5",

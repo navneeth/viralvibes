@@ -11,6 +11,7 @@ from fasthtml.components import Path, Svg
 # WORKER CONFIGURATION
 # =============================================================================
 MAX_RETRY_ATTEMPTS = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
+OUTLIER_METHOD_VERSION = "duration_adjusted_daily_views_percentile_v2"
 
 # =============================================================================
 # ASSET PATHS
