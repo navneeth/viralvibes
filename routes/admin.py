@@ -206,6 +206,7 @@ def _fetch_admin_data() -> dict:
         "users_completed_oauth": 0,
         "users_active_30d": 0,
         "users_never_returned": 0,
+        "recent_active_users": [],
         # Revenue & plans
         "plan_active_paid": 0,
         "plan_pro_monthly": 0,
@@ -475,6 +476,16 @@ def _fetch_admin_data() -> dict:
         data["users_completed_oauth"] = _count(sc, "auth_providers")
         data["users_active_30d"] = _count(sc, "users", lambda q: q.gte("last_login_at", cutoff_30d))
         data["users_never_returned"] = _count(sc, "users", lambda q: q.is_("last_login_at", "null"))
+        data["recent_active_users"] = (
+            sc.table("users")
+            .select("id, name, email, created_at, last_login_at")
+            .gte("last_login_at", cutoff_30d)
+            .order("last_login_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
     except Exception:
         logger.exception("[Admin] Users & growth queries failed")
 

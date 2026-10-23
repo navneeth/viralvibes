@@ -203,6 +203,48 @@ def _UsersSection(data: dict) -> Div:
     completed_oauth = data.get("users_completed_oauth", 0)
     never_returned = data.get("users_never_returned", 0)
     oauth_pct = f"{completed_oauth / total * 100:.0f}% of signups" if total else "—"
+    now = datetime.now(timezone.utc)
+    recent_users = data.get("recent_active_users", [])
+
+    if recent_users:
+        user_rows = []
+        for user in recent_users:
+            last_login = parse_iso_utc(user.get("last_login_at"))
+            created_at = parse_iso_utc(user.get("created_at"))
+            last_login_ago = (
+                _fmt_ago(max(0, int((now - last_login).total_seconds()))) if last_login else "—"
+            )
+            email = user.get("email") or ""
+            user_rows.append(
+                Tr(
+                    Td(user.get("name") or "Unnamed user", cls="px-3 py-2"),
+                    Td(
+                        (
+                            A(email, href=f"mailto:{email}", cls="text-primary hover:underline")
+                            if email
+                            else Span("—", cls="text-muted-foreground")
+                        ),
+                        cls="px-3 py-2",
+                    ),
+                    Td(last_login_ago, cls="px-3 py-2 text-xs font-mono whitespace-nowrap"),
+                    Td(
+                        created_at.strftime("%Y-%m-%d") if created_at else "—",
+                        cls="px-3 py-2 text-xs font-mono whitespace-nowrap",
+                    ),
+                    cls="border-b border-border last:border-0 hover:bg-accent/50",
+                )
+            )
+        users_body = Tbody(*user_rows)
+    else:
+        users_body = Tbody(
+            Tr(
+                Td(
+                    "No users logged in during the last 30 days.",
+                    colspan=4,
+                    cls="px-3 py-6 text-center text-muted-foreground",
+                )
+            )
+        )
 
     return Div(
         H3(
@@ -229,6 +271,37 @@ def _UsersSection(data: dict) -> Div:
             ),
             cols_md=3,
             gap=4,
+        ),
+        Card(
+            H3(
+                "Recently Active for Outreach",
+                cls="text-sm font-mono uppercase tracking-widest text-muted-foreground mb-1",
+            ),
+            P(
+                "Top 20 by latest login in the last 30 days; this is login recency, not login frequency.",
+                cls="text-xs text-muted-foreground mb-3",
+            ),
+            Div(
+                Table(
+                    Thead(
+                        Tr(
+                            *[
+                                Th(
+                                    label,
+                                    cls="px-3 py-2 text-left text-xs font-mono uppercase tracking-wide text-muted-foreground",
+                                )
+                                for label in ("Name", "Email", "Last login", "Joined")
+                            ]
+                        ),
+                        cls="border-b border-border",
+                    ),
+                    users_body,
+                    cls="w-full text-sm",
+                ),
+                cls="overflow-x-auto",
+            ),
+            body_cls="p-5",
+            cls="mt-4",
         ),
         cls="mb-6",
     )
