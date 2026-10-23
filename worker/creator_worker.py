@@ -24,6 +24,7 @@ Run as: python -m worker.creator_worker
 
 import asyncio
 import logging
+import math
 import os
 import re
 import signal
@@ -47,6 +48,8 @@ from constants import (
     CREATOR_WORKER_MAX_RETRIES,
     CREATOR_WORKER_POLL_INTERVAL,
     CREATOR_WORKER_RETRY_BASE,
+    MIN_OUTLIER_AGE_DAYS,
+    OUTLIER_METHOD_VERSION,
 )
 from db import (
     init_supabase,
@@ -113,8 +116,6 @@ YOUTUBE_CREDITS_PER_CHANNEL_FETCH = 1  # channels.list costs 1 unit
 YOUTUBE_CREDITS_PER_CATEGORY_FETCH = 2  # playlistItems.list (1) + videos.list (1)
 YOUTUBE_CREDITS_PER_RECENT_VIDEO_FETCH = 2  # playlistItems.list + videos.list for uploads
 RECENT_VIDEO_SAMPLE_SIZE = 50
-OUTLIER_MULTIPLIER = 3.0
-MIN_OUTLIER_SAMPLE_SIZE = 5
 MAX_STORED_OUTLIERS = 5
 
 
@@ -579,6 +580,8 @@ def _empty_recent_video_intelligence() -> dict:
         "recent_upload": None,
         "recent_views_median": None,
         "recent_video_sample_size": 0,
+        "outlier_scored_video_count": 0,
+        "outlier_method_version": OUTLIER_METHOD_VERSION,
         "outlier_count": 0,
         "outlier_videos": [],
         "primary_category": None,
@@ -613,13 +616,51 @@ def _median_int(values: list[int]) -> int | None:
     return round((ordered[mid - 1] + ordered[mid]) / 2)
 
 
+def _weighted_median(values: list[tuple[float, float]]) -> float | None:
+    """Return the weighted median for (value, positive_weight) pairs."""
+    usable = sorted((value, weight) for value, weight in values if weight > 0)
+    if not usable:
+        return None
+
+    midpoint = sum(weight for _, weight in usable) / 2
+    cumulative = 0.0
+    for value, weight in usable:
+        cumulative += weight
+        if cumulative >= midpoint:
+            return value
+    return usable[-1][0]
+
+
+def _weighted_percentile(value: float, distribution: list[tuple[float, float]]) -> float | None:
+    """Return the weighted mid-rank percentile for a value in a distribution."""
+    total_weight = sum(weight for _, weight in distribution if weight > 0)
+    if total_weight <= 0:
+        return None
+
+    less_weight = sum(weight for sample, weight in distribution if weight > 0 and sample < value)
+    equal_weight = sum(weight for sample, weight in distribution if weight > 0 and sample == value)
+    return 100 * (less_weight + equal_weight / 2) / total_weight
+
+
 def _build_recent_video_intelligence(
     playlist_items: list[dict],
     video_items: list[dict],
+    *,
+    as_of: datetime | None = None,
 ) -> dict:
-    """Build recent performance, latest upload, category, and outlier signals."""
-    if not playlist_items or not video_items:
+    """Build recent performance, latest upload, category, and breakout signals.
+
+    A breakout is ranked by the weighted empirical percentile of log lifetime
+    views/day among earlier uploads. Duration similarity affects peer weights;
+    the candidate is excluded, and the median (P50) is the natural baseline.
+    """
+    if not video_items:
         return _empty_recent_video_intelligence()
+
+    sampled_at = as_of or datetime.now(timezone.utc)
+    if sampled_at.tzinfo is None:
+        sampled_at = sampled_at.replace(tzinfo=timezone.utc)
+    sampled_at = sampled_at.astimezone(timezone.utc)
 
     video_order = [
         item.get("contentDetails", {}).get("videoId")
@@ -650,13 +691,18 @@ def _build_recent_video_intelligence(
         comments = _safe_int(stats.get("commentCount"))
         duration_sec = _parse_iso8601_duration(content_details.get("duration", "PT0S"))
         published_at = snippet.get("publishedAt") or ""
+        published_dt = None
         category_id = snippet.get("categoryId")
         if category_id:
             category_counts[category_id] = category_counts.get(category_id, 0) + 1
         if published_at:
             try:
-                published_dates.append(datetime.fromisoformat(published_at))
-            except ValueError:
+                published_dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                if published_dt.tzinfo is None:
+                    published_dt = published_dt.replace(tzinfo=timezone.utc)
+                published_dt = published_dt.astimezone(timezone.utc)
+                published_dates.append(published_dt)
+            except (TypeError, ValueError):
                 pass
         if views > 0:
             engagement_scores.append((likes + comments) / views * 100)
@@ -673,6 +719,7 @@ def _build_recent_video_intelligence(
                 "duration_sec": duration_sec,
                 "is_short": duration_sec > 0 and duration_sec <= 60,
                 "category_id": category_id,
+                "_published_at_dt": published_dt,
             }
         )
 
@@ -682,26 +729,76 @@ def _build_recent_video_intelligence(
     recent_10 = rows[:10]
     view_counts = [row["view_count"] for row in rows if row["view_count"] > 0]
     median_views = _median_int(view_counts)
-    threshold = (median_views or 0) * OUTLIER_MULTIPLIER
+
+    # Normalize cumulative views by video age, then compare to other uploads
+    # weighted smoothly by duration similarity. Each video's baseline excludes
+    # that candidate, and there is no configurable multiplier threshold.
+    rates: dict[str, float] = {}
+    for row in rows:
+        published_dt = row["_published_at_dt"]
+        if published_dt is None or row["view_count"] <= 0:
+            continue
+        age_days = (sampled_at - published_dt).total_seconds() / 86_400
+        if age_days >= MIN_OUTLIER_AGE_DAYS:
+            rates[row["video_id"]] = row["view_count"] / age_days
+
     outliers = []
-    if median_views and len(view_counts) >= MIN_OUTLIER_SAMPLE_SIZE:
-        for row in rows:
-            views = row["view_count"]
-            if views > threshold:
-                outliers.append(
-                    {
-                        "video_id": row["video_id"],
-                        "title": row["title"],
-                        "thumbnail_url": row["thumbnail_url"],
-                        "published_at": row["published_at"],
-                        "view_count": views,
-                        "like_count": row["like_count"],
-                        "view_multiplier": round(views / median_views, 2),
-                        "is_short": row["is_short"],
-                        "duration_sec": row["duration_sec"],
-                    }
-                )
-    outliers.sort(key=lambda row: row["view_multiplier"], reverse=True)
+    scored_video_count = 0
+    for candidate in rows:
+        observed_rate = rates.get(candidate["video_id"])
+        candidate_published_at = candidate["_published_at_dt"]
+        if observed_rate is None or candidate_published_at is None:
+            continue
+
+        candidate_duration = candidate["duration_sec"]
+        log_rate = math.log(observed_rate)
+        comparisons: list[tuple[float, float]] = []
+        for peer in rows:
+            peer_published_at = peer["_published_at_dt"]
+            if peer_published_at is None or peer_published_at >= candidate_published_at:
+                continue
+            peer_rate = rates.get(peer["video_id"])
+            if peer_rate is None:
+                continue
+
+            peer_duration = peer["duration_sec"]
+            if candidate_duration > 0 and peer_duration > 0:
+                duration_distance = abs(math.log(candidate_duration / peer_duration))
+                weight = 1 / (1 + duration_distance)
+            else:
+                weight = 1.0
+            comparisons.append((math.log(peer_rate), weight))
+
+        expected_log_rate = _weighted_median(comparisons)
+        percentile = _weighted_percentile(log_rate, comparisons)
+        if expected_log_rate is None or percentile is None:
+            continue
+        scored_video_count += 1
+
+        expected_rate = math.exp(expected_log_rate)
+        multiplier = math.exp(log_rate - expected_log_rate)
+        if percentile <= 50:
+            continue
+
+        outliers.append(
+            {
+                "video_id": candidate["video_id"],
+                "title": candidate["title"],
+                "thumbnail_url": candidate["thumbnail_url"],
+                "published_at": candidate["published_at"],
+                "view_count": candidate["view_count"],
+                "like_count": candidate["like_count"],
+                "outlier_percentile": round(percentile, 1),
+                "view_multiplier": round(multiplier, 2),
+                "observed_views_per_day": round(observed_rate, 1),
+                "expected_views_per_day": round(expected_rate, 1),
+                "comparison_sample_size": len(comparisons),
+                "duration_sec": candidate_duration,
+                "is_short": candidate["is_short"],
+                "method_version": OUTLIER_METHOD_VERSION,
+            }
+        )
+    outliers.sort(key=lambda row: (row["outlier_percentile"], row["view_multiplier"]), reverse=True)
 
     avg_days: float | None = None
     if len(published_dates) >= 2:
@@ -753,6 +850,8 @@ def _build_recent_video_intelligence(
         ),
         "recent_views_median": median_views,
         "recent_video_sample_size": len(rows),
+        "outlier_scored_video_count": scored_video_count,
+        "outlier_method_version": OUTLIER_METHOD_VERSION,
         "outlier_count": len(outliers),
         "outlier_videos": outliers[:MAX_STORED_OUTLIERS],
         "primary_category": dominant_name,
@@ -1312,8 +1411,10 @@ async def handle_resolve_and_add_job(
     if not supabase_client:
         raise RuntimeError("Supabase client not initialized")
 
-    # STAGE 1: Mark as processing
-    mark_creator_sync_processing(job_id)
+    # Claim atomically before starting resolution/API work.
+    if not mark_creator_sync_processing(job_id):
+        logger.info("%s Job claim lost; another worker owns it", job_tag)
+        return False
 
     try:
         # STAGE 2: Determine channel_id
@@ -1422,6 +1523,23 @@ async def handle_resolve_and_add_job(
 # =============================================================================
 
 
+def _update_creator_snapshot(
+    creator_id: str,
+    payload: dict,
+    snapshot_started_at: datetime,
+):
+    """Write a creator snapshot only if it is newer than the stored sync."""
+    snapshot_iso = snapshot_started_at.isoformat()
+    return (
+        supabase_client.table(CREATOR_TABLE)
+        .update(payload)
+        .eq("id", creator_id)
+        .or_(f"last_synced_at.is.null,last_synced_at.lt.{snapshot_iso}")
+        .select("id")
+        .execute()
+    )
+
+
 async def handle_sync_job(
     job_id: int,
     creator_id: str,
@@ -1432,11 +1550,10 @@ async def handle_sync_job(
     Handle a single creator sync job with comprehensive error handling.
 
     Steps:
-    1. Fetch creator metadata (channel_id)
-    2. Mark job as processing
-    3. Fetch channel data from YouTube API
-    4. Update database with normalized data
-    5. Mark job as completed or failed
+    1. Claim the pending job
+    2. Fetch creator metadata and YouTube data
+    3. Write a snapshot only if it is newer than the stored sync
+    4. Mark the job as completed or failed
 
     Args:
         job_id: Sync job ID
@@ -1455,6 +1572,13 @@ async def handle_sync_job(
 
         if not supabase_client:
             raise RuntimeError("Supabase client not initialized")
+
+        # Claim before reading creator state or calling YouTube. A competing
+        # worker that fetched the same pending job must stop here.
+        if not mark_creator_sync_processing(job_id):
+            logger.info("%s Job claim lost; another worker owns it", job_tag)
+            return False
+        snapshot_started_at = datetime.now(timezone.utc)
 
         # STAGE 1: Fetch creator metadata (including previous stats for delta calculation)
         creator_response = (
@@ -1489,11 +1613,7 @@ async def handle_sync_job(
 
         logger.info(f"{job_tag} Creator: {channel_name} ({channel_id})")
 
-        # STAGE 2: Mark as processing
-        mark_creator_sync_processing(job_id)
-        logger.debug(f"{job_tag} Marked as processing")
-
-        # STAGE 3: Fetch channel data
+        # STAGE 2: Fetch channel data
         logger.info(f"{job_tag} Fetching data from YouTube API...")
         try:
             channel_data = await asyncio.wait_for(
@@ -1773,6 +1893,8 @@ async def handle_sync_job(
                 # ── Outlier discovery (viral pattern identification) ──────
                 "recent_views_median": video_intel["recent_views_median"],
                 "recent_video_sample_size": video_intel["recent_video_sample_size"],
+                "outlier_scored_video_count": video_intel["outlier_scored_video_count"],
+                "outlier_method_version": video_intel["outlier_method_version"],
                 "outlier_count": video_intel["outlier_count"],
                 "outlier_videos": video_intel["outlier_videos"],
                 # ── Tier 1 brand safety (from channels.list status part) ───
@@ -1782,7 +1904,7 @@ async def handle_sync_job(
                 "sync_status": normalized_sync_status,
                 "sync_error_message": sync_error,
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
-                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+                "last_synced_at": snapshot_started_at.isoformat(),
             }
         )
 
@@ -1813,17 +1935,12 @@ async def handle_sync_job(
 
         # STAGE 4: Write to DB
         try:
-            result = (
-                supabase_client.table(CREATOR_TABLE)
-                .update(update_payload)
-                .eq("id", creator_id)
-                .execute()
-            )
+            result = _update_creator_snapshot(creator_id, update_payload, snapshot_started_at)
 
             if not result.data:
                 logger.warning(
-                    f"{job_tag} ⚠️  DB update returned no rows. "
-                    "Check that creator_id exists and RLS allows updates."
+                    f"{job_tag} Creator snapshot was not written; the row may have been removed "
+                    "or a newer sync may already be stored."
                 )
             else:
                 logger.info(f"{job_tag} ✅ DB updated ({len(update_payload)} fields written)")
@@ -1843,12 +1960,11 @@ async def handle_sync_job(
                 "sync_status": "synced_partial",
                 "sync_error_message": "Schema mismatch — synced with basic fields only",
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                "last_synced_at": snapshot_started_at.isoformat(),
             }
 
             try:
-                supabase_client.table(CREATOR_TABLE).update(minimal_payload).eq(
-                    "id", creator_id
-                ).execute()
+                _update_creator_snapshot(creator_id, minimal_payload, snapshot_started_at)
                 logger.info(f"{job_tag} ✅ Fallback write succeeded (core stats only)")
             except Exception as fallback_error:
                 logger.error(f"{job_tag} ❌ Both full and fallback updates failed:")

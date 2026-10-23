@@ -431,7 +431,7 @@ class TestHandleResolveAndAddJob:
 
         fake_supabase = self._mock_supabase(creators_data=[], insert_data=[{"id": "stub-id"}])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
-        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: None)
+        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
         monkeypatch.setattr(cw, "mark_creator_sync_failed", lambda jid, error=None: None)
 
         result = await cw.handle_resolve_and_add_job(
@@ -446,7 +446,7 @@ class TestHandleResolveAndAddJob:
 
         fake_supabase = self._mock_supabase(creators_data=[], insert_data=[{"id": "stub-id"}])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
-        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: None)
+        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
         monkeypatch.setattr(cw, "mark_creator_sync_failed", lambda jid, error=None: None)
 
         # Mock youtube_resolver (module-level variable used by handle_resolve_and_add_job)
@@ -489,7 +489,7 @@ class TestHandleResolveAndAddJob:
 
         fake_supabase.table = table_with_spy
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
-        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: None)
+        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
         monkeypatch.setattr(cw, "mark_creator_sync_failed", lambda jid, error=None: None)
 
         result = await cw.handle_resolve_and_add_job(
@@ -506,7 +506,7 @@ class TestHandleResolveAndAddJob:
 
         fake_supabase = self._mock_supabase(creators_data=[])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
-        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: None)
+        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
 
         failed_jobs = []
         monkeypatch.setattr(
@@ -527,7 +527,7 @@ class TestHandleResolveAndAddJob:
 
         fake_supabase = self._mock_supabase(creators_data=[])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
-        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: None)
+        monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
         monkeypatch.setattr(cw, "mark_creator_sync_failed", lambda jid, error=None: None)
 
         mock_resolver = AsyncMock()

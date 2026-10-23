@@ -638,12 +638,14 @@ class TestCreatorProfile:
         assert r.status_code == 200
         assert "Safe for Kids" in r.text
 
-    def test_profile_shows_viral_pattern_outliers(self, client, monkeypatch):
-        """Outlier discovery should render a compact profile card."""
+    def test_profile_shows_recent_standouts_as_scrollable_strip(self, client, monkeypatch):
+        """Duration-adjusted standouts render with a baseline and evidence context."""
         creator = {
             **FAKE_CREATOR,
             "recent_views_median": 1000,
             "recent_video_sample_size": 6,
+            "outlier_scored_video_count": 6,
+            "outlier_method_version": "duration_adjusted_daily_views_percentile_v3",
             "outlier_count": 1,
             "outlier_videos": [
                 {
@@ -653,7 +655,11 @@ class TestCreatorProfile:
                     "published_at": "2026-01-15T00:00:00+00:00",
                     "view_count": 4000,
                     "like_count": 250,
+                    "outlier_percentile": 95.0,
                     "view_multiplier": 4.0,
+                    "observed_views_per_day": 200.4,
+                    "expected_views_per_day": 50.2,
+                    "comparison_sample_size": 5,
                     "is_short": False,
                     "duration_sec": 190,
                 }
@@ -664,16 +670,22 @@ class TestCreatorProfile:
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
 
         assert r.status_code == 200
-        assert "Viral Pattern" in r.text
+        assert "Recent standouts" in r.text
         assert "Breakout Video" in r.text
+        assert "P95" in r.text
         assert "4.0x" in r.text
+        assert "200.4 views/day" in r.text
+        assert "Expected 50.2/day" in r.text
+        assert "overflow-x-auto snap-x" in r.text
 
-    def test_profile_shows_no_breakout_state_when_sample_has_no_outliers(self, client, monkeypatch):
-        """A computed sample with zero outliers should reassure without crashing."""
+    def test_profile_shows_no_standout_state_when_sample_has_none(self, client, monkeypatch):
+        """A computed sample with no above-baseline videos should be clear."""
         creator = {
             **FAKE_CREATOR,
             "recent_views_median": 1000,
             "recent_video_sample_size": 8,
+            "outlier_scored_video_count": 8,
+            "outlier_method_version": "duration_adjusted_daily_views_percentile_v3",
             "outlier_count": 0,
             "outlier_videos": [],
         }
@@ -682,11 +694,11 @@ class TestCreatorProfile:
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
 
         assert r.status_code == 200
-        assert "Viral Pattern" in r.text
-        assert "No 3x breakouts" in r.text
+        assert "Recent standouts" in r.text
+        assert "No uploads are above their duration-adjusted baseline" in r.text
 
-    def test_profile_hides_viral_pattern_when_sample_size_is_zero(self, client, monkeypatch):
-        """Viral Pattern card should not render when recent_video_sample_size is zero."""
+    def test_profile_hides_standouts_when_sample_size_is_zero(self, client, monkeypatch):
+        """Standout card should not render when recent_video_sample_size is zero."""
         creator = {
             **FAKE_CREATOR,
             "recent_views_median": 1000,
@@ -699,4 +711,22 @@ class TestCreatorProfile:
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
 
         assert r.status_code == 200
-        assert "Viral Pattern" not in r.text
+        assert "Recent standouts" not in r.text
+
+    def test_profile_keeps_legacy_outlier_scores_until_refresh(self, client, monkeypatch):
+        """Profiles without percentile-v2 continue displaying their old scores."""
+        creator = {
+            **FAKE_CREATOR,
+            "recent_video_sample_size": 6,
+            "outlier_count": 1,
+            "outlier_videos": [
+                {"video_id": "legacy", "title": "Legacy breakout", "view_multiplier": 4}
+            ],
+        }
+        self._patch_profile_db(monkeypatch, creator=creator)
+
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+
+        assert r.status_code == 200
+        assert "Legacy scores" in r.text
+        assert "Legacy breakout" in r.text
