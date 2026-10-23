@@ -51,7 +51,9 @@ def test_creator_snapshot_update_rejects_older_syncs(monkeypatch):
     monkeypatch.setattr(creator_worker, "supabase_client", client)
     snapshot_started_at = datetime(2026, 10, 23, tzinfo=timezone.utc)
 
-    creator_worker._update_creator_snapshot("creator-1", {"current_view_count": 10}, snapshot_started_at)
+    creator_worker._update_creator_snapshot(
+        "creator-1", {"current_view_count": 10}, snapshot_started_at
+    )
 
     query.eq.assert_called_once_with("id", "creator-1")
     query.or_.assert_called_once_with(
