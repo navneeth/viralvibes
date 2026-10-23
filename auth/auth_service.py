@@ -6,7 +6,7 @@ Integrates with Supabase users and auth_providers tables.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 from fasthtml.common import RedirectResponse
@@ -145,6 +145,8 @@ class ViralVibesAuth(OAuth):
             logger.warning(f"⚠️  Email not verified for {email}")
             return RedirectResponse("/login?error=email_not_verified", status_code=303)
 
+        login_at = datetime.now(timezone.utc).isoformat()
+
         # Download avatar as blob
         avatar_data = None
         if picture_url:
@@ -166,13 +168,14 @@ class ViralVibesAuth(OAuth):
                         "name": name,
                         "email_verified": email_verified,
                         "avatar_url": picture_url,
-                        "last_login_at": datetime.utcnow().isoformat(),
+                        "last_login_at": login_at,
                     }
 
                     _db_execute(
                         lambda: self.supabase_client.table("users")
                         .update(user_data)
                         .eq("id", user_id)
+                        .or_(f"last_login_at.is.null,last_login_at.lt.{login_at}")
                         .execute()
                     )
                     logger.info(f"✅ Updated existing user {email}")
@@ -183,6 +186,7 @@ class ViralVibesAuth(OAuth):
                         "name": name,
                         "email_verified": email_verified,
                         "avatar_url": picture_url,
+                        "last_login_at": login_at,
                     }
 
                     user_response = _db_execute(
