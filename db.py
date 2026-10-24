@@ -1220,6 +1220,8 @@ def queue_creator_sync(
 def queue_creator_sync_bulk(
     creator_ids: List[str],
     source: str = "scheduled",
+    *,
+    client: Optional[Client] = None,
 ) -> tuple[int, int]:
     """
     Bulk-queue a list of creators for stats sync.
@@ -1232,17 +1234,19 @@ def queue_creator_sync_bulk(
     Args:
         creator_ids: List of creator UUIDs to enqueue
         source:      Job source label (e.g. 'bootstrap_unsynced', 'scheduled_refresh')
+        client:      Optional Supabase client; defaults to the module client.
 
     Returns:
         (queued, skipped) — queued = newly inserted, skipped = already pending
     """
-    if not supabase_client or not creator_ids:
+    client = client if client is not None else supabase_client
+    if not client or not creator_ids:
         return 0, 0
 
     try:
         # 1. One SELECT to find already-pending creator_ids in this batch
         existing_resp = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("creator_id")
             .in_("creator_id", creator_ids)
             .eq("status", "pending")
@@ -1270,7 +1274,7 @@ def queue_creator_sync_bulk(
             }
             for cid in to_insert
         ]
-        insert_resp = supabase_client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+        insert_resp = client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
         queued = len(insert_resp.data or [])
         logger.info(
             "queue_creator_sync_bulk: %d queued, %d skipped (source=%s)",
