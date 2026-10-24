@@ -116,7 +116,7 @@ def main() -> None:
     # check misses these. This is the primary source of the backlog.
     if not args.no_unsynced:
         logger.info(f"── Pass 1: never-synced (batch={args.unsynced_batch})")
-        queued = _queue_unsynced_creators(batch_size=args.unsynced_batch)
+        queued = _queue_unsynced_creators(batch_size=args.unsynced_batch, client=client)
         logger.info(f"   Queued: {queued}")
         total_queued += queued
     else:
@@ -125,7 +125,10 @@ def main() -> None:
     # ── 2. Stale synced creators ──────────────────────────────────────────────
     if not args.no_stale:
         logger.info(f"── Pass 2: stale refresh (>{args.stale_days} days since sync)")
-        queued = _queue_creators_for_extended_refresh(days_since_last_sync=args.stale_days)
+        queued = _queue_creators_for_extended_refresh(
+            days_since_last_sync=args.stale_days,
+            client=client,
+        )
         logger.info(f"   Queued: {queued}")
         total_queued += queued
     else:

@@ -36,6 +36,8 @@ from enum import Enum
 from typing import Dict, List, Optional
 import json as _json
 
+from supabase import Client
+
 # Pre-compiled regex for ISO 8601 duration parsing (e.g. PT1H2M3S)
 _ISO8601_DURATION_RE = re.compile(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
 
@@ -345,7 +347,7 @@ def _diagnose_creator_db_state() -> None:
 # =============================================================================
 
 
-def _queue_unsynced_creators(batch_size: int = 100) -> int:
+def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] = None) -> int:
     """
     Queue creators that have never been synced (last_synced_at IS NULL).
 
@@ -362,13 +364,16 @@ def _queue_unsynced_creators(batch_size: int = 100) -> int:
     Returns:
         Number of creators newly queued
     """
-    if not supabase_client:
+    if client is None:
+        client = supabase_client
+    if not client:
+        logger.error("Cannot queue unsynced creators: Supabase client is not initialized")
         return 0
 
     try:
         # Find creators with null last_synced_at that aren't already pending
         response = (
-            supabase_client.table(CREATOR_TABLE)
+            client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status")
             .is_("last_synced_at", "null")
             .limit(batch_size)
@@ -395,7 +400,11 @@ def _queue_unsynced_creators(batch_size: int = 100) -> int:
         return 0
 
 
-def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
+def _queue_creators_for_extended_refresh(
+    days_since_last_sync: int = 7,
+    *,
+    client: Optional[Client] = None,
+) -> int:
     """
     Queue creators that haven't been synced in N days (for periodic refresh).
 
@@ -408,14 +417,17 @@ def _queue_creators_for_extended_refresh(days_since_last_sync: int = 7) -> int:
     Returns:
         Number of creators queued
     """
-    if not supabase_client:
+    if client is None:
+        client = supabase_client
+    if not client:
+        logger.error("Cannot queue stale creators: Supabase client is not initialized")
         return 0
 
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days_since_last_sync)).isoformat()
 
         response = (
-            supabase_client.table(CREATOR_TABLE)
+            client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,last_synced_at")
             .in_("sync_status", ["synced", "synced_partial", "invalid", "failed"])
             .is_("archived_at", "null")
