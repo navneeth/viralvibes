@@ -376,6 +376,7 @@ def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] 
             client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status")
             .is_("last_synced_at", "null")
+            .is_("archived_at", "null")
             .limit(batch_size)
             .execute()
         )
@@ -390,7 +391,11 @@ def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] 
         )
 
         creator_ids = [c["id"] for c in creators]
-        queued, skipped = queue_creator_sync_bulk(creator_ids, source="bootstrap_unsynced")
+        queued, skipped = queue_creator_sync_bulk(
+            creator_ids,
+            source="bootstrap_unsynced",
+            client=client,
+        )
 
         logger.info(f"  Bootstrap result: {queued} queued, {skipped} skipped (already pending)")
         return queued
@@ -449,7 +454,11 @@ def _queue_creators_for_extended_refresh(
         )
 
         creator_ids = [c["id"] for c in creators]
-        queued, skipped = queue_creator_sync_bulk(creator_ids, source="scheduled_refresh")
+        queued, skipped = queue_creator_sync_bulk(
+            creator_ids,
+            source="scheduled_refresh",
+            client=client,
+        )
         logger.info(f"  Scheduled refresh: {queued} queued, {skipped} already pending")
         return queued
 
