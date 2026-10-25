@@ -142,6 +142,67 @@ def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int
     return _count(sc, "creators", _f)
 
 
+def _fetch_creator_sync_health(sc, now: datetime) -> dict:
+    """Fetch queue and missing-job health from one database-side aggregate."""
+    data = {
+        "creator_sync_health_available": False,
+        "creator_sync_ready_jobs": None,
+        "creator_sync_delayed_jobs": None,
+        "creator_sync_unqueued_stale": None,
+        "creator_sync_oldest_unqueued_secs": None,
+        "creator_sync_last_success_secs": None,
+    }
+
+    try:
+        response = _db_execute_readonly(
+            lambda: sc.rpc("get_creator_sync_health", {"p_stale_days": 7}).execute()
+        )
+        rows = response.data or []
+        if len(rows) != 1:
+            raise ValueError(
+                f"get_creator_sync_health returned {len(rows)} rows; expected exactly one"
+            )
+
+        row = rows[0]
+        ready_jobs = int(row["ready_jobs"])
+        delayed_jobs = int(row["retry_delayed_jobs"])
+        unqueued_stale = int(row["stale_creators_without_job"])
+        if min(ready_jobs, delayed_jobs, unqueued_stale) < 0:
+            raise ValueError("get_creator_sync_health returned a negative count")
+
+        oldest_raw = row.get("oldest_unqueued_stale_at")
+        last_success_raw = row.get("last_successful_sync_at")
+        oldest_dt = parse_iso_utc(oldest_raw)
+        last_success_dt = parse_iso_utc(last_success_raw)
+        if oldest_raw and oldest_dt is None:
+            raise ValueError("get_creator_sync_health returned an invalid oldest timestamp")
+        if last_success_raw and last_success_dt is None:
+            raise ValueError("get_creator_sync_health returned an invalid completion timestamp")
+        if unqueued_stale > 0 and oldest_dt is None:
+            raise ValueError("get_creator_sync_health returned incomplete count metrics")
+
+        data.update(
+            {
+                "creator_sync_health_available": True,
+                "creator_sync_ready_jobs": ready_jobs,
+                "creator_sync_delayed_jobs": delayed_jobs,
+                "creator_sync_unqueued_stale": unqueued_stale,
+                "creator_sync_oldest_unqueued_secs": (
+                    max(0, int((now - oldest_dt).total_seconds())) if oldest_dt else None
+                ),
+                "creator_sync_last_success_secs": (
+                    max(0, int((now - last_success_dt).total_seconds()))
+                    if last_success_dt
+                    else None
+                ),
+            }
+        )
+    except Exception:
+        logger.exception("[Admin] Creator sync health query failed")
+
+    return data
+
+
 def _fetch_admin_data() -> dict:
     """
     Fetch all data for the admin dashboard. Returns a flat dict; every key has
@@ -185,6 +246,13 @@ def _fetch_admin_data() -> dict:
         "queue_pending": 0,
         "queue_processing": 0,
         "queue_failed": 0,
+        # Creator sync health (None means unavailable, not zero)
+        "creator_sync_health_available": False,
+        "creator_sync_ready_jobs": None,
+        "creator_sync_delayed_jobs": None,
+        "creator_sync_unqueued_stale": None,
+        "creator_sync_oldest_unqueued_secs": None,
+        "creator_sync_last_success_secs": None,
         "failed_quota": 0,
         "failed_invalid": 0,
         "failed_other": 0,
@@ -226,6 +294,9 @@ def _fetch_admin_data() -> dict:
         return data
 
     sc = _db.supabase_client
+
+    # ── Creator sync health ───────────────────────────────────────────────────
+    data.update(_fetch_creator_sync_health(sc, now))
 
     # ── Creator inventory ──────────────────────────────────────────────────────
     try:

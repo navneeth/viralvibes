@@ -406,6 +406,83 @@ def _QueueSection(data: dict) -> Div:
     )
 
 
+def _CreatorSyncHealthSection(data: dict) -> Div:
+    available = data.get("creator_sync_health_available", False)
+    ready_jobs = data.get("creator_sync_ready_jobs")
+    delayed_jobs = data.get("creator_sync_delayed_jobs")
+    unqueued_stale = data.get("creator_sync_unqueued_stale")
+    oldest_secs = data.get("creator_sync_oldest_unqueued_secs")
+    last_success_secs = data.get("creator_sync_last_success_secs")
+
+    if not available:
+        status, status_cls = "Unavailable", "text-gray-600 bg-gray-100"
+        summary = "Health metrics unavailable; check server logs."
+    elif unqueued_stale > 0 or ready_jobs > 0:
+        stalled = last_success_secs is None or last_success_secs > 86400
+        status = "Stalled" if stalled else "Behind"
+        status_cls = "text-red-700 bg-red-100" if stalled else "text-orange-700 bg-orange-100"
+        summary = (
+            "Backlog exists, but no successful sync in the last 24 hours."
+            if stalled
+            else "Sync work is queued or eligible stale creators are missing jobs."
+        )
+    else:
+        status, status_cls = "Healthy", "text-green-700 bg-green-100"
+        summary = "No ready jobs or eligible stale creators missing a job."
+
+    def _count_text(value):
+        return f"{value:,}" if available else "Unavailable"
+
+    oldest_text = (
+        _fmt_age(oldest_secs)
+        if available and unqueued_stale > 0 and oldest_secs is not None
+        else ("—" if available else "Unavailable")
+    )
+    last_success_text = (
+        _fmt_ago(last_success_secs)
+        if last_success_secs is not None
+        else ("Never" if available else "Unavailable")
+    )
+
+    return Card(
+        DivFullySpaced(
+            H3(
+                "Creator Sync Health",
+                cls="text-sm font-mono uppercase tracking-widest text-muted-foreground",
+            ),
+            Span(
+                status,
+                cls=f"px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wide {status_cls}",
+            ),
+            cls="mb-2",
+        ),
+        P(summary, cls="text-sm text-muted-foreground mb-3"),
+        _KVRow("Ready jobs", _count_text(ready_jobs)),
+        _KVRow("Retry-delayed jobs", _count_text(delayed_jobs)),
+        _KVRow("Eligible creators without a job", _count_text(unqueued_stale)),
+        _KVRow("Oldest eligible creator without a job", oldest_text),
+        _KVRow(
+            "Last successful sync",
+            last_success_text,
+            warn=available and (last_success_secs is None or last_success_secs > 86400),
+        ),
+        body_cls="p-5",
+        cls=(
+            "mb-6 border-l-4 border-gray-300"
+            if not available
+            else (
+                "mb-6 border-l-4 border-red-400"
+                if status == "Stalled"
+                else (
+                    "mb-6 border-l-4 border-orange-400"
+                    if status == "Behind"
+                    else "mb-6 border-l-4 border-green-400"
+                )
+            )
+        ),
+    )
+
+
 def _InventorySection(data: dict) -> Div:
     total = data["total_creators"]
     invisible = total - data["visible"]
@@ -712,6 +789,7 @@ def AdminPage(data: dict, refreshed_at: str = "") -> FT:
             _UsersSection(data),
             _RevenueSection(data),
             _QueueSection(data),
+            _CreatorSyncHealthSection(data),
             _InventorySection(data),
             _FreshnessSection(data),
             _DataQualitySection(data),
