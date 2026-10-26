@@ -467,8 +467,9 @@ async def run(
         # Refresh hero stats after all jobs processed
         if jobs_processed > 0:
             try:
-                from db import refresh_hero_stats_cache
+                from db import refresh_creator_sync_coverage, refresh_hero_stats_cache
 
+                refresh_creator_sync_coverage()
                 logger.info("[Hero Stats Cache] Refreshing after %d jobs...", jobs_processed)
                 result = refresh_hero_stats_cache()
                 if result.get("success"):

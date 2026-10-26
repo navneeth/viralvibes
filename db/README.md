@@ -21,12 +21,12 @@ NNN_descriptive_name.sql
 export DATABASE_URL="postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
 
 # Run a specific migration
-psql $DATABASE_URL -f db/migrations/001_add_growth_tracking_columns.sql
+psql $DATABASE_URL -v ON_ERROR_STOP=1 -f db/migrations/001_add_growth_tracking_columns.sql
 
 # Run all migrations in order
 for f in db/migrations/*.sql; do
   echo "Running $f..."
-  psql $DATABASE_URL -f "$f"
+  psql $DATABASE_URL -v ON_ERROR_STOP=1 -f "$f" || break
 done
 ```
 
@@ -116,3 +116,106 @@ threshold. Older rows remain visible and are labeled as legacy until refreshed.
 ## Schema Documentation
 
 Full schema documentation and table creation scripts are in `db/schema/`.
+
+## Creator Sync Health Upgrade (070-072)
+
+Migration 072 upgrades databases where 070/071 have already been applied. Do not
+edit deployed function return types in place: the application now calls
+`get_creator_sync_health_v2()`, while the original RPC remains available for older
+deployments. Apply 072 before deploying the new web application or background code.
+Without it, the card deliberately reports Unavailable instead of falling back to
+the expensive original RPC.
+
+### Production Prerequisites
+
+The production inspection on 2026-10-26 confirmed a valid
+`idx_creator_sync_jobs_pending_unique`, no duplicate pending creator jobs, and both
+original functions restricted to service_role. The three queue-health indexes
+from 070 were also valid. This does not establish index state in other databases.
+072 tracks the unique-index prerequisite for those databases; existing valid
+production indexes are preserved. On another database, resolve duplicate pending
+jobs explicitly before creating the unique index. Do not silently delete jobs.
+
+070 and 072 contain `CREATE INDEX CONCURRENTLY`: run them with psql autocommit,
+not a transaction-wrapping runner or a single SQL Editor transaction. Do not use
+psql's `--single-transaction` option. `IF NOT EXISTS` does not repair invalid indexes
+or validate that an existing same-named index has the expected definition.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/072_creator_sync_health_upgrade.sql
+```
+
+The invalid production `idx_creator_sync_jobs_pending_or_query` is intentionally
+not dropped by this upgrade. Compare its definition with migration 032 (the
+reported production definition includes `retry_at`, not `next_retry_at`). Inspect
+the worker polling plan and rebuild the intended index separately, outside a
+transaction. The new dashboard does not depend on that index. Check index validity
+after any interrupted concurrent build before retrying a migration.
+
+### Monitoring And Scheduling
+
+Queue health reads pending, processing, and completion aggregates only. It does
+not scan creators. Ready waiting time starts at the later of creation and retry
+eligibility, so intentional backoff is not counted as queue delay. Processing
+jobs are also checked, preventing a stuck in-flight job from appearing idle.
+
+For a daily worker, defaults allow a full scheduled gap and roughly 33 hours to
+drain a 3,000-job queue at the observed ~2,200 jobs/day:
+
+| Environment variable | Default hours | Meaning |
+| --- | --- | --- |
+| `CREATOR_SYNC_READY_WARNING_HOURS` | 48 | Work older than this is Behind |
+| `CREATOR_SYNC_STALL_HOURS` | 72 | Minimum work age before Stalled |
+| `CREATOR_SYNC_PROGRESS_GRACE_HOURS` | 26 | Stalled also requires no completions within this interval |
+| `CREATOR_SYNC_COVERAGE_MAX_AGE_HOURS` | 48 | Coverage older than this is marked stale |
+
+Idle means no runnable or processing work; delayed retries do not make it unhealthy.
+Queue depth and unqueued inventory alone do not set the health badge. These are
+waiting/progress indicators, not a worker heartbeat or proof that a scheduled run
+executed. No workflow schedules or YouTube quota policies are changed.
+
+Coverage is a separate stored snapshot using the exact candidate rules used by
+enqueueing: subscriber threshold (10,000 by default), invalid/archive exclusions,
+never-synced priority, active 30-day refresh, and unknown-activity 90-day refresh.
+Its oldest wait measures time since eligibility, not total time since last sync.
+The minimum subscriber threshold and collection age appear on the card. A missing,
+invalid, or stale snapshot does not hide live queue health or become a zero count.
+
+Bootstrap maintenance refreshes coverage unless `--no-stats` is supplied. Kaggle
+also refreshes it at the end of a run that processed jobs. Neither refresh enqueues
+anything. Failures preserve the last stored snapshot and are logged with timing.
+The existing web-client timeout still bounds background HTTP calls: if refreshes
+time out, inspect the candidate query directly and run the refresh through a
+database-side maintenance schedule rather than increasing dashboard timeouts.
+
+After applying 072, initialize and time coverage outside a page request:
+
+```sql
+SELECT public.refresh_creator_sync_coverage(10000);
+SELECT * FROM public.get_creator_sync_health_v2();
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM public.get_creator_sync_health_v2();
+```
+
+Run these as service_role or an administrator. Keep the web service-role key
+server-only. Do not grant the RPCs or snapshot table to anon/authenticated. Measure
+the new queue-only RPC in production before adding a 60-second request cache; the
+previous timeout came from a different query that scanned creator inventory.
+
+### Enqueue Safeguards And Verification
+
+Enqueueing remains dry-run by default, including an explicit NULL dry-run argument.
+Temporary-table cleanup supports repeated calls within one transaction. An advisory
+transaction lock serializes calls to this enqueue function when allocating its
+queue budget; independent legacy queue producers are not covered by that lock.
+The pending unique index remains the final duplicate guard. Automatic enqueue
+cron scheduling is still disabled; review a dry run before enabling any schedule.
+
+Run the SQL integration script only on an empty, disposable database:
+
+```bash
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/creator_sync_health.sql
+```
+
+It applies 070-072 and checks dry-run safety, repeated calls, priority order, queue
+limits, eligibility parity, retry backfill/time zones, runnable wait age, and RPC
+permissions. Fixtures deliberately refuse to overwrite existing application tables.

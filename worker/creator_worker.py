@@ -1503,6 +1503,7 @@ async def handle_resolve_and_add_job(
                 "status": "pending",
                 "retry_count": 0,
                 "retry_at": None,
+                "next_retry_at": None,
                 "error_message": None,
                 "started_at": None,
             }
@@ -2101,6 +2102,9 @@ async def handle_sync_job(
                             "status": JobStatus.PENDING.value,
                             "retry_count": current_retries + 1,
                             "retry_at": retry_at.isoformat(),
+                            # _fetch_pending_jobs filters on next_retry_at; without this
+                            # the backoff window is ignored and retries fire immediately.
+                            "next_retry_at": retry_at.isoformat(),
                             "error_message": str(e),
                         }
                     ).eq("id", job_id).execute()
@@ -2165,7 +2169,11 @@ def _reset_stuck_processing_jobs() -> None:
                 # If so, catch the unique constraint error and delete this job instead.
                 try:
                     supabase_client.table(CREATOR_SYNC_JOBS_TABLE).update(
-                        {"status": JobStatus.PENDING.value, "retry_at": None}
+                        {
+                            "status": JobStatus.PENDING.value,
+                            "retry_at": None,
+                            "next_retry_at": None,
+                        }
                     ).eq("id", job_id).execute()
                     reset_count += 1
                 except Exception as update_e:

@@ -21,7 +21,7 @@ from fasthtml.common import *
 from starlette.responses import Response as StarletteResponse
 
 import db as _db
-from db import _db_execute_readonly
+from db import _db_execute_readonly, _db_execute_readonly_without_read_timeout
 from constants import BROWSEABLE_SYNC_STATUSES
 from services.contact_extractor import ContactExtractorService
 from utils.dates import parse_iso_utc
@@ -142,6 +142,92 @@ def _count_creators(sc, *, status: str | None = None, extra_filters=None) -> int
     return _count(sc, "creators", _f)
 
 
+def _fetch_creator_sync_health(sc, now: datetime) -> dict:
+    """Read live queue metrics and an independently refreshed coverage snapshot."""
+    data = {
+        "creator_sync_health_available": False,
+        "creator_sync_ready_jobs": None,
+        "creator_sync_delayed_jobs": None,
+        "creator_sync_processing_jobs": None,
+        "creator_sync_oldest_ready_secs": None,
+        "creator_sync_oldest_processing_secs": None,
+        "creator_sync_unqueued_stale": None,
+        "creator_sync_oldest_unqueued_secs": None,
+        "creator_sync_last_success_secs": None,
+        "creator_sync_coverage_available": False,
+        "creator_sync_coverage_age_secs": None,
+        "creator_sync_coverage_min_subscribers": None,
+    }
+
+    def _count(row, name):
+        value = row[name]
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise ValueError(f"Invalid count: {name}")
+        count = int(value)
+        if count < 0:
+            raise ValueError(f"Negative count: {name}")
+        return count
+
+    def _age(row, name, *, required=False):
+        raw = row.get(name)
+        if raw is None and not required:
+            return None
+        timestamp = parse_iso_utc(raw)
+        if timestamp is None:
+            raise ValueError(f"Missing or invalid timestamp: {name}")
+        return max(0, int((now - timestamp).total_seconds()))
+
+    try:
+        response = _db_execute_readonly_without_read_timeout(
+            lambda: sc.rpc("get_creator_sync_health_v2", {}).execute()
+        )
+        rows = response.data or []
+        if len(rows) != 1:
+            raise ValueError(f"Health RPC returned {len(rows)} rows; expected exactly one")
+
+        row = rows[0]
+        ready_jobs = _count(row, "ready_jobs")
+        delayed_jobs = _count(row, "retry_delayed_jobs")
+        processing_jobs = _count(row, "processing_jobs")
+        oldest_ready = _age(row, "oldest_ready_at", required=ready_jobs > 0)
+        oldest_processing = _age(row, "oldest_processing_at", required=processing_jobs > 0)
+        last_success = _age(row, "last_successful_sync_at")
+        data.update(
+            {
+                "creator_sync_health_available": True,
+                "creator_sync_ready_jobs": ready_jobs,
+                "creator_sync_delayed_jobs": delayed_jobs,
+                "creator_sync_processing_jobs": processing_jobs,
+                "creator_sync_oldest_ready_secs": oldest_ready,
+                "creator_sync_oldest_processing_secs": oldest_processing,
+                "creator_sync_last_success_secs": last_success,
+            }
+        )
+    except Exception:
+        logger.exception("[Admin] Creator sync health query failed")
+        return data
+
+    if row.get("coverage_sampled_at") is not None:
+        try:
+            eligible = _count(row, "eligible_creators_without_job")
+            coverage_age = _age(row, "coverage_sampled_at", required=True)
+            minimum = _count(row, "coverage_min_subscribers")
+            oldest = _age(row, "oldest_eligible_since", required=eligible > 0)
+            data.update(
+                {
+                    "creator_sync_coverage_available": True,
+                    "creator_sync_unqueued_stale": eligible,
+                    "creator_sync_oldest_unqueued_secs": oldest,
+                    "creator_sync_coverage_age_secs": coverage_age,
+                    "creator_sync_coverage_min_subscribers": minimum,
+                }
+            )
+        except Exception:
+            logger.exception("[Admin] Creator sync coverage snapshot is invalid")
+
+    return data
+
+
 def _fetch_admin_data() -> dict:
     """
     Fetch all data for the admin dashboard. Returns a flat dict; every key has
@@ -185,6 +271,13 @@ def _fetch_admin_data() -> dict:
         "queue_pending": 0,
         "queue_processing": 0,
         "queue_failed": 0,
+        # Creator sync health (None means unavailable, not zero)
+        "creator_sync_health_available": False,
+        "creator_sync_ready_jobs": None,
+        "creator_sync_delayed_jobs": None,
+        "creator_sync_unqueued_stale": None,
+        "creator_sync_oldest_unqueued_secs": None,
+        "creator_sync_last_success_secs": None,
         "failed_quota": 0,
         "failed_invalid": 0,
         "failed_other": 0,
@@ -226,6 +319,9 @@ def _fetch_admin_data() -> dict:
         return data
 
     sc = _db.supabase_client
+
+    # ── Creator sync health ───────────────────────────────────────────────────
+    data.update(_fetch_creator_sync_health(sc, now))
 
     # ── Creator inventory ──────────────────────────────────────────────────────
     try:

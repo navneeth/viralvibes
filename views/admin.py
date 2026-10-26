@@ -12,6 +12,12 @@ from datetime import datetime, timezone
 from fasthtml.common import *
 from monsterui.all import *
 
+from constants import (
+    CREATOR_SYNC_COVERAGE_MAX_AGE_HOURS,
+    CREATOR_SYNC_PROGRESS_GRACE_HOURS,
+    CREATOR_SYNC_READY_WARNING_HOURS,
+    CREATOR_SYNC_STALL_HOURS,
+)
 from utils.dates import parse_iso_utc
 
 
@@ -406,6 +412,126 @@ def _QueueSection(data: dict) -> Div:
     )
 
 
+def _CreatorSyncHealthSection(data: dict) -> Div:
+    available = data.get("creator_sync_health_available", False)
+    ready_jobs = data.get("creator_sync_ready_jobs")
+    delayed_jobs = data.get("creator_sync_delayed_jobs")
+    processing_jobs = data.get("creator_sync_processing_jobs")
+    ready_secs = data.get("creator_sync_oldest_ready_secs")
+    processing_secs = data.get("creator_sync_oldest_processing_secs")
+    unqueued_stale = data.get("creator_sync_unqueued_stale")
+    oldest_secs = data.get("creator_sync_oldest_unqueued_secs")
+    last_success_secs = data.get("creator_sync_last_success_secs")
+    coverage_available = data.get("creator_sync_coverage_available", False)
+    coverage_age = data.get("creator_sync_coverage_age_secs")
+    coverage_stale = (
+        coverage_available and coverage_age > CREATOR_SYNC_COVERAGE_MAX_AGE_HOURS * 3600
+    )
+    waiting_secs = max(ready_secs or 0, processing_secs or 0)
+
+    if not available:
+        status, status_cls = "Unavailable", "text-gray-600 bg-gray-100"
+        summary = "Health metrics unavailable; check server logs."
+    elif ready_jobs > 0 or processing_jobs > 0:
+        stalled = waiting_secs > CREATOR_SYNC_STALL_HOURS * 3600 and (
+            last_success_secs is None
+            or last_success_secs > CREATOR_SYNC_PROGRESS_GRACE_HOURS * 3600
+        )
+        status = "Stalled" if stalled else "Behind"
+        if not stalled and waiting_secs <= CREATOR_SYNC_READY_WARNING_HOURS * 3600:
+            status = "Healthy"
+        status_cls = "text-red-700 bg-red-100" if stalled else "text-orange-700 bg-orange-100"
+        if status == "Healthy":
+            status_cls = "text-green-700 bg-green-100"
+        summary = (
+            "Overdue sync work has no recent successful completions."
+            if stalled
+            else (
+                "Sync work has exceeded its waiting-time target."
+                if status == "Behind"
+                else "Sync work is within the daily schedule's waiting-time target."
+            )
+        )
+    else:
+        status, status_cls = "Idle", "text-green-700 bg-green-100"
+        summary = "No runnable or processing sync jobs."
+
+    def _count_text(value):
+        return f"{value:,}" if available else "Unavailable"
+
+    oldest_text = (
+        _fmt_age(oldest_secs)
+        if coverage_available and unqueued_stale > 0 and oldest_secs is not None
+        else ("—" if coverage_available else "Unavailable")
+    )
+    last_success_text = (
+        _fmt_ago(last_success_secs)
+        if last_success_secs is not None
+        else ("Never" if available else "Unavailable")
+    )
+
+    return Card(
+        DivFullySpaced(
+            H3(
+                "Creator Sync Health",
+                cls="text-sm font-mono uppercase tracking-widest text-muted-foreground",
+            ),
+            Span(
+                status,
+                cls=f"px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wide {status_cls}",
+            ),
+            cls="mb-2",
+        ),
+        P(summary, cls="text-sm text-muted-foreground mb-3"),
+        _KVRow("Ready jobs", _count_text(ready_jobs)),
+        _KVRow("Retry-delayed jobs", _count_text(delayed_jobs)),
+        _KVRow("Processing jobs", _count_text(processing_jobs)),
+        _KVRow("Oldest ready wait", _fmt_age(ready_secs) if available else "Unavailable"),
+        _KVRow("Oldest processing age", _fmt_age(processing_secs) if available else "Unavailable"),
+        _KVRow(
+            "Eligible creators without a job",
+            f"{unqueued_stale:,}" if coverage_available else "Unavailable",
+        ),
+        _KVRow("Oldest eligible wait", oldest_text),
+        _KVRow(
+            "Coverage updated",
+            (
+                _fmt_ago(coverage_age) + (" (stale)" if coverage_stale else "")
+                if coverage_available
+                else "Unavailable"
+            ),
+            warn=coverage_stale,
+        ),
+        _KVRow(
+            "Coverage minimum subscribers",
+            (
+                f"{data['creator_sync_coverage_min_subscribers']:,}"
+                if coverage_available
+                else "Unavailable"
+            ),
+        ),
+        _KVRow(
+            "Last successful sync",
+            last_success_text,
+            warn=status == "Stalled",
+        ),
+        body_cls="p-5",
+        cls=(
+            "mb-6 border-l-4 border-gray-300"
+            if not available
+            else (
+                "mb-6 border-l-4 border-red-400"
+                if status == "Stalled"
+                else (
+                    "mb-6 border-l-4 border-orange-400"
+                    if status == "Behind"
+                    else "mb-6 border-l-4 border-green-400"
+                )
+            )
+        ),
+    )
+
+
 def _InventorySection(data: dict) -> Div:
     total = data["total_creators"]
     invisible = total - data["visible"]
@@ -712,6 +838,7 @@ def AdminPage(data: dict, refreshed_at: str = "") -> FT:
             _UsersSection(data),
             _RevenueSection(data),
             _QueueSection(data),
+            _CreatorSyncHealthSection(data),
             _InventorySection(data),
             _FreshnessSection(data),
             _DataQualitySection(data),

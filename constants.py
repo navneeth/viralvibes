@@ -13,6 +13,17 @@ from fasthtml.components import Path, Svg
 MAX_RETRY_ATTEMPTS = int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
 OUTLIER_METHOD_VERSION = "duration_adjusted_daily_views_percentile_v3"
 MIN_OUTLIER_AGE_DAYS = 1.0
+CREATOR_SYNC_READY_WARNING_HOURS = max(24, int(os.getenv("CREATOR_SYNC_READY_WARNING_HOURS", "48")))
+CREATOR_SYNC_STALL_HOURS = max(
+    CREATOR_SYNC_READY_WARNING_HOURS,
+    int(os.getenv("CREATOR_SYNC_STALL_HOURS", "72")),
+)
+CREATOR_SYNC_PROGRESS_GRACE_HOURS = max(
+    24, int(os.getenv("CREATOR_SYNC_PROGRESS_GRACE_HOURS", "26"))
+)
+CREATOR_SYNC_COVERAGE_MAX_AGE_HOURS = max(
+    24, int(os.getenv("CREATOR_SYNC_COVERAGE_MAX_AGE_HOURS", "48"))
+)
 
 # =============================================================================
 # ASSET PATHS

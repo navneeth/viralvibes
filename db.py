@@ -1825,10 +1825,9 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
             "status": status,
             "retry_count": retry_count + 1,
             "error_message": error,
+            "retry_at": next_retry,
+            "next_retry_at": next_retry,
         }
-
-        if next_retry:
-            update_payload["retry_at"] = next_retry
 
         response = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
@@ -4767,6 +4766,33 @@ def _refresh_hero_stats(now: float) -> dict:
 
 CATEGORY_STATS_CACHE_TABLE = "category_stats_cache"
 RPC_DISTINCT_SYNCED_CATEGORIES = "get_distinct_synced_categories"
+
+
+def refresh_creator_sync_coverage(
+    min_subscribers: int = 10000,
+    *,
+    client: Optional[SupabaseLike] = None,
+) -> bool:
+    """Refresh policy-aligned coverage outside the dashboard request path."""
+    active_client = client if client is not None else supabase_client
+    if active_client is None:
+        return False
+    started = time.monotonic()
+    try:
+        response = _db_execute(
+            lambda: active_client.rpc(
+                "refresh_creator_sync_coverage", {"p_min_subscribers": min_subscribers}
+            ).execute()
+        )
+        logger.info(
+            "Creator sync coverage refresh finished in %.0fms (refreshed=%s)",
+            (time.monotonic() - started) * 1000,
+            response.data is True,
+        )
+        return response.data is True
+    except Exception:
+        logger.exception("Creator sync coverage refresh failed; retaining previous snapshot")
+        return False
 
 
 def get_cached_category_box_stats(category: str) -> Optional[Dict[str, Any]]:

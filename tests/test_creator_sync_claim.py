@@ -3,6 +3,64 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
+
+@pytest.mark.parametrize("response_value", [True, False])
+def test_coverage_refresh_uses_explicit_client(monkeypatch, response_value):
+    import db
+
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=response_value)
+    monkeypatch.setattr(db, "supabase_client", None)
+    assert db.refresh_creator_sync_coverage(client=client) is response_value
+    client.rpc.assert_called_once_with(
+        "refresh_creator_sync_coverage", {"p_min_subscribers": 10000}
+    )
+
+
+def test_coverage_refresh_failure_is_nonfatal():
+    import db
+
+    client = MagicMock()
+    client.rpc.side_effect = RuntimeError("refresh failed")
+    assert db.refresh_creator_sync_coverage(client=client) is False
+
+
+@pytest.mark.parametrize("exhausted", [False, True])
+def test_failed_sync_keeps_retry_fields_consistent(monkeypatch, exhausted):
+    import db
+
+    retry_count = db.CREATOR_WORKER_MAX_RETRIES if exhausted else 0
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.single.return_value = query
+    query.update.return_value = query
+    query.execute.side_effect = [
+        SimpleNamespace(data={"retry_count": retry_count}),
+        SimpleNamespace(data=[{"id": 7}]),
+    ]
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    before = datetime.now(timezone.utc)
+    assert db.mark_creator_sync_failed(7, "API failure") is True
+    after = datetime.now(timezone.utc)
+
+    payload = query.update.call_args.args[0]
+    assert payload["retry_at"] == payload["next_retry_at"]
+    assert payload["retry_count"] == retry_count + 1
+    if exhausted:
+        assert payload["status"] == "failed"
+        assert payload["next_retry_at"] is None
+    else:
+        assert payload["status"] == "pending"
+        retry_time = datetime.fromisoformat(payload["next_retry_at"])
+        assert db.CREATOR_WORKER_RETRY_BASE <= (retry_time - before).total_seconds()
+        assert (retry_time - after).total_seconds() <= db.CREATOR_WORKER_RETRY_BASE
+
 
 def test_mark_creator_sync_processing_claims_only_pending_jobs(monkeypatch):
     import db

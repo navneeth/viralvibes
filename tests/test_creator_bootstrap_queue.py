@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 import worker.bootstrap_creators as bootstrap
 import worker.creator_worker as creator_worker
 import db
@@ -99,9 +101,11 @@ def test_stale_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatc
     ]
 
 
-def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch):
+@pytest.mark.parametrize("skip_stats", [False, True])
+def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch, skip_stats):
     client = object()
     calls = []
+    coverage_calls = []
     monkeypatch.setattr(bootstrap, "init_supabase", lambda: client)
     monkeypatch.setattr(
         bootstrap, "_queue_unsynced_creators", lambda **kwargs: calls.append(kwargs) or 1
@@ -115,13 +119,19 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch):
     monkeypatch.setattr(bootstrap, "refresh_category_stats_cache", lambda: 0)
     monkeypatch.setattr(
         bootstrap,
+        "refresh_creator_sync_coverage",
+        lambda **kwargs: coverage_calls.append(kwargs) or False,
+    )
+    monkeypatch.setattr(
+        bootstrap,
         "refresh_hero_stats_cache",
         lambda: {"success": True, "materialized_views": []},
     )
     monkeypatch.setattr(
         bootstrap.sys,
         "argv",
-        ["bootstrap", "--unsynced-batch", "5000", "--no-stats", "--no-categories"],
+        ["bootstrap", "--unsynced-batch", "5000", "--no-categories"]
+        + (["--no-stats"] if skip_stats else []),
     )
 
     bootstrap.main()
@@ -130,6 +140,7 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch):
         {"batch_size": 5000, "client": client},
         {"days_since_last_sync": 7, "client": client},
     ]
+    assert coverage_calls == ([] if skip_stats else [{"client": client}])
 
 
 class _BulkJobQuery:
