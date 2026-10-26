@@ -25,6 +25,7 @@ from db import (
     init_supabase,
     queue_invalid_creators_for_retry,
     refresh_category_stats_cache,
+    refresh_creator_sync_coverage,
     refresh_hero_stats_cache,
     refresh_total_categories,
     setup_logging,
@@ -170,6 +171,10 @@ def main() -> None:
             logger.error(f"   ❌ Hero stats refresh failed: {result['error']}")
     else:
         logger.info("── Pass 5: hero stats skipped (--no-stats)")
+
+    if not args.no_stats:
+        logger.info("── Refreshing creator sync coverage snapshot")
+        refresh_creator_sync_coverage(client=client)
 
     # ── 6. Recount total_categories (slow jsonb scan, run infrequently) ───────
     # Separated from Pass 5 because the jsonb unnest over topic_categories
