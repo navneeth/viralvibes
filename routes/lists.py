@@ -410,14 +410,16 @@ def _fetch_category_page(category_slug: str, page: int) -> tuple[list, int, int,
     """
     decoded_slug = unquote(category_slug)
     category_name = resolve_category_slug(decoded_slug) or _unslugify(decoded_slug)
-    result = get_topic_category_creators(
+    creators = get_topic_category_creators(
         category_name,
         limit=DETAIL_PAGE_LIMIT,
         offset=(page - 1) * DETAIL_PAGE_LIMIT,
-        return_count=True,
+        return_count=False,
     )
-    creators = result.creators if result else []
-    total_count = result.total_count if result else 0
+    category_counts = dict(get_top_categories_with_counts(limit=2000))
+    total_count = category_counts.get(category_name, 0)
+    if not total_count and creators:
+        total_count = (page - 1) * DETAIL_PAGE_LIMIT + len(creators)
     total_pages = (
         (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )

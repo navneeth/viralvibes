@@ -426,14 +426,13 @@ def test_clear_top_countries_cache_clears_country_detail_cache(monkeypatch):
 
 
 def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypatch):
-    page_result = db_lists.TopicCategoryPageResult(
-        creators=[{"channel_name": "Test Channel", "current_subscribers": 1000}],
-        total_count=42,
-    )
+    creators = [{"channel_name": "Test Channel", "current_subscribers": 1000}]
 
     monkeypatch.setattr(lists_routes, "resolve_category_slug", lambda slug: "Lifestyle (sociology)")
-    mock_get = MagicMock(return_value=page_result)
+    mock_get = MagicMock(return_value=creators)
     monkeypatch.setattr(lists_routes, "get_topic_category_creators", mock_get)
+    mock_counts = MagicMock(return_value=[("Lifestyle (sociology)", 42)])
+    monkeypatch.setattr(lists_routes, "get_top_categories_with_counts", mock_counts)
 
     creators, total_count, total_pages, category_name = lists_routes._fetch_category_page(
         "lifestyle-sociology", page=1
@@ -447,8 +446,9 @@ def test_fetch_category_page_uses_topic_categories_not_primary_category(monkeypa
         "Lifestyle (sociology)",
         limit=20,
         offset=0,
-        return_count=True,
+        return_count=False,
     )
+    mock_counts.assert_called_once_with(limit=2000)
 
 
 def test_fetch_country_page_uses_country_specific_query(monkeypatch):
