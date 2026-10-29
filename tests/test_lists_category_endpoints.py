@@ -1,6 +1,7 @@
 """Endpoint-level unit tests for lists category flows."""
 
 import sys
+import threading
 import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -236,19 +237,107 @@ def test_get_top_creators_by_languages_uses_synced_population(monkeypatch):
     query.eq.assert_called_once_with("sync_status", "synced")
 
 
-def test_get_top_creators_by_countries_uses_country_detail_query(monkeypatch):
-    calls = []
+def test_get_top_creators_by_countries_uses_one_grouped_rpc(monkeypatch):
+    client = MagicMock()
+    response = SimpleNamespace(
+        data=[
+            {"country_code": "US", "channel_name": "US creator"},
+            {"country_code": "IN", "channel_name": "India creator"},
+        ]
+    )
+    rpc = MagicMock(return_value=response)
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+    monkeypatch.setattr(db_lists, "_rpc_with_retry", rpc)
 
-    def _get_country_creators(country_code, *, limit, offset=0, return_count=False):
-        calls.append((country_code, limit, offset, return_count))
-        return [{"country_code": country_code}]
+    result = db_lists.get_top_creators_by_countries(["us", "IN", "US"], limit_per_country=3)
 
-    monkeypatch.setattr(db_lists, "get_country_creators", _get_country_creators)
+    rpc.assert_called_once_with(
+        client,
+        "get_country_preview_creators",
+        {"p_country_codes": ["US", "IN"], "p_limit_per_country": 3},
+    )
+    assert result == {
+        "US": [{"country_code": "US", "channel_name": "US creator"}],
+        "IN": [{"country_code": "IN", "channel_name": "India creator"}],
+    }
 
-    result = db_lists.get_top_creators_by_countries(["US", "IN", "US"], limit_per_country=3)
 
-    assert calls == [("US", 3, 0, False), ("IN", 3, 0, False)]
-    assert result == {"US": [{"country_code": "US"}], "IN": [{"country_code": "IN"}]}
+def test_country_creators_query_invalidated_midflight_does_not_repopulate_cache(monkeypatch):
+    class _Query:
+        @property
+        def not_(self):
+            return self
+
+        def __getattr__(self, _name):
+            return lambda *args, **kwargs: self
+
+        def execute(self):
+            db_lists.clear_country_creators_cache()
+            return SimpleNamespace(data=[{"channel_name": "pre-refresh result"}], count=1)
+
+    client = MagicMock()
+    client.table.return_value = _Query()
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+    db_lists.clear_country_creators_cache()
+
+    result = db_lists.get_country_creators("US", limit=1)
+
+    assert result == [{"channel_name": "pre-refresh result", "_rank": 1}]
+    assert db_lists._country_creators_cache == {}
+
+
+def test_older_country_query_cannot_overwrite_newer_cached_result(monkeypatch):
+    first_query_started = threading.Event()
+    release_first_query = threading.Event()
+    execute_lock = threading.Lock()
+    execute_count = 0
+
+    class _Query:
+        @property
+        def not_(self):
+            return self
+
+        def __getattr__(self, _name):
+            return lambda *args, **kwargs: self
+
+        def execute(self):
+            nonlocal execute_count
+            with execute_lock:
+                execute_count += 1
+                query_number = execute_count
+            if query_number == 1:
+                first_query_started.set()
+                assert release_first_query.wait(timeout=5)
+                name = "older result"
+            else:
+                name = "newer result"
+            return SimpleNamespace(data=[{"channel_name": name}], count=1)
+
+    client = MagicMock()
+    client.table.return_value = _Query()
+    monotonic_values = iter((10.0, 20.0))
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+    monkeypatch.setattr(db_lists.time, "monotonic", lambda: next(monotonic_values))
+    db_lists.clear_country_creators_cache()
+
+    older_result = []
+    thread = threading.Thread(
+        target=lambda: older_result.extend(db_lists.get_country_creators("US", limit=1))
+    )
+    thread.start()
+    assert first_query_started.wait(timeout=5)
+
+    newer_result = db_lists.get_country_creators("US", limit=1)
+    release_first_query.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert older_result[0]["channel_name"] == "older result"
+    assert newer_result[0]["channel_name"] == "newer result"
+    cache_key = ("US", 1, 0, False)
+    assert (
+        db_lists._country_creators_cache[cache_key][1].creators[0]["channel_name"] == "newer result"
+    )
 
 
 def test_lists_route_skips_language_count_fallback_when_meta_has_count(monkeypatch):
