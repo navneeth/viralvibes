@@ -1276,8 +1276,13 @@ def get_top_creators_by_countries(
                 result[country_code].append(creator)
         return result
     except Exception:
-        logger.exception("Error batch-fetching creators for countries")
-        return {}
+        logger.exception("Batch country preview RPC failed; falling back to per-country queries")
+        # The list page should still show creators if the batch RPC times out.
+        # get_country_creators uses the country/subscriber index and its own
+        # cache, so this slower path is bounded to the small set of visible cards.
+        for country_code in normalized_codes:
+            result[country_code] = get_country_creators(country_code, limit=limit_per_country)
+        return result
 
 
 def get_top_creators_by_categories(

@@ -262,6 +262,31 @@ def test_get_top_creators_by_countries_uses_one_grouped_rpc(monkeypatch):
     }
 
 
+def test_get_top_creators_by_countries_falls_back_when_rpc_times_out(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+    monkeypatch.setattr(
+        db_lists,
+        "_rpc_with_retry",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("RPC timed out")),
+    )
+    fallback_calls = []
+
+    def _get_country_creators(country_code, *, limit):
+        fallback_calls.append((country_code, limit))
+        return [{"country_code": country_code, "channel_name": f"{country_code} creator"}]
+
+    monkeypatch.setattr(db_lists, "get_country_creators", _get_country_creators)
+
+    result = db_lists.get_top_creators_by_countries(["us", "IN", "US"], limit_per_country=3)
+
+    assert fallback_calls == [("US", 3), ("IN", 3)]
+    assert result == {
+        "US": [{"country_code": "US", "channel_name": "US creator"}],
+        "IN": [{"country_code": "IN", "channel_name": "IN creator"}],
+    }
+
+
 def test_country_creators_query_invalidated_midflight_does_not_repopulate_cache(monkeypatch):
     class _Query:
         @property
