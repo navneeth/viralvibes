@@ -1226,10 +1226,7 @@ def get_top_creators_by_countries(
     country_codes: list[str], limit_per_country: int = 5
 ) -> dict[str, list[dict]]:
     """
-    Batch-fetch top creators for a list of countries in a single DB query.
-
-    Replaces N separate get_creators_by_country() calls when many country
-    groups need to be rendered (e.g. the /lists page).
+    Fetch the top creators for each country using the detail-page query.
 
     Args:
         country_codes: ISO 3166-1 alpha-2 codes, e.g. ["US", "GB", "JP"]
@@ -1238,47 +1235,17 @@ def get_top_creators_by_countries(
     Returns:
         Dict of {country_code: [creators sorted by subscribers desc]}
 
-    Note:
-        Results are globally ordered by subscribers before the per-country
-        cap is applied.  In highly skewed datasets (e.g. US has far more
-        creators than every other country combined) the global fetch cap
-        (``* 3``, max 2000) may exhaust before low-subscriber countries are
-        reached, leaving those slots empty.  This is an accepted trade-off
-        for the /lists preview cards; the full detail page queries each
-        country directly.
+    Each country is queried independently so a large country cannot consume
+    a global result cap and the preview uses the same synced population as
+    the dedicated country page.
     """
-    supabase_client = _get_supabase_client()
-    if not supabase_client or not country_codes:
+    if not country_codes:
         return {}
 
-    try:
-        fetch_limit = min(len(country_codes) * limit_per_country * 3, 2000)
-
-        response = (
-            supabase_client.table("creators")
-            .select("*")
-            .in_("country_code", country_codes)
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", 0)
-            .order("current_subscribers", desc=True)
-            .limit(fetch_limit)
-            .execute()
-        )
-
-        creators = response.data if response.data else []
-
-        # Group by country_code, keep top N per country
-        result: dict[str, list[dict]] = {code: [] for code in country_codes}
-        for creator in creators:
-            code = creator.get("country_code", "")
-            if code in result and len(result[code]) < limit_per_country:
-                result[code].append(creator)
-
-        return result
-
-    except Exception as e:
-        logger.exception(f"Error batch-fetching creators for countries: {e}")
-        return {}
+    return {
+        code: get_country_creators(code, limit=limit_per_country)
+        for code in dict.fromkeys(country_codes)
+    }
 
 
 def get_top_creators_by_categories(

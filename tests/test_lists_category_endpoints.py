@@ -236,6 +236,21 @@ def test_get_top_creators_by_languages_uses_synced_population(monkeypatch):
     query.eq.assert_called_once_with("sync_status", "synced")
 
 
+def test_get_top_creators_by_countries_uses_country_detail_query(monkeypatch):
+    calls = []
+
+    def _get_country_creators(country_code, *, limit, offset=0, return_count=False):
+        calls.append((country_code, limit, offset, return_count))
+        return [{"country_code": country_code}]
+
+    monkeypatch.setattr(db_lists, "get_country_creators", _get_country_creators)
+
+    result = db_lists.get_top_creators_by_countries(["US", "IN", "US"], limit_per_country=3)
+
+    assert calls == [("US", 3, 0, False), ("IN", 3, 0, False)]
+    assert result == {"US": [{"country_code": "US"}], "IN": [{"country_code": "IN"}]}
+
+
 def test_lists_route_skips_language_count_fallback_when_meta_has_count(monkeypatch):
     monkeypatch.setattr(
         lists_routes,

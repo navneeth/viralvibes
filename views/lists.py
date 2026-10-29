@@ -173,10 +173,8 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
 
     # Determine what metric to show in stats column
     if show_growth:
-        stat_value = (
-            f"+{format_number(subs_change)}" if subs_change > 0 else format_number(subs_change)
-        )
-        stat_label = "30d growth"
+        stat_value = f"{growth_rate:+.1f}%"
+        stat_label = "30d growth rate"
     elif show_activity:
         stat_value = f"{monthly_uploads:.1f}/mo" if monthly_uploads else "—"
         stat_label = "uploads"
