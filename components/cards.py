@@ -124,7 +124,7 @@ _TICKER_ITEMS = [
     ("🏆", "Top Niche", "Gaming"),
     ("📊", "Playlists", "10,419"),
     ("⚡", "Real-time", "< 2 sec"),
-    ("🌐", "Countries", "142"),
+    ("🌐", "Countries", COUNTRIES_COVERED),
 ]
 
 # Double the list so the animation can loop perfectly
@@ -169,7 +169,7 @@ def _stat_row():
         Div(cls="vv-stat-divider"),
         _stat("< 2s", "Analysis"),
         Div(cls="vv-stat-divider"),
-        _stat("142", "Countries"),
+        _stat(COUNTRIES_COVERED, "Countries"),
         cls="vv-stat-bar",
     )
 

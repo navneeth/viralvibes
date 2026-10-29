@@ -260,6 +260,8 @@ _category_country_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValu
 # Values are always stored as CountryPageResult (the canonical form).
 # When return_count=False, the list is extracted on return to match the function signature.
 _country_creators_cache: dict[tuple, tuple[float, CountryPageResult]] = {}
+_country_creators_cache_lock = threading.Lock()
+_country_creators_cache_generation = 0
 
 
 def clear_category_creators_cache() -> None:
@@ -270,7 +272,10 @@ def clear_category_creators_cache() -> None:
 
 def clear_country_creators_cache() -> None:
     """Invalidate cached country detail pages."""
-    _country_creators_cache.clear()
+    global _country_creators_cache_generation
+    with _country_creators_cache_lock:
+        _country_creators_cache_generation += 1
+        _country_creators_cache.clear()
 
 
 _CATEGORY_SLUG_CACHE_TTL_S = 60 * 60
@@ -1129,7 +1134,9 @@ def get_country_creators(
 
     cache_key = (normalized_country, limit, offset, return_count)
     now = time.monotonic()
-    cached_entry = _country_creators_cache.get(cache_key)
+    with _country_creators_cache_lock:
+        cache_generation = _country_creators_cache_generation
+        cached_entry = _country_creators_cache.get(cache_key)
     if cached_entry is not None:
         ts, cached_result = cached_entry
         if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
@@ -1181,7 +1188,12 @@ def get_country_creators(
 
     # Always store as CountryPageResult; extract on return to match function signature
     cached_result = CountryPageResult(creators, total_count)
-    _country_creators_cache[cache_key] = (now, cached_result)
+    with _country_creators_cache_lock:
+        current_entry = _country_creators_cache.get(cache_key)
+        if cache_generation == _country_creators_cache_generation and (
+            current_entry is None or current_entry[0] <= now
+        ):
+            _country_creators_cache[cache_key] = (now, cached_result)
     return cached_result if return_count else cached_result.creators
 
 
@@ -1226,10 +1238,7 @@ def get_top_creators_by_countries(
     country_codes: list[str], limit_per_country: int = 5
 ) -> dict[str, list[dict]]:
     """
-    Batch-fetch top creators for a list of countries in a single DB query.
-
-    Replaces N separate get_creators_by_country() calls when many country
-    groups need to be rendered (e.g. the /lists page).
+    Fetch the top creators for all requested countries in one database RPC.
 
     Args:
         country_codes: ISO 3166-1 alpha-2 codes, e.g. ["US", "GB", "JP"]
@@ -1238,46 +1247,36 @@ def get_top_creators_by_countries(
     Returns:
         Dict of {country_code: [creators sorted by subscribers desc]}
 
-    Note:
-        Results are globally ordered by subscribers before the per-country
-        cap is applied.  In highly skewed datasets (e.g. US has far more
-        creators than every other country combined) the global fetch cap
-        (``* 3``, max 2000) may exhaust before low-subscriber countries are
-        reached, leaving those slots empty.  This is an accepted trade-off
-        for the /lists preview cards; the full detail page queries each
-        country directly.
+    The RPC applies a per-country limit and the same synced population as the
+    dedicated country page, avoiding both N+1 requests and global-cap bias.
     """
-    supabase_client = _get_supabase_client()
-    if not supabase_client or not country_codes:
-        return {}
-
-    try:
-        fetch_limit = min(len(country_codes) * limit_per_country * 3, 2000)
-
-        response = (
-            supabase_client.table("creators")
-            .select("*")
-            .in_("country_code", country_codes)
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", 0)
-            .order("current_subscribers", desc=True)
-            .limit(fetch_limit)
-            .execute()
-        )
-
-        creators = response.data if response.data else []
-
-        # Group by country_code, keep top N per country
-        result: dict[str, list[dict]] = {code: [] for code in country_codes}
-        for creator in creators:
-            code = creator.get("country_code", "")
-            if code in result and len(result[code]) < limit_per_country:
-                result[code].append(creator)
-
+    normalized_codes = list(
+        dict.fromkeys(str(code).strip().upper() for code in country_codes if code)
+    )
+    result: dict[str, list[dict]] = {code: [] for code in normalized_codes}
+    if not normalized_codes:
         return result
 
-    except Exception as e:
-        logger.exception(f"Error batch-fetching creators for countries: {e}")
+    supabase_client = _get_supabase_client()
+    if not supabase_client:
+        return result
+
+    try:
+        response = _rpc_with_retry(
+            supabase_client,
+            "get_country_preview_creators",
+            {
+                "p_country_codes": normalized_codes,
+                "p_limit_per_country": limit_per_country,
+            },
+        )
+        for creator in response.data or []:
+            country_code = str(creator.get("country_code") or "").upper()
+            if country_code in result:
+                result[country_code].append(creator)
+        return result
+    except Exception:
+        logger.exception("Error batch-fetching creators for countries")
         return {}
 
 
