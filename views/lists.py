@@ -17,6 +17,7 @@ from utils.creator_metrics import (
     get_language_name,
     calculate_growth_rate,
     format_channel_age,
+    scale_delta_to_30_days,
 )
 from views.creators import get_topic_category_emoji
 
@@ -107,7 +108,7 @@ LISTS_TABS = [
         "rising",
         "Rising Stars",
         "trending-up",
-        "Channels with the fastest subscriber and view growth over the past 30 days.",
+        "Fastest estimated 30-day-equivalent subscriber growth, scaled from each measured snapshot window.",
         False,
     ),
     (
@@ -152,7 +153,7 @@ def _creator_row(
     Args:
         creator: Creator dict with stats
         rank: Ranking position (1-based)
-        show_growth: If True, shows 30-day growth instead of total views
+        show_growth: If True, shows estimated 30-day-equivalent growth instead of total views
         show_activity: If True, shows monthly uploads instead of total views
         show_recent_cadence: If True, shows the average interval between recent uploads
 
@@ -171,17 +172,20 @@ def _creator_row(
     # defaulted to "en" for every row because that column does not exist.
     language = safe_get_value(creator, "default_language", "en")
     subs_change = safe_get_value(creator, "subscribers_change_30d", 0)
+    growth_window_days = safe_get_value(creator, "growth_window_days", None)
     monthly_uploads = safe_get_value(creator, "monthly_uploads", 0)
 
     # Calculate growth rate if showing growth
-    growth_rate = 0
-    if show_growth and subs_change and current_subs:
-        growth_rate = calculate_growth_rate(subs_change, current_subs)
+    growth_rate = None
+    if show_growth and subs_change is not None and current_subs:
+        normalized_change = scale_delta_to_30_days(subs_change, growth_window_days)
+        if normalized_change is not None:
+            growth_rate = calculate_growth_rate(normalized_change, current_subs)
 
     # Determine what metric to show in stats column
     if show_growth:
-        stat_value = f"{growth_rate:+.1f}%"
-        stat_label = "30d growth rate"
+        stat_value = f"{growth_rate:+.1f}%" if growth_rate is not None else "—"
+        stat_label = "est. 30d growth"
     elif show_recent_cadence:
         interval_days = safe_get_value(creator, "avg_days_between_uploads", None)
         try:
@@ -2714,7 +2718,7 @@ def render_niche_heatmap_tab(heatmap_data: list[dict]) -> FT:
     )
 
     size_note = P(
-        "Tile size = creator count  ·  Tile colour = avg 30-day subscriber growth",
+        "Tile size = creator count  ·  Tile colour = estimated 30-day-equivalent subscriber growth",
         cls="text-xs text-muted-foreground mb-3 italic",
     )
 

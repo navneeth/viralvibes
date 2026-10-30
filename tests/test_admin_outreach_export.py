@@ -171,8 +171,9 @@ class TestContactExtractorService:
         assert row["Subscribers"] == "50000"
         assert row["Views"] == "1000000"
         assert row["Videos"] == "150"
-        assert row["30 Day Subscriber Growth"] == "5000"
-        assert row["30 Day View Growth"] == "100000"
+        assert row["Observed Subscriber Change"] == "5000"
+        assert row["Observed View Change"] == "100000"
+        assert row["Growth Window (days)"] == ""
         assert row["YouTube URL"] == "https://www.youtube.com/channel/test123"
 
     def test_build_creator_contact_row_growth_in_notes(self):
@@ -189,6 +190,7 @@ class TestContactExtractorService:
             "engagement_score": 6.0,
             "subscribers_change_30d": 10_000,
             "views_change_30d": 500_000,
+            "growth_window_days": 7,
             "primary_category": "Gaming",
             "country_code": "CA",
             "default_language": "en",
@@ -199,8 +201,10 @@ class TestContactExtractorService:
         # Growth lands in the human-readable Notes column, formatted with a
         # thousands separator.
         assert "10,000 subscribers" in row["Notes"]
+        assert "observed 7-day window" in row["Notes"]
         # And in the dedicated numeric column.
-        assert row["30 Day Subscriber Growth"] == "10000"
+        assert row["Observed Subscriber Change"] == "10000"
+        assert row["Growth Window (days)"] == "7"
 
     def test_filter_email_ready_rows(self):
         rows = [
@@ -250,7 +254,7 @@ class TestContactExtractorService:
 
     def test_email_export_headers_count_and_order(self):
         headers = ContactExtractorService.EMAIL_EXPORT_HEADERS
-        assert len(headers) == 28
+        assert len(headers) == 29
         assert headers[0] == "Email"
         assert headers[1] == "First Name"
         assert "YouTube URL" in headers
@@ -305,8 +309,9 @@ class TestContactExtractorEdgeCases:
             "Views",
             "Videos",
             "Engagement Score",
-            "30 Day Subscriber Growth",
-            "30 Day View Growth",
+            "Observed Subscriber Change",
+            "Observed View Change",
+            "Growth Window (days)",
         ):
             assert row[col] == "", f"{col!r} should be empty, got {row[col]!r}"
 

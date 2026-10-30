@@ -49,6 +49,32 @@ done
 
 ## Current Migrations
 
+### Creator Growth Window (075)
+
+Apply migration 075 before deploying the worker or app code that reads and writes
+`growth_window_days`. The column is nullable and is not backfilled: historical
+snapshot deltas have no reliable stored start time, so their interval must remain
+unknown until the next valid worker measurement. Growth consumers should show
+those legacy values as unavailable rather than infer a 30-day window.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/075_creator_growth_window_days.sql
+```
+
+Verify the column exists before deploying:
+
+```sql
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'creators'
+  AND column_name = 'growth_window_days';
+```
+
+The result should show a nullable numeric column. Existing delta values are not
+rewritten; the worker continues to store measured raw changes and records the
+elapsed snapshot interval separately.
+
 ### Recent Upload Cadence Index (074)
 
 Apply migration 074 with psql autocommit and verify the index is valid before

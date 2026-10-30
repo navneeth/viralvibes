@@ -193,7 +193,11 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
         )
     )
     viral_coeff = signals.viral_coeff
-    if viral_coeff < 0:
+    if not signals.growth_window_available:
+        viral_str = "—"
+        viral_highlight = False
+        growth_str = "—"
+    elif viral_coeff < 0:
         viral_str = "↓ declining"
         viral_highlight = False
     else:
@@ -202,11 +206,12 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
 
     # Cap sub growth display — first-sync anomaly sets subs_change == current_subs
     # (produces exactly 100.0%); use >= to catch that exact value too.
-    sub_growth = signals.sub_growth_pct
-    if abs(sub_growth) >= 100:
-        growth_str = "—"
-    else:
-        growth_str = f"{sub_growth:.2f}%"
+    if signals.growth_window_available:
+        sub_growth = signals.sub_growth_pct
+        if abs(sub_growth) >= 100:
+            growth_str = "—"
+        else:
+            growth_str = f"{sub_growth:.2f}%"
 
     return Div(
         _stat_chip(
@@ -222,16 +227,16 @@ def render_diagnostic_strip(signals: CreatorSignals) -> Div:
         ),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip(
-            "Reach multiplier (30d)",
+            "Reach multiplier (est. 30d)",
             viral_str,
             highlight=viral_highlight,
-            label_badge=provenance_badge_for_label("Reach multiplier (30d)"),
+            label_badge=provenance_badge_for_label("Reach multiplier (est. 30d)"),
         ),
         Div(cls="w-px h-10 bg-border self-center"),
         _stat_chip(
-            "Sub growth (30d)",
+            "Sub growth (est. 30d)",
             growth_str,
-            label_badge=provenance_badge_for_label("Sub growth (30d)"),
+            label_badge=provenance_badge_for_label("Sub growth (est. 30d)"),
         ),
         cls=(
             "flex items-center rounded-xl bg-muted/40 border border-border "

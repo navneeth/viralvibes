@@ -147,6 +147,7 @@ class TestSignalsFromRow:
                 "current_view_count": 50_000_000,
                 "views_change_30d": 500_000,
                 "subscribers_change_30d": 10_000,
+                "growth_window_days": 30,
             },
             peer_vpv_p75=100_000.0,
             peer_vc_p75=0.5,
@@ -154,6 +155,23 @@ class TestSignalsFromRow:
         assert sig.views_per_video == 500_000.0  # 50M / 100
         assert sig.viral_coeff == pytest.approx(0.5)  # 500K / 1M
         assert sig.sub_growth_pct == pytest.approx(1.0)  # 10K / 1M * 100
+
+    def test_missing_growth_window_is_not_treated_as_dormant(self):
+        sig = signals_from_row(
+            {
+                "current_subscribers": 200_000,
+                "current_video_count": 100,
+                "current_view_count": 20_000_000,
+                "views_change_30d": 0,
+                "subscribers_change_30d": 0,
+                "monthly_uploads": 1.0,
+            },
+            peer_vpv_p75=200_000.0,
+            peer_vc_p75=2.0,
+        )
+
+        assert not sig.growth_window_available
+        assert _score_monetization_risk(sig) == (0.0, "")
 
     def test_phase2_stubs_when_missing(self):
         """No blueprint_signals key → Phase-2 sentinels."""

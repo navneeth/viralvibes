@@ -9,10 +9,36 @@ from typing import Optional, Tuple
 
 
 def calculate_growth_rate(subs_change: int | None, current_subs: int) -> float:
-    """Calculate 30-day growth rate percentage. Returns 0.0 when data is unavailable."""
+    """Calculate growth rate percentage for the supplied subscriber delta."""
     if subs_change is None or current_subs <= 0:
         return 0.0
     return subs_change / current_subs * 100
+
+
+def scale_delta_to_30_days(delta: int | None, window_days: float | None) -> int | None:
+    """Return a linearly estimated 30-day equivalent for a measured delta."""
+    if delta is None or window_days is None:
+        return None
+    try:
+        observed_days = float(window_days)
+    except (TypeError, ValueError):
+        return None
+    if observed_days <= 0:
+        return None
+    return round(delta * 30 / observed_days)
+
+
+def format_growth_window_days(window_days: float | None) -> str:
+    """Format the measured interval, or identify that it is unknown."""
+    if window_days is None:
+        return "window unknown"
+    try:
+        observed_days = float(window_days)
+    except (TypeError, ValueError):
+        return "window unknown"
+    if observed_days <= 0:
+        return "window unknown"
+    return f"{observed_days:g}d"
 
 
 def calculate_avg_views_per_video(total_views: int, video_count: int) -> int:

@@ -50,6 +50,7 @@ from utils import (
     normalize_category_name,
     safe_get_value,
 )
+from utils.creator_metrics import scale_delta_to_30_days
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -2875,11 +2876,12 @@ def get_user_favourite_creators(user_id: str, limit: int = 50) -> List[Dict[str,
 
 def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     """
-    Return saved creators for a user, sorted by 30-day subscriber growth (highest first).
+    Return saved creators sorted by estimated 30-day-equivalent subscriber growth.
 
     Fetches a focused set of columns needed for the Watchlist Pulse card:
         channel_name, channel_thumbnail_url, current_subscribers,
-        subscribers_change_30d, engagement_score, quality_grade, country_code, category
+        subscribers_change_30d, growth_window_days, engagement_score, quality_grade,
+        country_code, category
 
     Two-query pattern (same as get_user_favourite_creators) because supabase-py
     does not support cross-table ORDER BY in a single .select() call.
@@ -2904,13 +2906,21 @@ def get_favourite_creators_with_stats(user_id: str, limit: int = 50) -> List[Dic
             supabase_client.table(CREATOR_TABLE)
             .select(
                 "id, channel_name, channel_thumbnail_url, current_subscribers, "
-                "subscribers_change_30d, engagement_score, quality_grade, country_code, category"
+                "subscribers_change_30d, growth_window_days, engagement_score, "
+                "quality_grade, country_code, category"
             )
             .in_("id", creator_ids)
-            .order("subscribers_change_30d", desc=True, nullsfirst=False)
             .execute()
         )
-        return creators_resp.data or []
+        creators = creators_resp.data or []
+
+        def _growth_sort_key(creator: Dict[str, Any]) -> Tuple[bool, int]:
+            normalized = scale_delta_to_30_days(
+                creator.get("subscribers_change_30d"), creator.get("growth_window_days")
+            )
+            return normalized is not None, normalized or 0
+
+        return sorted(creators, key=_growth_sort_key, reverse=True)
 
     except Exception as exc:
         logger.exception("[Favourites] get_favourite_creators_with_stats failed: %s", exc)
@@ -2944,7 +2954,7 @@ _PEER_CREATOR_FIELDS_FOR_DISPLAY = (
     "id, channel_name, channel_url, custom_url, "
     "channel_thumbnail_url, channel_description, "
     "current_subscribers, current_view_count, current_video_count, "
-    "subscribers_change_30d, views_change_30d, "
+    "subscribers_change_30d, views_change_30d, growth_window_days, "
     "engagement_score, quality_grade, primary_category, "
     "country_code, default_language, "
     "has_contact_info, contact_signals_extracted_at"
@@ -2958,7 +2968,7 @@ _PEER_CREATOR_FIELDS_WITH_CONTACT = (
     "id, channel_id, channel_name, channel_url, custom_url, "
     "channel_thumbnail_url, channel_description, keywords, "
     "current_subscribers, current_view_count, current_video_count, "
-    "subscribers_change_30d, views_change_30d, "
+    "subscribers_change_30d, views_change_30d, growth_window_days, "
     "engagement_score, quality_grade, primary_category, "
     "country_code, default_language, "
     "has_contact_info, contact_signals_extracted_at, "
@@ -3562,6 +3572,7 @@ _CREATORS_LIST_COLUMNS = (
     # Stats (subs / views / videos + 30-day deltas)
     "current_subscribers,current_view_count,current_video_count,"
     "subscribers_change_30d,views_change_30d,videos_change_30d,"
+    "growth_window_days,"
     # Engagement / quality
     "engagement_score,quality_grade,monthly_uploads,"
     "avg_views_10,avg_days_between_uploads,"

@@ -233,6 +233,9 @@ class ContactExtractorService:
 
     Single source of truth for contact handling — easy to extend for
     new contact types (WhatsApp, email variants, etc.).
+
+    CSV growth headers intentionally replace the old "30 Day" names because
+    the stored deltas cover a measured, variable-length snapshot interval.
     """
 
     # CSV export headers shared by both user and admin exports
@@ -254,8 +257,9 @@ class ContactExtractorService:
         "Videos",
         "Quality Grade",
         "Engagement Score",
-        "30 Day Subscriber Growth",
-        "30 Day View Growth",
+        "Observed Subscriber Change",
+        "Observed View Change",
+        "Growth Window (days)",
         "Category",
         "Country",
         "Language",
@@ -365,11 +369,19 @@ class ContactExtractorService:
         # Build tags
         tags = [tag for tag in ("viralvibes", "saved-creator", category, country) if tag]
 
-        # Calculate 30-day growth for notes
+        # Mention growth only when its measured interval is known.
         subs_delta = creator.get("subscribers_change_30d")
+        growth_window_days = creator.get("growth_window_days")
         growth = ""
-        if isinstance(subs_delta, int) and subs_delta > 0:
-            growth = f" and gained {subs_delta:,} subscribers in the last 30 days"
+        try:
+            observed_days = float(growth_window_days)
+        except (TypeError, ValueError):
+            observed_days = 0
+        if isinstance(subs_delta, int) and subs_delta > 0 and observed_days > 0:
+            growth = (
+                f" and gained {subs_delta:,} subscribers over the observed "
+                f"{observed_days:g}-day window"
+            )
 
         grade = creator.get("quality_grade") or ""
         grade_note = f" with a {grade} quality grade" if grade else ""
@@ -407,8 +419,9 @@ class ContactExtractorService:
             "Videos": _num("current_video_count"),
             "Quality Grade": grade,
             "Engagement Score": _num("engagement_score"),
-            "30 Day Subscriber Growth": _num("subscribers_change_30d"),
-            "30 Day View Growth": _num("views_change_30d"),
+            "Observed Subscriber Change": _num("subscribers_change_30d"),
+            "Observed View Change": _num("views_change_30d"),
+            "Growth Window (days)": _num("growth_window_days"),
             "Category": str(category),
             "Country": str(country),
             "Language": str(language),

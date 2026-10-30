@@ -34,8 +34,9 @@ EMAIL_EXPORT_HEADERS = [
     "Videos",
     "Quality Grade",
     "Engagement Score",
-    "30 Day Subscriber Growth",
-    "30 Day View Growth",
+    "Observed Subscriber Change",
+    "Observed View Change",
+    "Growth Window (days)",
     "Category",
     "Country",
     "Language",
@@ -56,10 +57,18 @@ def outreach_angle(creator: dict[str, Any]) -> str:
     category = creator.get("primary_category") or creator.get("category") or "their niche"
     grade = creator.get("quality_grade") or ""
     subs_delta = creator.get("subscribers_change_30d")
+    growth_window_days = creator.get("growth_window_days")
 
     growth = ""
-    if isinstance(subs_delta, int) and subs_delta > 0:
-        growth = f" and gained {subs_delta:,} subscribers in the last 30 days"
+    try:
+        observed_days = float(growth_window_days)
+    except (TypeError, ValueError):
+        observed_days = 0
+    if isinstance(subs_delta, int) and subs_delta > 0 and observed_days > 0:
+        growth = (
+            f" and gained {subs_delta:,} subscribers over the observed "
+            f"{observed_days:g}-day window"
+        )
 
     grade_note = f" with a {grade} quality grade" if grade else ""
     return f"{name} is active in {category}{grade_note}{growth}."
@@ -101,8 +110,9 @@ def creator_to_outreach_row(
         "Videos": str(creator.get("current_video_count") or 0),
         "Quality Grade": str(creator.get("quality_grade") or ""),
         "Engagement Score": str(creator.get("engagement_score") or ""),
-        "30 Day Subscriber Growth": str(creator.get("subscribers_change_30d") or ""),
-        "30 Day View Growth": str(creator.get("views_change_30d") or ""),
+        "Observed Subscriber Change": str(creator.get("subscribers_change_30d") or ""),
+        "Observed View Change": str(creator.get("views_change_30d") or ""),
+        "Growth Window (days)": str(creator.get("growth_window_days") or ""),
         "Category": str(category),
         "Country": str(country),
         "Language": str(language),

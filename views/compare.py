@@ -14,9 +14,11 @@ from utils.creator_metrics import (
     calculate_avg_views_per_video,
     calculate_growth_rate,
     calculate_views_per_subscriber,
+    format_growth_window_days,
     get_country_flag,
     get_language_emoji,
     get_language_name,
+    scale_delta_to_30_days,
 )
 from views.creators import get_topic_category_emoji
 from components.add_creator import AddCreatorForm
@@ -386,9 +388,9 @@ def _how_to_read_card() -> Div:
             "a 500K-subscriber channel averaging 1M views per video has exceptional pull.",
         ),
         (
-            "Growth rate (30d)",
-            "Net new subscribers over 30 days as a percentage of current audience. "
-            "Normalises growth so a fast-rising small channel compares fairly with a large one.",
+            "Estimated growth rate (30d equivalent)",
+            "Net subscriber change scaled from the observed snapshot interval to a 30-day "
+            "equivalent, then expressed as a percentage of current audience.",
         ),
     ]
     return Div(
@@ -626,9 +628,15 @@ def render_compare_page(
     delta_b_raw = _ex(b, "subscribers_change_30d", None)
     delta_a = int(delta_a_raw) if delta_a_raw is not None else None
     delta_b = int(delta_b_raw) if delta_b_raw is not None else None
+    window_a = _ex(a, "growth_window_days", None)
+    window_b = _ex(b, "growth_window_days", None)
+    normalized_delta_a = scale_delta_to_30_days(delta_a, window_a)
+    normalized_delta_b = scale_delta_to_30_days(delta_b, window_b)
 
-    growth_rate_a = calculate_growth_rate(delta_a, subs_a)
-    growth_rate_b = calculate_growth_rate(delta_b, subs_b)
+    growth_available_a = normalized_delta_a is not None
+    growth_available_b = normalized_delta_b is not None
+    growth_rate_a = calculate_growth_rate(normalized_delta_a, subs_a)
+    growth_rate_b = calculate_growth_rate(normalized_delta_b, subs_b)
 
     avg_views_a = calculate_avg_views_per_video(views_a, videos_a)
     avg_views_b = calculate_avg_views_per_video(views_b, videos_b)
@@ -853,18 +861,20 @@ def render_compare_page(
     # ─────────────────────────────────────────────────────────────────────────
     # SECTION 2 — Growth Momentum
     # ─────────────────────────────────────────────────────────────────────────
-    def _delta_display(delta: int | None) -> str:
+    def _delta_display(delta: int | None, window_days: float | None) -> str:
         if delta is None:
             return "—"
         sign = "+" if delta > 0 else ""
-        return f"{sign}{format_number(delta)}"
+        return f"{sign}{format_number(delta)} ({format_growth_window_days(window_days)})"
 
-    def _pct_display(rate: float) -> str:
+    def _pct_display(rate: float, available: bool) -> str:
+        if not available:
+            return "—"
         sign = "+" if rate > 0 else ""
         return f"{sign}{rate:.2f}%"
 
     growth_insight = None
-    if delta_a is not None and delta_b is not None and subs_a > 0 and subs_b > 0:
+    if growth_available_a and growth_available_b and subs_a > 0 and subs_b > 0:
         if growth_rate_b > growth_rate_a * 1.5 and growth_rate_b > 0:
             ratio = growth_rate_b / growth_rate_a if growth_rate_a > 0 else None
             if ratio:
@@ -886,24 +896,24 @@ def render_compare_page(
     growth_section = _section_card(
         _col_labels(),
         _metric_row(
-            "Net change (30d)",
-            _delta_display(delta_a),
-            _delta_display(delta_b),
-            val_a_raw=float(delta_a or 0),
-            val_b_raw=float(delta_b or 0),
-            show_bar=(delta_a is not None and delta_b is not None),
+            "Observed net change",
+            _delta_display(delta_a, window_a),
+            _delta_display(delta_b, window_b),
+            val_a_raw=0.0,
+            val_b_raw=0.0,
+            show_bar=False,
             colour_a=CL_A,
             colour_b=CL_B,
         ),
         _metric_row(
-            "Growth rate (30d)",
-            _pct_display(growth_rate_a),
-            _pct_display(growth_rate_b),
+            "Estimated growth rate (30d equivalent)",
+            _pct_display(growth_rate_a, growth_available_a),
+            _pct_display(growth_rate_b, growth_available_b),
             val_a_raw=growth_rate_a,
             val_b_raw=growth_rate_b,
         ),
         *(([growth_insight]) if growth_insight else []),
-        title="30-Day Growth Momentum",
+        title="Estimated 30-Day-Equivalent Growth Momentum",
         icon="trending-up",
     )
 
@@ -1016,14 +1026,19 @@ def render_compare_page(
         """Simple weighted score — who 'wins' overall."""
         score = 0
         score += 2 if subs > 0 else 0  # presence
-        score += 3 if growth_rate > 1 else (1 if growth_rate > 0 else 0)
+        if growth_rate is not None:
+            score += 3 if growth_rate > 1 else (1 if growth_rate > 0 else 0)
         score += 3 if eng > 7 else (1 if eng > 4 else 0)
         score += 2 if vps > 200 else (1 if vps > 50 else 0)
         score += 1 if uploads > 4 else 0
         return score
 
-    score_a = _score_creator(name_a, subs_a, growth_rate_a, eng_a, vps_a, uploads_a)
-    score_b = _score_creator(name_b, subs_b, growth_rate_b, eng_b, vps_b, uploads_b)
+    score_a = _score_creator(
+        name_a, subs_a, growth_rate_a if growth_available_a else None, eng_a, vps_a, uploads_a
+    )
+    score_b = _score_creator(
+        name_b, subs_b, growth_rate_b if growth_available_b else None, eng_b, vps_b, uploads_b
+    )
 
     def _wins(name, wins_list):
         return Div(
@@ -1038,9 +1053,9 @@ def render_compare_page(
         wins_a.append("Reach & brand potential")
     elif subs_b > subs_a:
         wins_b.append("Reach & brand potential")
-    if growth_rate_a > growth_rate_b:
+    if growth_available_a and growth_available_b and growth_rate_a > growth_rate_b:
         wins_a.append("Growth momentum")
-    elif growth_rate_b > growth_rate_a:
+    elif growth_available_a and growth_available_b and growth_rate_b > growth_rate_a:
         wins_b.append("Growth momentum")
     if eng_a > eng_b:
         wins_a.append("Engagement")
@@ -1060,20 +1075,32 @@ def render_compare_page(
         wins_b.append("Avg video performance")
 
     # Contextual use-case copy
-    def _use_case(name, subs, eng, growth_rate, cat) -> str:
+    def _use_case(name, subs, eng, growth_rate: float | None, cat) -> str:
         parts = []
         if subs > 1_000_000:
             parts.append("mass-reach campaigns")
         if eng > 7:
             parts.append("high-CPM niches")
-        if growth_rate > 2:
+        if growth_rate is not None and growth_rate > 2:
             parts.append("early-stage partnerships (while growing)")
         if cat:
             parts.append(f"targeting {cat} audiences")
         return f"Best for: {', '.join(parts)}." if parts else ""
 
-    use_a = _use_case(name_a, subs_a, eng_a, growth_rate_a, cat_a)
-    use_b = _use_case(name_b, subs_b, eng_b, growth_rate_b, cat_b)
+    use_a = _use_case(
+        name_a,
+        subs_a,
+        eng_a,
+        growth_rate_a if growth_available_a else None,
+        cat_a,
+    )
+    use_b = _use_case(
+        name_b,
+        subs_b,
+        eng_b,
+        growth_rate_b if growth_available_b else None,
+        cat_b,
+    )
 
     verdict_section = _section_card(
         Grid(

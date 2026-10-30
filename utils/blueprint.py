@@ -35,6 +35,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+from utils.creator_metrics import scale_delta_to_30_days
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Formatting helper (keeps this module I/O-free — no views imports)
@@ -83,13 +85,13 @@ class CreatorSignals:
     subscribers: int
     video_count: int
     total_views: int
-    views_change_30d: int  # may be negative when views declined
-    subs_change_30d: int  # 0 when DB value is NULL
+    views_change_30d: int  # estimated 30-day-equivalent change; may be negative
+    subs_change_30d: int  # estimated 30-day-equivalent change; 0 when unavailable
 
     # ── derived (computed from raw DB, never NULL) ────────────────────────────
-    viral_coeff: float  # views_change_30d / max(subscribers, 1)
+    viral_coeff: float  # normalized views_change_30d / max(subscribers, 1)
     views_per_video: float  # total_views / max(video_count, 1)
-    sub_growth_pct: float  # subs_change_30d / max(subscribers, 1) * 100
+    sub_growth_pct: float  # normalized subs_change_30d / max(subscribers, 1) * 100
 
     # ── peer benchmarks (category cohort p75) ────────────────────────────────
     category_peer_vpv: float  # p75 views/video across same-category channels
@@ -102,6 +104,7 @@ class CreatorSignals:
 
     # ── activity signal (from DB row, coerced to 0.0 when NULL) ──────────────
     monthly_uploads: float = 0.0
+    growth_window_available: bool = True
 
 
 @dataclass(frozen=True)
@@ -318,7 +321,7 @@ def _score_thumbnail_audit(s: CreatorSignals) -> tuple[float, str]:
         if not primary_reason:
             primary_reason = (
                 f"{s.sub_growth_pct:.2f}% subscriber growth despite "
-                f"{_fmt(s.views_change_30d)} views gained last 30 days — "
+                f"an estimated {_fmt(s.views_change_30d)} views gained per 30 days — "
                 f"thumbnail CTR is the fastest lever to pull."
             )
 
@@ -659,9 +662,14 @@ def _score_change_category(s: CreatorSignals) -> tuple[float, str]:
 
     score = min(score, 100.0)
 
+    reach = (
+        f"Strong reach ({s.viral_coeff:.1f}× estimated viral coefficient, "
+        f"{_fmt(s.views_per_video)} avg views/video)"
+        if s.growth_window_available
+        else f"Strong performance ({_fmt(s.views_per_video)} avg views/video)"
+    )
     mechanism = (
-        f"Strong reach ({s.viral_coeff:.1f}× viral coefficient, "
-        f"{_fmt(s.views_per_video)} avg views/video) in {s.primary_category} — "
+        f"{reach} in {s.primary_category} — "
         f"a low-CPM category. Reclassifying accesses a different advertiser "
         f"auction pool that may carry higher CPM rates."
     )
@@ -716,7 +724,7 @@ def _score_unlist_catalogue(s: CreatorSignals) -> tuple[float, str]:
     if s.video_count > 5_000:
         score += 20.0
 
-    if s.sub_growth_pct < 0.2:
+    if s.growth_window_available and s.sub_growth_pct < 0.2:
         score += 15.0
 
     score = min(score, 100.0)
@@ -825,7 +833,7 @@ def _score_monetization_risk(s: CreatorSignals) -> tuple[float, str]:
     if s.subscribers < _MONETIZATION_MIN_SUBS:
         return 0.0, ""
 
-    is_view_dormant = s.views_change_30d == 0
+    is_view_dormant = s.growth_window_available and s.views_change_30d == 0
     is_upload_dormant = s.monthly_uploads < _MONETIZATION_INACTIVITY_THRESHOLD
 
     if not (is_view_dormant or is_upload_dormant):
@@ -1024,8 +1032,18 @@ def signals_from_row(
     subs = int(row.get("current_subscribers") or 0)
     videos = int(row.get("current_video_count") or 0)
     views = int(row.get("current_view_count") or 0)
-    views_ch = int(row.get("views_change_30d") or 0)
-    subs_ch = int(row.get("subscribers_change_30d") or 0)
+    growth_window_days = row.get("growth_window_days")
+    normalized_views_change = scale_delta_to_30_days(
+        row.get("views_change_30d"), growth_window_days
+    )
+    normalized_subs_change = scale_delta_to_30_days(
+        row.get("subscribers_change_30d"), growth_window_days
+    )
+    growth_window_available = (
+        normalized_views_change is not None and normalized_subs_change is not None
+    )
+    views_ch = normalized_views_change or 0
+    subs_ch = normalized_subs_change or 0
 
     vpv = views / max(videos, 1)
     viral = round(views_ch / max(subs, 1), 6)
@@ -1058,6 +1076,7 @@ def signals_from_row(
         caption_coverage=caption_cov,
         avg_duration_sec=avg_duration,
         monthly_uploads=monthly_uploads,
+        growth_window_available=growth_window_available,
     )
 
 
