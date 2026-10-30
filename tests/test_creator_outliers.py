@@ -1,7 +1,26 @@
 from datetime import datetime, timedelta, timezone
+import sys
+import types
 
 import pytest
-from worker.creator_worker import _build_recent_video_intelligence
+
+googleapiclient_stub = types.ModuleType("googleapiclient")
+googleapiclient_discovery_stub = types.ModuleType("googleapiclient.discovery")
+googleapiclient_errors_stub = types.ModuleType("googleapiclient.errors")
+googleapiclient_discovery_stub.build = lambda *args, **kwargs: None
+googleapiclient_errors_stub.HttpError = type("HttpError", (Exception,), {})
+googleapiclient_stub.discovery = googleapiclient_discovery_stub
+googleapiclient_stub.errors = googleapiclient_errors_stub
+sys.modules.setdefault("googleapiclient", googleapiclient_stub)
+sys.modules.setdefault("googleapiclient.discovery", googleapiclient_discovery_stub)
+sys.modules.setdefault("googleapiclient.errors", googleapiclient_errors_stub)
+
+from worker.creator_worker import (
+    _build_recent_video_intelligence,
+    _empty_recent_video_intelligence,
+    _empty_recent_video_intelligence_success,
+    _preserve_cached_recent_upload_fields,
+)
 
 
 def _playlist_items(count: int) -> list[dict]:
@@ -9,6 +28,127 @@ def _playlist_items(count: int) -> list[dict]:
 
 
 _AS_OF = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+
+def test_empty_recent_video_sample_preserves_cached_cadence_and_latest_upload():
+    cached_upload = {"published_at": "2026-10-20T12:00:00Z"}
+    creator = {
+        "recent_upload": cached_upload,
+        "avg_days_between_uploads": 4.25,
+    }
+
+    result = _preserve_cached_recent_upload_fields(_empty_recent_video_intelligence(), creator)
+
+    assert result["recent_upload"] == cached_upload
+    assert result["avg_days_between_uploads"] == 4.25
+    assert result["recent_video_sample_size"] == 0
+
+
+def test_recent_video_sample_replaces_cached_cadence_and_latest_upload():
+    fresh_upload = {"published_at": "2026-10-29T12:00:00Z"}
+    video_intel = {
+        "recent_video_sample_size": 2,
+        "recent_upload": fresh_upload,
+        "avg_days_between_uploads": 1.5,
+    }
+
+    result = _preserve_cached_recent_upload_fields(
+        video_intel,
+        {
+            "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+            "avg_days_between_uploads": 4.25,
+        },
+    )
+
+    assert result["recent_upload"] == fresh_upload
+    assert result["avg_days_between_uploads"] == 1.5
+
+
+def test_partial_recent_video_sample_preserves_cached_cadence():
+    fresh_upload = {"published_at": "2026-10-29T12:00:00Z"}
+    creator = {
+        "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+        "avg_days_between_uploads": 4.25,
+    }
+
+    result = _preserve_cached_recent_upload_fields(
+        {
+            "recent_video_fetch_succeeded": True,
+            "recent_video_sample_size": 1,
+            "recent_upload": fresh_upload,
+            "avg_days_between_uploads": None,
+        },
+        creator,
+    )
+
+    assert result["recent_upload"] == fresh_upload
+    assert result["avg_days_between_uploads"] == 4.25
+
+
+def test_recent_sample_without_published_at_preserves_cached_upload():
+    cached_upload = {"published_at": "2026-10-20T12:00:00Z"}
+    creator = {"recent_upload": cached_upload, "avg_days_between_uploads": 4.25}
+
+    result = _preserve_cached_recent_upload_fields(
+        {
+            "recent_video_fetch_succeeded": True,
+            "recent_video_sample_size": 1,
+            "recent_upload": {"published_at": ""},
+            "avg_days_between_uploads": None,
+        },
+        creator,
+    )
+
+    assert result["recent_upload"] == cached_upload
+    assert result["avg_days_between_uploads"] == 4.25
+
+
+def test_successful_empty_recent_sample_clears_cached_upload_and_cadence():
+    result = _preserve_cached_recent_upload_fields(
+        _empty_recent_video_intelligence_success(),
+        {
+            "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+            "avg_days_between_uploads": 4.25,
+        },
+    )
+
+    assert result["recent_video_fetch_succeeded"] is True
+    assert result["recent_upload"] is None
+    assert result["avg_days_between_uploads"] is None
+
+
+def test_successful_empty_playlist_is_distinguished_from_fetch_failure(monkeypatch):
+    import asyncio
+    import worker.creator_worker as creator_worker
+
+    class _Request:
+        def list(self, **_kwargs):
+            return self
+
+    class _YouTube:
+        def playlistItems(self):
+            return _Request()
+
+    class _Resolver:
+        def _reset_client(self):
+            pass
+
+        def _get_youtube_client(self):
+            return _YouTube()
+
+        async def _execute_async(self, _request):
+            return {"items": []}
+
+    monkeypatch.setattr(creator_worker, "youtube_resolver", _Resolver())
+
+    result = asyncio.run(
+        creator_worker._fetch_recent_video_intelligence(
+            "UCcreator", uploads_playlist_id="UUcreator"
+        )
+    )
+
+    assert result["recent_video_fetch_succeeded"] is True
+    assert result["recent_video_sample_size"] == 0
 
 
 def _video_item(
