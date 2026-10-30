@@ -15,7 +15,7 @@ When adding a caller that reads a NEW column, add both:
 """
 
 from db import _CREATORS_LIST_COLUMNS
-from db import _PEER_CREATOR_FIELDS_WITH_CONTACT
+from db import _PEER_CREATOR_FIELDS_FOR_DISPLAY, _PEER_CREATOR_FIELDS_WITH_CONTACT
 
 
 # Every column the view / route / util layers were observed reading from
@@ -47,6 +47,7 @@ REQUIRED_COLUMNS = frozenset(
         "subscribers_change_30d",
         "views_change_30d",
         "videos_change_30d",
+        "growth_window_days",
         # Engagement / quality
         "engagement_score",
         "quality_grade",
@@ -80,6 +81,13 @@ def test_peer_export_projection_includes_topic_provenance():
         "transcript_keywords_metadata",
         "transcript_keywords_updated_at",
     } <= columns
+
+
+def test_peer_display_and_export_projections_include_growth_window():
+    display_columns = set(_split_columns(_PEER_CREATOR_FIELDS_FOR_DISPLAY))
+    export_columns = set(_split_columns(_PEER_CREATOR_FIELDS_WITH_CONTACT))
+    assert "growth_window_days" in display_columns
+    assert "growth_window_days" in export_columns
 
 
 def test_column_list_has_no_wildcard():

@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlparse
 
 from constants import BROWSEABLE_SYNC_STATUSES
 from utils import normalize_category_name, safe_get_value, slugify
+from utils.creator_metrics import scale_delta_to_30_days
 
 logger = logging.getLogger(__name__)
 
@@ -1524,6 +1525,7 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 1000)
             .not_.is_("subscribers_change_30d", "null")
+            .gt("growth_window_days", 0)
             .gt("subscribers_change_30d", 0)
             .limit(limit * 3)  # Fetch 3x to allow for rate calculation and sorting
             .execute()
@@ -1535,10 +1537,12 @@ def get_rising_creators(limit: int = 20) -> list[dict]:
         for creator in creators:
             subs_change = creator.get("subscribers_change_30d", 0)
             current_subs = creator.get("current_subscribers", 1)  # Avoid division by zero
+            normalized_change = scale_delta_to_30_days(
+                subs_change, creator.get("growth_window_days")
+            )
 
-            if current_subs > 0:
-                # Growth rate as percentage
-                growth_rate = (subs_change / current_subs) * 100
+            if current_subs > 0 and normalized_change is not None:
+                growth_rate = (normalized_change / current_subs) * 100
                 creator["_growth_rate"] = growth_rate
             else:
                 creator["_growth_rate"] = 0
@@ -2210,7 +2214,7 @@ def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
     computes:
       - creator_count
       - avg_engagement  (mean engagement_score, null rows excluded)
-      - avg_growth_pct  (mean subscribers_change_30d / current_subscribers * 100)
+            - avg_growth_pct  (mean estimated 30-day-equivalent subscriber growth rate)
       - premium_ratio   (fraction of creators with quality_grade A+ or A)
 
     Returns list of dicts sorted by creator_count descending (largest tiles first).
@@ -2225,7 +2229,7 @@ def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
             supabase_client.table("creators")
             .select(
                 "topic_categories, engagement_score, "
-                "subscribers_change_30d, current_subscribers, quality_grade"
+                "subscribers_change_30d, growth_window_days, current_subscribers, quality_grade"
             )
             .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
@@ -2248,14 +2252,16 @@ def get_niche_heatmap_data(min_creators: int = 3) -> list[dict]:
 
         engagement = row.get("engagement_score")
         subs_change = row.get("subscribers_change_30d")
+        growth_window_days = row.get("growth_window_days")
         current_subs = row.get("current_subscribers") or 0
         grade = row.get("quality_grade") or ""
         is_premium = grade in ("A+", "A")
 
         # Growth pct: preserve sign so declining categories surface in the Cooling panel
         growth_pct = None
-        if subs_change is not None and current_subs > 0:
-            growth_pct = subs_change / current_subs * 100
+        normalized_change = scale_delta_to_30_days(subs_change, growth_window_days)
+        if normalized_change is not None and current_subs > 0:
+            growth_pct = normalized_change / current_subs * 100
 
         for clean in cat_list:
             if clean not in buckets:

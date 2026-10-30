@@ -11,6 +11,7 @@ from monsterui.all import *
 from components.tables import Badge
 from utils.dates import format_date_relative, parse_iso_utc
 from utils import format_date_simple, format_number
+from utils.creator_metrics import format_growth_window_days
 
 logger = logging.getLogger(__name__)
 
@@ -416,20 +417,28 @@ def _flag(country_code: str | None) -> str:
         return ""
 
 
-def _growth_cell(delta: int | None) -> Span:
-    if delta is None:
+def _growth_cell(delta: int | None, window_days: float | None) -> Span:
+    duration = format_growth_window_days(window_days)
+    if delta is None or duration == "window unknown":
         return Span("─  n/a", cls="text-gray-400 text-sm tabular-nums")
     if delta > 0:
-        return Span(f"▲ +{delta:,}", cls="text-emerald-600 font-semibold text-sm tabular-nums")
+        return Span(
+            f"▲ +{delta:,} ({duration})",
+            cls="text-emerald-600 font-semibold text-sm tabular-nums",
+        )
     if delta < 0:
-        return Span(f"▼ {delta:,}", cls="text-red-500 font-semibold text-sm tabular-nums")
-    return Span("─  0", cls="text-gray-400 text-sm tabular-nums")
+        return Span(
+            f"▼ {delta:,} ({duration})",
+            cls="text-red-500 font-semibold text-sm tabular-nums",
+        )
+    return Span(f"─  0 ({duration})", cls="text-gray-400 text-sm tabular-nums")
 
 
 def _pulse_row(creator: dict) -> Div:
     thumb = creator.get("channel_thumbnail_url") or ""
     name = creator.get("channel_name") or "Unknown"
     delta = creator.get("subscribers_change_30d")
+    growth_window_days = creator.get("growth_window_days")
     eng = float(creator.get("engagement_score") or 0)
     code = creator.get("country_code") or ""
     flag = _flag(code)
@@ -447,7 +456,7 @@ def _pulse_row(creator: dict) -> Div:
     return Div(
         avatar,
         Span(name, cls="flex-1 font-medium text-sm truncate min-w-0"),
-        _growth_cell(delta),
+        _growth_cell(delta, growth_window_days),
         *(
             [Span(f"{eng:.1f}/10", cls="text-xs text-muted-foreground tabular-nums")]
             if eng > 0
@@ -469,7 +478,8 @@ def _pulse_row(creator: dict) -> Div:
 
 def render_watchlist_pulse(creators: list[dict], plan: str) -> Div:
     """
-    Watchlist Pulse — saved creators ranked by 30-day subscriber growth.
+    Watchlist Pulse — creators ranked by estimated 30-day-equivalent growth;
+    each displayed delta includes its observed snapshot window.
     Gated to Pro / Agency plans.
     """
     label = _section_label("❤️", "Saved Creators", href="/me/favourites")

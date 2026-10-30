@@ -577,6 +577,16 @@ class TestCreatorProfile:
         assert r.status_code == 200
         assert "Test Channel" in r.text
 
+    def test_zero_growth_window_is_unavailable(self, client, monkeypatch):
+        creator = {**FAKE_CREATOR, "growth_window_days": 0}
+        self._patch_profile_db(monkeypatch, creator=creator)
+
+        r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+
+        assert r.status_code == 200
+        assert "Growth window unavailable" in r.text
+        assert "Estimated 30-Day-Equivalent Growth" not in r.text
+
     def test_known_creator_has_profile_seo_tags(self, client, monkeypatch):
         """Profile pages should expose unique crawler-visible SEO metadata."""
         self._patch_profile_db(monkeypatch)

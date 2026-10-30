@@ -48,9 +48,11 @@ from utils.creator_metrics import (
     get_age_title,
     get_country_flag,
     get_growth_signal,
+    format_growth_window_days,
     get_language_emoji,
     get_language_name,
     get_sync_status_badge,
+    scale_delta_to_30_days,
 )
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
@@ -1998,9 +2000,14 @@ def _build_card_header(
 
 
 def _build_primary_metrics(
-    current_subs: int, subs_change: int, current_views: int, views_change: int
+    current_subs: int,
+    subs_change: int | None,
+    current_views: int,
+    views_change: int | None,
+    growth_window_days: float | None,
 ) -> Div:
     """Build primary metrics section (subscribers and views)."""
+    window_label = format_growth_window_days(growth_window_days)
     return Div(
         # Subscribers
         Div(
@@ -2016,7 +2023,7 @@ def _build_primary_metrics(
             ),
             P(
                 (
-                    f"{format_number(subs_change, signed=True)} (30d)"
+                    f"{format_number(subs_change, signed=True)} ({window_label})"
                     if subs_change is not None
                     else "—"
                 ),
@@ -2038,7 +2045,7 @@ def _build_primary_metrics(
             ),
             P(
                 (
-                    f"{format_number(views_change, signed=True)} (30d)"
+                    f"{format_number(views_change, signed=True)} ({window_label})"
                     if views_change is not None
                     else "—"
                 ),
@@ -2124,6 +2131,7 @@ def _build_growth_trend(
     growth_label: str,
     growth_style: str,
     subs_change: int | None = None,
+    growth_window_days: float | None = None,
 ) -> Div:
     """
     Build growth trend indicator section.
@@ -2133,8 +2141,7 @@ def _build_growth_trend(
     2. Tracking in progress (NULL/None): Shows "tracking" badge
     3. Zero growth with valid baseline: Shows 0% (legitimate)
     """
-    # Check if growth data is available (not None/NULL from DB)
-    has_growth_data = subs_change is not None
+    has_growth_data = scale_delta_to_30_days(subs_change, growth_window_days) is not None
 
     if not has_growth_data:
         return Div(
@@ -2152,7 +2159,11 @@ def _build_growth_trend(
                     cls="flex items-center gap-3",
                 ),
                 P(
-                    "Growth metrics available in 7+ days",
+                    (
+                        "Growth window unavailable; waiting for a valid measurement interval."
+                        if subs_change is not None
+                        else "Growth metrics available after the baseline matures."
+                    ),
                     cls="text-xs text-muted-foreground mt-2",
                 ),
                 cls="flex flex-col items-center justify-center gap-2",
@@ -2164,7 +2175,7 @@ def _build_growth_trend(
     return Div(
         Div(
             P(
-                "30-DAY TREND",
+                "EST. 30-DAY-EQUIVALENT TREND",
                 cls="text-xs font-semibold text-muted-foreground",
             ),
             Div(
@@ -2618,11 +2629,14 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     subs_change = int(subs_change_raw) if subs_change_raw is not None else None
     views_change_raw = safe_get_value(creator, "views_change_30d", None)
     views_change = int(views_change_raw) if views_change_raw is not None else None
+    growth_window_raw = safe_get_value(creator, "growth_window_days", None)
+    growth_window_days = float(growth_window_raw) if growth_window_raw is not None else None
     engagement_score = float(safe_get_value(creator, "engagement_score", 0) or 0)
     last_updated = safe_get_value(creator, "last_updated_at", "")
     last_synced_card = safe_get_value(creator, "last_synced_at", "")
     avg_views_per_video = calculate_avg_views_per_video(current_views, current_videos)
-    growth_rate = calculate_growth_rate(subs_change, current_subs)
+    normalized_subs_change = scale_delta_to_30_days(subs_change, growth_window_days)
+    growth_rate = calculate_growth_rate(normalized_subs_change, current_subs)
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
 
     # === STATUS & STYLING ===
@@ -2705,7 +2719,9 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
         _render_topic_categories(safe_get_value(creator, "topic_categories")),
         _render_bio(safe_get_value(creator, "channel_description")),
         # ── Metrics ───────────────────────────────────────────────────────────
-        _build_primary_metrics(current_subs, subs_change, current_views, views_change),
+        _build_primary_metrics(
+            current_subs, subs_change, current_views, views_change, growth_window_days
+        ),
         # Performance metrics grid: avg views/video, total videos, views/sub, est. revenue
         _build_performance_metrics(
             avg_views_per_video, current_videos, estimated_revenue, views_per_sub
@@ -2719,7 +2735,9 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
             has_long_upload_status=has_long_upload_status,
         ),
         # Growth trend (pass subs_change to determine if tracking is initializing)
-        _build_growth_trend(growth_rate, growth_label, growth_style, subs_change),
+        _build_growth_trend(
+            growth_rate, growth_label, growth_style, subs_change, growth_window_days
+        ),
         # Keywords if available, rendered as a single line of small italic text (not a full tag cloud)
         (
             P(
@@ -3587,7 +3605,11 @@ def render_creator_profile_page(
     has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status") or False)
 
     # ── derived ───────────────────────────────────────────────────────────────
-    growth_rate = calculate_growth_rate(subs_change, current_subs)
+    growth_window_raw = safe_get_value(creator, "growth_window_days", None)
+    growth_window_days = float(growth_window_raw) if growth_window_raw is not None else None
+    normalized_subs_change = scale_delta_to_30_days(subs_change, growth_window_days)
+    normalized_views_change = scale_delta_to_30_days(views_change, growth_window_days)
+    growth_rate = calculate_growth_rate(normalized_subs_change, current_subs)
     growth_label, growth_style = get_growth_signal(growth_rate)
     # Prefer last-10-video average (recent performance) over lifetime average.
     # Fall back to lifetime calc when per-video data isn't populated yet.
@@ -3598,7 +3620,9 @@ def render_creator_profile_page(
         avg_views = calculate_avg_views_per_video(current_views, current_videos)
         avg_views_label = "Avg Views / Video"
     views_per_sub = calculate_views_per_subscriber(current_views, current_subs)
-    momentum_score = calculate_momentum_score(views_change, subs_change, current_subs)
+    momentum_score = calculate_momentum_score(
+        normalized_views_change, normalized_subs_change, current_subs
+    )
     if momentum_score is not None:
         momentum_label, momentum_style = get_momentum_label(momentum_score)
     else:
@@ -3653,7 +3677,7 @@ def render_creator_profile_page(
                 else "text-muted-foreground bg-accent"
             )
         )
-        text = f"{format_number(val, signed=True)} 30d"
+        text = f"{format_number(val, signed=True)} {format_growth_window_days(growth_window_days)}"
         if pct is not None and pct != 0:
             arrow = "↑" if pct > 0 else "↓"
             text += f"  {arrow}{format_percentage(abs(pct) / 100)}"
@@ -4370,7 +4394,7 @@ def render_creator_profile_page(
         if _insight_text
         else None
     )
-    has_growth_data = subs_change is not None
+    has_growth_data = normalized_subs_change is not None
     if has_growth_data:
         bar_width = min(100, max(2, abs(growth_rate) * 5))
         bar_colour = "bg-emerald-500" if growth_rate >= 0 else "bg-red-500"
@@ -4382,7 +4406,7 @@ def render_creator_profile_page(
         trend_section = Div(
             DivFullySpaced(
                 P(
-                    "30-Day Growth",
+                    "Estimated 30-Day-Equivalent Growth",
                     cls=_CLS_LABEL,
                 ),
                 Div(
@@ -4411,7 +4435,11 @@ def render_creator_profile_page(
                 cls=_CLS_VALUE_SM,
             ),
             P(
-                "A baseline was just set — come back in 7+ days to see your 30-day growth rate.",
+                (
+                    "Growth window unavailable; refresh data to establish a measurable interval."
+                    if subs_change is not None
+                    else "Growth metrics appear after a baseline interval matures."
+                ),
                 cls="text-xs text-muted-foreground mt-0.5",
             ),
             cls="flex flex-col items-center text-center bg-accent rounded-xl p-4 mt-4",

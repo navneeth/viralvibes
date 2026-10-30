@@ -1700,7 +1700,7 @@ async def handle_sync_job(
         channel_id = creator.get("channel_id")
         channel_name = creator.get("channel_name", "unknown")
 
-        # Track previous values for 30-day delta calculation
+        # Track previous values for snapshot delta calculation
         prev_subs = creator.get("prev_subscribers") or creator.get("current_subscribers") or 0
         prev_views = creator.get("prev_view_count") or creator.get("current_view_count") or 0
         prev_videos = creator.get("prev_video_count") or creator.get("current_video_count") or 0
@@ -1833,11 +1833,12 @@ async def handle_sync_job(
                 f"{job_tag} ⚠️  Suspicious stats: {channel_id} has 0 subs but {views:,} views"
             )
 
-        # STAGE 3.75: Calculate 30-day changes
+        # STAGE 3.75: Calculate observed snapshot changes
         # Determine if we should take a new snapshot (every ~30 days)
         now = datetime.now(timezone.utc)
         should_update_snapshot = False
         has_valid_baseline = False  # Track if we have enough data for meaningful deltas
+        prev_dt = None
 
         if prev_snapshot_at:
             try:
@@ -1878,12 +1879,19 @@ async def handle_sync_job(
             )
 
         # Calculate changes based on snapshot values (only if we have valid baseline)
-        if has_valid_baseline:
+        growth_window_days = None
+        if has_valid_baseline and not is_invalid and prev_dt is not None:
+            growth_window_days = round((now - prev_dt).total_seconds() / 86400, 2)
+            if growth_window_days <= 0:
+                growth_window_days = None
+
+        if growth_window_days is not None:
             subs_change_30d = subs - prev_subs
             views_change_30d = views - prev_views
             videos_change_30d = videos - prev_videos
             logger.info(
-                f"{job_tag} 30-day changes: subs={subs_change_30d:+,}, "
+                f"{job_tag} observed changes ({growth_window_days:g}d): "
+                f"subs={subs_change_30d:+,}, "
                 f"views={views_change_30d:+,}, videos={videos_change_30d:+}"
             )
         else:
@@ -1904,6 +1912,7 @@ async def handle_sync_job(
             "subscribers_change_30d": subs_change_30d,
             "views_change_30d": views_change_30d,
             "videos_change_30d": videos_change_30d,
+            "growth_window_days": growth_window_days,
             "channel_name": channel_data.get("channel_name"),
             "channel_url": channel_data.get("channel_url"),
             "channel_description": channel_data.get("channel_description"),

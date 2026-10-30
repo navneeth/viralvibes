@@ -220,6 +220,7 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
         assert captured["subscribers_change_30d"] == 200
         assert captured["views_change_30d"] == 15_000
         assert captured["videos_change_30d"] == 15
+        assert captured["growth_window_days"] >= 34.99
         assert captured["prev_subscribers"] == captured["current_subscribers"] == fresh_subscribers
         assert captured["prev_view_count"] == captured["current_view_count"] == fresh_views
         assert captured["prev_video_count"] == captured["current_video_count"] == fresh_videos
@@ -238,6 +239,7 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
             )
         )
         assert failed_jobs and failed_jobs[0][0] == 7
+        assert captured["growth_window_days"] is None
 
 
 def test_creator_state_read_retries_without_optional_columns_after_schema_cache_error(monkeypatch):

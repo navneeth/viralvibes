@@ -61,10 +61,10 @@ CREATOR_LABEL_PROVENANCE: dict[str, str | None] = {
     "Total Views": "yt",
     "Videos Published": "yt",
     # Growth (compare + blueprint)
-    "Net change (30d)": "fx",
-    "Growth rate (30d)": "fx",
-    "Sub growth (30d)": "fx",
-    "Reach multiplier (30d)": "fx",
+    "Net change (observed window)": "fx",
+    "Estimated growth rate (30d equivalent)": "fx",
+    "Sub growth (est. 30d)": "fx",
+    "Reach multiplier (est. 30d)": "fx",
     # Quality / performance
     "Avg views / video": "fx",
     "Views / Subscriber": "fx",
@@ -78,10 +78,10 @@ CREATOR_LABEL_PROVENANCE: dict[str, str | None] = {
 
 CREATOR_LABEL_DETAIL: dict[str, str] = {
     "Avg views / video": _FX_VPV_DETAIL,
-    "Reach multiplier (30d)": _FX_VIRAL_COEFF_DETAIL,
-    "Sub growth (30d)": _FX_SUB_GROWTH_DETAIL,
-    "Net change (30d)": _FX_NET_CHANGE_30D_DETAIL,
-    "Growth rate (30d)": _FX_GROWTH_RATE_DETAIL,
+    "Reach multiplier (est. 30d)": _FX_VIRAL_COEFF_DETAIL,
+    "Sub growth (est. 30d)": _FX_SUB_GROWTH_DETAIL,
+    "Net change (observed window)": _FX_NET_CHANGE_30D_DETAIL,
+    "Estimated growth rate (30d equivalent)": _FX_GROWTH_RATE_DETAIL,
     "Views / Subscriber": _FX_VPS_DETAIL,
     "Upload rate": _FX_UPLOAD_RATE_DETAIL,
     "Channel age": _FX_CHANNEL_AGE_DETAIL,

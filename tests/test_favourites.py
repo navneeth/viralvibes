@@ -407,3 +407,43 @@ class TestFavouritesDB:
         monkeypatch.setattr(db, "supabase_client", self._make_mock_supabase([]))
         result = db.get_user_favourite_creators(FAKE_USER_ID)
         assert result == []
+
+    def test_favourite_creator_stats_rank_by_normalized_growth(self, monkeypatch):
+        """Different observed windows are normalized before pulse ranking."""
+        import db
+
+        fav_rows = [
+            {"creator_id": FAKE_CREATOR_UUID},
+            {"creator_id": FAKE_CREATOR_UUID_2},
+            {"creator_id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"},
+        ]
+        creator_rows = [
+            {
+                "id": FAKE_CREATOR_UUID,
+                "subscribers_change_30d": 1_000,
+                "growth_window_days": 30,
+            },
+            {
+                "id": FAKE_CREATOR_UUID_2,
+                "subscribers_change_30d": 900,
+                "growth_window_days": 7,
+            },
+            {
+                "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+                "subscribers_change_30d": 10_000,
+                "growth_window_days": None,
+            },
+        ]
+        monkeypatch.setattr(
+            db,
+            "supabase_client",
+            self._make_mock_supabase(fav_rows, creator_rows),
+        )
+
+        result = db.get_favourite_creators_with_stats(FAKE_USER_ID)
+
+        assert [creator["id"] for creator in result] == [
+            FAKE_CREATOR_UUID_2,
+            FAKE_CREATOR_UUID,
+            "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        ]
