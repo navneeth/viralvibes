@@ -1061,7 +1061,12 @@ def get_most_active_creators(limit: int = 20) -> list[dict]:
         return []
 
     try:
-        recent_upload_cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        recent_upload_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        if recent_upload_cutoff.microsecond:
+            recent_upload_cutoff = recent_upload_cutoff.replace(microsecond=0) + timedelta(
+                seconds=1
+            )
+        recent_upload_cutoff = recent_upload_cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
         response = (
             supabase_client.table("creators")
             .select("*")

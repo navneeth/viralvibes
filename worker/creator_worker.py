@@ -612,14 +612,20 @@ def _empty_recent_video_intelligence() -> dict:
 
 
 def _preserve_cached_recent_upload_fields(video_intel: dict, creator: dict) -> dict:
-    """Keep cached cadence and latest-upload data when no recent sample was fetched."""
-    if video_intel.get("recent_video_sample_size"):
-        return video_intel
-
+    """Keep cached fields when a recent sample cannot provide replacements."""
     preserved = dict(video_intel)
-    for field in ("recent_upload", "avg_days_between_uploads"):
-        if creator.get(field) is not None:
-            preserved[field] = creator[field]
+
+    recent_upload = video_intel.get("recent_upload")
+    if not (recent_upload and recent_upload.get("published_at")):
+        if creator.get("recent_upload") is not None:
+            preserved["recent_upload"] = creator["recent_upload"]
+
+    if (
+        video_intel.get("avg_days_between_uploads") is None
+        and creator.get("avg_days_between_uploads") is not None
+    ):
+        preserved["avg_days_between_uploads"] = creator["avg_days_between_uploads"]
+
     return preserved
 
 

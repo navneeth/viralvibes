@@ -282,7 +282,8 @@ def test_get_most_active_creators_uses_recent_cadence_and_recency(monkeypatch):
     query.gte.assert_called_once()
     cutoff_field, cutoff_value = query.gte.call_args.args
     assert cutoff_field == "recent_upload->>published_at"
-    cutoff = datetime.fromisoformat(cutoff_value)
+    assert cutoff_value.endswith("Z")
+    cutoff = datetime.strptime(cutoff_value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     expected_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
     assert abs((cutoff - expected_cutoff).total_seconds()) < 2
     query.order.assert_has_calls(

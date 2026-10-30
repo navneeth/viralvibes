@@ -63,6 +63,43 @@ def test_recent_video_sample_replaces_cached_cadence_and_latest_upload():
     assert result["avg_days_between_uploads"] == 1.5
 
 
+def test_partial_recent_video_sample_preserves_cached_cadence():
+    fresh_upload = {"published_at": "2026-10-29T12:00:00Z"}
+    creator = {
+        "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+        "avg_days_between_uploads": 4.25,
+    }
+
+    result = _preserve_cached_recent_upload_fields(
+        {
+            "recent_video_sample_size": 1,
+            "recent_upload": fresh_upload,
+            "avg_days_between_uploads": None,
+        },
+        creator,
+    )
+
+    assert result["recent_upload"] == fresh_upload
+    assert result["avg_days_between_uploads"] == 4.25
+
+
+def test_recent_sample_without_published_at_preserves_cached_upload():
+    cached_upload = {"published_at": "2026-10-20T12:00:00Z"}
+    creator = {"recent_upload": cached_upload, "avg_days_between_uploads": 4.25}
+
+    result = _preserve_cached_recent_upload_fields(
+        {
+            "recent_video_sample_size": 1,
+            "recent_upload": {"published_at": ""},
+            "avg_days_between_uploads": None,
+        },
+        creator,
+    )
+
+    assert result["recent_upload"] == cached_upload
+    assert result["avg_days_between_uploads"] == 4.25
+
+
 def _video_item(
     idx: int,
     views: int,
