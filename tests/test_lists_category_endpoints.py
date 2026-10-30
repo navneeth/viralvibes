@@ -30,6 +30,7 @@ db_stub.get_cached_playlist_stats = lambda *args, **kwargs: None
 db_stub.get_dashboard_event_counts = lambda *args, **kwargs: {}
 db_stub.record_dashboard_event = lambda *args, **kwargs: None
 db_stub.PLAYLIST_STATS_TABLE = "playlist_stats"
+db_stub._supabase_request_semaphore = threading.BoundedSemaphore(20)
 sys.modules.setdefault("db", db_stub)
 
 views_lists_stub = types.ModuleType("views.lists")
@@ -260,6 +261,53 @@ def test_get_top_creators_by_countries_uses_one_grouped_rpc(monkeypatch):
         "US": [{"country_code": "US", "channel_name": "US creator"}],
         "IN": [{"country_code": "IN", "channel_name": "India creator"}],
     }
+
+
+def test_get_top_creators_by_countries_falls_back_when_rpc_times_out(monkeypatch):
+    client = MagicMock()
+    rpc = MagicMock(side_effect=TimeoutError("RPC timed out"))
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+    monkeypatch.setattr(db_lists, "_rpc_with_retry", rpc)
+    fallback_calls = []
+
+    def _get_country_creators(country_code, *, limit):
+        fallback_calls.append((country_code, limit))
+        return [{"country_code": country_code, "channel_name": f"{country_code} creator"}]
+
+    monkeypatch.setattr(db_lists, "get_country_creators", _get_country_creators)
+
+    result = db_lists.get_top_creators_by_countries(["us", "IN", "US"], limit_per_country=3)
+
+    rpc.assert_called_once_with(
+        client,
+        "get_country_preview_creators",
+        {"p_country_codes": ["US", "IN"], "p_limit_per_country": 3},
+    )
+    assert fallback_calls == [("US", 3), ("IN", 3)]
+    assert result == {
+        "US": [{"country_code": "US", "channel_name": "US creator"}],
+        "IN": [{"country_code": "IN", "channel_name": "IN creator"}],
+    }
+
+
+def test_get_top_creators_by_countries_serves_cache_without_client(monkeypatch):
+    creator = {"country_code": "US", "channel_name": "cached creator"}
+    cache_key = ("US", 3, 0, False)
+    monkeypatch.setattr(
+        db_lists,
+        "_country_creators_cache",
+        {
+            cache_key: (
+                db_lists.time.monotonic(),
+                db_lists.CountryPageResult([creator], 1),
+            )
+        },
+    )
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: None)
+
+    result = db_lists.get_top_creators_by_countries(["US"], limit_per_country=3)
+
+    assert result == {"US": [creator]}
 
 
 def test_country_creators_query_invalidated_midflight_does_not_repopulate_cache(monkeypatch):

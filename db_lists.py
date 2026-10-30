@@ -1163,11 +1163,17 @@ def get_country_creators(
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
             .order("current_subscribers", desc=True)
+            .order("id")
             .limit(limit)
         )
         if offset:
             query = query.offset(offset)
-        response = query.execute()
+        # Keep this direct table read under the same per-process cap as the
+        # batched list RPCs and other Supabase requests.
+        from db import _supabase_request_semaphore
+
+        with _supabase_request_semaphore:
+            response = query.execute()
     except Exception:
         if cached_entry:
             logger.warning(
@@ -1257,9 +1263,16 @@ def get_top_creators_by_countries(
     if not normalized_codes:
         return result
 
+    def _fallback_to_country_queries() -> dict[str, list[dict]]:
+        # This also lets get_country_creators serve its cached response when
+        # the shared Supabase client is unavailable.
+        for country_code in normalized_codes:
+            result[country_code] = get_country_creators(country_code, limit=limit_per_country)
+        return result
+
     supabase_client = _get_supabase_client()
     if not supabase_client:
-        return result
+        return _fallback_to_country_queries()
 
     try:
         response = _rpc_with_retry(
@@ -1276,8 +1289,9 @@ def get_top_creators_by_countries(
                 result[country_code].append(creator)
         return result
     except Exception:
-        logger.exception("Error batch-fetching creators for countries")
-        return {}
+        logger.exception("Batch country preview RPC failed; falling back to per-country queries")
+        # The list page should still show creators if the batch RPC times out.
+        return _fallback_to_country_queries()
 
 
 def get_top_creators_by_categories(

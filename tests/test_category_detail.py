@@ -1,6 +1,7 @@
 """Tests for /lists/category/{slug} slug resolution and topic category queries."""
 
 import sys
+import threading
 import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -29,6 +30,7 @@ db_stub.get_cached_playlist_stats = lambda *args, **kwargs: None
 db_stub.get_dashboard_event_counts = lambda *args, **kwargs: {}
 db_stub.record_dashboard_event = lambda *args, **kwargs: None
 db_stub.PLAYLIST_STATS_TABLE = "playlist_stats"
+db_stub._supabase_request_semaphore = threading.BoundedSemaphore(20)
 sys.modules.setdefault("db", db_stub)
 
 views_lists_stub = types.ModuleType("views.lists")
@@ -97,6 +99,7 @@ class _FakeQuery:
 
     def order(self, *args, **kwargs):
         self._call["order"] = {"args": args, "kwargs": kwargs}
+        self._call.setdefault("order_calls", []).append({"args": args, "kwargs": kwargs})
         return self
 
     def limit(self, limit):
@@ -328,6 +331,8 @@ def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
             "count": 1,
         }
     )
+    semaphore = MagicMock()
+    monkeypatch.setattr(sys.modules["db"], "_supabase_request_semaphore", semaphore)
     monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
     monkeypatch.setattr(db_lists, "_country_creators_cache", {})
 
@@ -339,7 +344,12 @@ def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
     assert ("country_code", "US") in call["eq"]
     assert ("sync_status", "synced") in call["eq"]
     assert "in_" not in call
-    assert call["order"]["args"] == ("current_subscribers",)
+    assert [order["args"] for order in call["order_calls"]] == [
+        ("current_subscribers",),
+        ("id",),
+    ]
+    semaphore.__enter__.assert_called_once()
+    semaphore.__exit__.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
