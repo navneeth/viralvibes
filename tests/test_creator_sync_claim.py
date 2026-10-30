@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -131,3 +131,76 @@ def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
 
     assert result is False
     client.table.assert_not_called()
+
+
+def test_sync_rollover_stores_fresh_counts_as_snapshot_baseline(monkeypatch):
+    import worker.creator_worker as creator_worker
+
+    old_snapshot_at = datetime.now(timezone.utc) - timedelta(days=35)
+    creator = {
+        "channel_id": "UCcreator",
+        "channel_name": "Creator",
+        "primary_category": "Music",
+        "current_subscribers": 1100,
+        "current_view_count": 20_000,
+        "current_video_count": 110,
+        "prev_subscribers": 1000,
+        "prev_view_count": 10_000,
+        "prev_video_count": 100,
+        "prev_snapshot_at": old_snapshot_at.isoformat(),
+    }
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[creator])
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(creator_worker, "mark_creator_sync_processing", lambda _job_id: True)
+    monkeypatch.setattr(creator_worker, "mark_creator_sync_completed", lambda _job_id: True)
+    monkeypatch.setattr(creator_worker, "_needs_category_fetch", lambda _category: False)
+
+    async def _fetch_channel_data(_channel_id):
+        return {
+            "channel_name": "Creator",
+            "current_subscribers": 1200,
+            "current_view_count": 25_000,
+            "current_video_count": 115,
+            "topic_categories": [],
+            "channel_age_days": 900,
+        }
+
+    async def _fetch_recent_video_intelligence(*_args, **_kwargs):
+        return creator_worker._empty_recent_video_intelligence()
+
+    monkeypatch.setattr(creator_worker, "_fetch_channel_data", _fetch_channel_data)
+    monkeypatch.setattr(
+        creator_worker,
+        "_fetch_recent_video_intelligence",
+        _fetch_recent_video_intelligence,
+    )
+    monkeypatch.setattr(creator_worker, "_compute_quality_grade", lambda *_args: "A")
+    monkeypatch.setattr(
+        creator_worker.ContactExtractorService,
+        "build_db_update_payload",
+        lambda _payload: {},
+    )
+    monkeypatch.setattr(
+        creator_worker.schema_detector, "filter_payload", lambda payload: (payload, [])
+    )
+    captured = {}
+
+    def _capture_snapshot(_creator_id, payload, _snapshot_started_at):
+        captured.update(payload)
+        return SimpleNamespace(data=[{"id": _creator_id}])
+
+    monkeypatch.setattr(creator_worker, "_update_creator_snapshot", _capture_snapshot)
+
+    assert asyncio.run(creator_worker.handle_sync_job(7, "creator-1")) is True
+
+    assert captured["subscribers_change_30d"] == 200
+    assert captured["views_change_30d"] == 15_000
+    assert captured["videos_change_30d"] == 15
+    assert captured["prev_subscribers"] == captured["current_subscribers"] == 1200
+    assert captured["prev_view_count"] == captured["current_view_count"] == 25_000
+    assert captured["prev_video_count"] == captured["current_video_count"] == 115

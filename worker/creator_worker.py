@@ -611,6 +611,24 @@ def _empty_recent_video_intelligence() -> dict:
     }
 
 
+def _preserve_cached_recent_upload_fields(video_intel: dict, creator: dict) -> dict:
+    """Keep cached fields when a recent sample cannot provide replacements."""
+    preserved = dict(video_intel)
+
+    recent_upload = video_intel.get("recent_upload")
+    if not (recent_upload and recent_upload.get("published_at")):
+        if creator.get("recent_upload") is not None:
+            preserved["recent_upload"] = creator["recent_upload"]
+
+    if (
+        video_intel.get("avg_days_between_uploads") is None
+        and creator.get("avg_days_between_uploads") is not None
+    ):
+        preserved["avg_days_between_uploads"] = creator["avg_days_between_uploads"]
+
+    return preserved
+
+
 def _safe_int(value, default: int = 0) -> int:
     try:
         return int(value)
@@ -1608,6 +1626,7 @@ async def handle_sync_job(
             .select(
                 "channel_id,channel_name,primary_category,"
                 "current_subscribers,current_view_count,current_video_count,"
+                "recent_upload,avg_days_between_uploads,"
                 "prev_subscribers,prev_view_count,prev_video_count,prev_snapshot_at"
             )
             .eq("id", creator_id)
@@ -1663,6 +1682,7 @@ async def handle_sync_job(
             channel_id,
             uploads_playlist_id=channel_data.get("uploads_playlist_id"),
         )
+        video_intel = _preserve_cached_recent_upload_fields(video_intel, creator)
         engagement = video_intel["engagement_score"]
         if should_fetch_categories:
             cat_data = {
@@ -1845,9 +1865,9 @@ async def handle_sync_job(
 
         # Update snapshot if enough time has passed
         if should_update_snapshot:
-            full_payload["prev_subscribers"] = current_subs
-            full_payload["prev_view_count"] = current_views
-            full_payload["prev_video_count"] = current_videos
+            full_payload["prev_subscribers"] = subs
+            full_payload["prev_view_count"] = views
+            full_payload["prev_video_count"] = videos
             full_payload["prev_snapshot_at"] = now.isoformat()
             logger.debug(f"{job_tag} Updating snapshot baseline")
 
