@@ -598,6 +598,7 @@ def _empty_recent_video_intelligence() -> dict:
     """Return a fresh empty recent-video intelligence payload."""
     return {
         **_empty_engagement(),
+        "recent_video_fetch_succeeded": False,
         "recent_upload": None,
         "recent_views_median": None,
         "recent_video_sample_size": 0,
@@ -614,6 +615,11 @@ def _empty_recent_video_intelligence() -> dict:
 def _preserve_cached_recent_upload_fields(video_intel: dict, creator: dict) -> dict:
     """Keep cached fields when a recent sample cannot provide replacements."""
     preserved = dict(video_intel)
+    fetch_succeeded = bool(video_intel.get("recent_video_fetch_succeeded"))
+    sample_size = int(video_intel.get("recent_video_sample_size") or 0)
+
+    if fetch_succeeded and sample_size == 0:
+        return preserved
 
     recent_upload = video_intel.get("recent_upload")
     if not (recent_upload and recent_upload.get("published_at")):
@@ -627,6 +633,72 @@ def _preserve_cached_recent_upload_fields(video_intel: dict, creator: dict) -> d
         preserved["avg_days_between_uploads"] = creator["avg_days_between_uploads"]
 
     return preserved
+
+
+_CREATOR_STATE_REQUIRED_COLUMNS = (
+    "channel_id",
+    "channel_name",
+    "primary_category",
+    "current_subscribers",
+    "current_view_count",
+    "current_video_count",
+    "prev_subscribers",
+    "prev_view_count",
+    "prev_video_count",
+    "prev_snapshot_at",
+)
+_CREATOR_STATE_OPTIONAL_COLUMNS = ("recent_upload", "avg_days_between_uploads")
+
+
+def _creator_state_select_columns(available_columns: set[str] | None) -> str:
+    """Select recent-upload fields only when startup schema detection found them."""
+    columns = list(_CREATOR_STATE_REQUIRED_COLUMNS)
+    if available_columns:
+        columns.extend(
+            column for column in _CREATOR_STATE_OPTIONAL_COLUMNS if column in available_columns
+        )
+    return ",".join(columns)
+
+
+def _is_missing_optional_creator_column_error(error: Exception) -> bool:
+    code = str(getattr(error, "code", ""))
+    message = str(error).lower()
+    references_optional_column = any(
+        column in message for column in _CREATOR_STATE_OPTIONAL_COLUMNS
+    )
+    return references_optional_column and code in {"42703", "PGRST204"}
+
+
+def _fetch_creator_state(creator_id: str) -> dict:
+    """Fetch creator state, retrying without optional columns on schema-cache lag."""
+    client = supabase_client
+    columns = _creator_state_select_columns(schema_detector.available_columns)
+    query = client.table(CREATOR_TABLE).select(columns).eq("id", creator_id)
+    try:
+        response = query.execute()
+    except Exception as error:
+        selected_columns = set(columns.split(","))
+        has_optional_columns = bool(selected_columns.intersection(_CREATOR_STATE_OPTIONAL_COLUMNS))
+        if not has_optional_columns or not _is_missing_optional_creator_column_error(error):
+            raise
+
+        logger.warning(
+            "Optional creator columns are missing from the PostgREST schema cache; "
+            "retrying creator-state read without them"
+        )
+        required_columns = ",".join(_CREATOR_STATE_REQUIRED_COLUMNS)
+        response = (
+            client.table(CREATOR_TABLE).select(required_columns).eq("id", creator_id).execute()
+        )
+
+    return response.data[0] if response.data else {}
+
+
+def _empty_recent_video_intelligence_success() -> dict:
+    """Represent a successful fetch that found no accessible uploads."""
+    result = _empty_recent_video_intelligence()
+    result["recent_video_fetch_succeeded"] = True
+    return result
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -949,7 +1021,7 @@ async def _fetch_recent_video_intelligence(
             if item.get("contentDetails", {}).get("videoId")
         ]
         if not video_ids:
-            return _empty_recent_video_intelligence()
+            return _empty_recent_video_intelligence_success()
 
         try:
             videos_response = await asyncio.wait_for(
@@ -970,6 +1042,7 @@ async def _fetch_recent_video_intelligence(
             playlist_items,
             videos_response.get("items", []),
         )
+        result["recent_video_fetch_succeeded"] = True
         logger.debug(
             "[RecentVideos] %s: sample=%s median=%s outliers=%s avg_views_10=%s",
             channel_id,
@@ -1621,22 +1694,9 @@ async def handle_sync_job(
         snapshot_started_at = datetime.now(timezone.utc)
 
         # STAGE 1: Fetch creator metadata (including previous stats for delta calculation)
-        creator_response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select(
-                "channel_id,channel_name,primary_category,"
-                "current_subscribers,current_view_count,current_video_count,"
-                "recent_upload,avg_days_between_uploads,"
-                "prev_subscribers,prev_view_count,prev_video_count,prev_snapshot_at"
-            )
-            .eq("id", creator_id)
-            .execute()
-        )
-
-        if not creator_response.data:
+        creator = _fetch_creator_state(creator_id)
+        if not creator:
             raise ValueError(f"Creator not found in DB: {creator_id}")
-
-        creator = creator_response.data[0]
         channel_id = creator.get("channel_id")
         channel_name = creator.get("channel_name", "unknown")
 
@@ -1864,10 +1924,10 @@ async def handle_sync_job(
         }
 
         # Update snapshot if enough time has passed
-        if should_update_snapshot:
-            full_payload["prev_subscribers"] = current_subs
-            full_payload["prev_view_count"] = current_views
-            full_payload["prev_video_count"] = current_videos
+        if should_update_snapshot and not is_invalid:
+            full_payload["prev_subscribers"] = subs
+            full_payload["prev_view_count"] = views
+            full_payload["prev_video_count"] = videos
             full_payload["prev_snapshot_at"] = now.isoformat()
             logger.debug(f"{job_tag} Updating snapshot baseline")
 

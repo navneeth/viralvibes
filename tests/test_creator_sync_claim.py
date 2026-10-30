@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -131,3 +131,167 @@ def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
 
     assert result is False
     client.table.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("fresh_subscribers", "fresh_views", "fresh_videos", "valid_stats"),
+    [
+        (1200, 25_000, 115, True),
+        (0, 25_000, 115, False),
+    ],
+)
+def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
+    monkeypatch, fresh_subscribers, fresh_views, fresh_videos, valid_stats
+):
+    import worker.creator_worker as creator_worker
+
+    old_snapshot_at = datetime.now(timezone.utc) - timedelta(days=35)
+    creator = {
+        "channel_id": "UCcreator",
+        "channel_name": "Creator",
+        "primary_category": "Music",
+        "current_subscribers": 1100,
+        "current_view_count": 20_000,
+        "current_video_count": 110,
+        "prev_subscribers": 1000,
+        "prev_view_count": 10_000,
+        "prev_video_count": 100,
+        "prev_snapshot_at": old_snapshot_at.isoformat(),
+        "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+        "avg_days_between_uploads": 4.25,
+    }
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[creator])
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(creator_worker, "mark_creator_sync_processing", lambda _job_id: True)
+    monkeypatch.setattr(creator_worker, "mark_creator_sync_completed", lambda _job_id: True)
+    monkeypatch.setattr(creator_worker, "_needs_category_fetch", lambda _category: False)
+    failed_jobs = []
+    monkeypatch.setattr(
+        creator_worker,
+        "mark_creator_sync_failed",
+        lambda job_id, reason: failed_jobs.append((job_id, reason)) or True,
+    )
+
+    async def _fetch_channel_data(_channel_id):
+        return {
+            "channel_name": "Creator",
+            "current_subscribers": fresh_subscribers,
+            "current_view_count": fresh_views,
+            "current_video_count": fresh_videos,
+            "topic_categories": [],
+            "channel_age_days": 900,
+        }
+
+    async def _fetch_recent_video_intelligence(*_args, **_kwargs):
+        return creator_worker._empty_recent_video_intelligence()
+
+    monkeypatch.setattr(creator_worker, "_fetch_channel_data", _fetch_channel_data)
+    monkeypatch.setattr(
+        creator_worker,
+        "_fetch_recent_video_intelligence",
+        _fetch_recent_video_intelligence,
+    )
+    monkeypatch.setattr(creator_worker, "_compute_quality_grade", lambda *_args: "A")
+    monkeypatch.setattr(
+        creator_worker.ContactExtractorService,
+        "build_db_update_payload",
+        lambda _payload: {},
+    )
+    monkeypatch.setattr(
+        creator_worker.schema_detector, "filter_payload", lambda payload: (payload, [])
+    )
+    captured = {}
+
+    def _capture_snapshot(_creator_id, payload, _snapshot_started_at):
+        captured.update(payload)
+        return SimpleNamespace(data=[{"id": _creator_id}])
+
+    monkeypatch.setattr(creator_worker, "_update_creator_snapshot", _capture_snapshot)
+
+    result = asyncio.run(creator_worker.handle_sync_job(7, "creator-1"))
+
+    if valid_stats:
+        assert result is True
+        assert captured["subscribers_change_30d"] == 200
+        assert captured["views_change_30d"] == 15_000
+        assert captured["videos_change_30d"] == 15
+        assert captured["prev_subscribers"] == captured["current_subscribers"] == fresh_subscribers
+        assert captured["prev_view_count"] == captured["current_view_count"] == fresh_views
+        assert captured["prev_video_count"] == captured["current_video_count"] == fresh_videos
+        assert captured["recent_upload"] == creator["recent_upload"]
+        assert captured["avg_days_between_uploads"] == 4.25
+        assert not failed_jobs
+    else:
+        assert result is False
+        assert not any(
+            field in captured
+            for field in (
+                "prev_subscribers",
+                "prev_view_count",
+                "prev_video_count",
+                "prev_snapshot_at",
+            )
+        )
+        assert failed_jobs and failed_jobs[0][0] == 7
+
+
+def test_creator_state_read_retries_without_optional_columns_after_schema_cache_error(monkeypatch):
+    import worker.creator_worker as creator_worker
+
+    class _MissingOptionalColumnError(Exception):
+        code = "PGRST204"
+
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.execute.side_effect = [
+        _MissingOptionalColumnError("recent_upload missing from schema cache"),
+        SimpleNamespace(data=[{"channel_id": "UCcreator"}]),
+    ]
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        set(creator_worker._CREATOR_STATE_REQUIRED_COLUMNS)
+        | set(creator_worker._CREATOR_STATE_OPTIONAL_COLUMNS),
+    )
+
+    result = creator_worker._fetch_creator_state("creator-1")
+
+    assert result == {"channel_id": "UCcreator"}
+    selected_columns = [call.args[0] for call in query.select.call_args_list]
+    assert "recent_upload" in selected_columns[0]
+    assert "avg_days_between_uploads" in selected_columns[0]
+    assert "recent_upload" not in selected_columns[1]
+    assert "avg_days_between_uploads" not in selected_columns[1]
+
+
+def test_creator_state_read_omits_optional_columns_when_schema_lacks_them(monkeypatch):
+    import worker.creator_worker as creator_worker
+
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[{"channel_id": "UCcreator"}])
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        set(creator_worker._CREATOR_STATE_REQUIRED_COLUMNS),
+    )
+
+    result = creator_worker._fetch_creator_state("creator-1")
+
+    assert result == {"channel_id": "UCcreator"}
+    selected_columns = query.select.call_args.args[0]
+    assert "recent_upload" not in selected_columns
+    assert "avg_days_between_uploads" not in selected_columns
