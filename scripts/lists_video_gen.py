@@ -87,7 +87,7 @@ LISTS: dict[str, ListSpec] = {
         "rising-stars", "Rising Stars — 30-Day Growth", "GROWTH %", "_growth_rate", "pct"
     ),
     "most-active": ListSpec(
-        "most-active", "Most Active Creators", "UPLOADS/MO", "monthly_uploads", "count"
+        "most-active", "Most Active Creators", "AVG GAP", "avg_days_between_uploads", "interval"
     ),
     "veteran": ListSpec(
         "veteran", "Veteran Creators (10+ years)", "AGE (YRS)", "channel_age_days", "age"
@@ -189,6 +189,15 @@ def _format_metric(spec: ListSpec, raw: dict) -> tuple[str, tuple]:
         v = float(value)
         color = (80, 200, 255) if v >= 10 else CREAM
         return _fmt(int(v)), color
+
+    if spec.metric_fmt == "interval":
+        days = float(value)
+        if days <= 0.01:
+            return "—", MUTED
+        color = (80, 200, 255)
+        if days < 1:
+            return f"~{round(days * 24 * 60)}m", color
+        return f"~{days:.1f}d", color
 
     if spec.metric_fmt == "age":
         years = int(float(value)) // 365

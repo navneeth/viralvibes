@@ -3,6 +3,7 @@
 import sys
 import threading
 import types
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
@@ -281,7 +282,9 @@ def test_get_most_active_creators_uses_recent_cadence_and_recency(monkeypatch):
     query.gte.assert_called_once()
     cutoff_field, cutoff_value = query.gte.call_args.args
     assert cutoff_field == "recent_upload->>published_at"
-    assert cutoff_value.endswith("+00:00")
+    cutoff = datetime.fromisoformat(cutoff_value)
+    expected_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    assert abs((cutoff - expected_cutoff).total_seconds()) < 2
     query.order.assert_has_calls(
         [
             call("avg_days_between_uploads"),

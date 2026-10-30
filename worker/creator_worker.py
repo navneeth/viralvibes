@@ -611,6 +611,18 @@ def _empty_recent_video_intelligence() -> dict:
     }
 
 
+def _preserve_cached_recent_upload_fields(video_intel: dict, creator: dict) -> dict:
+    """Keep cached cadence and latest-upload data when no recent sample was fetched."""
+    if video_intel.get("recent_video_sample_size"):
+        return video_intel
+
+    preserved = dict(video_intel)
+    for field in ("recent_upload", "avg_days_between_uploads"):
+        if creator.get(field) is not None:
+            preserved[field] = creator[field]
+    return preserved
+
+
 def _safe_int(value, default: int = 0) -> int:
     try:
         return int(value)
@@ -1608,6 +1620,7 @@ async def handle_sync_job(
             .select(
                 "channel_id,channel_name,primary_category,"
                 "current_subscribers,current_view_count,current_video_count,"
+                "recent_upload,avg_days_between_uploads,"
                 "prev_subscribers,prev_view_count,prev_video_count,prev_snapshot_at"
             )
             .eq("id", creator_id)
@@ -1663,6 +1676,7 @@ async def handle_sync_job(
             channel_id,
             uploads_playlist_id=channel_data.get("uploads_playlist_id"),
         )
+        video_intel = _preserve_cached_recent_upload_fields(video_intel, creator)
         engagement = video_intel["engagement_score"]
         if should_fetch_categories:
             cat_data = {
