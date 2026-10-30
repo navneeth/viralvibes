@@ -8,6 +8,7 @@ import logging
 import random
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Callable, NamedTuple
 from urllib.parse import unquote, urlparse
 
@@ -1043,13 +1044,16 @@ def get_top_rated_creators(limit: int = 20) -> list[dict]:
 
 def get_most_active_creators(limit: int = 20) -> list[dict]:
     """
-    Get most active creators sorted by monthly upload frequency.
+    Get recently active creators sorted by average gap between uploads.
+
+    Cadence is computed from up to the 50 most recent uploads. Requiring a
+    recent upload avoids ranking channels whose stored cadence is stale.
 
     Args:
         limit: Maximum number of creators to return
 
     Returns:
-        List of creator dicts sorted by monthly_uploads descending
+        List of creator dicts sorted by avg_days_between_uploads ascending
     """
     supabase_client = _get_supabase_client()
     if not supabase_client:
@@ -1057,14 +1061,17 @@ def get_most_active_creators(limit: int = 20) -> list[dict]:
         return []
 
     try:
+        recent_upload_cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
         response = (
             supabase_client.table("creators")
             .select("*")
             .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
             .gt("current_subscribers", 0)
-            .not_.is_("monthly_uploads", "null")
-            .order("monthly_uploads", desc=True)
+            .gt("avg_days_between_uploads", 0.01)
+            .gte("recent_upload->>published_at", recent_upload_cutoff)
+            .order("avg_days_between_uploads")
+            .order("recent_upload->>published_at", desc=True)
             .limit(limit)
             .execute()
         )

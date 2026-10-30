@@ -4,7 +4,7 @@ import sys
 import threading
 import types
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 supabase_stub = types.ModuleType("supabase")
 supabase_stub.Client = object
@@ -261,6 +261,33 @@ def test_get_top_creators_by_countries_uses_one_grouped_rpc(monkeypatch):
         "US": [{"country_code": "US", "channel_name": "US creator"}],
         "IN": [{"country_code": "IN", "channel_name": "India creator"}],
     }
+
+
+def test_get_most_active_creators_uses_recent_cadence_and_recency(monkeypatch):
+    query = MagicMock()
+    for method in ("select", "eq", "gt", "gte", "order", "limit"):
+        getattr(query, method).return_value = query
+    query.not_.is_.return_value = query
+    expected = [{"channel_name": "Recent uploader", "avg_days_between_uploads": 0.02}]
+    query.execute.return_value = SimpleNamespace(data=expected)
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    result = db_lists.get_most_active_creators(limit=1)
+
+    assert result == expected
+    query.gt.assert_any_call("avg_days_between_uploads", 0.01)
+    query.gte.assert_called_once()
+    cutoff_field, cutoff_value = query.gte.call_args.args
+    assert cutoff_field == "recent_upload->>published_at"
+    assert cutoff_value.endswith("+00:00")
+    query.order.assert_has_calls(
+        [
+            call("avg_days_between_uploads"),
+            call("recent_upload->>published_at", desc=True),
+        ]
+    )
 
 
 def test_get_top_creators_by_countries_falls_back_when_rpc_times_out(monkeypatch):
