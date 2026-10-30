@@ -79,7 +79,7 @@ LISTS_TABS = [
         "most-active",
         "Most Active",
         "zap",
-        "Channels uploading the most frequently. Great for finding creators who publish consistently.",
+        "Average gap across up to 50 recent uploads. Channels must have uploaded within the past 90 days.",
         False,
     ),
     (
@@ -139,7 +139,13 @@ LISTS_TABS = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activity: bool = False):
+def _creator_row(
+    creator: dict,
+    rank: int,
+    show_growth: bool = False,
+    show_activity: bool = False,
+    show_recent_cadence: bool = False,
+):
     """
     Renders a single creator row for list views.
 
@@ -148,6 +154,7 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
         rank: Ranking position (1-based)
         show_growth: If True, shows 30-day growth instead of total views
         show_activity: If True, shows monthly uploads instead of total views
+        show_recent_cadence: If True, shows the average interval between recent uploads
 
     Returns:
         Div with creator row layout
@@ -175,6 +182,19 @@ def _creator_row(creator: dict, rank: int, show_growth: bool = False, show_activ
     if show_growth:
         stat_value = f"{growth_rate:+.1f}%"
         stat_label = "30d growth rate"
+    elif show_recent_cadence:
+        interval_days = safe_get_value(creator, "avg_days_between_uploads", None)
+        try:
+            interval_days = float(interval_days)
+        except (TypeError, ValueError):
+            interval_days = 0
+        if interval_days <= 0.01:
+            stat_value = "—"
+        elif interval_days < 1:
+            stat_value = f"~{round(interval_days * 24 * 60)} min"
+        else:
+            stat_value = f"~{interval_days:.1f} days"
+        stat_label = "average gap"
     elif show_activity:
         stat_value = f"{monthly_uploads:.1f}/mo" if monthly_uploads else "—"
         stat_label = "uploads"
@@ -675,7 +695,7 @@ def _render_most_active_content(
         ),
         Div(
             *[
-                _creator_row(creator, rank=i + 1, show_activity=True)
+                _creator_row(creator, rank=i + 1, show_recent_cadence=True)
                 for i, creator in enumerate(creators)
             ],
             cls="space-y-3",
