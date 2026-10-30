@@ -1,7 +1,25 @@
 from datetime import datetime, timedelta, timezone
+import sys
+import types
 
 import pytest
-from worker.creator_worker import _build_recent_video_intelligence
+
+googleapiclient_stub = types.ModuleType("googleapiclient")
+googleapiclient_discovery_stub = types.ModuleType("googleapiclient.discovery")
+googleapiclient_errors_stub = types.ModuleType("googleapiclient.errors")
+googleapiclient_discovery_stub.build = lambda *args, **kwargs: None
+googleapiclient_errors_stub.HttpError = type("HttpError", (Exception,), {})
+googleapiclient_stub.discovery = googleapiclient_discovery_stub
+googleapiclient_stub.errors = googleapiclient_errors_stub
+sys.modules.setdefault("googleapiclient", googleapiclient_stub)
+sys.modules.setdefault("googleapiclient.discovery", googleapiclient_discovery_stub)
+sys.modules.setdefault("googleapiclient.errors", googleapiclient_errors_stub)
+
+from worker.creator_worker import (
+    _build_recent_video_intelligence,
+    _empty_recent_video_intelligence,
+    _preserve_cached_recent_upload_fields,
+)
 
 
 def _playlist_items(count: int) -> list[dict]:
@@ -9,6 +27,77 @@ def _playlist_items(count: int) -> list[dict]:
 
 
 _AS_OF = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+
+def test_empty_recent_video_sample_preserves_cached_cadence_and_latest_upload():
+    cached_upload = {"published_at": "2026-10-20T12:00:00Z"}
+    creator = {
+        "recent_upload": cached_upload,
+        "avg_days_between_uploads": 4.25,
+    }
+
+    result = _preserve_cached_recent_upload_fields(_empty_recent_video_intelligence(), creator)
+
+    assert result["recent_upload"] == cached_upload
+    assert result["avg_days_between_uploads"] == 4.25
+    assert result["recent_video_sample_size"] == 0
+
+
+def test_recent_video_sample_replaces_cached_cadence_and_latest_upload():
+    fresh_upload = {"published_at": "2026-10-29T12:00:00Z"}
+    video_intel = {
+        "recent_video_sample_size": 2,
+        "recent_upload": fresh_upload,
+        "avg_days_between_uploads": 1.5,
+    }
+
+    result = _preserve_cached_recent_upload_fields(
+        video_intel,
+        {
+            "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+            "avg_days_between_uploads": 4.25,
+        },
+    )
+
+    assert result["recent_upload"] == fresh_upload
+    assert result["avg_days_between_uploads"] == 1.5
+
+
+def test_partial_recent_video_sample_preserves_cached_cadence():
+    fresh_upload = {"published_at": "2026-10-29T12:00:00Z"}
+    creator = {
+        "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
+        "avg_days_between_uploads": 4.25,
+    }
+
+    result = _preserve_cached_recent_upload_fields(
+        {
+            "recent_video_sample_size": 1,
+            "recent_upload": fresh_upload,
+            "avg_days_between_uploads": None,
+        },
+        creator,
+    )
+
+    assert result["recent_upload"] == fresh_upload
+    assert result["avg_days_between_uploads"] == 4.25
+
+
+def test_recent_sample_without_published_at_preserves_cached_upload():
+    cached_upload = {"published_at": "2026-10-20T12:00:00Z"}
+    creator = {"recent_upload": cached_upload, "avg_days_between_uploads": 4.25}
+
+    result = _preserve_cached_recent_upload_fields(
+        {
+            "recent_video_sample_size": 1,
+            "recent_upload": {"published_at": ""},
+            "avg_days_between_uploads": None,
+        },
+        creator,
+    )
+
+    assert result["recent_upload"] == cached_upload
+    assert result["avg_days_between_uploads"] == 4.25
 
 
 def _video_item(
