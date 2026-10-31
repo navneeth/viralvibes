@@ -1838,6 +1838,8 @@ async def handle_sync_job(
         now = datetime.now(timezone.utc)
         should_update_snapshot = False
         has_valid_baseline = False  # Track if we have enough data for meaningful deltas
+        growth_window_days = None
+        prev_dt = None
 
         if prev_snapshot_at:
             try:
@@ -1861,6 +1863,10 @@ async def handle_sync_job(
                 should_update_snapshot = days_since_snapshot >= 30
                 # Only show growth if baseline is at least 7 days old (enough for meaningful change)
                 has_valid_baseline = days_since_snapshot >= 7
+                if has_valid_baseline and not is_invalid:
+                    observed_days = (now - prev_dt).total_seconds() / 86400
+                    if observed_days > 0:
+                        growth_window_days = round(observed_days, 2)
                 logger.debug(
                     f"{job_tag} Days since last snapshot: {days_since_snapshot} "
                     f"(threshold: 30, valid_baseline: {has_valid_baseline})"
@@ -1904,6 +1910,7 @@ async def handle_sync_job(
             "subscribers_change_30d": subs_change_30d,
             "views_change_30d": views_change_30d,
             "videos_change_30d": videos_change_30d,
+            "growth_window_days": growth_window_days,
             "channel_name": channel_data.get("channel_name"),
             "channel_url": channel_data.get("channel_url"),
             "channel_description": channel_data.get("channel_description"),
