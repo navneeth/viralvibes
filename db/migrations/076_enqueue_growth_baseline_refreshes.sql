@@ -8,6 +8,42 @@
 -- Bounded insertion after reviewing the dry-run result:
 --   SELECT * FROM public.enqueue_growth_baseline_refreshes(100, 10000, 250, false);
 -- The RPC hard caps each call at 500 jobs and the pending queue at 1,000 jobs.
+-- Before building the active-job unique index, confirm there are no existing
+-- creators with multiple active jobs:
+--   SELECT creator_id, count(*) FROM public.creator_sync_jobs
+--   WHERE status IN ('pending', 'processing')
+--   GROUP BY creator_id HAVING count(*) > 1;
+-- Build this index outside a transaction (CREATE INDEX CONCURRENTLY).
+
+-- A pending-only unique index cannot close the race where a job changes to
+-- processing just before a second enqueue inserts. Enforce one active job per
+-- creator for every enqueue path.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_creator_sync_jobs_active_unique
+    ON public.creator_sync_jobs (creator_id)
+    WHERE status IN ('pending', 'processing');
+
+-- YouTube's published_at values are RFC 3339 timestamps. Validate the full
+-- shape, then catch calendar/range errors that a regular expression cannot
+-- detect (for example, month 99). Invalid values become NULL and are skipped.
+CREATE OR REPLACE FUNCTION public.try_parse_creator_upload_timestamp(p_value text)
+RETURNS timestamptz
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+    IF p_value !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$' THEN
+        RETURN NULL;
+    END IF;
+    RETURN p_value::timestamptz;
+EXCEPTION WHEN OTHERS THEN
+    RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.try_parse_creator_upload_timestamp(text)
+    FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.enqueue_growth_baseline_refreshes(
     p_limit           integer DEFAULT 100,
@@ -67,12 +103,9 @@ BEGIN
       AND c.current_subscribers > c.prev_subscribers
       AND c.growth_window_days IS NULL
       AND c.prev_snapshot_at <= statement_timestamp() - interval '7 days'
-      AND CASE
-            WHEN c.recent_upload->>'published_at' ~ '^\d{4}-\d{2}-\d{2}T'
-            THEN (c.recent_upload->>'published_at')::timestamptz
-                 >= statement_timestamp() - interval '90 days'
-            ELSE false
-          END
+      AND public.try_parse_creator_upload_timestamp(
+              c.recent_upload->>'published_at'
+          ) >= statement_timestamp() - interval '90 days'
       AND NOT EXISTS (
           SELECT 1
           FROM public.creator_sync_jobs AS j
@@ -102,7 +135,8 @@ BEGIN
                    'growth_baseline_refresh',
                    statement_timestamp() + p.rn * interval '1 millisecond'
             FROM pg_temp._growth_baseline_pick AS p
-            ON CONFLICT (creator_id) WHERE status = 'pending' DO NOTHING
+            ON CONFLICT (creator_id)
+                WHERE status IN ('pending', 'processing') DO NOTHING
             RETURNING creator_id
         )
         SELECT 'positive_growth_missing_window'::text,
