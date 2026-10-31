@@ -1,26 +1,12 @@
--- Queue a small, explicit cohort of active creators whose stored subscriber
--- baseline is positive but whose measured growth window is still unknown.
--- This is separate from enqueue_creator_syncs(), whose broad priority lane
--- intentionally starts with never-synced creators.
+-- Stage 3 of the active-job uniqueness rollout.
+-- Requires 077_active_creator_sync_unique_index.sql to be present and valid.
+-- This installs RPCs only; it does not enqueue or update creator/job rows.
 --
 -- Dry run (default):
 --   SELECT * FROM public.enqueue_growth_baseline_refreshes();
 -- Bounded insertion after reviewing the dry-run result:
 --   SELECT * FROM public.enqueue_growth_baseline_refreshes(100, 10000, 250, false);
 -- The RPC hard caps each call at 500 jobs and the pending queue at 1,000 jobs.
--- Before building the active-job unique index, confirm there are no existing
--- creators with multiple active jobs:
---   SELECT creator_id, count(*) FROM public.creator_sync_jobs
---   WHERE status IN ('pending', 'processing')
---   GROUP BY creator_id HAVING count(*) > 1;
--- Build this index outside a transaction (CREATE INDEX CONCURRENTLY).
-
--- A pending-only unique index cannot close the race where a job changes to
--- processing just before a second enqueue inserts. Enforce one active job per
--- creator for every enqueue path.
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_creator_sync_jobs_active_unique
-    ON public.creator_sync_jobs (creator_id)
-    WHERE status IN ('pending', 'processing');
 
 -- YouTube's published_at values are RFC 3339 timestamps. Validate the full
 -- shape, then catch calendar/range errors that a regular expression cannot
@@ -135,8 +121,7 @@ BEGIN
                    'growth_baseline_refresh',
                    statement_timestamp() + p.rn * interval '1 millisecond'
             FROM pg_temp._growth_baseline_pick AS p
-            ON CONFLICT (creator_id)
-                WHERE status IN ('pending', 'processing') DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING creator_id
         )
         SELECT 'positive_growth_missing_window'::text,

@@ -1140,7 +1140,7 @@ def queue_invalid_creators_for_retry(
 
         if queued_count > 0:
             logger.info(
-                f"Auto-retry: queued {queued_count} creators ({skipped_count} already pending)"
+                f"Auto-retry: queued {queued_count} creators ({skipped_count} already active)"
             )
 
         return queued_count
@@ -1157,43 +1157,37 @@ def queue_creator_sync(
     """
     Queue a creator for stats sync.
 
-    Uses check-then-insert pattern to prevent duplicate pending jobs. This is
-    NOT atomic and has a race window between check and insert. For production,
-    add a unique partial index to guarantee uniqueness:
-
-        CREATE UNIQUE INDEX idx_creator_sync_jobs_pending_unique
-        ON creator_sync_jobs (creator_id)
-        WHERE status = 'pending';
-
-    With the index, concurrent enqueues will safely fail on constraint violation
-    instead of creating duplicates.
+    Treats pending and processing jobs as already queued. The database's active
+    job unique index closes the race between the check and insert; a uniqueness
+    conflict is therefore also treated as an already-queued result.
 
     Args:
         creator_id: Creator UUID from creators table
         source: How it got queued ('discovered', 'manual', 'scheduled')
 
     Returns:
-        True if queued successfully or already pending, False otherwise
+        True if queued successfully or already active, False otherwise
     """
     if not supabase_client:
         logger.warning("Supabase client not available to queue creator sync")
         return False
 
     try:
-        # Check if there's already a pending job for this creator
-        # NOTE: This is not atomic - see docstring for production hardening
+        # A processing job is active too: adding a pending job for the same
+        # creator would cause duplicate worker calls after the active-job index
+        # is installed.
         existing = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("id")
             .eq("creator_id", creator_id)
-            .eq("status", "pending")
+            .in_("status", ["pending", "processing"])
             .limit(1)
             .execute()
         )
 
         if existing.data:
-            logger.debug(f"Creator {creator_id} already has a pending sync job, skipping")
-            return True  # Already queued, consider this success
+            logger.debug(f"Creator {creator_id} already has an active sync job, skipping")
+            return True  # Already queued or being processed
 
         payload = {
             "creator_id": creator_id,
@@ -1213,6 +1207,11 @@ def queue_creator_sync(
             return False
 
     except Exception as e:
+        if getattr(e, "code", None) == "23505":
+            # The active-job unique index may win a race with the preflight
+            # query. That means the creator is already queued/processing.
+            logger.debug("Creator %s already has an active sync job", creator_id)
+            return True
         logger.exception(f"Error queuing creator sync: {e}")
         return False
 
@@ -1227,9 +1226,11 @@ def queue_creator_sync_bulk(
     Bulk-queue a list of creators for stats sync.
 
     Replaces the N+1 pattern of calling queue_creator_sync() in a loop.
-    Uses 2 round-trips regardless of batch size:
-      1. SELECT  — find which creator_ids already have a pending job
+    Uses 2 round-trips in the common case regardless of batch size:
+      1. SELECT  — find which creator_ids already have an active job
       2. INSERT  — insert all the rest in one call
+    If the active-job index catches a race during the bulk insert, retries the
+    batch one creator at a time so one conflict does not discard other jobs.
 
     Args:
         creator_ids: List of creator UUIDs to enqueue
@@ -1237,29 +1238,30 @@ def queue_creator_sync_bulk(
         client:      Optional Supabase client; defaults to the module client.
 
     Returns:
-        (queued, skipped) — queued = newly inserted, skipped = already pending
+        (queued, skipped) — queued = newly inserted, skipped = already active
     """
     client = client if client is not None else supabase_client
     if not client or not creator_ids:
         return 0, 0
 
     try:
-        # 1. One SELECT to find already-pending creator_ids in this batch
+        # 1. One SELECT to find creators that already have an active job.
         existing_resp = (
             client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("creator_id")
             .in_("creator_id", creator_ids)
-            .eq("status", "pending")
+            .in_("status", ["pending", "processing"])
             .execute()
         )
-        already_pending = {row["creator_id"] for row in (existing_resp.data or [])}
+        already_active = {row["creator_id"] for row in (existing_resp.data or [])}
 
-        to_insert = [cid for cid in creator_ids if cid not in already_pending]
-        skipped = len(already_pending)
+        # Preserve input order while removing duplicate IDs from the batch.
+        to_insert = list(dict.fromkeys(cid for cid in creator_ids if cid not in already_active))
+        skipped = len(creator_ids) - len(to_insert)
 
         if not to_insert:
             logger.debug(
-                "queue_creator_sync_bulk: all %d creator(s) already pending",
+                "queue_creator_sync_bulk: all %d creator(s) already active",
                 skipped,
             )
             return 0, skipped
@@ -1274,8 +1276,28 @@ def queue_creator_sync_bulk(
             }
             for cid in to_insert
         ]
-        insert_resp = client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
-        queued = len(insert_resp.data or [])
+        try:
+            insert_resp = client.table(CREATOR_SYNC_JOBS_TABLE).insert(payload).execute()
+            queued = len(insert_resp.data or [])
+        except Exception as insert_error:
+            if getattr(insert_error, "code", None) != "23505":
+                raise
+
+            # A job may become processing after the preflight SELECT. Retry
+            # individually so that a single uniqueness conflict does not make
+            # the database reject the entire bulk insert.
+            queued = 0
+            raced_conflicts = 0
+            for item in payload:
+                try:
+                    row_resp = client.table(CREATOR_SYNC_JOBS_TABLE).insert(item).execute()
+                    queued += len(row_resp.data or [])
+                except Exception as row_error:
+                    if getattr(row_error, "code", None) == "23505":
+                        raced_conflicts += 1
+                        continue
+                    raise
+            skipped += raced_conflicts
         logger.info(
             "queue_creator_sync_bulk: %d queued, %d skipped (source=%s)",
             queued,
