@@ -515,7 +515,6 @@ def index(req, sess):
         SectionDivider(),
         _Section(faq_section() or Div(), id="faq-section"),
         BottomCTASection(),
-        footer() or Div(),
     ]
 
     # Filter out any None/False values
@@ -560,6 +559,7 @@ def index(req, sess):
                 },
             }
         ),
+        footer(),
     )
 
     # Cache at the CDN edge for anonymous visitors only.
@@ -1679,6 +1679,7 @@ def lists(req, sess):
             page_content,
         ),
         *page_seo_tags(_lists_title, _lists_desc, "/lists"),
+        footer(),
     )
 
     # Cache at the CDN edge for logged-out visitors only.
@@ -2483,14 +2484,14 @@ def pricing(req, sess):
     """Pricing page — public route."""
     error = req.query_params.get("error", "")
     is_authenticated = bool(sess.get("auth"))
-    page = (
-        Title("Pricing - ViralVibes"),
+    page = Titled(
+        "Pricing - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             pricing_page_content(error=error, is_authenticated=is_authenticated),
-            footer(),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     # Skip cache when the page includes an error param so users see their
     # error message immediately (unrelated visitors still get the cached
@@ -2538,6 +2539,7 @@ def about(req, sess):
             about_page_content(),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
@@ -2561,6 +2563,7 @@ def blog(req, sess):
             blog_index_content(posts, active_tag=active_tag),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
@@ -2594,6 +2597,7 @@ def blog_post_route(req, sess, slug: str):
                 ),
                 cls=ContainerT.xl,
             ),
+            footer(),
         )
         return HTMLResponse(_render_page(page), status_code=404)
     if post.placeholder:
@@ -2607,6 +2611,7 @@ def blog_post_route(req, sess, slug: str):
                 ),
                 cls=ContainerT.xl,
             ),
+            footer(),
         )
     page = Titled(
         f"{post.title} — ViralVibes Blog",
@@ -2615,6 +2620,7 @@ def blog_post_route(req, sess, slug: str):
             blog_post_content(post),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
@@ -2652,6 +2658,7 @@ async def contact(req, sess):
                 fragment,
                 cls=ContainerT.xl,
             ),
+            footer(),
         )
     # GET request — render the form
     page = Titled(
@@ -2661,6 +2668,7 @@ async def contact(req, sess):
             contact_page_content(),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
