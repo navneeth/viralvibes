@@ -190,6 +190,27 @@ the worker polling plan and rebuild the intended index separately, outside a
 transaction. The new dashboard does not depend on that index. Check index validity
 after any interrupted concurrent build before retrying a migration.
 
+## Active Creator Sync Jobs and Growth Baseline (076-078)
+
+Apply these stages in order after deploying the matching `db.py` enqueue changes:
+
+1. `076_active_job_enqueue_compatibility.sql` replaces the broad enqueue RPC.
+   It changes no table rows or indexes and can run in a normal transaction.
+2. Immediately before `077_active_creator_sync_unique_index.sql`, rerun the
+   active-job duplicate query in that file. Pause the creator sync worker, then
+   run the concurrent index statement by itself in autocommit mode. Do not
+   resume the worker until `indisready` and `indisvalid` both verify as true.
+   If the build fails or leaves an invalid index, stop and inspect it before
+   retrying; `IF NOT EXISTS` does not repair invalid indexes.
+3. `078_enqueue_growth_baseline_refreshes.sql` installs the timestamp parser
+   and dry-run-first baseline RPC. It does not enqueue jobs. Apply it only after
+   stage 2 is valid, then inspect the dry-run result before considering any
+   insert call with `p_dry_run = false`.
+
+The existing pending-only unique index remains in place. Both SQL enqueue RPCs
+use untargeted `ON CONFLICT DO NOTHING` so they tolerate that index as well as
+the new active-job index during rollout.
+
 ### Monitoring And Scheduling
 
 Queue health reads pending, processing, and completion aggregates only. It does

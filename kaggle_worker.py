@@ -464,26 +464,42 @@ async def run(
     elapsed = time.time() - start_time
 
     try:
-        # Refresh hero stats after all jobs processed
+        # The coverage snapshot is a small operational summary. Materialized
+        # view refreshes scan large creator datasets and have timed out in the
+        # Kaggle run, so keep them out of the normal worker path by default.
         if jobs_processed > 0:
             try:
                 from db import refresh_creator_sync_coverage, refresh_hero_stats_cache
 
-                refresh_creator_sync_coverage()
-                logger.info("[Hero Stats Cache] Refreshing after %d jobs...", jobs_processed)
-                result = refresh_hero_stats_cache()
-                if result.get("success"):
-                    logger.info(
-                        "[Hero Stats Cache] ✅ Refreshed: %s",
-                        result.get("materialized_views"),
-                    )
+                coverage_refreshed = refresh_creator_sync_coverage()
+                if coverage_refreshed:
+                    logger.info("[Creator Sync Coverage] Snapshot refreshed")
                 else:
-                    logger.warning(
-                        "[Hero Stats Cache] ⚠️  Refresh failed: %s",
-                        result.get("error"),
+                    logger.warning("[Creator Sync Coverage] Refresh did not complete")
+
+                refresh_views = os.environ.get(
+                    "KAGGLE_REFRESH_MATERIALIZED_VIEWS", "false"
+                ).strip().lower() in {"1", "true", "yes", "on"}
+                if refresh_views:
+                    logger.info("[Hero Stats Cache] Refreshing after %d jobs...", jobs_processed)
+                    result = refresh_hero_stats_cache()
+                    if result.get("success"):
+                        logger.info(
+                            "[Hero Stats Cache] ✅ Refreshed: %s",
+                            result.get("materialized_views"),
+                        )
+                    else:
+                        logger.warning(
+                            "[Hero Stats Cache] ⚠️  Refresh failed: %s",
+                            result.get("error"),
+                        )
+                else:
+                    logger.info(
+                        "[Hero Stats Cache] Skipping materialized view refresh; "
+                        "set KAGGLE_REFRESH_MATERIALIZED_VIEWS=true to opt in"
                     )
             except Exception as e:
-                logger.warning("[Hero Stats Cache] ⚠️  Refresh exception: %s", e)
+                logger.warning("[Worker maintenance] Refresh exception: %s", e)
 
         # Log text summary
         logger.info("=" * 60)
