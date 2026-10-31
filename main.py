@@ -19,6 +19,7 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from fasthtml.common import *
+from fasthtml.common import Titled as _FastHTMLTitled
 from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
 from monsterui.all import *
@@ -341,6 +342,12 @@ AVATAR_FORMATS = [".jpg", ".jpeg", ".png", ".webp"]
 IS_TESTING = os.getenv("TESTING") == "1"
 
 
+def Titled(title, *body, **kwargs):
+    """Render full pages with the shared site footer."""
+    page = _FastHTMLTitled(title, *body, **kwargs)
+    return (*page, footer()) if isinstance(page, tuple) else (page, footer())
+
+
 # ============================================================================
 # STEP 1: Load environment variables FIRST
 # ============================================================================
@@ -515,7 +522,6 @@ def index(req, sess):
         SectionDivider(),
         _Section(faq_section() or Div(), id="faq-section"),
         BottomCTASection(),
-        footer() or Div(),
     ]
 
     # Filter out any None/False values
@@ -2483,12 +2489,11 @@ def pricing(req, sess):
     """Pricing page — public route."""
     error = req.query_params.get("error", "")
     is_authenticated = bool(sess.get("auth"))
-    page = (
-        Title("Pricing - ViralVibes"),
+    page = Titled(
+        "Pricing - ViralVibes",
         Container(
             NavComponent(oauth, req, sess),
             pricing_page_content(error=error, is_authenticated=is_authenticated),
-            footer(),
             cls=ContainerT.xl,
         ),
     )

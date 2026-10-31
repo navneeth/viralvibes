@@ -148,9 +148,10 @@ TRUST_MARKERS = [
 # SOCIALS (single source of truth — update once)
 # =============================================================================
 SOCIALS = {
-    "x": "https://x.com/viralvibesfyi",
-    "linkedin": "https://linkedin.com/company/viralvibesfyi",  # placeholder — swap when real
+    "x": "https://x.com/viralvibesreal",
+    "linkedin": "https://www.linkedin.com/company/viralvibes-fyi",
     "instagram": "https://www.instagram.com/viralvibes.app/",
+    "threads": "https://www.threads.com/@viralvibes.app",
     "youtube": "https://www.youtube.com/@viralvibesfyi",
 }
 

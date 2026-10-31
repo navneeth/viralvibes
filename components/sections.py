@@ -873,6 +873,7 @@ def footer():
                     _SocialIcon("x", SOCIALS["x"], "ViralVibes on X (Twitter)"),
                     _SocialIcon("linkedin", SOCIALS["linkedin"], "ViralVibes on LinkedIn"),
                     _SocialIcon("instagram", SOCIALS["instagram"], "ViralVibes on Instagram"),
+                    _SocialIcon("at-sign", SOCIALS["threads"], "ViralVibes on Threads"),
                     cls="flex items-center gap-3",
                 ),
             ),
