@@ -19,7 +19,6 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from fasthtml.common import *
-from fasthtml.common import Titled as _FastHTMLTitled
 from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
 from monsterui.all import *
@@ -342,12 +341,6 @@ AVATAR_FORMATS = [".jpg", ".jpeg", ".png", ".webp"]
 IS_TESTING = os.getenv("TESTING") == "1"
 
 
-def Titled(title, *body, **kwargs):
-    """Render full pages with the shared site footer."""
-    page = _FastHTMLTitled(title, *body, **kwargs)
-    return (*page, footer()) if isinstance(page, tuple) else (page, footer())
-
-
 # ============================================================================
 # STEP 1: Load environment variables FIRST
 # ============================================================================
@@ -566,6 +559,7 @@ def index(req, sess):
                 },
             }
         ),
+        footer(),
     )
 
     # Cache at the CDN edge for anonymous visitors only.
@@ -1685,6 +1679,7 @@ def lists(req, sess):
             page_content,
         ),
         *page_seo_tags(_lists_title, _lists_desc, "/lists"),
+        footer(),
     )
 
     # Cache at the CDN edge for logged-out visitors only.
@@ -2496,6 +2491,7 @@ def pricing(req, sess):
             pricing_page_content(error=error, is_authenticated=is_authenticated),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     # Skip cache when the page includes an error param so users see their
     # error message immediately (unrelated visitors still get the cached
@@ -2543,6 +2539,7 @@ def about(req, sess):
             about_page_content(),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
@@ -2566,6 +2563,7 @@ def blog(req, sess):
             blog_index_content(posts, active_tag=active_tag),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
@@ -2599,6 +2597,7 @@ def blog_post_route(req, sess, slug: str):
                 ),
                 cls=ContainerT.xl,
             ),
+            footer(),
         )
         return HTMLResponse(_render_page(page), status_code=404)
     if post.placeholder:
@@ -2612,6 +2611,7 @@ def blog_post_route(req, sess, slug: str):
                 ),
                 cls=ContainerT.xl,
             ),
+            footer(),
         )
     page = Titled(
         f"{post.title} — ViralVibes Blog",
@@ -2620,6 +2620,7 @@ def blog_post_route(req, sess, slug: str):
             blog_post_content(post),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
@@ -2657,6 +2658,7 @@ async def contact(req, sess):
                 fragment,
                 cls=ContainerT.xl,
             ),
+            footer(),
         )
     # GET request — render the form
     page = Titled(
@@ -2666,6 +2668,7 @@ async def contact(req, sess):
             contact_page_content(),
             cls=ContainerT.xl,
         ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
