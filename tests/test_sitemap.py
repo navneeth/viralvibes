@@ -28,6 +28,25 @@ def _parse_locs(xml: str) -> list[str]:
 
 
 class TestBuildSitemapXml:
+    @pytest.mark.parametrize(
+        "slug,encoded_slug",
+        [
+            ("ordinary-post", "ordinary-post"),
+            ("article #1?draft", "article%20%231%3Fdraft"),
+            ("section/post", "section%2Fpost"),
+            ("100%", "100%25"),
+        ],
+    )
+    def test_blog_slug_is_encoded_as_one_path_segment(self, monkeypatch, slug, encoded_slug):
+        monkeypatch.setattr(
+            "services.sitemap.get_posts",
+            lambda **kwargs: [SimpleNamespace(slug=slug)],
+        )
+
+        locs = _parse_locs(build_sitemap_xml([]))
+
+        assert f"https://www.viralvibes.fyi/blog/{encoded_slug}" in locs
+
     def test_blog_index_and_published_articles_included(self, monkeypatch):
         def published_posts(*, published_only):
             assert published_only is True

@@ -9,7 +9,7 @@ they are serialised to XML. Consumed by:
 
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 from xml.dom import minidom
 
 from db import _db_execute_readonly
@@ -131,7 +131,7 @@ def build_sitemap_xml(
 
     for post in get_posts(published_only=True):
         url_el = ET.SubElement(urlset, "url")
-        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/blog/{post.slug}")
+        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/blog/{quote(post.slug, safe='')}")
         ET.SubElement(url_el, "changefreq").text = "monthly"
         ET.SubElement(url_el, "priority").text = "0.6"
 
