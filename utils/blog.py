@@ -95,7 +95,9 @@ def get_posts(published_only: bool = False) -> list[Post]:
             logger.exception("blog: failed to load post %s — skipping", path)
     posts.sort(key=lambda p: p.date or date.min, reverse=True)
 
-    return [p for p in posts if not p.placeholder] if published_only else posts
+    return (
+        [p for p in posts if not p.placeholder and p.content.strip()] if published_only else posts
+    )
 
 
 def get_post(slug: str) -> Optional[Post]:

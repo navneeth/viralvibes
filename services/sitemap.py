@@ -15,6 +15,7 @@ from xml.dom import minidom
 from db import _db_execute_readonly
 from constants import SITE_BASE_URL
 from services.rankings import iter_ranking_sitemap_paths
+from utils.blog import get_posts
 
 BASE_URL = SITE_BASE_URL
 
@@ -34,6 +35,7 @@ STATIC_ROUTES: list[tuple[str, str, str]] = [
     ("/lists/countries", "weekly", "0.6"),
     ("/lists/languages", "weekly", "0.6"),
     ("/pricing", "monthly", "0.5"),
+    ("/blog", "weekly", "0.7"),
     ("/terms", "monthly", "0.3"),
     ("/privacy", "monthly", "0.3"),
 ]
@@ -126,6 +128,14 @@ def build_sitemap_xml(
         ET.SubElement(url_el, "lastmod").text = today
         ET.SubElement(url_el, "changefreq").text = changefreq
         ET.SubElement(url_el, "priority").text = priority
+
+    for post in get_posts(published_only=True):
+        url_el = ET.SubElement(urlset, "url")
+        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/blog/{post.slug}")
+        if post.date:
+            ET.SubElement(url_el, "lastmod").text = post.date.isoformat()
+        ET.SubElement(url_el, "changefreq").text = "monthly"
+        ET.SubElement(url_el, "priority").text = "0.6"
 
     for path in iter_ranking_sitemap_paths():
         url_el = ET.SubElement(urlset, "url")

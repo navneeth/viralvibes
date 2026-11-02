@@ -6,11 +6,20 @@ because generate_sitemap.py falls back to empty lists when DB creds are absent.
 """
 
 import xml.etree.ElementTree as ET
+from datetime import date
+from types import SimpleNamespace
+
+import pytest
 
 from services.rankings import iter_ranking_sitemap_paths
 from services.sitemap import STATIC_ROUTES, build_sitemap_xml, fetch_synced_creators
 
 _NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
+
+
+@pytest.fixture(autouse=True)
+def no_blog_posts(monkeypatch):
+    monkeypatch.setattr("services.sitemap.get_posts", lambda **kwargs: [])
 
 
 def _parse_locs(xml: str) -> list[str]:
@@ -19,6 +28,18 @@ def _parse_locs(xml: str) -> list[str]:
 
 
 class TestBuildSitemapXml:
+    def test_blog_index_and_published_articles_included(self, monkeypatch):
+        def published_posts(*, published_only):
+            assert published_only is True
+            return [SimpleNamespace(slug="published", date=date(2026, 8, 5))]
+
+        monkeypatch.setattr("services.sitemap.get_posts", published_posts)
+        xml = build_sitemap_xml([])
+
+        assert "https://www.viralvibes.fyi/blog" in _parse_locs(xml)
+        assert "https://www.viralvibes.fyi/blog/published" in _parse_locs(xml)
+        assert "2026-08-05" in xml
+
     def test_static_routes_only_when_no_creators(self):
         xml = build_sitemap_xml([])
         locs = _parse_locs(xml)
