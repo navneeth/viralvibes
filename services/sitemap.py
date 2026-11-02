@@ -132,8 +132,6 @@ def build_sitemap_xml(
     for post in get_posts(published_only=True):
         url_el = ET.SubElement(urlset, "url")
         ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/blog/{post.slug}")
-        if post.date:
-            ET.SubElement(url_el, "lastmod").text = post.date.isoformat()
         ET.SubElement(url_el, "changefreq").text = "monthly"
         ET.SubElement(url_el, "priority").text = "0.6"
 

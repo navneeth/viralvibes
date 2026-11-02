@@ -2589,7 +2589,7 @@ def rss_feed(req):
 def blog_post_route(req, sess, slug: str):
     """Individual blog post.  Placeholder posts render the coming-soon SVG."""
     post = get_post(slug)
-    if post is None or (not post.placeholder and not post.content.strip()):
+    if post is None or (not post.placeholder and not post.is_published):
         page = Titled(
             "Post Not Found — ViralVibes",
             Container(

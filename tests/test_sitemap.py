@@ -38,7 +38,13 @@ class TestBuildSitemapXml:
 
         assert "https://www.viralvibes.fyi/blog" in _parse_locs(xml)
         assert "https://www.viralvibes.fyi/blog/published" in _parse_locs(xml)
-        assert "2026-08-05" in xml
+        root = ET.fromstring(xml)
+        article = next(
+            entry
+            for entry in root.findall(f"{{{_NS}}}url")
+            if entry.findtext(f"{{{_NS}}}loc") == "https://www.viralvibes.fyi/blog/published"
+        )
+        assert article.find(f"{{{_NS}}}lastmod") is None
 
     def test_static_routes_only_when_no_creators(self):
         xml = build_sitemap_xml([])

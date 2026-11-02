@@ -1,3 +1,7 @@
+from datetime import datetime, timezone
+from unittest.mock import Mock
+
+import pytest
 from starlette.testclient import TestClient
 
 import main
@@ -34,3 +38,37 @@ def test_empty_article_is_not_published():
 
     assert client.get("/blog/engagement-rate-vs-subscribers").status_code == 404
     assert "/blog/engagement-rate-vs-subscribers" not in client.get("/rss.xml").text
+
+
+@pytest.mark.parametrize(
+    "publication_date,is_published",
+    [
+        (None, True),
+        ("2026-11-01", True),
+        ("2026-11-02", True),
+        ("2026-11-03", False),
+    ],
+)
+def test_publication_date_controls_all_public_surfaces(
+    tmp_path, monkeypatch, publication_date, is_published
+):
+    from services.sitemap import build_sitemap_xml
+
+    clock = Mock()
+    clock.now.return_value = datetime(2026, 11, 2, tzinfo=timezone.utc)
+    monkeypatch.setattr(blog, "datetime", clock)
+    monkeypatch.setattr(blog, "_POSTS_DIR", tmp_path)
+    date_field = f"date: {publication_date}\n" if publication_date else ""
+    (tmp_path / "scheduled-article.md").write_text(
+        f"---\ntitle: Scheduled Article\n{date_field}---\nArticle body",
+        encoding="utf-8",
+    )
+    client = TestClient(main.app)
+
+    assert bool(blog.get_posts(published_only=True)) is is_published
+    assert ("Scheduled Article" in client.get("/blog").text) is is_published
+    feed = main.rss_feed(None)
+    assert feed.status_code == 200
+    assert ("/blog/scheduled-article" in feed.body.decode()) is is_published
+    assert ("/blog/scheduled-article" in build_sitemap_xml([])) is is_published
+    assert client.get("/blog/scheduled-article").status_code == (200 if is_published else 404)
