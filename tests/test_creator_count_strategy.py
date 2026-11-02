@@ -33,6 +33,14 @@ class _SpyQuery:
     def __init__(self, spy: dict):
         self._spy = spy
 
+    def order(self, column, **kwargs):
+        self._spy.setdefault("orders", []).append((column, kwargs))
+        return self
+
+    def offset(self, value):
+        self._spy["offset"] = value
+        return self
+
     def __getattr__(self, name):
         # ``get_creators`` chains ``query.not_.is_("channel_name", "null")``,
         # so the ``not_`` attribute must yield the query itself so the
@@ -89,6 +97,38 @@ def spy_supabase(monkeypatch):
     # Neutralise the retry/backoff wrapper so we execute the lambda directly.
     monkeypatch.setattr(db, "_db_execute_readonly", lambda fn: fn())
     return spy
+
+
+@pytest.mark.parametrize("offset", [0, 50, 5000])
+def test_subscriber_browse_orders_ties_by_id(spy_supabase, offset):
+    from db import get_creators
+
+    get_creators(limit=50, offset=offset)
+
+    assert spy_supabase.get("executed")
+    assert spy_supabase["orders"] == [
+        ("current_subscribers", {"desc": True}),
+        ("id", {"desc": False}),
+    ]
+    assert spy_supabase.get("offset", 0) == offset
+
+
+@pytest.mark.parametrize(
+    "options,expected_order",
+    [
+        ({"sort": "views"}, ("current_view_count", {"desc": True})),
+        ({"sort": "quality"}, ("quality_grade_rank", {"desc": False})),
+        ({"country_filter": "US"}, ("current_subscribers", {"desc": True})),
+        ({"search": "music"}, ("current_subscribers", {"desc": True})),
+    ],
+)
+def test_unmeasured_browse_paths_keep_existing_order(spy_supabase, options, expected_order):
+    from db import get_creators
+
+    get_creators(limit=50, **options)
+
+    assert spy_supabase.get("executed")
+    assert spy_supabase["orders"] == [expected_order]
 
 
 def test_default_browse_uses_estimated_count(spy_supabase):

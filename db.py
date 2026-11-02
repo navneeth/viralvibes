@@ -4206,6 +4206,8 @@ def get_creators(
             query = query.order(sort_field, desc=descending, nullsfirst=False)
         else:
             query = query.order(sort_field, desc=descending)
+        if sort_field == "current_subscribers" and no_extra_filters and not search:
+            query = query.order("id", desc=False)
         query = query.limit(limit)
         # If cursor_value is not provided, fallback to offset for first page or legacy clients
         if cursor_value is None and offset:
