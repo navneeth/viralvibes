@@ -1461,6 +1461,54 @@ def render_country_detail_page(
             ),
             cls="pt-6 pb-4 border-b border-border",
         ),
+        # ── Country methodology note ───────────────────────────────────────
+        Div(
+            H2(
+                "How to read this list",
+                cls="text-base font-semibold text-foreground mb-2",
+            ),
+            P(
+                '"Country" means the country associated with a channel in YouTube\'s '
+                "channel data. YouTube's Studio setting is labeled ‘Country of residence.’ ",
+                A(
+                    "See YouTube's channel data",
+                    href="https://developers.google.com/youtube/data/reference/rest/v3/channels",
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="underline underline-offset-2",
+                ),
+                " and ",
+                A(
+                    "channel settings",
+                    href="https://support.google.com/youtube/answer/2976814?hl=en",
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="underline underline-offset-2",
+                ),
+                ".",
+                cls="mb-3",
+            ),
+            P(
+                "This list groups channels by that channel field, not by where their "
+                "viewers live. YouTube reports audience geographies separately in ",
+                A(
+                    "YouTube Analytics",
+                    href="https://support.google.com/youtube/answer/9314416?hl=en",
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="underline underline-offset-2",
+                ),
+                ".",
+                cls="mb-3",
+            ),
+            P(
+                "Channels without a country value aren't included. This list is ranked "
+                "by subscriber count among channels with a reported country. Channel "
+                "statistics reflect our latest data sync and may be out of date."
+            ),
+            cls="mt-5 rounded-lg border border-border bg-muted/30 p-4 sm:p-5 "
+            "text-sm leading-relaxed text-muted-foreground",
+        ),
         # ── Creator list ───────────────────────────────────────────────────
         (
             _empty_detail_state(f"No creators from {country_name} yet.")
