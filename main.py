@@ -2547,7 +2547,7 @@ def about(req, sess):
 @rt("/blog")
 def blog(req, sess):
     """Blog index — lists all posts; supports ?tag= filtering."""
-    posts = get_posts()
+    posts = get_posts(published_only=True)
     active_tag = req.query_params.get("tag") or None
     rss_link = Link(
         rel="alternate",
@@ -2557,6 +2557,11 @@ def blog(req, sess):
     )
     page = Titled(
         "Blog — ViralVibes",
+        *page_seo_tags(
+            "ViralVibes Blog",
+            "YouTube creator research, campaign strategy, and audience insights from ViralVibes.",
+            "/blog",
+        ),
         rss_link,
         Container(
             NavComponent(oauth, req, sess),
@@ -2571,7 +2576,7 @@ def blog(req, sess):
 @rt("/rss.xml")
 def rss_feed(req):
     """RSS 2.0 feed for published blog posts (no auth required)."""
-    posts = get_posts()
+    posts = get_posts(published_only=True)
     xml = build_rss_feed(posts, SITE_BASE_URL)
     return Response(
         xml,
@@ -2584,7 +2589,7 @@ def rss_feed(req):
 def blog_post_route(req, sess, slug: str):
     """Individual blog post.  Placeholder posts render the coming-soon SVG."""
     post = get_post(slug)
-    if post is None:
+    if post is None or (not post.placeholder and not post.is_published):
         page = Titled(
             "Post Not Found — ViralVibes",
             Container(
@@ -2603,6 +2608,7 @@ def blog_post_route(req, sess, slug: str):
     if post.placeholder:
         return Titled(
             f"{post.title} — Coming Soon",
+            Meta(name="robots", content="noindex, follow"),
             Container(
                 NavComponent(oauth, req, sess),
                 blog_coming_soon_content(
@@ -2615,6 +2621,7 @@ def blog_post_route(req, sess, slug: str):
         )
     page = Titled(
         f"{post.title} — ViralVibes Blog",
+        *page_seo_tags(post.title, post.excerpt, f"/blog/{post.slug}"),
         Container(
             NavComponent(oauth, req, sess),
             blog_post_content(post),

@@ -11,7 +11,7 @@ Pattern adapted from https://github.com/jackhogan/personal-site:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -73,6 +73,14 @@ class Post:
             raw_placeholder = False
         self.placeholder: bool = raw_placeholder
 
+    @property
+    def is_published(self) -> bool:
+        return (
+            not self.placeholder
+            and bool(self.content.strip())
+            and (self.date is None or self.date <= datetime.now(timezone.utc).date())
+        )
+
 
 # ---------------------------------------------------------------------------
 # Post loader
@@ -83,7 +91,7 @@ def get_posts(published_only: bool = False) -> list[Post]:
     """Return posts from ``posts/``, sorted newest-first.
 
     Args:
-        published_only: When True, exclude posts with ``placeholder: true``.
+        published_only: Exclude placeholders, empty drafts, and future-dated posts.
     """
     if not _POSTS_DIR.exists():
         return []
@@ -95,7 +103,7 @@ def get_posts(published_only: bool = False) -> list[Post]:
             logger.exception("blog: failed to load post %s — skipping", path)
     posts.sort(key=lambda p: p.date or date.min, reverse=True)
 
-    return [p for p in posts if not p.placeholder] if published_only else posts
+    return [p for p in posts if p.is_published] if published_only else posts
 
 
 def get_post(slug: str) -> Optional[Post]:

@@ -22,6 +22,7 @@ Allow: /creators/like/
 Allow: /creator/
 Allow: /lists
 Allow: /analysis
+Allow: /blog
 Allow: /pricing
 Allow: /terms
 Allow: /privacy
