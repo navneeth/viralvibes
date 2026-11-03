@@ -90,14 +90,6 @@ def AuthDropdown(
                 cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
             )
         ),
-        Li(
-            A(
-                UkIcon("credit-card", width=16, height=16),
-                Span("Billing / Manage subscription", cls="ml-2"),
-                href="/billing/portal",
-                cls="flex items-center px-4 py-2 text-sm hover:bg-gray-100 transition-colors",
-            )
-        ),
         # Saved Creators
         Li(
             A(

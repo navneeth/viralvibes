@@ -101,6 +101,7 @@ from db import (
     get_user_favourite_creators,
     get_user_favourite_list_keys,
     get_user_favourite_lists,
+    get_latest_canceled_subscription,
     get_user_plan,
     init_supabase,
     remove_favourite_list,
@@ -2248,6 +2249,9 @@ def my_dashboards(
         return render_dashboard_page_partial(page_items, has_more, page, search, sort)
 
     plan_info = get_user_plan(user_id)
+    billing_info = plan_info
+    if plan_info.get("plan", "free") == "free":
+        billing_info = get_latest_canceled_subscription(user_id) or plan_info
     plan = plan_info.get("plan", "free")
     fav_creators = get_favourite_creators_with_stats(user_id) if plan in ("pro", "agency") else []
     fav_lists = get_user_favourite_lists(user_id)
@@ -2262,6 +2266,7 @@ def my_dashboards(
                 search=search,
                 sort=sort,
                 plan_info=plan_info,
+                billing_info=billing_info,
                 fav_creators=fav_creators,
                 fav_lists=fav_lists,
                 has_more=has_more,

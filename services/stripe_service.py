@@ -41,13 +41,6 @@ def _configured_price_to_plan() -> dict[str, tuple[str, str]]:
     }
 
 
-# Keep these import-time mappings available for callers that inspect the
-# configured plan catalog; lookups below read the environment at request time.
-PRICE_TO_PLAN: dict[str, tuple[str, str]] = _configured_price_to_plan()
-
-# Reverse map: (plan, interval) → price_id — used when creating checkout sessions
-PLAN_TO_PRICE: dict[tuple[str, str], str] = {v: k for k, v in PRICE_TO_PLAN.items()}
-
 # Plan hierarchy — used for gate comparisons (higher index = more access)
 PLAN_RANK: dict[str, int] = {"free": 0, "pro": 1, "agency": 2}
 

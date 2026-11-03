@@ -131,7 +131,8 @@ def _handle_subscription_upsert(subscription: dict) -> None:
     if plan == "free":
         # price_id wasn't in our mapping — likely a misconfigured env var
         logger.error(
-            "[Webhook] price_id %s not in PRICE_TO_PLAN mapping (subscription %s) — "
+            "[Webhook] price_id %s is not configured in the Stripe price mapping "
+            "(subscription %s) — "
             "skipping upsert to avoid silently downgrading a paying customer",
             price_id,
             subscription.get("id"),

@@ -1,10 +1,13 @@
-import pytest
+import re
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 from starlette.testclient import TestClient
 from fasthtml.common import to_xml
 
 import main
-from components.auth_dropdown import AuthDropdown
+from db import get_latest_canceled_subscription
 from routes import stripe_checkout
 from services import stripe_service
 from views.my_dashboards import render_my_dashboards_page
@@ -151,8 +154,7 @@ def test_pricing_page_does_not_render_browser_title_as_visible_heading():
     assert "<h1>Pricing - ViralVibes</h1>" not in response.text
 
 
-def test_billing_management_is_visible_in_account_menu_and_dashboards():
-    menu = to_xml(AuthDropdown(user={"user_id": "user_123"}))
+def test_billing_management_is_visible_and_linked_in_dashboards():
     dashboards = to_xml(
         render_my_dashboards_page(
             dashboards=[],
@@ -165,7 +167,86 @@ def test_billing_management_is_visible_in_account_menu_and_dashboards():
         )
     )
 
-    assert "Billing / Manage subscription" in menu
-    assert 'href="/billing/portal"' in menu
-    assert "Manage billing" in dashboards
-    assert 'href="/billing/portal"' in dashboards
+    assert re.search(
+        r'<a\b(?=[^>]*href="/billing/portal")[^>]*>.*?Manage billing.*?</a>',
+        dashboards,
+        re.DOTALL,
+    )
+
+
+def test_free_user_dashboard_links_to_upgrade():
+    dashboards = to_xml(render_my_dashboards_page(dashboards=[], user_name="Buyer"))
+
+    assert re.search(
+        r'<a\b(?=[^>]*href="/pricing")[^>]*>.*?Upgrade to Pro.*?</a>',
+        dashboards,
+        re.DOTALL,
+    )
+
+
+def test_canceled_subscription_is_rendered_in_billing_card():
+    html = to_xml(
+        render_my_dashboards_page(
+            dashboards=[],
+            user_name="Buyer",
+            plan_info={
+                "plan": "free",
+                "interval": None,
+                "status": "inactive",
+            },
+            billing_info={
+                "plan": "pro",
+                "interval": "month",
+                "status": "canceled",
+                "current_period_end": "2026-12-15T00:00:00+00:00",
+            },
+        )
+    )
+
+    assert "Pro" in html
+    assert "Canceled" in html
+    assert "Access until Dec 15, 2026" in html
+
+
+def test_latest_canceled_subscription_is_available_for_billing_display(monkeypatch):
+    subscription = {
+        "plan": "pro",
+        "interval": "month",
+        "status": "canceled",
+        "current_period_end": "2026-12-15T00:00:00+00:00",
+    }
+    subscription_query = MagicMock()
+    user_query = MagicMock()
+    status_query = MagicMock()
+    order_query = MagicMock()
+    limit_query = MagicMock()
+    subscription_query.eq.return_value = user_query
+    user_query.eq.return_value = status_query
+    status_query.order.return_value = order_query
+    order_query.limit.return_value = limit_query
+    limit_query.execute.return_value = SimpleNamespace(data=[subscription])
+    client = MagicMock()
+    client.table.return_value.select.return_value = subscription_query
+    monkeypatch.setattr("db.supabase_client", client)
+
+    assert get_latest_canceled_subscription("user_123") == subscription
+    client.table.assert_called_once_with("subscriptions")
+    client.table.return_value.select.assert_called_once_with(
+        "plan, interval, status, current_period_end"
+    )
+    subscription_query.eq.assert_called_once_with("user_id", "user_123")
+    user_query.eq.assert_called_once_with("status", "canceled")
+
+
+def test_price_lookups_follow_environment_changes(monkeypatch):
+    env_values = {
+        "STRIPE_PRICE_PRO_MONTHLY": "price_new_pro_month",
+        "STRIPE_PRICE_PRO_ANNUAL": "price_new_pro_year",
+        "STRIPE_PRICE_AGENCY_MONTHLY": "price_new_agency_month",
+        "STRIPE_PRICE_AGENCY_ANNUAL": "price_new_agency_year",
+    }
+    for key, value in env_values.items():
+        monkeypatch.setenv(key, value)
+
+    assert stripe_service.get_price_for_plan("pro", "month") == "price_new_pro_month"
+    assert stripe_service.get_plan_for_price("price_new_pro_month") == ("pro", "month")

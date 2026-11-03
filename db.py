@@ -1720,6 +1720,28 @@ def get_user_plan(user_id: str) -> Dict[str, Any]:
         return default
 
 
+def get_latest_canceled_subscription(user_id: str) -> Dict[str, Any] | None:
+    """Return the latest canceled subscription for billing display only."""
+    if not supabase_client or not user_id:
+        return None
+
+    try:
+        resp = (
+            supabase_client.table(SUBSCRIPTIONS_TABLE)
+            .select("plan, interval, status, current_period_end")
+            .eq("user_id", user_id)
+            .eq("status", "canceled")
+            .order("current_period_end", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.exception("[DB] get_latest_canceled_subscription failed: %s", exc)
+        return None
+
+
 def get_pending_creator_syncs(batch_size: int = 1) -> List[Dict[str, Any]]:
     """
     Get pending creator syncs from queue.

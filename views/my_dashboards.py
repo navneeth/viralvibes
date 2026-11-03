@@ -165,6 +165,7 @@ def render_my_dashboards_page(
     search: str = "",
     sort: str = "recent",
     plan_info: dict | None = None,
+    billing_info: dict | None = None,
     fav_creators: list[dict] | None = None,
     fav_lists: list[dict] | None = None,
     has_more: bool = False,
@@ -186,6 +187,7 @@ def render_my_dashboards_page(
         "interval": None,
         "current_period_end": None,
     }
+    _billing_info = billing_info or _plan_info
     plan = _plan_info.get("plan", "free")
     _fav_creators = fav_creators or []
     _fav_lists = fav_lists or []
@@ -193,7 +195,7 @@ def render_my_dashboards_page(
     return Container(
         # ── 1. Header ──────────────────────────────────────────────────────
         _section_header(user_name, len(dashboards), _plan_info),
-        render_billing_section(_plan_info),
+        render_billing_section(_billing_info),
         # ── 2. Watchlist Pulse ─────────────────────────────────────────────
         render_watchlist_pulse(_fav_creators, plan),
         # ── 3. Playlist Analysis ───────────────────────────────────────────
