@@ -49,6 +49,123 @@ done
 
 ## Current Migrations
 
+### Concurrent Hero Stats Refresh (082)
+
+Migration 082 records the tested plain-column unique index on
+`mv_hero_stats(total_creators)` and concurrent `refresh_mv_hero_stats()`.
+The populated view is a single-row aggregate, so this index is unique without
+recreating the view or adding a column. The existing expression index is retained.
+
+The function keeps its signature and grants but no longer disables the caller's
+statement timeout. Installation is transactional with a 3-second lock timeout and
+10-second statement timeout; these limits reset when the transaction ends. If
+installation times out, investigate blockers before retrying. It does not execute
+a refresh or change other refresh functions, worker code, or HTTP timeouts.
+
+After installation, the new index must have all five diagnostic flags true.
+Production function-definition verification and a service-role refresh with
+3-second lock and 15-second statement limits passed. The measured refresh was
+8,349 ms; the returned `rows_refreshed` value, 893,438, is the aggregate creator
+count, not the number of rows in the single-row materialized view.
+
+The equivalent changes are already applied in production. This does not prove
+refresh-time performance under every load or concurrent-reader behavior during
+execution. The worker's 10-second HTTP timeout remains unchanged and may still
+expire. Category-cache refresh and deep-pagination timeouts remain separate.
+
+### Creator Peers Client Read-Only Access (081)
+
+Migration 081 records the production-verified removal of direct client write
+privileges on `public.creator_peers`. It preserves existing SELECT and
+service-role grants, sequence permissions, data, RLS, and RPC privileges.
+It is safe to repeat after the manual SQL Editor change; it does not establish
+missing grants for fresh/reset environments or change notebook code.
+
+Its diagnostic query should show SELECT allowed for all three roles, non-read
+privileges denied for `anon` and `authenticated`, and non-read privileges
+retained for `service_role`. The similar-creators section was confirmed to
+load after the manual change; the separate lookalike-page check remains
+unverified.
+
+The Kaggle producer initializes its client with `SUPABASE_SERVICE_KEY` and
+reported 932,383 rows written before hardening. Service-role sequence USAGE was
+verified and is unchanged. Post-change notebook writes remain unverified; do
+not rerun the full embedding pipeline solely for a permission check. The
+notebook's oversized existing-row lookup failures are a separate issue.
+
+### Category Stats Cache Client Read-Only Access (080)
+
+Migration 080 records the production-verified removal of direct client write
+privileges on `public.category_stats_cache`. It preserves existing SELECT and
+service-role privileges, data, RLS, and RPC permissions. It is safe to repeat
+after the manual SQL Editor change and does not establish missing grants for
+fresh/reset environments.
+
+Its diagnostic query should show SELECT allowed for all three roles, non-read
+privileges denied for `anon` and `authenticated`, and non-read privileges
+retained for `service_role`. A creator profile's category chart was confirmed
+to display after the manual change.
+
+The bootstrap writer uses `SUPABASE_SERVICE_KEY`. Its aggregate RPC timed out
+before the cache upsert, so successful refresh after hardening remains
+unverified. This migration does not address the separate refresh timeout or
+change worker code, workflows, or other tables.
+
+### App Stats Client Read-Only Access (079)
+
+Migration 079 records the production-verified removal of direct client write
+privileges on `public.app_stats`. It preserves existing SELECT and service-role
+privileges and does not change data, RLS, or RPC execution permissions. The
+revocation is safe to repeat after the manual SQL Editor change.
+
+Run `079_app_stats_client_read_only.sql` in the SQL Editor. Its diagnostic query
+should show SELECT allowed for all three roles, non-read privileges denied for
+`anon` and `authenticated`, and non-read privileges retained for `service_role`.
+Then verify `/lists` still loads its counts and tabs. That smoke check passed
+after the manual production change.
+
+This migration does not establish missing grants for fresh/reset environments
+and does not restrict SECURITY DEFINER RPCs. Those require separate, explicit
+access decisions. It intentionally changes no other tables.
+
+### Recent Upload Cadence Index (074)
+
+Apply migration 074 with psql autocommit and verify the index is valid before
+deploying code that queries the recent-cadence ranking. Do not run this migration
+through a transaction-wrapping runner, `psql --single-transaction`, or a SQL
+Editor transaction; `CREATE INDEX CONCURRENTLY` must run outside a transaction.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/074_recent_upload_cadence_index.sql
+```
+
+Verify the index before deploying the application change:
+
+```sql
+SELECT i.indisvalid, i.indislive, pg_get_indexdef(i.indexrelid) AS index_definition
+FROM pg_index AS i
+WHERE i.indexrelid = to_regclass('public.idx_creators_recent_cadence_synced');
+```
+
+The query must return one row with both flags true. If a canceled concurrent
+build left an invalid index, drop only that invalid index outside a transaction,
+then rerun migration 074 and verify again:
+
+```sql
+SELECT i.indisvalid
+FROM pg_index AS i
+WHERE i.indexrelid = to_regclass('public.idx_creators_recent_cadence_synced');
+```
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+  "DROP INDEX CONCURRENTLY IF EXISTS public.idx_creators_recent_cadence_synced"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/074_recent_upload_cadence_index.sql
+```
+
+Do not drop a valid index as part of routine retries; `IF NOT EXISTS` does not
+repair an invalid same-named index.
+
 ### Creator Keyword Provenance (068)
 
 Apply [068_creator_keyword_provenance.sql](068_creator_keyword_provenance.sql)
@@ -151,6 +268,27 @@ reported production definition includes `retry_at`, not `next_retry_at`). Inspec
 the worker polling plan and rebuild the intended index separately, outside a
 transaction. The new dashboard does not depend on that index. Check index validity
 after any interrupted concurrent build before retrying a migration.
+
+## Active Creator Sync Jobs and Growth Baseline (076-078)
+
+Apply these stages in order after deploying the matching `db.py` enqueue changes:
+
+1. `076_active_job_enqueue_compatibility.sql` replaces the broad enqueue RPC.
+   It changes no table rows or indexes and can run in a normal transaction.
+2. Immediately before `077_active_creator_sync_unique_index.sql`, rerun the
+   active-job duplicate query in that file. Pause the creator sync worker, then
+   run the concurrent index statement by itself in autocommit mode. Do not
+   resume the worker until `indisready` and `indisvalid` both verify as true.
+   If the build fails or leaves an invalid index, stop and inspect it before
+   retrying; `IF NOT EXISTS` does not repair invalid indexes.
+3. `078_enqueue_growth_baseline_refreshes.sql` installs the timestamp parser
+   and dry-run-first baseline RPC. It does not enqueue jobs. Apply it only after
+   stage 2 is valid, then inspect the dry-run result before considering any
+   insert call with `p_dry_run = false`.
+
+The existing pending-only unique index remains in place. Both SQL enqueue RPCs
+use untargeted `ON CONFLICT DO NOTHING` so they tolerate that index as well as
+the new active-job index during rollout.
 
 ### Monitoring And Scheduling
 
