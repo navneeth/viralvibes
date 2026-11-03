@@ -477,6 +477,7 @@ def _fetch_pending_jobs(
     *,
     creator_ids: Optional[List[str]] = None,
     source: Optional[str] = None,
+    raise_on_error: bool = False,
 ) -> List[Dict]:
     """
     Fetch pending jobs that are ready to be processed.
@@ -493,7 +494,11 @@ def _fetch_pending_jobs(
 
     Actually the simplest correct fix: add .or_() to handle both cases.
     """
-    if not supabase_client or creator_ids == []:
+    if creator_ids == []:
+        return []
+    if not supabase_client:
+        if raise_on_error:
+            raise RuntimeError("Supabase client is not initialized")
         return []
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -531,6 +536,8 @@ def _fetch_pending_jobs(
 
     except Exception as e:
         logger.error(f"  ❌ Failed to fetch pending jobs: {e}")
+        if raise_on_error:
+            raise
         return []
 
 

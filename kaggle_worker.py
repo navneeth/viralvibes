@@ -328,6 +328,7 @@ _DEFAULT_MAX_EMPTY_POLLS = 5
 # GC + resolver re-init is ~1-2s of dead time; httplib2 only fragments under
 # sustained load and is safe well past 50 iterations.
 _RESOLVER_RESET_INTERVAL = 100
+_MAX_FETCH_FAILURES = 5
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
@@ -376,6 +377,7 @@ async def run(
 
     jobs_processed = 0
     empty_polls = 0
+    fetch_failures = 0
     refresh_pilot_active = False
     refresh_pilot_job_ids: list[str] = []
     start_time = time.time()
@@ -397,17 +399,34 @@ async def run(
             logger.info("✅ Memory flushed and Resolver re-initialized")
 
         # ── Fetch next job ────────────────────────────────────────────────────
-        jobs = _fetch_pending_jobs(
-            batch_size=1,
-            **(
-                {
-                    "creator_ids": refresh_pilot_job_ids,
-                    "source": "unknown_activity_refresh",
-                }
-                if refresh_pilot_active
-                else {}
-            ),
-        )
+        if refresh_creator_ids is None:
+            jobs = _fetch_pending_jobs(batch_size=1)
+        else:
+            try:
+                if refresh_pilot_active:
+                    jobs = _fetch_pending_jobs(
+                        batch_size=1,
+                        creator_ids=refresh_pilot_job_ids,
+                        source="unknown_activity_refresh",
+                        raise_on_error=True,
+                    )
+                else:
+                    jobs = _fetch_pending_jobs(batch_size=1, raise_on_error=True)
+                fetch_failures = 0
+            except Exception as error:
+                empty_polls = 0
+                fetch_failures += 1
+                logger.warning(
+                    "Queue fetch failed (%d/%d): %s",
+                    fetch_failures,
+                    _MAX_FETCH_FAILURES,
+                    error,
+                )
+                if fetch_failures >= _MAX_FETCH_FAILURES:
+                    logger.error("Stopping worker because queue reads are unavailable, not empty")
+                    break
+                await asyncio.sleep(min(30 * (2 ** (fetch_failures - 1)), 300))
+                continue
 
         if not jobs:
             empty_polls += 1

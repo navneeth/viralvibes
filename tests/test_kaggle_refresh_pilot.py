@@ -51,13 +51,13 @@ def test_pilot_defaults_to_dry_run_after_normal_queue_drains(monkeypatch, pilot_
 
     asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_creator_ids=[CREATOR_ID]))
 
-    assert events[0] == ("fetch", {"batch_size": 1})
+    assert events[0] == ("fetch", {"batch_size": 1, "raise_on_error": True})
     assert events[1] == (
         "enqueue",
         "enqueue_unknown_activity_refreshes",
         {"p_creator_ids": [CREATOR_ID], "p_dry_run": True, "p_max_queue": 1000},
     )
-    fetch.assert_called_once_with(batch_size=1)
+    fetch.assert_called_once_with(batch_size=1, raise_on_error=True)
     kaggle_worker.init.assert_awaited_once_with()
 
 
@@ -106,8 +106,8 @@ def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(monkeypatch,
         )
     )
 
-    assert events[0] == ("fetch", {"batch_size": 1})
-    assert events[1] == ("fetch", {"batch_size": 1})
+    assert events[0] == ("fetch", {"batch_size": 1, "raise_on_error": True})
+    assert events[1] == ("fetch", {"batch_size": 1, "raise_on_error": True})
     assert events[2] == (
         "enqueue",
         "enqueue_unknown_activity_refreshes",
@@ -121,6 +121,7 @@ def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(monkeypatch,
         "batch_size": 1,
         "creator_ids": [CREATOR_ID, second_id],
         "source": "unknown_activity_refresh",
+        "raise_on_error": True,
     }
     assert [call.kwargs["creator_id"] for call in handle.await_args_list] == [
         "regular-fifo-job",
@@ -177,6 +178,137 @@ def test_apply_pilot_caps_processing_at_five_and_preserves_maintenance(monkeypat
     assert pilot_client.rpc.call_count == 1
     coverage.assert_called_once()
     views.assert_not_called()
+
+
+@pytest.mark.parametrize("phase", ["normal", "pilot"])
+def test_fetch_failure_retries_without_queue_phase_transition(monkeypatch, pilot_client, phase):
+    _fake_pool(monkeypatch)
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", MagicMock())
+    pilot_client.rpc.return_value.execute.return_value = SimpleNamespace(
+        data=[{"creator_id": CREATOR_ID}]
+    )
+    job = {"id": 1, "creator_id": CREATOR_ID}
+    results = (
+        [RuntimeError("read failed"), [job]]
+        if phase == "normal"
+        else [[], RuntimeError("read failed"), [job]]
+    )
+    fetch = MagicMock(side_effect=results)
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    handle = AsyncMock(return_value=True)
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
+
+    asyncio.run(
+        kaggle_worker.run(
+            max_jobs=1,
+            max_empty_polls=1,
+            refresh_creator_ids=[CREATOR_ID],
+            refresh_dry_run=False,
+        )
+    )
+
+    handle.assert_awaited_once()
+    assert pilot_client.rpc.call_count == (1 if phase == "pilot" else 0)
+    assert fetch.call_count == len(results)
+    kaggle_worker.asyncio.sleep.assert_awaited_once_with(30)
+    assert all(call.kwargs["raise_on_error"] for call in fetch.call_args_list)
+
+
+def test_repeated_fetch_failures_abort_without_enqueue(monkeypatch, pilot_client, caplog):
+    _fake_pool(monkeypatch)
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", AsyncMock())
+    fetch = MagicMock(side_effect=RuntimeError("database unavailable"))
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_creator_ids=[CREATOR_ID]))
+
+    pilot_client.rpc.assert_not_called()
+    assert fetch.call_count == kaggle_worker._MAX_FETCH_FAILURES
+    assert "not empty" in caplog.text
+
+
+def test_fetch_error_breaks_consecutive_empty_polls(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", AsyncMock())
+    fetch = MagicMock(side_effect=[[], RuntimeError("read failed"), [], []])
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=2, refresh_creator_ids=[CREATOR_ID]))
+
+    assert fetch.call_count == 4
+    pilot_client.rpc.assert_called_once()
+
+
+def test_pilot_does_not_return_to_general_fifo(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", MagicMock())
+    pilot_client.rpc.return_value.execute.return_value = SimpleNamespace(
+        data=[{"creator_id": CREATOR_ID}]
+    )
+    fetch = MagicMock(
+        side_effect=[
+            [],
+            [{"id": 1, "creator_id": CREATOR_ID}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    handle = AsyncMock(return_value=True)
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
+
+    asyncio.run(
+        kaggle_worker.run(
+            max_jobs=2,
+            max_empty_polls=1,
+            refresh_creator_ids=[CREATOR_ID],
+            refresh_dry_run=False,
+        )
+    )
+
+    handle.assert_awaited_once()
+    assert all(
+        call.kwargs["creator_ids"] == [CREATOR_ID]
+        and call.kwargs["source"] == "unknown_activity_refresh"
+        for call in fetch.call_args_list[1:]
+    )
+    assert fetch.call_count == 3
+    pilot_client.rpc.assert_called_once()
+
+
+def test_normal_run_preserves_fifo_and_maintenance(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    fetch = MagicMock(side_effect=[[{"id": 1, "creator_id": CREATOR_ID}], []])
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    handle = AsyncMock(return_value=True)
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
+    coverage = MagicMock()
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", coverage)
+
+    asyncio.run(kaggle_worker.run(max_jobs=2, max_empty_polls=1))
+
+    handle.assert_awaited_once()
+    coverage.assert_called_once()
+    pilot_client.rpc.assert_not_called()
+    assert fetch.call_count == 2
+    assert all(call.kwargs == {"batch_size": 1} for call in fetch.call_args_list)
+
+
+def test_normal_run_retains_existing_fetch_error_behavior(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    sleep = AsyncMock()
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", sleep)
+    query = MagicMock()
+    for method in ("select", "eq", "or_", "order", "limit"):
+        getattr(query, method).return_value = query
+    query.execute.side_effect = RuntimeError("database unavailable")
+    pilot_client.table.return_value = query
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=1))
+
+    query.execute.assert_called_once()
+    pilot_client.rpc.assert_not_called()
+    sleep.assert_not_awaited()
 
 
 def test_normal_run_does_not_enqueue_pilot(monkeypatch, pilot_client):

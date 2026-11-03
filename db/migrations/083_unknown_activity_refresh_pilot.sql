@@ -25,13 +25,26 @@ BEGIN
     IF COALESCE(cardinality(p_creator_ids), 0) = 0 THEN
         RETURN;
     END IF;
-    IF p_dry_run IS NOT DISTINCT FROM false AND NOT EXISTS (
-        SELECT 1 FROM pg_index
-        WHERE indexrelid = to_regclass('public.idx_creator_sync_jobs_active_unique')
-          AND indrelid = 'public.creator_sync_jobs'::regclass
-          AND indisunique AND indisvalid AND indisready
-    ) THEN
-        RAISE EXCEPTION 'A valid active-job unique index is required before enqueueing';
+    IF p_dry_run IS NOT DISTINCT FROM false THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_index AS active_index
+            JOIN pg_attribute AS creator_column
+              ON creator_column.attrelid = active_index.indrelid
+             AND creator_column.attname = 'creator_id'
+             AND NOT creator_column.attisdropped
+            WHERE active_index.indexrelid =
+                  to_regclass('public.idx_creator_sync_jobs_active_unique')
+              AND active_index.indrelid = 'public.creator_sync_jobs'::regclass
+              AND active_index.indisunique AND active_index.indisvalid
+              AND active_index.indisready AND active_index.indislive
+              AND active_index.indimmediate
+              AND active_index.indnkeyatts = 1
+              AND active_index.indkey[0] = creator_column.attnum
+              AND active_index.indexprs IS NULL
+              AND active_index.indpred IS NOT NULL
+        ) THEN
+            RAISE EXCEPTION 'A valid active-job unique index is required before enqueueing';
+        END IF;
     END IF;
     IF NOT pg_try_advisory_xact_lock(
         hashtextextended('public.enqueue_creator_syncs', 0)

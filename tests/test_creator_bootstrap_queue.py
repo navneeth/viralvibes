@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -8,8 +9,10 @@ import worker.creator_worker as creator_worker
 import db
 
 
-@pytest.mark.parametrize("targeted", [False, True])
-def test_pending_job_fetch_preserves_fifo_and_optionally_targets_pilot(monkeypatch, targeted):
+@pytest.mark.parametrize("mode", ["normal", "targeted"])
+def test_pending_job_fetch_preserves_fifo_and_optionally_targets_pilot(monkeypatch, mode):
+    fixed_now = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(creator_worker, "datetime", SimpleNamespace(now=lambda tz: fixed_now))
     query = MagicMock()
     for method in ("select", "eq", "or_", "order", "limit", "in_"):
         getattr(query, method).return_value = query
@@ -18,23 +21,49 @@ def test_pending_job_fetch_preserves_fifo_and_optionally_targets_pilot(monkeypat
     client = MagicMock()
     client.table.return_value = query
     monkeypatch.setattr(creator_worker, "supabase_client", client)
-    options = (
-        {"creator_ids": ["approved-creator"], "source": "unknown_activity_refresh"}
-        if targeted
-        else {}
-    )
+    if mode == "targeted":
+        result = creator_worker._fetch_pending_jobs(
+            1, creator_ids=["approved-creator"], source="unknown_activity_refresh"
+        )
+    else:
+        result = creator_worker._fetch_pending_jobs(1)
 
-    assert creator_worker._fetch_pending_jobs(1, **options) == jobs
+    assert result == jobs
     query.order.assert_called_once_with("created_at", desc=False)
     query.limit.assert_called_once_with(1)
     query.eq.assert_any_call("status", "pending")
-    assert "next_retry_at" in query.or_.call_args.args[0]
-    if targeted:
+    ready_filter = f"next_retry_at.is.null,next_retry_at.lte.{fixed_now.isoformat()}"
+    query.or_.assert_called_once_with(ready_filter)
+    if mode == "targeted":
         query.in_.assert_called_once_with("creator_id", ["approved-creator"])
         query.eq.assert_any_call("source", "unknown_activity_refresh")
     else:
         query.in_.assert_not_called()
         assert query.eq.call_count == 1
+
+
+@pytest.mark.parametrize("raise_on_error", [False, True])
+def test_pending_job_fetch_can_propagate_errors(monkeypatch, raise_on_error):
+    query = MagicMock()
+    for method in ("select", "eq", "or_", "order", "limit"):
+        getattr(query, method).return_value = query
+    query.execute.side_effect = RuntimeError("database unavailable")
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    if raise_on_error:
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            creator_worker._fetch_pending_jobs(1, raise_on_error=True)
+    else:
+        assert creator_worker._fetch_pending_jobs(1) == []
+
+
+def test_strict_pending_job_fetch_rejects_uninitialized_client(monkeypatch):
+    monkeypatch.setattr(creator_worker, "supabase_client", None)
+
+    with pytest.raises(RuntimeError, match="not initialized"):
+        creator_worker._fetch_pending_jobs(1, raise_on_error=True)
 
 
 def test_empty_pilot_allowlist_never_fetches_general_queue(monkeypatch):
