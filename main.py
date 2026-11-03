@@ -18,11 +18,18 @@ from typing import Optional
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+
+# ============================================================================
+# STEP 1: Load environment variables FIRST
+# ============================================================================
+load_dotenv()
+
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse, Response
 from fasthtml.core import HtmxHeaders
 from monsterui.all import *
-from starlette.responses import HTMLResponse, Response as StarletteResponse, StreamingResponse
+from starlette.responses import HTMLResponse, StreamingResponse
+from starlette.responses import Response as StarletteResponse
 
 from auth.auth_service import (
     AUTH_SKIP_ROUTE_PATTERNS,
@@ -58,12 +65,12 @@ from components.modals import ExportModal, ShareModal
 from components.seo import Canonical, JsonLd, MetaDescription, OgTags, page_seo_tags
 from constants import (
     CONTACT_EMAIL,
-    JobStatus,
     PLAYLIST_STATS_TABLE,
     PLAYLIST_STEPS_CONFIG,
     SECTION_BASE,
     SIGNUPS_TABLE,
     SITE_BASE_URL,
+    JobStatus,
 )
 from controllers.auth_routes import (
     build_auth_redirect_page,
@@ -75,10 +82,14 @@ from controllers.auth_routes import (
     require_auth,
     safe_local_return_url,
 )
-
 from controllers.job_progress import job_progress_controller
 from controllers.preview import preview_playlist_controller
 from db import (
+    _db_execute,
+    _db_execute_readonly,
+    add_creator_by_handle,
+    add_favourite_list,
+    find_creator_by_handle,
     get_cached_playlist_stats,
     get_creator_stats,
     get_estimated_stats,
@@ -90,39 +101,31 @@ from db import (
     get_user_favourite_creators,
     get_user_favourite_list_keys,
     get_user_favourite_lists,
-    add_favourite_list,
-    remove_favourite_list,
     get_user_plan,
     init_supabase,
+    remove_favourite_list,
     resolve_playlist_url_from_dashboard_id,
     setup_logging,
     submit_playlist_job,
     supabase_client,
     upsert_playlist_stats,
-    add_creator_by_handle,
-    find_creator_by_handle,
-    _db_execute_readonly,
-    _db_execute,
 )
-from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
-from services.creator_topics import TOPIC_EXPORT_HEADERS, creator_topic_export_fields
-from utils import (
-    compute_dashboard_id,
-    get_columns,
-    get_country_name,
-    get_language_name,
-    sort_dataframe,
+from db_lists import resolve_category_slug
+from routes.about import about_page_content
+from routes.admin import (
+    admin_get,
+    admin_jobs_fragment,
+    admin_outreach_export_route,
+    admin_rescue_quota_jobs,
 )
-from validators import YoutubePlaylist, YoutubePlaylistValidator
-from views.dashboard import render_full_dashboard
-from views.favourites import render_favourites_page
-from views.my_dashboards import (
-    render_my_dashboards_page,
-    render_dashboard_page_partial,
-)
-from views.lists import _list_heart_btn
-from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 from routes.analysis import analysis_page_content
+from routes.blog import (
+    blog_coming_soon_content,
+    blog_index_content,
+    blog_post_content,
+    build_rss_feed,
+)
+from routes.contact import contact_page_content, post_contact
 from routes.creators import (
     CreatorProfileResult,
     CreatorsLikeResult,
@@ -139,6 +142,49 @@ from routes.creators import (
     creators_top_route,
     toggle_favourite_route,
 )
+from routes.legal import privacy_page_content, terms_page_content
+from routes.lists import (
+    categories_explorer_route,
+    category_detail_more_route,
+    category_detail_route,
+    countries_explorer_route,
+    country_detail_more_route,
+    country_detail_route,
+    language_detail_more_route,
+    language_detail_route,
+    languages_explorer_route,
+    lists_more_categories_route,
+    lists_more_countries_route,
+    lists_more_languages_route,
+    lists_route,
+    ranking_detail_more_route,
+    ranking_detail_route,
+)
+from routes.mentions import mentions_route
+from routes.outreach import outreach_export_route, outreach_import_list_route, outreach_route
+from routes.press import press_page_content
+from routes.pricing import pricing_page_content
+from routes.stripe_checkout import (
+    billing_checkout,
+    billing_checkout_begin,
+    billing_portal,
+    billing_success_content,
+)
+from routes.stripe_webhooks import stripe_webhook
+from services.creator_topics import TOPIC_EXPORT_HEADERS, creator_topic_export_fields
+from services.plan_gate import gate_plan
+from services.playlist_loader import load_cached_or_stub, load_dashboard_by_id
+from services.rankings import ranking_path, resolve_country_slug, resolve_ranking_category_slug
+from services.sitemap import build_sitemap_xml, fetch_aplus_creators, fetch_synced_creators
+from utils import (
+    compute_dashboard_id,
+    get_columns,
+    get_country_name,
+    get_language_name,
+    sort_dataframe,
+)
+from utils.blog import get_post, get_posts
+from validators import YoutubePlaylist, YoutubePlaylistValidator
 from views.creators import (
     creator_profile_head,
     creator_profile_page_title,
@@ -147,55 +193,14 @@ from views.creators import (
     creators_top_head,
     creators_top_page_title,
 )
-from routes.mentions import mentions_route
-from routes.about import about_page_content
-from routes.contact import contact_page_content, post_contact
-from routes.legal import privacy_page_content, terms_page_content
-from routes.blog import (
-    blog_coming_soon_content,
-    blog_index_content,
-    blog_post_content,
-    build_rss_feed,
+from views.dashboard import render_full_dashboard
+from views.favourites import render_favourites_page
+from views.lists import _list_heart_btn, _unslugify
+from views.my_dashboards import (
+    render_dashboard_page_partial,
+    render_my_dashboards_page,
 )
-from utils.blog import get_posts, get_post
-from routes.press import press_page_content
-from routes.pricing import pricing_page_content
-from routes.stripe_webhooks import stripe_webhook
-from routes.stripe_checkout import (
-    billing_checkout,
-    billing_checkout_begin,
-    billing_success_content,
-    billing_portal,
-)
-from services.plan_gate import gate_plan
-from services.sitemap import build_sitemap_xml, fetch_aplus_creators, fetch_synced_creators
-from services.rankings import ranking_path, resolve_country_slug, resolve_ranking_category_slug
-from routes.lists import (
-    categories_explorer_route,
-    countries_explorer_route,
-    languages_explorer_route,
-    category_detail_more_route,
-    category_detail_route,
-    country_detail_more_route,
-    country_detail_route,
-    language_detail_more_route,
-    language_detail_route,
-    lists_more_categories_route,
-    lists_more_countries_route,
-    lists_more_languages_route,
-    lists_route,
-    ranking_detail_more_route,
-    ranking_detail_route,
-)
-from routes.outreach import outreach_export_route, outreach_import_list_route, outreach_route
-from routes.admin import (
-    admin_get,
-    admin_jobs_fragment,
-    admin_rescue_quota_jobs,
-    admin_outreach_export_route,
-)
-from db_lists import resolve_category_slug
-from views.lists import _unslugify
+from views.table import DISPLAY_HEADERS, get_sort_col, render_playlist_table
 
 # Get logger instance
 logger = logging.getLogger(__name__)
@@ -339,12 +344,6 @@ AVATAR_FORMATS = [".jpg", ".jpeg", ".png", ".webp"]
 
 # Whether the app is running under the test suite (set by GitHub Actions / pytest)
 IS_TESTING = os.getenv("TESTING") == "1"
-
-
-# ============================================================================
-# STEP 1: Load environment variables FIRST
-# ============================================================================
-load_dotenv()
 
 
 # Initialize application components
@@ -737,7 +736,6 @@ def revoke(req, sess):
     # Fetch access_token from secure backend storage
     if user_id and supabase_client:
         try:
-
             result = _db_execute_readonly(
                 lambda: (
                     supabase_client.table("auth_providers")

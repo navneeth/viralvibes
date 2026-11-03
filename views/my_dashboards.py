@@ -193,6 +193,7 @@ def render_my_dashboards_page(
     return Container(
         # ── 1. Header ──────────────────────────────────────────────────────
         _section_header(user_name, len(dashboards), _plan_info),
+        render_billing_section(_plan_info),
         # ── 2. Watchlist Pulse ─────────────────────────────────────────────
         render_watchlist_pulse(_fav_creators, plan),
         # ── 3. Playlist Analysis ───────────────────────────────────────────

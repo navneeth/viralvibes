@@ -46,6 +46,15 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
             interval,
         )
         return RedirectResponse("/pricing?error=config", status_code=303)
+    if not price_id.startswith("price_"):
+        logger.error(
+            "[Checkout] Invalid Stripe price ID for plan=%s interval=%s: %s — "
+            "STRIPE_PRICE_* must contain a Price ID (price_*), not a Product ID",
+            plan,
+            interval,
+            price_id,
+        )
+        return RedirectResponse("/pricing?error=config", status_code=303)
 
     user_email: str = sess.get("user_email") or ""
 
@@ -66,7 +75,15 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
             cancel_url=f"{DOMAIN_URL}/pricing",
         )
     except stripe.StripeError as exc:
-        logger.exception("[Checkout] Stripe error creating session: %s", exc)
+        logger.exception(
+            "[Checkout] Stripe error creating session for plan=%s interval=%s "
+            "price_id=%s code=%s request_id=%s",
+            plan,
+            interval,
+            price_id,
+            getattr(exc, "code", None),
+            getattr(exc, "request_id", None),
+        )
         return RedirectResponse("/pricing?error=stripe", status_code=303)
 
     return Redirect(session.url)

@@ -23,21 +23,27 @@ WEBHOOK_SECRET: str = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 PUBLISHABLE_KEY: str = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 DOMAIN_URL: str = os.environ.get("DOMAIN_URL", "http://localhost:5001").rstrip("/")
 
+
 # ---------------------------------------------------------------------------
 # Price → plan mapping
 # ---------------------------------------------------------------------------
 # Maps Stripe price_id → (plan_name, billing_interval)
-# Used in the webhook handler to determine which plan to activate.
-PRICE_TO_PLAN: dict[str, tuple[str, str]] = {
-    k: v
-    for k, v in {
-        os.environ.get("STRIPE_PRICE_PRO_MONTHLY", ""): ("pro", "month"),
-        os.environ.get("STRIPE_PRICE_PRO_ANNUAL", ""): ("pro", "year"),
-        os.environ.get("STRIPE_PRICE_AGENCY_MONTHLY", ""): ("agency", "month"),
-        os.environ.get("STRIPE_PRICE_AGENCY_ANNUAL", ""): ("agency", "year"),
-    }.items()
-    if k  # exclude entries where the env var isn't set yet
-}
+def _configured_price_to_plan() -> dict[str, tuple[str, str]]:
+    return {
+        k: v
+        for k, v in {
+            os.environ.get("STRIPE_PRICE_PRO_MONTHLY", ""): ("pro", "month"),
+            os.environ.get("STRIPE_PRICE_PRO_ANNUAL", ""): ("pro", "year"),
+            os.environ.get("STRIPE_PRICE_AGENCY_MONTHLY", ""): ("agency", "month"),
+            os.environ.get("STRIPE_PRICE_AGENCY_ANNUAL", ""): ("agency", "year"),
+        }.items()
+        if k
+    }
+
+
+# Keep these import-time mappings available for callers that inspect the
+# configured plan catalog; lookups below read the environment at request time.
+PRICE_TO_PLAN: dict[str, tuple[str, str]] = _configured_price_to_plan()
 
 # Reverse map: (plan, interval) → price_id — used when creating checkout sessions
 PLAN_TO_PRICE: dict[tuple[str, str], str] = {v: k for k, v in PRICE_TO_PLAN.items()}
@@ -78,9 +84,9 @@ def ensure_stripe_api_key() -> bool:
 
 def get_plan_for_price(price_id: str) -> tuple[str, str]:
     """Return (plan, interval) for a Stripe price_id, or ('free', '') if unknown."""
-    return PRICE_TO_PLAN.get(price_id, ("free", ""))
+    return _configured_price_to_plan().get(price_id, ("free", ""))
 
 
 def get_price_for_plan(plan: str, interval: str) -> Optional[str]:
     """Return the Stripe price_id for a given (plan, interval) pair, or None."""
-    return PLAN_TO_PRICE.get((plan, interval))
+    return {v: k for k, v in _configured_price_to_plan().items()}.get((plan, interval))
