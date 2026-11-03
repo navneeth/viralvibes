@@ -1,10 +1,48 @@
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 import worker.bootstrap_creators as bootstrap
 import worker.creator_worker as creator_worker
 import db
+
+
+@pytest.mark.parametrize("targeted", [False, True])
+def test_pending_job_fetch_preserves_fifo_and_optionally_targets_pilot(monkeypatch, targeted):
+    query = MagicMock()
+    for method in ("select", "eq", "or_", "order", "limit", "in_"):
+        getattr(query, method).return_value = query
+    jobs = [{"id": 7, "creator_id": "approved-creator"}]
+    query.execute.return_value = SimpleNamespace(data=jobs)
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    options = (
+        {"creator_ids": ["approved-creator"], "source": "unknown_activity_refresh"}
+        if targeted
+        else {}
+    )
+
+    assert creator_worker._fetch_pending_jobs(1, **options) == jobs
+    query.order.assert_called_once_with("created_at", desc=False)
+    query.limit.assert_called_once_with(1)
+    query.eq.assert_any_call("status", "pending")
+    assert "next_retry_at" in query.or_.call_args.args[0]
+    if targeted:
+        query.in_.assert_called_once_with("creator_id", ["approved-creator"])
+        query.eq.assert_any_call("source", "unknown_activity_refresh")
+    else:
+        query.in_.assert_not_called()
+        assert query.eq.call_count == 1
+
+
+def test_empty_pilot_allowlist_never_fetches_general_queue(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    assert creator_worker._fetch_pending_jobs(1, creator_ids=[]) == []
+    client.table.assert_not_called()
 
 
 class _CreatorQuery:

@@ -42,6 +42,7 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import UUID
 
 # Kaggle/Jupyter optional imports for visual reporting
 try:
@@ -334,6 +335,9 @@ _RESOLVER_RESET_INTERVAL = 100
 async def run(
     max_jobs: int = _DEFAULT_MAX_JOBS,
     max_empty_polls: int = _DEFAULT_MAX_EMPTY_POLLS,
+    *,
+    refresh_creator_ids: Optional[list[str]] = None,
+    refresh_dry_run: bool = True,
 ) -> None:
     """
     Run the creator worker loop in-process for Kaggle.
@@ -345,8 +349,15 @@ async def run(
     Args:
         max_jobs:        Stop after processing this many jobs.
         max_empty_polls: Stop after this many consecutive empty queue polls.
+        refresh_creator_ids: After the normal queue drains, optionally pilot up to five IDs.
+        refresh_dry_run: Preview the remaining-capacity pilot unless explicitly False.
     """
     import worker.creator_worker as _cw
+
+    if refresh_creator_ids is not None:
+        if not 1 <= len(refresh_creator_ids) <= 5:
+            raise ValueError("Refresh pilot requires one to five creator IDs")
+        refresh_creator_ids = list(dict.fromkeys(str(UUID(value)) for value in refresh_creator_ids))
 
     # ── Build key pool from env ───────────────────────────────────────────────
     key_pool = KeyPool.from_env()
@@ -365,6 +376,8 @@ async def run(
 
     jobs_processed = 0
     empty_polls = 0
+    refresh_pilot_active = False
+    refresh_pilot_job_ids: list[str] = []
     start_time = time.time()
 
     while (
@@ -384,11 +397,60 @@ async def run(
             logger.info("✅ Memory flushed and Resolver re-initialized")
 
         # ── Fetch next job ────────────────────────────────────────────────────
-        jobs = _fetch_pending_jobs(batch_size=1)
+        jobs = _fetch_pending_jobs(
+            batch_size=1,
+            **(
+                {
+                    "creator_ids": refresh_pilot_job_ids,
+                    "source": "unknown_activity_refresh",
+                }
+                if refresh_pilot_active
+                else {}
+            ),
+        )
 
         if not jobs:
             empty_polls += 1
-            if empty_polls >= max_empty_polls:
+            phase_empty_limit = 1 if refresh_pilot_active else max_empty_polls
+            if empty_polls >= phase_empty_limit:
+                remaining_jobs = max_jobs - jobs_processed
+                if (
+                    not refresh_pilot_active
+                    and refresh_creator_ids is not None
+                    and remaining_jobs > 0
+                    and not stop_event.is_set()
+                    and not key_pool.all_exhausted_event.is_set()
+                ):
+                    pilot_ids = refresh_creator_ids[: min(5, remaining_jobs)]
+                    preview = _cw.supabase_client.rpc(
+                        "enqueue_unknown_activity_refreshes",
+                        {
+                            "p_creator_ids": pilot_ids,
+                            "p_dry_run": refresh_dry_run is not False,
+                            "p_max_queue": 1000,
+                        },
+                    ).execute()
+                    pilot_rows = preview.data or []
+                    logger.info(
+                        "Unknown-activity refresh preview (remaining job budget=%d): %s",
+                        remaining_jobs,
+                        pilot_rows,
+                    )
+                    if refresh_dry_run is not False:
+                        break
+                    refresh_pilot_job_ids = [
+                        row["creator_id"] for row in pilot_rows if row.get("creator_id")
+                    ]
+                    if refresh_pilot_job_ids:
+                        refresh_pilot_active = True
+                        empty_polls = 0
+                        logger.info(
+                            "Starting targeted refresh phase for %d creator(s); %d job slots remain",
+                            len(refresh_pilot_job_ids),
+                            remaining_jobs,
+                        )
+                        continue
+                    logger.info("No eligible unknown-activity pilot jobs were enqueued")
                 logger.info("✅ Queue empty for %d consecutive polls — stopping", empty_polls)
                 break
             backoff = min(30 * (2 ** (empty_polls - 1)), 300)
