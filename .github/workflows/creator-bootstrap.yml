@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: creator-bootstrap-maintenance
   cancel-in-progress: false
 
 jobs:
@@ -41,6 +41,7 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_KEY:          ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SUPABASE_TIMEOUT_S: "30"
 
       # Batch sizes — single definition so comments and invocations stay in sync.
       # queue_creator_sync_bulk deduplicates at the DB level (skips existing
