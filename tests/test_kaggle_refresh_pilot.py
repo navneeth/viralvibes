@@ -49,9 +49,7 @@ def test_pilot_defaults_to_dry_run_after_normal_queue_drains(monkeypatch, pilot_
     fetch = MagicMock(side_effect=lambda **kwargs: events.append(("fetch", kwargs)) or [])
     monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
 
-    asyncio.run(
-        kaggle_worker.run(max_empty_polls=1, refresh_creator_ids=[CREATOR_ID])
-    )
+    asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_creator_ids=[CREATOR_ID]))
 
     assert events[0] == ("fetch", {"batch_size": 1})
     assert events[1] == (
@@ -63,9 +61,7 @@ def test_pilot_defaults_to_dry_run_after_normal_queue_drains(monkeypatch, pilot_
     kaggle_worker.init.assert_awaited_once_with()
 
 
-def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(
-    monkeypatch, pilot_client
-):
+def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(monkeypatch, pilot_client):
     pool = _fake_pool(monkeypatch)
     second_id = "14076ba5-f130-4f86-9b53-ecf3b93ed077"
     third_id = "1c540d99-99fc-447b-8ee0-5c2dee9006e7"
@@ -127,7 +123,9 @@ def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(
         "source": "unknown_activity_refresh",
     }
     assert [call.kwargs["creator_id"] for call in handle.await_args_list] == [
-        "regular-fifo-job", CREATOR_ID, second_id
+        "regular-fifo-job",
+        CREATOR_ID,
+        second_id,
     ]
     assert len(fetch_results) == 1  # max_jobs was reached before a final empty poll
     assert pool.record_job.call_count == 3
@@ -135,9 +133,7 @@ def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(
     views.assert_not_called()
 
 
-def test_apply_pilot_caps_processing_at_five_and_preserves_maintenance(
-    monkeypatch, pilot_client
-):
+def test_apply_pilot_caps_processing_at_five_and_preserves_maintenance(monkeypatch, pilot_client):
     ids = [
         CREATOR_ID,
         "14076ba5-f130-4f86-9b53-ecf3b93ed077",
@@ -206,9 +202,12 @@ def test_worker_initialization_retains_startup_maintenance(monkeypatch):
     monkeypatch.setattr(creator_worker, "youtube_resolver", None)
     monkeypatch.setattr(creator_worker, "get_creator_worker_api_key", lambda: "test-key")
     monkeypatch.setattr(creator_worker, "YouTubeResolver", lambda api_key: object())
-    monkeypatch.setattr(creator_worker.schema_detector, "detect_schema_sync", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        creator_worker.schema_detector, "get_status",
+        creator_worker.schema_detector, "detect_schema_sync", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "get_status",
         lambda: {"total_columns": 0, "missing_count": 0},
     )
     monkeypatch.delenv("CREATOR_WORKER_SKIP_DIAGNOSIS", raising=False)
