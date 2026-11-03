@@ -49,6 +49,96 @@ done
 
 ## Current Migrations
 
+### Concurrent Hero Stats Refresh (082)
+
+Migration 082 records the tested plain-column unique index on
+`mv_hero_stats(total_creators)` and concurrent `refresh_mv_hero_stats()`.
+The populated view is a single-row aggregate, so this index is unique without
+recreating the view or adding a column. The existing expression index is retained.
+
+The function keeps its signature and grants but no longer disables the caller's
+statement timeout. Installation is transactional with a 3-second lock timeout and
+10-second statement timeout; these limits reset when the transaction ends. If
+installation times out, investigate blockers before retrying. It does not execute
+a refresh or change other refresh functions, worker code, or HTTP timeouts.
+
+After installation, the new index must have all five diagnostic flags true.
+Production function-definition verification and a service-role refresh with
+3-second lock and 15-second statement limits passed. The measured refresh was
+8,349 ms; the returned `rows_refreshed` value, 893,438, is the aggregate creator
+count, not the number of rows in the single-row materialized view.
+
+The equivalent SQL changes are already applied in production. This does not prove
+refresh-time performance under every load or concurrent-reader behavior during
+execution. Both bootstrap workflows now set `SUPABASE_TIMEOUT_S=30` and share the
+`creator-bootstrap-maintenance` concurrency group with `cancel-in-progress: false`.
+This gives maintenance requests a bounded HTTP budget and prevents those two
+workflows from running together, including manual runs. Vercel and other worker
+clients retain their existing timeout configuration. Other repositories, notebooks,
+and direct SQL callers are not serialized by GitHub Actions concurrency.
+
+The bootstrap workflow changes take effect after deployment; their runtime behavior
+has not yet been verified in production. Database deadlines still apply and are not
+disabled. A shorter live database deadline requires separate measurement and role
+configuration review. Bootstrap cache invalidation is process-local; it does not
+clear caches in running Vercel instances. Category-cache refresh and deep-pagination
+timeouts remain separate issues.
+
+### Creator Peers Client Read-Only Access (081)
+
+Migration 081 records the production-verified removal of direct client write
+privileges on `public.creator_peers`. It preserves existing SELECT and
+service-role grants, sequence permissions, data, RLS, and RPC privileges.
+It is safe to repeat after the manual SQL Editor change; it does not establish
+missing grants for fresh/reset environments or change notebook code.
+
+Its diagnostic query should show SELECT allowed for all three roles, non-read
+privileges denied for `anon` and `authenticated`, and non-read privileges
+retained for `service_role`. The similar-creators section was confirmed to
+load after the manual change; the separate lookalike-page check remains
+unverified.
+
+The Kaggle producer initializes its client with `SUPABASE_SERVICE_KEY` and
+reported 932,383 rows written before hardening. Service-role sequence USAGE was
+verified and is unchanged. Post-change notebook writes remain unverified; do
+not rerun the full embedding pipeline solely for a permission check. The
+notebook's oversized existing-row lookup failures are a separate issue.
+
+### Category Stats Cache Client Read-Only Access (080)
+
+Migration 080 records the production-verified removal of direct client write
+privileges on `public.category_stats_cache`. It preserves existing SELECT and
+service-role privileges, data, RLS, and RPC permissions. It is safe to repeat
+after the manual SQL Editor change and does not establish missing grants for
+fresh/reset environments.
+
+Its diagnostic query should show SELECT allowed for all three roles, non-read
+privileges denied for `anon` and `authenticated`, and non-read privileges
+retained for `service_role`. A creator profile's category chart was confirmed
+to display after the manual change.
+
+The bootstrap writer uses `SUPABASE_SERVICE_KEY`. Its aggregate RPC timed out
+before the cache upsert, so successful refresh after hardening remains
+unverified. This migration does not address the separate refresh timeout or
+change worker code, workflows, or other tables.
+
+### App Stats Client Read-Only Access (079)
+
+Migration 079 records the production-verified removal of direct client write
+privileges on `public.app_stats`. It preserves existing SELECT and service-role
+privileges and does not change data, RLS, or RPC execution permissions. The
+revocation is safe to repeat after the manual SQL Editor change.
+
+Run `079_app_stats_client_read_only.sql` in the SQL Editor. Its diagnostic query
+should show SELECT allowed for all three roles, non-read privileges denied for
+`anon` and `authenticated`, and non-read privileges retained for `service_role`.
+Then verify `/lists` still loads its counts and tabs. That smoke check passed
+after the manual production change.
+
+This migration does not establish missing grants for fresh/reset environments
+and does not restrict SECURITY DEFINER RPCs. Those require separate, explicit
+access decisions. It intentionally changes no other tables.
+
 ### Recent Upload Cadence Index (074)
 
 Apply migration 074 with psql autocommit and verify the index is valid before
