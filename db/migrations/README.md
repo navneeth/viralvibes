@@ -49,6 +49,48 @@ done
 
 ## Current Migrations
 
+### Unknown-Activity Refresh Pilot (083)
+
+Migration 083 installs `enqueue_unknown_activity_refreshes` without inserting
+jobs. It accepts an explicit allowlist of up to five UUIDs, defaults to dry run,
+and uses the existing `3_unknown_activity` eligibility rule. Apply mode requires
+the valid active-job unique index from migration 077. Only `service_role` can
+execute it. It uses the priority enqueue advisory lock and permits at most five
+new jobs when the pending queue has room below 1,000; independent enqueue paths
+are not all serialized by this lock. No general enqueue limits are changed.
+
+Apply the migration, then run this preview in Supabase SQL Editor:
+
+```sql
+SELECT * FROM public.enqueue_unknown_activity_refreshes(ARRAY[
+  '6488b4d0-96e9-4cb3-b7da-36cc086f8e75'::uuid,
+  '14076ba5-f130-4f86-9b53-ecf3b93ed077'::uuid,
+  '1c540d99-99fc-447b-8ee0-5c2dee9006e7'::uuid,
+  '4a9591a1-a84c-44d9-8b98-bbe0bc6ae963'::uuid,
+  'd899ca2d-e87e-4e7a-ad74-cbc1ceca0dc8'::uuid
+]);
+```
+
+Review the eligible rows before any apply call. Eligibility is rechecked each
+time; creators already pending/processing or no longer stale will be excluded.
+In Kaggle, supply this same reviewed allowlist as `refresh_creator_ids` to
+`await kaggle_worker.run(...)`. The regular FIFO queue runs first. After it stays
+empty for the configured number of polls, the pilot previews only the IDs that
+fit within the remaining `max_jobs` budget and exits by default. After reviewing
+that preview, explicitly pass `refresh_dry_run=False` to enqueue and process up
+to five jobs, one at a time. The pilot fetches only returned allowlisted jobs
+with source `unknown_activity_refresh`, so it never falls back to the general
+FIFO backlog. Normal startup and end-of-run coverage maintenance are retained;
+materialized-view refresh remains controlled by
+`KAGGLE_REFRESH_MATERIALIZED_VIEWS`. No API key rotation or concurrent jobs are
+added.
+
+The initial supplied audit showed 716 pending jobs and one processing job, with
+all five pilot creators eligible. Local tests use mocked Supabase responses;
+SQL execution and the real Kaggle pilot remain unverified. After apply, verify
+these creators' `last_synced_at` advances and inspect their job outcomes before
+expanding the lane. Do not rerun enqueue on every poll or increase the pilot cap.
+
 ### Concurrent Hero Stats Refresh (082)
 
 Migration 082 records the tested plain-column unique index on

@@ -472,7 +472,13 @@ def _queue_creators_for_extended_refresh(
 # =============================================================================
 
 
-def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
+def _fetch_pending_jobs(
+    batch_size: int,
+    *,
+    creator_ids: Optional[List[str]] = None,
+    source: Optional[str] = None,
+    raise_on_error: bool = False,
+) -> List[Dict]:
     """
     Fetch pending jobs that are ready to be processed.
 
@@ -488,7 +494,11 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
 
     Actually the simplest correct fix: add .or_() to handle both cases.
     """
+    if creator_ids == []:
+        return []
     if not supabase_client:
+        if raise_on_error:
+            raise RuntimeError("Supabase client is not initialized")
         return []
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -501,15 +511,19 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
         # the retry branch was dead code — `if len(fresh_jobs) < 1` is always False
         # when any fresh job exists, so retry-overdue jobs would wait until all
         # ~547k fresh jobs were exhausted (~154 days).
-        resp = (
+        query = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("id,creator_id,source,retry_count,job_type")
             .eq("status", JobStatus.PENDING.value)
             .or_(f"next_retry_at.is.null,next_retry_at.lte.{now_iso}")
             .order("created_at", desc=False)
             .limit(batch_size)
-            .execute()
         )
+        if creator_ids is not None:
+            query = query.in_("creator_id", creator_ids)
+        if source is not None:
+            query = query.eq("source", source)
+        resp = query.execute()
 
         all_jobs = resp.data or []
 
@@ -522,6 +536,8 @@ def _fetch_pending_jobs(batch_size: int) -> List[Dict]:
 
     except Exception as e:
         logger.error(f"  ❌ Failed to fetch pending jobs: {e}")
+        if raise_on_error:
+            raise
         return []
 
 
