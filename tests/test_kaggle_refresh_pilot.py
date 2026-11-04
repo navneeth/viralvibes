@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from httpx import ReadTimeout
 
 import kaggle_worker
 import worker.creator_worker as creator_worker
@@ -59,6 +60,41 @@ def test_pilot_defaults_to_dry_run_after_normal_queue_drains(monkeypatch, pilot_
     )
     fetch.assert_called_once_with(batch_size=1, raise_on_error=True)
     kaggle_worker.init.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_pilot_rpc_timeout_preserves_regular_run_finalization(
+    monkeypatch, pilot_client, caplog, dry_run
+):
+    _fake_pool(monkeypatch)
+    fetch = MagicMock(side_effect=[[{"id": 1, "creator_id": CREATOR_ID}], []])
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    handle = AsyncMock(return_value=True)
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
+    coverage = MagicMock()
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", coverage)
+    report = MagicMock()
+    monkeypatch.setattr(kaggle_worker, "_display_final_report", report)
+    pilot_client.rpc.return_value.execute.side_effect = ReadTimeout("pilot read timed out")
+
+    asyncio.run(
+        kaggle_worker.run(
+            max_jobs=3,
+            max_empty_polls=1,
+            refresh_creator_ids=[CREATOR_ID],
+            refresh_dry_run=dry_run,
+        )
+    )
+
+    handle.assert_awaited_once()
+    assert fetch.call_count == 2
+    pilot_client.rpc.assert_called_once()
+    pilot_client.rpc.return_value.execute.assert_called_once()
+    coverage.assert_called_once()
+    report.assert_called_once()
+    assert report.call_args.args[0] == 1
+    assert "stopping refresh phase without retry" in caplog.text
+    assert ("Enqueue outcome is unknown" in caplog.text) is (not dry_run)
 
 
 def test_apply_pilot_runs_after_normal_fifo_with_remaining_capacity(monkeypatch, pilot_client):
