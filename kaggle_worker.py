@@ -477,10 +477,16 @@ async def run(
                             error,
                         )
                         if refresh_dry_run is False:
-                            logger.warning(
-                                "Enqueue outcome is unknown; inspect creator_sync_jobs for "
-                                "the selected/allowlisted IDs before another apply run"
-                            )
+                            if refresh_auto:
+                                logger.warning(
+                                    "Enqueue outcome is unknown; inspect recent jobs with "
+                                    "source unknown_activity_refresh before another apply run"
+                                )
+                            else:
+                                logger.warning(
+                                    "Enqueue outcome is unknown; inspect creator_sync_jobs for "
+                                    "the allowlisted IDs before another apply run"
+                                )
                         break
                     pilot_rows = preview.data or []
                     logger.info(

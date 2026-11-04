@@ -70,6 +70,11 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Automatic refresh dry run inserted a job';
     END IF;
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1);
+    IF selected_count <> 0 THEN
+        RAISE EXCEPTION 'Automatic refresh exceeded the pending queue cap';
+    END IF;
 
     PERFORM public.enqueue_unknown_activity_refresh_batch(5, false, 1000);
     IF NOT EXISTS (
