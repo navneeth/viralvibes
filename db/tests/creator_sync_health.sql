@@ -43,6 +43,110 @@ VALUES (lpad('10', 32, '0')::uuid, 'processing', now() - interval '1 hour');
 \ir ../migrations/070_add_creator_sync_indexes.sql
 \ir ../migrations/071_enqueue_creator_syncs.sql
 \ir ../migrations/072_creator_sync_health_upgrade.sql
+\ir ../migrations/077_active_creator_sync_unique_index.sql
+\ir ../migrations/083_unknown_activity_refresh_pilot.sql
+\ir ../migrations/084_enqueue_unknown_activity_refresh_batch.sql
+\ir ../migrations/085_creator_refresh_failure_cooldown_index.sql
+\ir ../migrations/086_serialize_creator_sync_enqueue_lanes.sql
+BEGIN;
+DO $$
+DECLARE
+    picked_creator uuid;
+    selected_count bigint;
+    first_created timestamptz;
+    second_created timestamptz;
+BEGIN
+    INSERT INTO public.creators
+        (id, current_subscribers, last_synced_at, first_seen_at, sync_status)
+    VALUES
+        (lpad('11', 32, '0')::uuid, 25000, now() - interval '100 days',
+         now() - interval '120 days', 'synced');
+    UPDATE public.creators
+    SET recent_upload = jsonb_build_object(
+        'published_at', '2025-99-99T88:77:66Z'
+    )
+    WHERE id = lpad('4', 32, '0')::uuid;
+
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF selected_count <> 2 THEN
+        RAISE EXCEPTION 'Automatic refresh dry run should select creators 11 and 4, got %',
+            selected_count;
+    END IF;
+
+    SELECT creator_id INTO picked_creator
+    FROM public.enqueue_unknown_activity_refresh_batch(1, true, 1000);
+    IF picked_creator <> lpad('11', 32, '0')::uuid THEN
+        RAISE EXCEPTION 'Automatic refresh did not select highest-ranked creator first';
+    END IF;
+
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 2);
+    IF selected_count <> 1 THEN
+        RAISE EXCEPTION 'Automatic refresh should fill the single remaining queue slot, got %',
+            selected_count;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.creator_sync_jobs
+        WHERE source = 'unknown_activity_refresh'
+    ) THEN
+        RAISE EXCEPTION 'Automatic refresh dry run inserted a job';
+    END IF;
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1);
+    IF selected_count <> 0 THEN
+        RAISE EXCEPTION 'Automatic refresh exceeded the pending queue cap';
+    END IF;
+
+        PERFORM public.enqueue_unknown_activity_refresh_batch(2, false, 1000);
+        SELECT created_at INTO first_created
+        FROM public.creator_sync_jobs
+        WHERE creator_id = lpad('11', 32, '0')::uuid
+            AND source = 'unknown_activity_refresh';
+        SELECT created_at INTO second_created
+        FROM public.creator_sync_jobs
+        WHERE creator_id = lpad('4', 32, '0')::uuid
+            AND source = 'unknown_activity_refresh';
+        IF first_created IS NULL OR second_created IS NULL OR first_created >= second_created THEN
+                RAISE EXCEPTION 'Automatic refresh job creation order did not preserve subscriber rank';
+    END IF;
+
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF selected_count <> 0 THEN
+        RAISE EXCEPTION 'Automatic refresh did not exclude an active job';
+    END IF;
+
+    UPDATE public.creator_sync_jobs
+    SET status = 'failed',
+        started_at = now() - interval '10 days',
+        completed_at = now() - interval '1 day'
+    WHERE creator_id IN (lpad('11', 32, '0')::uuid, lpad('4', 32, '0')::uuid)
+      AND source = 'unknown_activity_refresh';
+
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF selected_count <> 0 THEN
+        RAISE EXCEPTION 'Automatic refresh did not enforce exhausted-failure cooldown';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'trg_creator_sync_jobs_enqueue_lock'
+          AND tgrelid = 'public.creator_sync_jobs'::regclass
+          AND tgenabled <> 'D'
+    ) THEN
+        RAISE EXCEPTION 'Shared creator sync enqueue lock trigger is missing or disabled';
+    END IF;
+    IF position(
+        'public.enqueue_creator_syncs' IN pg_get_functiondef(
+            'public.enqueue_growth_baseline_refreshes(integer,integer,integer,boolean)'::regprocedure
+        )
+    ) = 0 THEN
+        RAISE EXCEPTION 'Growth baseline enqueue function does not use shared lock key';
+    END IF;
+END $$;
+ROLLBACK;
 BEGIN;
 SET LOCAL TIME ZONE 'Asia/Tokyo';
 DO $$

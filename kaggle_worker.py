@@ -338,6 +338,7 @@ async def run(
     max_empty_polls: int = _DEFAULT_MAX_EMPTY_POLLS,
     *,
     refresh_creator_ids: Optional[list[str]] = None,
+    refresh_auto: bool = False,
     refresh_dry_run: bool = True,
 ) -> None:
     """
@@ -351,14 +352,18 @@ async def run(
         max_jobs:        Stop after processing this many jobs.
         max_empty_polls: Stop after this many consecutive empty queue polls.
         refresh_creator_ids: After the normal queue drains, optionally pilot up to five IDs.
+        refresh_auto: After the normal queue drains, select a bounded refresh batch in SQL.
         refresh_dry_run: Preview the remaining-capacity pilot unless explicitly False.
     """
     import worker.creator_worker as _cw
 
     if refresh_creator_ids is not None:
+        if refresh_auto:
+            raise ValueError("Choose either refresh_creator_ids or refresh_auto, not both")
         if not 1 <= len(refresh_creator_ids) <= 5:
             raise ValueError("Refresh pilot requires one to five creator IDs")
         refresh_creator_ids = list(dict.fromkeys(str(UUID(value)) for value in refresh_creator_ids))
+    refresh_enabled = refresh_auto or refresh_creator_ids is not None
 
     # ── Build key pool from env ───────────────────────────────────────────────
     key_pool = KeyPool.from_env()
@@ -399,7 +404,7 @@ async def run(
             logger.info("✅ Memory flushed and Resolver re-initialized")
 
         # ── Fetch next job ────────────────────────────────────────────────────
-        if refresh_creator_ids is None:
+        if not refresh_enabled:
             jobs = _fetch_pending_jobs(batch_size=1)
         else:
             try:
@@ -435,32 +440,53 @@ async def run(
                 remaining_jobs = max_jobs - jobs_processed
                 if (
                     not refresh_pilot_active
-                    and refresh_creator_ids is not None
+                    and refresh_enabled
                     and remaining_jobs > 0
                     and not stop_event.is_set()
                     and not key_pool.all_exhausted_event.is_set()
                 ):
-                    pilot_ids = refresh_creator_ids[: min(5, remaining_jobs)]
+                    pilot_ids = (
+                        refresh_creator_ids[: min(5, remaining_jobs)]
+                        if refresh_creator_ids is not None
+                        else None
+                    )
+                    rpc_name = (
+                        "enqueue_unknown_activity_refreshes"
+                        if pilot_ids is not None
+                        else "enqueue_unknown_activity_refresh_batch"
+                    )
+                    rpc_params = (
+                        {
+                            "p_creator_ids": pilot_ids,
+                            "p_dry_run": refresh_dry_run is not False,
+                            "p_max_queue": 1000,
+                        }
+                        if pilot_ids is not None
+                        else {
+                            "p_limit": min(5, remaining_jobs),
+                            "p_dry_run": refresh_dry_run is not False,
+                            "p_max_queue": 1000,
+                        }
+                    )
                     try:
-                        preview = _cw.supabase_client.rpc(
-                            "enqueue_unknown_activity_refreshes",
-                            {
-                                "p_creator_ids": pilot_ids,
-                                "p_dry_run": refresh_dry_run is not False,
-                                "p_max_queue": 1000,
-                            },
-                        ).execute()
+                        preview = _cw.supabase_client.rpc(rpc_name, rpc_params).execute()
                     except Exception as error:
                         logger.warning(
                             "Refresh pilot %s RPC failed; stopping refresh phase without retry: %s",
-                            "apply" if refresh_dry_run is False else "dry-run",
+                            "automatic" if refresh_auto else "allowlist",
                             error,
                         )
                         if refresh_dry_run is False:
-                            logger.warning(
-                                "Enqueue outcome is unknown; inspect creator_sync_jobs for "
-                                "the allowlisted IDs before another apply run"
-                            )
+                            if refresh_auto:
+                                logger.warning(
+                                    "Enqueue outcome is unknown; inspect recent jobs with "
+                                    "source unknown_activity_refresh before another apply run"
+                                )
+                            else:
+                                logger.warning(
+                                    "Enqueue outcome is unknown; inspect creator_sync_jobs for "
+                                    "the allowlisted IDs before another apply run"
+                                )
                         break
                     pilot_rows = preview.data or []
                     logger.info(
