@@ -329,6 +329,24 @@ _DEFAULT_MAX_EMPTY_POLLS = 5
 # sustained load and is safe well past 50 iterations.
 _RESOLVER_RESET_INTERVAL = 100
 _MAX_FETCH_FAILURES = 5
+# Retry delays top out at a 1h + 2h + 4h schedule; leave margin, then skip refresh.
+_AUTO_REFRESH_DRAIN_WAIT_SECONDS = 8 * 60 * 60
+_AUTO_REFRESH_DRAIN_POLL_SECONDS = 300
+
+
+def _fetch_creator_sync_health(client) -> dict[str, int]:
+    response = client.rpc("get_creator_sync_health_v2").execute()
+    rows = response.data or []
+    if len(rows) != 1:
+        raise RuntimeError("Unexpected creator sync health response")
+
+    row = rows[0]
+    return {
+        "ready_jobs": int(row.get("ready_jobs") or 0),
+        "retry_delayed_jobs": int(row.get("retry_delayed_jobs") or 0),
+        "processing_jobs": int(row.get("processing_jobs") or 0),
+    }
+
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
@@ -352,7 +370,8 @@ async def run(
         max_jobs:        Stop after processing this many jobs.
         max_empty_polls: Stop after this many consecutive empty queue polls.
         refresh_creator_ids: After the normal queue drains, optionally pilot up to five IDs.
-        refresh_auto: After the normal queue drains, select a bounded refresh batch in SQL.
+        refresh_auto: After all pending and processing jobs drain, select a bounded
+            refresh batch in SQL. Waits up to eight hours for delayed retries.
         refresh_dry_run: Preview the remaining-capacity pilot unless explicitly False.
     """
     import worker.creator_worker as _cw
@@ -385,6 +404,7 @@ async def run(
     fetch_failures = 0
     refresh_pilot_active = False
     refresh_pilot_job_ids: list[str] = []
+    auto_refresh_drain_started_at: Optional[float] = None
     start_time = time.time()
 
     while (
@@ -438,6 +458,62 @@ async def run(
             phase_empty_limit = 1 if refresh_pilot_active else max_empty_polls
             if empty_polls >= phase_empty_limit:
                 remaining_jobs = max_jobs - jobs_processed
+                if (
+                    refresh_auto
+                    and not refresh_pilot_active
+                    and remaining_jobs > 0
+                    and not stop_event.is_set()
+                    and not key_pool.all_exhausted_event.is_set()
+                ):
+                    try:
+                        if _cw.supabase_client is None:
+                            raise RuntimeError("Supabase client is not initialized")
+                        queue_health = _fetch_creator_sync_health(_cw.supabase_client)
+                    except Exception as error:
+                        logger.error(
+                            "Skipping automatic refresh because queue health is unavailable: %s",
+                            error,
+                        )
+                        break
+
+                    unfinished_jobs = (
+                        queue_health["ready_jobs"]
+                        + queue_health["retry_delayed_jobs"]
+                        + queue_health["processing_jobs"]
+                    )
+                    if unfinished_jobs:
+                        if auto_refresh_drain_started_at is None:
+                            auto_refresh_drain_started_at = time.monotonic()
+                        wait_elapsed = time.monotonic() - auto_refresh_drain_started_at
+                        if wait_elapsed >= _AUTO_REFRESH_DRAIN_WAIT_SECONDS:
+                            logger.warning(
+                                "Skipping automatic refresh after %.1f hours; "
+                                "%d pending and %d processing jobs remain",
+                                wait_elapsed / 3600,
+                                queue_health["ready_jobs"] + queue_health["retry_delayed_jobs"],
+                                queue_health["processing_jobs"],
+                            )
+                            break
+
+                        wait_seconds = (
+                            _AUTO_REFRESH_DRAIN_POLL_SECONDS
+                            if queue_health["retry_delayed_jobs"]
+                            else 30
+                        )
+                        logger.info(
+                            "Waiting before automatic refresh: %d ready, %d retry-delayed, "
+                            "%d processing; checking again in %ds",
+                            queue_health["ready_jobs"],
+                            queue_health["retry_delayed_jobs"],
+                            queue_health["processing_jobs"],
+                            wait_seconds,
+                        )
+                        empty_polls = phase_empty_limit - 1
+                        await asyncio.sleep(wait_seconds)
+                        continue
+
+                    auto_refresh_drain_started_at = None
+
                 if (
                     not refresh_pilot_active
                     and refresh_enabled
