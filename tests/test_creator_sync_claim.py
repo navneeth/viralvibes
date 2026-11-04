@@ -55,8 +55,10 @@ def test_failed_sync_keeps_retry_fields_consistent(monkeypatch, exhausted):
     if exhausted:
         assert payload["status"] == "failed"
         assert payload["next_retry_at"] is None
+        assert before.isoformat() <= payload["completed_at"] <= after.isoformat()
     else:
         assert payload["status"] == "pending"
+        assert "completed_at" not in payload
         retry_time = datetime.fromisoformat(payload["next_retry_at"])
         assert db.CREATOR_WORKER_RETRY_BASE <= (retry_time - before).total_seconds()
         assert (retry_time - after).total_seconds() <= db.CREATOR_WORKER_RETRY_BASE
