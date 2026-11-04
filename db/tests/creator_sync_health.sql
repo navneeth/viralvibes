@@ -43,6 +43,62 @@ VALUES (lpad('10', 32, '0')::uuid, 'processing', now() - interval '1 hour');
 \ir ../migrations/070_add_creator_sync_indexes.sql
 \ir ../migrations/071_enqueue_creator_syncs.sql
 \ir ../migrations/072_creator_sync_health_upgrade.sql
+\ir ../migrations/077_active_creator_sync_unique_index.sql
+\ir ../migrations/083_unknown_activity_refresh_pilot.sql
+\ir ../migrations/084_enqueue_unknown_activity_refresh_batch.sql
+BEGIN;
+DO $$
+DECLARE
+    picked_creator uuid;
+    selected_count bigint;
+BEGIN
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF selected_count <> 1 THEN
+        RAISE EXCEPTION 'Automatic refresh dry run should select only creator 4, got %',
+            selected_count;
+    END IF;
+
+    SELECT creator_id INTO picked_creator
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF picked_creator <> lpad('4', 32, '0')::uuid THEN
+        RAISE EXCEPTION 'Automatic refresh selected unexpected creator %', picked_creator;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.creator_sync_jobs
+        WHERE source = 'unknown_activity_refresh'
+    ) THEN
+        RAISE EXCEPTION 'Automatic refresh dry run inserted a job';
+    END IF;
+
+    PERFORM public.enqueue_unknown_activity_refresh_batch(5, false, 1000);
+    IF NOT EXISTS (
+        SELECT 1 FROM public.creator_sync_jobs
+        WHERE creator_id = picked_creator
+          AND source = 'unknown_activity_refresh'
+          AND status = 'pending'
+    ) THEN
+        RAISE EXCEPTION 'Automatic refresh apply did not enqueue selected creator';
+    END IF;
+
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF selected_count <> 0 THEN
+        RAISE EXCEPTION 'Automatic refresh did not exclude an active job';
+    END IF;
+
+    UPDATE public.creator_sync_jobs
+    SET status = 'failed', started_at = now() - interval '1 day'
+    WHERE creator_id = picked_creator
+      AND source = 'unknown_activity_refresh';
+
+    SELECT count(*) INTO selected_count
+    FROM public.enqueue_unknown_activity_refresh_batch(5, true, 1000);
+    IF selected_count <> 0 THEN
+        RAISE EXCEPTION 'Automatic refresh did not enforce exhausted-failure cooldown';
+    END IF;
+END $$;
+ROLLBACK;
 BEGIN;
 SET LOCAL TIME ZONE 'Asia/Tokyo';
 DO $$
