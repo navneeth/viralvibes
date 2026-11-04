@@ -30,6 +30,13 @@ BEGIN
     END IF;
 
     IF p_dry_run IS NOT DISTINCT FROM false THEN
+        DROP TABLE IF EXISTS pg_temp._creator_sync_active_index_guard;
+        CREATE TEMP TABLE _creator_sync_active_index_guard
+            (LIKE public.creator_sync_jobs) ON COMMIT DROP;
+        CREATE UNIQUE INDEX _creator_sync_expected_active_unique
+            ON pg_temp._creator_sync_active_index_guard (creator_id)
+            WHERE status IN ('pending', 'processing');
+
         IF NOT EXISTS (
             SELECT 1 FROM pg_index AS active_index
             JOIN pg_attribute AS creator_column
@@ -45,7 +52,12 @@ BEGIN
               AND active_index.indnkeyatts = 1
               AND active_index.indkey[0] = creator_column.attnum
               AND active_index.indexprs IS NULL
-              AND active_index.indpred IS NOT NULL
+              AND pg_get_expr(active_index.indpred, active_index.indrelid) = (
+                  SELECT pg_get_expr(expected.indpred, expected.indrelid)
+                  FROM pg_index AS expected
+                  WHERE expected.indexrelid =
+                        'pg_temp._creator_sync_expected_active_unique'::regclass
+              )
         ) THEN
             RAISE EXCEPTION 'A valid active-job unique index is required before enqueueing';
         END IF;
@@ -72,13 +84,15 @@ BEGIN
     DROP TABLE IF EXISTS pg_temp._unknown_activity_auto_pick;
     CREATE TEMP TABLE _unknown_activity_auto_pick ON COMMIT DROP AS
     SELECT creator.id AS creator_id,
-           creator.current_subscribers::bigint AS current_subscribers
+           creator.current_subscribers::bigint AS current_subscribers,
+           row_number() OVER (
+               ORDER BY creator.current_subscribers DESC NULLS LAST, creator.id
+           ) AS refresh_rank
     FROM public.creators AS creator
     CROSS JOIN LATERAL (
-        SELECT CASE
-            WHEN creator.recent_upload->>'published_at' ~ '^\d{4}-\d{2}-\d{2}T'
-            THEN (creator.recent_upload->>'published_at')::timestamptz
-        END AS last_upload_at
+        SELECT public.try_parse_creator_upload_timestamp(
+            creator.recent_upload->>'published_at'
+        ) AS last_upload_at
     ) AS upload
     WHERE creator.archived_at IS NULL
       AND creator.sync_status IS DISTINCT FROM 'invalid'
@@ -95,7 +109,11 @@ BEGIN
           WHERE recent_failure.creator_id = creator.id
             AND recent_failure.source = 'unknown_activity_refresh'
             AND recent_failure.status = 'failed'
-            AND COALESCE(recent_failure.started_at, recent_failure.created_at)
+            AND COALESCE(
+                    recent_failure.completed_at,
+                    recent_failure.started_at,
+                    recent_failure.created_at
+                )
                 >= now() - interval '7 days'
       )
     ORDER BY creator.current_subscribers DESC NULLS LAST, creator.id
@@ -112,7 +130,8 @@ BEGIN
             INSERT INTO public.creator_sync_jobs
                 (creator_id, status, job_type, source, created_at)
             SELECT pick.creator_id, 'pending', 'sync_stats',
-                   'unknown_activity_refresh', statement_timestamp()
+                   'unknown_activity_refresh',
+                   statement_timestamp() + pick.refresh_rank * interval '1 millisecond'
             FROM pg_temp._unknown_activity_auto_pick AS pick
             ON CONFLICT DO NOTHING
             RETURNING creator_id

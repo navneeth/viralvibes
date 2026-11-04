@@ -56,8 +56,10 @@ jobs. It accepts an explicit allowlist of up to five UUIDs, defaults to dry run,
 and uses the existing `3_unknown_activity` eligibility rule. Apply mode requires
 the valid active-job unique index from migration 077. Only `service_role` can
 execute it. It uses the priority enqueue advisory lock and permits at most five
-new jobs when the pending queue has room below 1,000; independent enqueue paths
-are not all serialized by this lock. No general enqueue limits are changed.
+new jobs when the pending queue has room below 1,000; no general enqueue limits
+are changed. Automatic candidate supply is a separate path provided by migrations
+084-086 and remains disabled unless Kaggle is explicitly run with
+`refresh_auto=True`.
 
 Apply the migration, then run this preview in Supabase SQL Editor:
 
@@ -90,6 +92,29 @@ all five pilot creators eligible. Local tests use mocked Supabase responses;
 SQL execution and the real Kaggle pilot remain unverified. After apply, verify
 these creators' `last_synced_at` advances and inspect their job outcomes before
 expanding the lane. Do not rerun enqueue on every poll or increase the pilot cap.
+
+### Automatic Unknown-Activity Refresh Supply (084-086)
+
+Migration 084 installs `enqueue_unknown_activity_refresh_batch`, which safely
+parses upload timestamps through migration 078, excludes active jobs, and orders
+eligible creators by subscriber count. Failed refreshes cool down from
+`completed_at` (falling back to `started_at` or `created_at` for legacy rows).
+Enqueued jobs receive staggered `created_at` values to preserve that order.
+
+Migration 085 adds a partial index for cooldown lookups. Run it separately with
+psql autocommit because it uses `CREATE INDEX CONCURRENTLY`; verify the index is
+valid and ready before proceeding. Migration 086 adds a trigger that shares the
+enqueue advisory lock across direct inserts and updates the growth-baseline RPC
+to use the same lock. Apply 084-086 before enabling Kaggle's `refresh_auto=True`.
+
+The disposable SQL regression suite checks two-candidate selection, the
+remaining queue slot, malformed upload timestamps, rank order, long-running
+failure cooldown, and shared-lock installation. It has not been run locally
+because PostgreSQL is unavailable. Measure automatic dry-run latency in the
+target database before applying jobs. Automatic mode is opt-in and defaults to
+dry run, but the worker still processes ordinary queued jobs first; it is not a
+preview-only invocation. Set `refresh_dry_run=False` only after reviewing the
+preview and its query latency.
 
 ### Concurrent Hero Stats Refresh (082)
 
