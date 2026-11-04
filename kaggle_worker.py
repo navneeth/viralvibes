@@ -441,14 +441,27 @@ async def run(
                     and not key_pool.all_exhausted_event.is_set()
                 ):
                     pilot_ids = refresh_creator_ids[: min(5, remaining_jobs)]
-                    preview = _cw.supabase_client.rpc(
-                        "enqueue_unknown_activity_refreshes",
-                        {
-                            "p_creator_ids": pilot_ids,
-                            "p_dry_run": refresh_dry_run is not False,
-                            "p_max_queue": 1000,
-                        },
-                    ).execute()
+                    try:
+                        preview = _cw.supabase_client.rpc(
+                            "enqueue_unknown_activity_refreshes",
+                            {
+                                "p_creator_ids": pilot_ids,
+                                "p_dry_run": refresh_dry_run is not False,
+                                "p_max_queue": 1000,
+                            },
+                        ).execute()
+                    except Exception as error:
+                        logger.warning(
+                            "Refresh pilot %s RPC failed; stopping refresh phase without retry: %s",
+                            "apply" if refresh_dry_run is False else "dry-run",
+                            error,
+                        )
+                        if refresh_dry_run is False:
+                            logger.warning(
+                                "Enqueue outcome is unknown; inspect creator_sync_jobs for "
+                                "the allowlisted IDs before another apply run"
+                            )
+                        break
                     pilot_rows = preview.data or []
                     logger.info(
                         "Unknown-activity refresh preview (remaining job budget=%d): %s",

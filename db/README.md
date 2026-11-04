@@ -49,6 +49,56 @@ done
 
 ## Current Migrations
 
+### Unknown-Activity Refresh Pilot (083)
+
+Migration 083 installs `enqueue_unknown_activity_refreshes` without inserting
+jobs. It accepts an explicit allowlist of up to five UUIDs, defaults to dry run,
+and uses the existing `3_unknown_activity` eligibility rule. Apply mode requires
+the valid active-job unique index from migration 077. Only `service_role` can
+execute it. It uses the priority enqueue advisory lock and permits at most five
+new jobs when the pending queue has room below 1,000; independent enqueue paths
+are not all serialized by this lock. No general enqueue limits are changed.
+
+Apply the migration, then run this preview in Supabase SQL Editor:
+
+```sql
+SELECT * FROM public.enqueue_unknown_activity_refreshes(ARRAY[
+  '6488b4d0-96e9-4cb3-b7da-36cc086f8e75'::uuid,
+  '14076ba5-f130-4f86-9b53-ecf3b93ed077'::uuid,
+  '1c540d99-99fc-447b-8ee0-5c2dee9006e7'::uuid,
+  '4a9591a1-a84c-44d9-8b98-bbe0bc6ae963'::uuid,
+  'd899ca2d-e87e-4e7a-ad74-cbc1ceca0dc8'::uuid
+]);
+```
+
+Review the eligible rows before any apply call. Eligibility is rechecked each
+time; creators already pending/processing or no longer stale will be excluded.
+In Kaggle, supply this same reviewed allowlist as `refresh_creator_ids` to
+`await kaggle_worker.run(...)`. The regular FIFO queue runs first. After it stays
+empty for the configured number of polls, the pilot previews only the IDs that
+fit within the remaining `max_jobs` budget and exits by default. After reviewing
+that preview, explicitly pass `refresh_dry_run=False` to enqueue and process up
+to five jobs, one at a time. The pilot fetches only returned allowlisted jobs
+with source `unknown_activity_refresh`, so it never falls back to the general
+FIFO backlog. Normal startup and end-of-run coverage maintenance are retained;
+materialized-view refresh remains controlled by
+`KAGGLE_REFRESH_MATERIALIZED_VIEWS`. No API key rotation or concurrent jobs are
+added.
+
+If the pilot RPC fails, the refresh phase stops without retrying the request;
+the regular-job summary and end-of-run maintenance still run. An apply-mode
+timeout has an unknown enqueue outcome: inspect allowlisted jobs before another
+apply run. A dry-run timeout does not insert refresh jobs. Measure RPC duration
+before increasing HTTP timeouts or enabling pilot writes.
+
+The initial supplied audit showed 716 pending jobs and one processing job, with
+all five pilot creators eligible. Local tests use mocked Supabase responses;
+the SQL Editor dry-run returned five eligible rows, but the Kaggle dry-run RPC
+timed out before returning a preview. Real pilot processing remains unverified.
+After apply, verify
+these creators' `last_synced_at` advances and inspect their job outcomes before
+expanding the lane. Do not rerun enqueue on every poll or increase the pilot cap.
+
 ### Concurrent Hero Stats Refresh (082)
 
 Migration 082 records the tested plain-column unique index on
@@ -68,10 +118,21 @@ Production function-definition verification and a service-role refresh with
 8,349 ms; the returned `rows_refreshed` value, 893,438, is the aggregate creator
 count, not the number of rows in the single-row materialized view.
 
-The equivalent changes are already applied in production. This does not prove
+The equivalent SQL changes are already applied in production. This does not prove
 refresh-time performance under every load or concurrent-reader behavior during
-execution. The worker's 10-second HTTP timeout remains unchanged and may still
-expire. Category-cache refresh and deep-pagination timeouts remain separate.
+execution. Both bootstrap workflows now set `SUPABASE_TIMEOUT_S=30` and share the
+`creator-bootstrap-maintenance` concurrency group with `cancel-in-progress: false`.
+This gives maintenance requests a bounded HTTP budget and prevents those two
+workflows from running together, including manual runs. Vercel and other worker
+clients retain their existing timeout configuration. Other repositories, notebooks,
+and direct SQL callers are not serialized by GitHub Actions concurrency.
+
+The bootstrap workflow changes take effect after deployment; their runtime behavior
+has not yet been verified in production. Database deadlines still apply and are not
+disabled. A shorter live database deadline requires separate measurement and role
+configuration review. Bootstrap cache invalidation is process-local; it does not
+clear caches in running Vercel instances. Category-cache refresh and deep-pagination
+timeouts remain separate issues.
 
 ### Creator Peers Client Read-Only Access (081)
 
