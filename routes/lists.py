@@ -43,6 +43,7 @@ from views.lists import (
     render_language_detail_page,
     render_languages_explorer_page,
     render_lists_page,
+    render_lists_tab,
     render_more_categories,
     render_more_countries,
     render_more_languages,
@@ -65,89 +66,45 @@ def _auth_context(request) -> tuple[str | None, bool, frozenset]:
 INITIAL_GROUPS = 8  # country / category cards visible on first load
 LOAD_MORE_STEP = 8  # how many more to load per "Show more" click
 CREATORS_PER_GROUP = 5  # top creators shown inside each group card
+_LIST_TAB_IDS = (
+    "top-rated",
+    "most-active",
+    "by-country",
+    "by-category",
+    "by-language",
+    "rising",
+    "veterans",
+    "new-channels",
+    "niche-heatmap",
+)
 
 
 def lists_route(request):
     """
     GET /lists — Curated creator lists page.
 
-    Loads all tab data upfront to support UIkit's client-side tab switcher.
-    Also fetches live meta (country + category counts) to drive dynamic
-    tab badges and load-more controls.
+    Loads the selected tab and shared metadata. Other tabs load on demand.
     """
     active_tab = request.query_params.get("tab", "top-rated")
+    if active_tab not in _LIST_TAB_IDS:
+        active_tab = "top-rated"
 
     # Auth context for heart buttons
     user_id, authenticated, fav_keys = _auth_context(request)
 
-    # ── Fire all independent DB calls in parallel ────────────────────────────
-    # All tab data is loaded upfront to support UIkit's client-side tab switcher.
-    # Live meta (country + category counts) drives dynamic tab badges and
-    # load-more controls. All calls are independent — total latency = max(each).
-    with ThreadPoolExecutor(max_workers=11) as pool:
-        # Live DB meta: one combined aggregation scan
+    with ThreadPoolExecutor(max_workers=2) as pool:
         f_meta = pool.submit(get_lists_meta)
-        # Top Rated: quality-sorted creators
-        f_top_rated = pool.submit(get_top_rated_creators, 20)
-        # Most Active: upload-frequency leaders
-        f_most_active = pool.submit(get_most_active_creators, 20)
-        # By Country: first page of groups (offset=0)
-        f_country_rankings = pool.submit(get_country_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP)
-        # By Category: first page of groups (offset=0)
-        f_category_rankings = pool.submit(
-            get_category_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP
-        )
-        # Rising Stars: fastest growth rate
-        f_rising = pool.submit(get_rising_creators, 20)
-        # Veterans: 10+ year channels
-        f_veterans = pool.submit(get_veteran_creators, 20)
-        # New Channels: created within the last year, sorted by engagement
-        f_new_channels = pool.submit(get_new_channels, 20)
-        # Niche Heat Map: category-level aggregated momentum
-        f_heatmap = pool.submit(get_niche_heatmap_data)
-        # By Language: first page of groups (offset=0)
-        f_language_rankings = pool.submit(
-            get_language_groups, 0, INITIAL_GROUPS, CREATORS_PER_GROUP
-        )
-
+        f_tab_data = pool.submit(_load_list_tab_data, active_tab)
         meta = f_meta.result()
-        # A zero is a valid count; only older RPCs that omit the field need a fallback.
-        f_total_languages = (
-            pool.submit(_count_distinct_languages) if "total_languages" not in meta else None
-        )
-        top_rated = f_top_rated.result()
-        most_active = f_most_active.result()
-        country_rankings = f_country_rankings.result()
-        category_rankings = f_category_rankings.result()
-        rising = f_rising.result()
-        veterans = f_veterans.result()
-        new_channels = f_new_channels.result()
-        heatmap = f_heatmap.result()
-        language_rankings = f_language_rankings.result()
-        total_languages_fallback = (
-            f_total_languages.result() if f_total_languages is not None else 0
-        )
+        tab_data = f_tab_data.result()
 
-    # ── Assemble tab_data from parallel results ──────────────────────────────
-    tab_data = {
-        "top_rated": top_rated,
-        "most_active": most_active,
-        "country_rankings": country_rankings,
-        "total_countries": meta["total_countries"],
-        "category_rankings": category_rankings,
-        "total_categories": meta["total_categories"],
-        "rising": rising,
-        "veterans": veterans,
-        "new_channels": new_channels,
-        "heatmap": heatmap,
-        "language_rankings": language_rankings,
-        # meta["total_languages"] comes from migration 003.  On older DB schemas
-        # that predate the RPC column, fall back to _count_distinct_languages() —
-        # pre-fetched above in parallel so there is no extra round-trip.
-        "total_languages": (
-            meta["total_languages"] if "total_languages" in meta else total_languages_fallback
-        ),
-    }
+    tab_data.update(
+        total_countries=meta.get("total_countries", 0),
+        total_categories=meta.get("total_categories", 0),
+        total_languages=meta.get("total_languages", 0),
+    )
+    if "total_languages" not in meta:
+        tab_data["total_languages"] = _count_distinct_languages()
 
     return render_lists_page(
         active_tab=active_tab,
@@ -155,6 +112,49 @@ def lists_route(request):
         fav_keys=fav_keys,
         authenticated=authenticated,
     )
+
+
+def _load_list_tab_data(tab_id: str) -> dict:
+    """Fetch only the creator data needed to render one lists tab."""
+    if tab_id == "top-rated":
+        return {"top_rated": get_top_rated_creators(20)}
+    if tab_id == "most-active":
+        return {"most_active": get_most_active_creators(20)}
+    if tab_id == "by-country":
+        return {"country_rankings": get_country_groups(0, INITIAL_GROUPS, CREATORS_PER_GROUP)}
+    if tab_id == "by-category":
+        return {"category_rankings": get_category_groups(0, INITIAL_GROUPS, CREATORS_PER_GROUP)}
+    if tab_id == "by-language":
+        return {"language_rankings": get_language_groups(0, INITIAL_GROUPS, CREATORS_PER_GROUP)}
+    if tab_id == "rising":
+        return {"rising": get_rising_creators(20)}
+    if tab_id == "veterans":
+        return {"veterans": get_veteran_creators(20)}
+    if tab_id == "new-channels":
+        return {"new_channels": get_new_channels(20)}
+    if tab_id == "niche-heatmap":
+        return {"heatmap": get_niche_heatmap_data()}
+    return {}
+
+
+def lists_tab_route(request, tab_id: str):
+    """HTMX endpoint that loads one deferred /lists tab panel."""
+    if tab_id not in _LIST_TAB_IDS:
+        return Div()
+
+    user_id, authenticated, fav_keys = _auth_context(request)
+    tab_data = _load_list_tab_data(tab_id)
+    if tab_id in {"by-country", "by-category", "by-language"}:
+        meta = get_lists_meta()
+        tab_data.update(
+            total_countries=meta.get("total_countries", 0),
+            total_categories=meta.get("total_categories", 0),
+            total_languages=meta.get("total_languages", 0),
+        )
+        if "total_languages" not in meta:
+            tab_data["total_languages"] = _count_distinct_languages()
+
+    return render_lists_tab(tab_id, tab_data, fav_keys, authenticated)
 
 
 def lists_more_countries_route(request):

@@ -58,7 +58,7 @@ the valid active-job unique index from migration 077. Only `service_role` can
 execute it. It uses the priority enqueue advisory lock and permits at most five
 new jobs when the pending queue has room below 1,000; no general enqueue limits
 are changed. Automatic candidate supply is a separate path provided by migrations
-084-086 and remains disabled unless Kaggle is explicitly run with
+084-086 and 088, and remains disabled unless Kaggle is explicitly run with
 `refresh_auto=True`.
 
 Apply the migration, then run this preview in Supabase SQL Editor:
@@ -107,7 +107,11 @@ from 078 and the active-job unique index from 077. Migration 085 adds the failed
 refresh cooldown index using `CREATE INDEX CONCURRENTLY`; run it with psql
 autocommit, outside a transaction. Migration 086 serializes direct
 `creator_sync_jobs` inserts with the enqueue RPCs by using their shared advisory
-lock. Apply 084-086 before enabling automatic mode. The automatic RPC defaults
+lock. Migration 088 changes the candidate ranking to `DESC NULLS FIRST`, which
+is equivalent because candidates require `current_subscribers >= 10000` and
+matches the existing subscriber index order. The selector plan including
+`row_number()` completed in 0.357 ms without a sort on the measured database.
+Apply 084-086 and 088 before enabling automatic mode. The automatic RPC defaults
 to dry run, but dry-run mode still processes the regular worker queue; it is not
 a preview-only invocation. Review candidate count and query latency before
 setting `refresh_dry_run=False`.

@@ -58,7 +58,7 @@ the valid active-job unique index from migration 077. Only `service_role` can
 execute it. It uses the priority enqueue advisory lock and permits at most five
 new jobs when the pending queue has room below 1,000; no general enqueue limits
 are changed. Automatic candidate supply is a separate path provided by migrations
-084-086 and remains disabled unless Kaggle is explicitly run with
+084-086 and 088, and remains disabled unless Kaggle is explicitly run with
 `refresh_auto=True`.
 
 Apply the migration, then run this preview in Supabase SQL Editor:
@@ -93,7 +93,7 @@ SQL execution and the real Kaggle pilot remain unverified. After apply, verify
 these creators' `last_synced_at` advances and inspect their job outcomes before
 expanding the lane. Do not rerun enqueue on every poll or increase the pilot cap.
 
-### Automatic Unknown-Activity Refresh Supply (084-086)
+### Automatic Unknown-Activity Refresh Supply (084-086, 088)
 
 Migration 084 installs `enqueue_unknown_activity_refresh_batch`, which safely
 parses upload timestamps through migration 078, excludes active jobs, and orders
@@ -105,7 +105,11 @@ Migration 085 adds a partial index for cooldown lookups. Run it separately with
 psql autocommit because it uses `CREATE INDEX CONCURRENTLY`; verify the index is
 valid and ready before proceeding. Migration 086 adds a trigger that shares the
 enqueue advisory lock across direct inserts and updates the growth-baseline RPC
-to use the same lock. Apply 084-086 before enabling Kaggle's `refresh_auto=True`.
+to use the same lock. Migration 088 changes the candidate ranking to
+`DESC NULLS FIRST`, equivalent because candidates require at least 10,000
+subscribers, and aligned with the existing subscriber index. The measured
+selector plan including `row_number()` completed in 0.357 ms without a sort.
+Apply 084-086 and 088 before enabling Kaggle's `refresh_auto=True`.
 
 The disposable SQL regression suite checks two-candidate selection, the
 remaining queue slot, malformed upload timestamps, rank order, long-running

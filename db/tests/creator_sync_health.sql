@@ -48,6 +48,7 @@ VALUES (lpad('10', 32, '0')::uuid, 'processing', now() - interval '1 hour');
 \ir ../migrations/084_enqueue_unknown_activity_refresh_batch.sql
 \ir ../migrations/085_creator_refresh_failure_cooldown_index.sql
 \ir ../migrations/086_serialize_creator_sync_enqueue_lanes.sql
+\ir ../migrations/088_optimize_unknown_activity_refresh_order.sql
 BEGIN;
 DO $$
 DECLARE
@@ -55,7 +56,15 @@ DECLARE
     selected_count bigint;
     first_created timestamptz;
     second_created timestamptz;
+    refresh_function text;
 BEGIN
+    SELECT pg_get_functiondef(
+        'public.enqueue_unknown_activity_refresh_batch(integer,boolean,integer)'::regprocedure
+    ) INTO refresh_function;
+    IF position('desc nulls first, creator.id' IN lower(refresh_function)) = 0 THEN
+        RAISE EXCEPTION 'Automatic refresh selector does not match eligible-subscriber index order';
+    END IF;
+
     INSERT INTO public.creators
         (id, current_subscribers, last_synced_at, first_seen_at, sync_status)
     VALUES

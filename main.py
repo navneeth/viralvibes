@@ -158,6 +158,7 @@ from routes.lists import (
     lists_more_countries_route,
     lists_more_languages_route,
     lists_route,
+    lists_tab_route,
     ranking_detail_more_route,
     ranking_detail_route,
 )
@@ -1703,6 +1704,12 @@ def lists_more_categories(req, sess):
 def lists_more_languages(req, sess):
     """HTMX partial — next batch of language group cards for the By Language tab."""
     return lists_more_languages_route(req)
+
+
+@rt("/lists/tab/{tab_id}")
+def lists_tab(req, sess, tab_id: str):
+    """HTMX partial — content for a deferred creator list tab."""
+    return lists_tab_route(req, tab_id)
 
 
 @rt("/lists/country/{country_code}")

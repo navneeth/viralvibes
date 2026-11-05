@@ -37,6 +37,7 @@ sys.modules.setdefault("db", db_stub)
 views_lists_stub = types.ModuleType("views.lists")
 for _name in [
     "render_lists_page",
+    "render_lists_tab",
     "render_more_categories",
     "render_more_countries",
     "render_more_languages",
@@ -455,6 +456,53 @@ def test_lists_route_skips_language_count_fallback_when_meta_has_count(monkeypat
 
     assert result["tab_data"]["total_languages"] == 0
     language_count_fallback.assert_not_called()
+
+
+def test_lists_route_loads_only_the_active_tab(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "get_lists_meta",
+        lambda: {"total_countries": 1, "total_categories": 1, "total_languages": 2},
+    )
+    loaders = (
+        "get_top_rated_creators",
+        "get_most_active_creators",
+        "get_country_groups",
+        "get_category_groups",
+        "get_language_groups",
+        "get_rising_creators",
+        "get_veteran_creators",
+        "get_new_channels",
+        "get_niche_heatmap_data",
+    )
+    mocks = {name: MagicMock(return_value=[]) for name in loaders}
+    for name, mock in mocks.items():
+        monkeypatch.setattr(lists_routes, name, mock)
+    monkeypatch.setattr(lists_routes, "render_lists_page", lambda **kwargs: kwargs)
+
+    result = lists_routes.lists_route(_req(query_params={"tab": "rising"}))
+
+    mocks["get_rising_creators"].assert_called_once_with(20)
+    for name, mock in mocks.items():
+        if name != "get_rising_creators":
+            mock.assert_not_called()
+    assert result["tab_data"] == {
+        "rising": [],
+        "total_countries": 1,
+        "total_categories": 1,
+        "total_languages": 2,
+    }
+
+
+def test_lists_tab_route_loads_requested_panel(monkeypatch):
+    creators = [{"channel_name": "Rising creator"}]
+    monkeypatch.setattr(lists_routes, "get_rising_creators", lambda limit: creators)
+    monkeypatch.setattr(lists_routes, "render_lists_tab", lambda *args: args)
+
+    result = lists_routes.lists_tab_route(_req(), "rising")
+
+    assert result[0] == "rising"
+    assert result[1] == {"rising": creators}
 
 
 def test_lists_route_uses_language_count_fallback_when_meta_omits_field(monkeypatch):
