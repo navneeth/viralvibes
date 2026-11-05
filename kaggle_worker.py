@@ -198,7 +198,11 @@ def _bootstrap_kaggle_secrets() -> None:
             elif key in optional and optional[key]:
                 os.environ[key] = optional[key]
         except Exception as error:
-            if key != "SUPABASE_TIMEOUT_S":
+            missing_timeout_secret = (
+                key == "SUPABASE_TIMEOUT_S"
+                and "no user secrets exist for kernel id" in str(error).lower()
+            )
+            if not missing_timeout_secret:
                 raise
             logger.info("Optional SUPABASE_TIMEOUT_S secret unavailable; using Kaggle default")
 

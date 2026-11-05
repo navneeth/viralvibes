@@ -87,7 +87,10 @@ def test_kaggle_bootstrap_uses_default_when_timeout_secret_is_missing(monkeypatc
     class FakeSecretsClient:
         def get_secret(self, name):
             if name == "SUPABASE_TIMEOUT_S":
-                raise RuntimeError("BackendError: no user secret exists for this label")
+                raise RuntimeError(
+                    "BackendError: No user secrets exist for kernel id 1 "
+                    "and label SUPABASE_TIMEOUT_S."
+                )
             raise KeyError(name)
 
     monkeypatch.setitem(
@@ -109,6 +112,32 @@ def test_kaggle_bootstrap_uses_default_when_timeout_secret_is_missing(monkeypatc
     kaggle_worker._configure_kaggle_supabase_timeout()
 
     assert os.environ["SUPABASE_TIMEOUT_S"] == "80.0"
+
+
+def test_kaggle_bootstrap_reraises_timeout_secret_service_errors(monkeypatch):
+    class FakeSecretsClient:
+        def get_secret(self, name):
+            if name == "SUPABASE_TIMEOUT_S":
+                raise RuntimeError("BackendError: service unavailable")
+            raise KeyError(name)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kaggle_secrets",
+        SimpleNamespace(UserSecretsClient=FakeSecretsClient),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "secrets_loader",
+        SimpleNamespace(mark_secrets_loaded=MagicMock()),
+    )
+    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "service-key")
+    monkeypatch.setenv("YOUTUBE_API_KEY", "youtube-key")
+    monkeypatch.delenv("SUPABASE_TIMEOUT_S", raising=False)
+
+    with pytest.raises(RuntimeError, match="service unavailable"):
+        kaggle_worker._bootstrap_kaggle_secrets()
 
 
 @pytest.fixture
