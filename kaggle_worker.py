@@ -141,24 +141,17 @@ def _configure_kaggle_supabase_timeout() -> None:
 
     os.environ["SUPABASE_TIMEOUT_S"] = str(timeout)
 
-    # db.py may already be imported by the notebook. Update its cached setting
-    # and any initialized PostgREST clients, not just the environment variable.
-    db_module = sys.modules.get("db")
-    if db_module is None:
-        return
-
-    db_module._SUPABASE_TIMEOUT_S = timeout
-    worker_module = sys.modules.get("worker.creator_worker")
-    clients = (
-        getattr(db_module, "supabase_client", None),
-        getattr(worker_module, "supabase_client", None),
-    )
-    updated_sessions: set[int] = set()
-    for existing_client in clients:
-        session = getattr(getattr(existing_client, "postgrest", None), "session", None)
-        if session is not None and id(session) not in updated_sessions:
+    # Notebook cells may have imported db before kaggle_worker.
+    for module_name in ("db", "worker.creator_worker"):
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        if module_name == "db":
+            module._SUPABASE_TIMEOUT_S = timeout
+        client = getattr(module, "supabase_client", None)
+        session = getattr(getattr(client, "postgrest", None), "session", None)
+        if session is not None:
             session.timeout = timeout
-            updated_sessions.add(id(session))
 
 
 def _bootstrap_kaggle_secrets() -> None:
@@ -204,6 +197,14 @@ def _bootstrap_kaggle_secrets() -> None:
                 missing.append(key)
             elif key in optional and optional[key]:
                 os.environ[key] = optional[key]
+        except Exception as error:
+            missing_timeout_secret = (
+                key == "SUPABASE_TIMEOUT_S"
+                and "no user secrets exist for kernel id" in str(error).lower()
+            )
+            if not missing_timeout_secret:
+                raise
+            logger.info("Optional SUPABASE_TIMEOUT_S secret unavailable; using Kaggle default")
 
     if missing:
         raise ValueError(
