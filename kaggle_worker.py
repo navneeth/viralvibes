@@ -36,6 +36,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import math
+import sys
 import time
 import gc
 import hashlib
@@ -114,12 +116,49 @@ YOUTUBE_API_KEY_NAMES = [
 # ── Step 1: fetch secrets once, before any worker import ─────────────────────
 # This MUST happen before importing creator_worker, because that module reads
 # os.environ at import time for YOUTUBE_DAILY_QUOTA and other constants.
-_DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S = "120"
+_DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S = 80.0
+_MAX_KAGGLE_SUPABASE_TIMEOUT_S = 85.0
 
 
 def _configure_kaggle_supabase_timeout() -> None:
-    # db.py reads this once when creator_worker imports it; preserve operator overrides.
-    os.environ.setdefault("SUPABASE_TIMEOUT_S", _DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S)
+    raw_timeout = os.environ.get("SUPABASE_TIMEOUT_S")
+    try:
+        timeout = (
+            float(raw_timeout) if raw_timeout is not None else _DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S
+        )
+    except (TypeError, ValueError):
+        timeout = float("nan")
+
+    if not math.isfinite(timeout) or timeout < 0.5 or timeout > _MAX_KAGGLE_SUPABASE_TIMEOUT_S:
+        logger.warning(
+            "SUPABASE_TIMEOUT_S=%r is invalid for Kaggle; using %.0fs "
+            "(maximum %.0fs to stay below the 90s job deadline)",
+            raw_timeout,
+            _DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S,
+            _MAX_KAGGLE_SUPABASE_TIMEOUT_S,
+        )
+        timeout = _DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S
+
+    os.environ["SUPABASE_TIMEOUT_S"] = str(timeout)
+
+    # db.py may already be imported by the notebook. Update its cached setting
+    # and any initialized PostgREST clients, not just the environment variable.
+    db_module = sys.modules.get("db")
+    if db_module is None:
+        return
+
+    db_module._SUPABASE_TIMEOUT_S = timeout
+    worker_module = sys.modules.get("worker.creator_worker")
+    clients = (
+        getattr(db_module, "supabase_client", None),
+        getattr(worker_module, "supabase_client", None),
+    )
+    updated_sessions: set[int] = set()
+    for existing_client in clients:
+        session = getattr(getattr(existing_client, "postgrest", None), "session", None)
+        if session is not None and id(session) not in updated_sessions:
+            session.timeout = timeout
+            updated_sessions.add(id(session))
 
 
 def _bootstrap_kaggle_secrets() -> None:
@@ -143,6 +182,7 @@ def _bootstrap_kaggle_secrets() -> None:
     optional = {
         "YOUTUBE_DAILY_QUOTA": "10000",
         "NEXT_PUBLIC_SUPABASE_ANON_KEY": None,
+        "SUPABASE_TIMEOUT_S": None,
     }
     # Add extra API key names as optional secrets
     for key_name in YOUTUBE_API_KEY_NAMES[1:]:  # Skip first one, it's already required
@@ -186,8 +226,8 @@ def _bootstrap_kaggle_secrets() -> None:
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-_configure_kaggle_supabase_timeout()
 _bootstrap_kaggle_secrets()
+_configure_kaggle_supabase_timeout()
 
 # ── Step 2: import worker internals (safe now that env is populated) ──────────
 from worker.creator_worker import (  # noqa: E402
