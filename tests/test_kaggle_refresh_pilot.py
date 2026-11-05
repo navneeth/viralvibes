@@ -1,4 +1,6 @@
 import asyncio
+import os
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,6 +12,75 @@ import worker.creator_worker as creator_worker
 
 
 CREATOR_ID = "6488b4d0-96e9-4cb3-b7da-36cc086f8e75"
+
+
+@pytest.mark.parametrize(
+    "configured, expected",
+    [
+        (None, "80.0"),
+        ("45", "45.0"),
+        ("86", "80.0"),
+        ("120", "80.0"),
+        ("invalid", "80.0"),
+        ("0.1", "80.0"),
+        ("nan", "80.0"),
+    ],
+)
+def test_kaggle_supabase_timeout_has_default_and_override(monkeypatch, configured, expected):
+    if configured is None:
+        monkeypatch.delenv("SUPABASE_TIMEOUT_S", raising=False)
+    else:
+        monkeypatch.setenv("SUPABASE_TIMEOUT_S", configured)
+
+    kaggle_worker._configure_kaggle_supabase_timeout()
+
+    assert os.environ["SUPABASE_TIMEOUT_S"] == expected
+
+
+def test_kaggle_timeout_updates_already_imported_db_and_clients(monkeypatch):
+    db_session = SimpleNamespace(timeout=10)
+    worker_session = SimpleNamespace(timeout=10)
+    db_client = SimpleNamespace(postgrest=SimpleNamespace(session=db_session))
+    worker_client = SimpleNamespace(postgrest=SimpleNamespace(session=worker_session))
+    db_module = SimpleNamespace(_SUPABASE_TIMEOUT_S=10, supabase_client=db_client)
+    worker_module = SimpleNamespace(supabase_client=worker_client)
+    monkeypatch.setitem(sys.modules, "db", db_module)
+    monkeypatch.setitem(sys.modules, "worker.creator_worker", worker_module)
+    monkeypatch.setenv("SUPABASE_TIMEOUT_S", "60")
+
+    kaggle_worker._configure_kaggle_supabase_timeout()
+
+    assert db_module._SUPABASE_TIMEOUT_S == 60
+    assert db_session.timeout == 60
+    assert worker_session.timeout == 60
+
+
+def test_kaggle_bootstrap_loads_timeout_secret_before_default(monkeypatch):
+    class FakeSecretsClient:
+        def get_secret(self, name):
+            if name == "SUPABASE_TIMEOUT_S":
+                return "55"
+            raise KeyError(name)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "kaggle_secrets",
+        SimpleNamespace(UserSecretsClient=FakeSecretsClient),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "secrets_loader",
+        SimpleNamespace(mark_secrets_loaded=MagicMock()),
+    )
+    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "service-key")
+    monkeypatch.setenv("YOUTUBE_API_KEY", "youtube-key")
+    monkeypatch.delenv("SUPABASE_TIMEOUT_S", raising=False)
+
+    kaggle_worker._bootstrap_kaggle_secrets()
+    kaggle_worker._configure_kaggle_supabase_timeout()
+
+    assert os.environ["SUPABASE_TIMEOUT_S"] == "55.0"
 
 
 @pytest.fixture
