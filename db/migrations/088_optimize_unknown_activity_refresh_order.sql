@@ -1,3 +1,31 @@
+-- Keep status retries that enter the pending queue under the shared enqueue lock.
+CREATE OR REPLACE FUNCTION public.lock_creator_sync_job_enqueue()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        PERFORM pg_advisory_xact_lock(
+            hashtextextended('public.enqueue_creator_syncs', 0)
+        );
+    ELSIF TG_OP = 'UPDATE'
+       AND NEW.status = 'pending'
+       AND OLD.status IS DISTINCT FROM NEW.status THEN
+        PERFORM pg_advisory_xact_lock(
+            hashtextextended('public.enqueue_creator_syncs', 0)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_creator_sync_jobs_enqueue_lock
+ON public.creator_sync_jobs;
+CREATE TRIGGER trg_creator_sync_jobs_enqueue_lock
+BEFORE INSERT OR UPDATE OF status ON public.creator_sync_jobs
+FOR EACH ROW EXECUTE FUNCTION public.lock_creator_sync_job_enqueue();
+
 -- Match the existing eligible-subscriber index order so LIMIT can stop after
 -- finding the requested batch instead of sorting all eligible creators.
 -- current_subscribers >= 10000 excludes NULL values, so NULLS FIRST preserves

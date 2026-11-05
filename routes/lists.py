@@ -6,7 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
-from fasthtml.common import Div
+from fasthtml.common import Div, Li
 
 from db import get_creators, get_user_favourite_list_keys
 from db_lists import (
@@ -154,7 +154,7 @@ def lists_tab_route(request, tab_id: str):
         if "total_languages" not in meta:
             tab_data["total_languages"] = _count_distinct_languages()
 
-    return render_lists_tab(tab_id, tab_data, fav_keys, authenticated)
+    return Li(render_lists_tab(tab_id, tab_data, fav_keys, authenticated))
 
 
 def lists_more_countries_route(request):

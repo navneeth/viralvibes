@@ -7,6 +7,10 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
+from fasthtml.common import to_xml
+
+import views.lists as real_lists_view
+
 supabase_stub = types.ModuleType("supabase")
 supabase_stub.Client = object
 supabase_stub.create_client = lambda *args, **kwargs: None
@@ -503,6 +507,33 @@ def test_lists_tab_route_loads_requested_panel(monkeypatch):
 
     assert result[0] == "rising"
     assert result[1] == {"rising": creators}
+
+
+def test_render_lists_tab_rising_contains_creator_name():
+    markup = to_xml(
+        real_lists_view.render_lists_tab(
+            "rising",
+            {"rising": [{"channel_name": "Named Rising Creator"}]},
+        )
+    )
+
+    assert "Named Rising Creator" in markup
+
+
+def test_lists_page_deferred_panels_can_retry_until_loaded(monkeypatch):
+    monkeypatch.setattr(real_lists_view, "_render_lists_editors_rail", lambda: None)
+
+    markup = to_xml(
+        real_lists_view.render_lists_page(
+            active_tab="top-rated",
+            tab_data={"top_rated": []},
+        )
+    )
+
+    assert "from:#lists-tabs" in markup
+    assert "classList.contains('uk-active')" in markup
+    assert 'id="lists-tabs"' in markup
+    assert 'hx-swap="outerHTML"' in markup
 
 
 def test_lists_route_uses_language_count_fallback_when_meta_omits_field(monkeypatch):

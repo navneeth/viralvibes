@@ -57,11 +57,16 @@ DECLARE
     first_created timestamptz;
     second_created timestamptz;
     refresh_function text;
+    enqueue_trigger text;
+    enqueue_trigger_function text;
 BEGIN
     SELECT pg_get_functiondef(
         'public.enqueue_unknown_activity_refresh_batch(integer,boolean,integer)'::regprocedure
     ) INTO refresh_function;
-    IF position('desc nulls first, creator.id' IN lower(refresh_function)) = 0 THEN
+    IF position(
+        'order by creator.current_subscribers desc nulls first, creator.id limit v_budget'
+        IN lower(regexp_replace(refresh_function, E'\\s+', ' ', 'g'))
+    ) = 0 THEN
         RAISE EXCEPTION 'Automatic refresh selector does not match eligible-subscriber index order';
     END IF;
 
@@ -146,6 +151,23 @@ BEGIN
           AND tgenabled <> 'D'
     ) THEN
         RAISE EXCEPTION 'Shared creator sync enqueue lock trigger is missing or disabled';
+    END IF;
+    SELECT pg_get_triggerdef(oid) INTO enqueue_trigger
+    FROM pg_trigger
+    WHERE tgname = 'trg_creator_sync_jobs_enqueue_lock'
+      AND tgrelid = 'public.creator_sync_jobs'::regclass;
+    IF position('before insert or update of status' IN lower(enqueue_trigger)) = 0 THEN
+        RAISE EXCEPTION 'Shared enqueue lock trigger does not cover status updates';
+    END IF;
+    SELECT pg_get_functiondef(tgfoid) INTO enqueue_trigger_function
+    FROM pg_trigger
+    WHERE tgname = 'trg_creator_sync_jobs_enqueue_lock'
+      AND tgrelid = 'public.creator_sync_jobs'::regclass;
+    IF position(
+        'new.status = ''pending'' and old.status is distinct from new.status'
+        IN lower(regexp_replace(enqueue_trigger_function, E'\\s+', ' ', 'g'))
+    ) = 0 THEN
+        RAISE EXCEPTION 'Shared enqueue lock does not cover transitions to pending';
     END IF;
     IF position(
         'public.enqueue_creator_syncs' IN pg_get_functiondef(

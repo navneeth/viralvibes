@@ -1285,8 +1285,11 @@ def render_lists_page(
                     ),
                     id=f"lists-tab-{tab_id}",
                     hx_get=f"/lists/tab/{tab_id}",
-                    hx_trigger="shown once",
-                    hx_swap="innerHTML",
+                    hx_trigger=(
+                        f"shown[document.getElementById('lists-tab-{tab_id}').classList.contains('uk-active')] "
+                        "from:#lists-tabs"
+                    ),
+                    hx_swap="outerHTML",
                 )
             )
 
@@ -1313,6 +1316,7 @@ def render_lists_page(
             TabContainer(
                 *tab_items,
                 uk_switcher="connect: #lists-panels; animation: uk-animation-fade",
+                id="lists-tabs",
                 alt=True,
                 cls="flex-nowrap overflow-x-auto",
             ),
