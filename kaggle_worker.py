@@ -114,6 +114,12 @@ YOUTUBE_API_KEY_NAMES = [
 # ── Step 1: fetch secrets once, before any worker import ─────────────────────
 # This MUST happen before importing creator_worker, because that module reads
 # os.environ at import time for YOUTUBE_DAILY_QUOTA and other constants.
+_DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S = "120"
+
+
+def _configure_kaggle_supabase_timeout() -> None:
+    # db.py reads this once when creator_worker imports it; preserve operator overrides.
+    os.environ.setdefault("SUPABASE_TIMEOUT_S", _DEFAULT_KAGGLE_SUPABASE_TIMEOUT_S)
 
 
 def _bootstrap_kaggle_secrets() -> None:
@@ -180,6 +186,7 @@ def _bootstrap_kaggle_secrets() -> None:
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+_configure_kaggle_supabase_timeout()
 _bootstrap_kaggle_secrets()
 
 # ── Step 2: import worker internals (safe now that env is populated) ──────────
@@ -468,12 +475,15 @@ async def run(
                             "p_max_queue": 1000,
                         }
                     )
+                    rpc_started_at = time.monotonic()
                     try:
                         preview = _cw.supabase_client.rpc(rpc_name, rpc_params).execute()
                     except Exception as error:
                         logger.warning(
-                            "Refresh pilot %s RPC failed; stopping refresh phase without retry: %s",
+                            "Refresh pilot %s RPC failed after %.1fs; stopping refresh phase "
+                            "without retry: %s",
                             "automatic" if refresh_auto else "allowlist",
+                            time.monotonic() - rpc_started_at,
                             error,
                         )
                         if refresh_dry_run is False:
@@ -488,6 +498,11 @@ async def run(
                                     "the allowlisted IDs before another apply run"
                                 )
                         break
+                    logger.info(
+                        "Refresh pilot %s RPC completed in %.1fs",
+                        "automatic" if refresh_auto else "allowlist",
+                        time.monotonic() - rpc_started_at,
+                    )
                     pilot_rows = preview.data or []
                     logger.info(
                         "Unknown-activity refresh preview (remaining job budget=%d): %s",

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,6 +11,18 @@ import worker.creator_worker as creator_worker
 
 
 CREATOR_ID = "6488b4d0-96e9-4cb3-b7da-36cc086f8e75"
+
+
+@pytest.mark.parametrize("configured, expected", [(None, "120"), ("45", "45")])
+def test_kaggle_supabase_timeout_has_default_and_override(monkeypatch, configured, expected):
+    if configured is None:
+        monkeypatch.delenv("SUPABASE_TIMEOUT_S", raising=False)
+    else:
+        monkeypatch.setenv("SUPABASE_TIMEOUT_S", configured)
+
+    kaggle_worker._configure_kaggle_supabase_timeout()
+
+    assert os.environ["SUPABASE_TIMEOUT_S"] == expected
 
 
 @pytest.fixture
