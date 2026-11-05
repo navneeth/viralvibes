@@ -1274,78 +1274,24 @@ def render_lists_page(
         is_active = tab_id == normalized_active_tab
         badge = tab_badges.get(tab_id, "")
         tab_items.append(_tab_li(tab_id, label, icon, is_active, badge=badge))
-
-        # Render appropriate content based on tab type
-        if coming_soon:
-            panel_items.append(Li(_placeholder_content(description, coming_soon=True)))
-        elif tab_id == "top-rated":
-            creators = tab_data.get("top_rated", [])
-            panel_items.append(
-                Li(_render_top_rated_content(creators, description, fav_keys, authenticated))
-            )
-        elif tab_id == "most-active":
-            creators = tab_data.get("most_active", [])
-            panel_items.append(
-                Li(_render_most_active_content(creators, description, fav_keys, authenticated))
-            )
-        elif tab_id == "by-country":
-            country_rankings = tab_data.get("country_rankings", [])
-            panel_items.append(
-                Li(
-                    _render_by_country_content(
-                        country_rankings,
-                        description,
-                        total_countries=total_countries,
-                        fav_keys=fav_keys,
-                        authenticated=authenticated,
-                    )
-                )
-            )
-        elif tab_id == "by-category":
-            category_rankings = tab_data.get("category_rankings", [])
-            panel_items.append(
-                Li(
-                    _render_by_category_content(
-                        category_rankings,
-                        description,
-                        total_categories=total_categories,
-                        fav_keys=fav_keys,
-                        authenticated=authenticated,
-                    )
-                )
-            )
-        elif tab_id == "by-language":
-            language_rankings = tab_data.get("language_rankings", [])
-            panel_items.append(
-                Li(
-                    _render_by_language_content(
-                        language_rankings,
-                        description,
-                        total_languages=total_languages,
-                        fav_keys=fav_keys,
-                        authenticated=authenticated,
-                    )
-                )
-            )
-        elif tab_id == "rising":
-            creators = tab_data.get("rising", [])
-            panel_items.append(
-                Li(_render_rising_content(creators, description, fav_keys, authenticated))
-            )
-        elif tab_id == "veterans":
-            creators = tab_data.get("veterans", [])
-            panel_items.append(
-                Li(_render_veterans_content(creators, description, fav_keys, authenticated))
-            )
-        elif tab_id == "new-channels":
-            creators = tab_data.get("new_channels", [])
-            panel_items.append(
-                Li(_render_new_channels_content(creators, description, fav_keys, authenticated))
-            )
-        elif tab_id == "niche-heatmap":
-            panel_items.append(Li(render_niche_heatmap_tab(tab_data.get("heatmap", []))))
+        if is_active or coming_soon:
+            panel_items.append(Li(render_lists_tab(tab_id, tab_data, fav_keys, authenticated)))
         else:
-            panel_items.append(Li(_placeholder_content(description, coming_soon=False)))
+            panel_items.append(
+                Li(
+                    Div(
+                        P("Loading list...", cls="text-sm text-muted-foreground"),
+                        cls="min-h-64 flex items-center justify-center",
+                    ),
+                    id=f"lists-tab-{tab_id}",
+                    hx_get=f"/lists/tab/{tab_id}",
+                    hx_trigger=(
+                        f"shown[document.getElementById('lists-tab-{tab_id}').classList.contains('uk-active')] "
+                        "from:#lists-tabs"
+                    ),
+                    hx_swap="outerHTML",
+                )
+            )
 
     return Div(
         # ── Page header ────────────────────────────────────────────────────────
@@ -1370,6 +1316,7 @@ def render_lists_page(
             TabContainer(
                 *tab_items,
                 uk_switcher="connect: #lists-panels; animation: uk-animation-fade",
+                id="lists-tabs",
                 alt=True,
                 cls="flex-nowrap overflow-x-auto",
             ),
@@ -1383,6 +1330,69 @@ def render_lists_page(
         ),
         cls="max-w-4xl mx-auto px-4 pb-16",
     )
+
+
+def render_lists_tab(
+    tab_id: str,
+    tab_data: dict,
+    fav_keys: frozenset = frozenset(),
+    authenticated: bool = False,
+) -> FT:
+    """Render the content for one tab in the lists switcher."""
+    tab = next((item for item in LISTS_TABS if item[0] == tab_id), None)
+    if tab is None:
+        return Div()
+
+    _, _, _, description, coming_soon = tab
+    if coming_soon:
+        return _placeholder_content(description, coming_soon=True)
+    if tab_id == "top-rated":
+        return _render_top_rated_content(
+            tab_data.get("top_rated", []), description, fav_keys, authenticated
+        )
+    if tab_id == "most-active":
+        return _render_most_active_content(
+            tab_data.get("most_active", []), description, fav_keys, authenticated
+        )
+    if tab_id == "by-country":
+        return _render_by_country_content(
+            tab_data.get("country_rankings", []),
+            description,
+            total_countries=tab_data.get("total_countries", 0),
+            fav_keys=fav_keys,
+            authenticated=authenticated,
+        )
+    if tab_id == "by-category":
+        return _render_by_category_content(
+            tab_data.get("category_rankings", []),
+            description,
+            total_categories=tab_data.get("total_categories", 0),
+            fav_keys=fav_keys,
+            authenticated=authenticated,
+        )
+    if tab_id == "by-language":
+        return _render_by_language_content(
+            tab_data.get("language_rankings", []),
+            description,
+            total_languages=tab_data.get("total_languages", 0),
+            fav_keys=fav_keys,
+            authenticated=authenticated,
+        )
+    if tab_id == "rising":
+        return _render_rising_content(
+            tab_data.get("rising", []), description, fav_keys, authenticated
+        )
+    if tab_id == "veterans":
+        return _render_veterans_content(
+            tab_data.get("veterans", []), description, fav_keys, authenticated
+        )
+    if tab_id == "new-channels":
+        return _render_new_channels_content(
+            tab_data.get("new_channels", []), description, fav_keys, authenticated
+        )
+    if tab_id == "niche-heatmap":
+        return render_niche_heatmap_tab(tab_data.get("heatmap", []))
+    return _placeholder_content(description, coming_soon=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
