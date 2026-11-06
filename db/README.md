@@ -102,9 +102,22 @@ WHERE id = '6488b4d0-96e9-4cb3-b7da-36cc086f8e75'::uuid;
 To stop new collection, unset the variable or set it to an empty string. No
 history, image data, or new queue lanes are introduced.
 
-PR 3 will add the latest-12 profile comparison with browser-only frame loading,
-neutral availability states, and frame switching. History pagination, Shorts
-classification, scoring, and new queue lanes are explicitly deferred.
+PR 3 renders the latest-12 snapshot after profile analytics and before similar
+creators, using the existing creator-row read. Profiles with `NULL` or missing
+snapshot data omit the section. An empty array renders a successful-empty
+message; malformed rows do not become YouTube URLs. Missing metrics remain
+unavailable rather than zero, and the metadata fetch date is shown when known.
+
+Official thumbnails load directly from `i.ytimg.com`. Mid frames load when rows
+approach the viewport; Early/Mid/Late controls select other frames without a
+server request. The browser tries `maxresN.jpg` then `hqN.jpg`, rejects the
+120-pixel placeholder, and offers retry on failure. An in-memory bounded cache
+deduplicates probes; request guards ignore stale frame-selection responses.
+Availability is a browser observation, not a stored flag or an honesty score.
+
+History pagination, Shorts classification, scoring, image storage, and new
+queue lanes remain deferred. Verify the public image URLs across representative
+videos and browsers; frame timestamps and availability are not guaranteed.
 
 ### Unknown-Activity Refresh Pilot (083)
 
