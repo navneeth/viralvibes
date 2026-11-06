@@ -586,6 +586,89 @@ def test_normal_run_does_not_enqueue_pilot(monkeypatch, pilot_client):
     kaggle_worker.init.assert_awaited_once_with()
 
 
+def test_repeated_runs_report_only_current_outcomes_without_resetting_quota(
+    monkeypatch, pilot_client
+):
+    _fake_pool(monkeypatch)
+    for metric_name, value in {
+        "syncs_processed": 100,
+        "syncs_failed": 20,
+        "api_errors": 5,
+        "youtube_credits_used": 300,
+    }.items():
+        monkeypatch.setattr(kaggle_worker.metrics, metric_name, value)
+    monkeypatch.setattr(
+        kaggle_worker,
+        "_fetch_pending_jobs",
+        lambda **kwargs: [{"id": 1, "creator_id": CREATOR_ID}],
+    )
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", MagicMock())
+    report = MagicMock()
+    monkeypatch.setattr(kaggle_worker, "_display_final_report", report)
+
+    async def handle(**kwargs):
+        kaggle_worker.metrics.syncs_processed += 1
+        kaggle_worker.metrics.youtube_credits_used += 1
+        return True
+
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
+
+    for expected_quota in (301, 302):
+        asyncio.run(kaggle_worker.run(max_jobs=1))
+        run_metrics = report.call_args.args[3]
+        assert run_metrics.syncs_processed == 1
+        assert run_metrics.syncs_failed == run_metrics.api_errors == 0
+        assert run_metrics.youtube_credits_used == expected_quota
+        assert report.call_args.args[4] == "Job limit reached"
+
+    assert kaggle_worker.metrics.syncs_processed == 102
+    assert kaggle_worker.metrics.syncs_failed == 20
+    assert kaggle_worker.metrics.api_errors == 5
+    assert kaggle_worker.metrics.youtube_credits_used == 302
+
+
+@pytest.mark.parametrize(
+    "scenario, expected_reason",
+    [
+        ("empty", "No currently eligible jobs returned"),
+        ("stop", "Stop requested"),
+        ("quota", "All API keys exhausted"),
+        ("read_error", "Queue reads failed"),
+        ("dry_run", "Refresh preview completed (dry run)"),
+        ("rpc_error", "Refresh enqueue failed"),
+        ("pilot", "Refresh pilot has no currently eligible jobs"),
+    ],
+)
+def test_run_reports_stop_reason(monkeypatch, pilot_client, scenario, expected_reason):
+    pool = _fake_pool(monkeypatch)
+    report = MagicMock()
+    monkeypatch.setattr(kaggle_worker, "_display_final_report", report)
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", AsyncMock())
+    fetch = MagicMock(return_value=[])
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    options = {"max_empty_polls": 1}
+    if scenario == "stop":
+        monkeypatch.setattr(kaggle_worker.stop_event, "is_set", lambda: True)
+    elif scenario == "quota":
+        pool.all_exhausted_event.is_set = lambda: True
+    elif scenario == "read_error":
+        options["refresh_auto"] = True
+        fetch.side_effect = RuntimeError("database unavailable")
+    elif scenario in ("dry_run", "rpc_error", "pilot"):
+        options["refresh_auto"] = True
+        if scenario == "rpc_error":
+            pilot_client.rpc.return_value.execute.side_effect = RuntimeError("RPC failed")
+        elif scenario == "pilot":
+            options["refresh_dry_run"] = False
+            pilot_client.rpc.return_value.execute.return_value = SimpleNamespace(
+                data=[{"creator_id": CREATOR_ID}]
+            )
+
+    asyncio.run(kaggle_worker.run(**options))
+
+    assert expected_reason in report.call_args.args[4]
+
+
 @pytest.mark.parametrize("ids", [[], [CREATOR_ID] * 6, ["invalid-id"]])
 def test_invalid_pilot_allowlist_fails_before_enqueue(pilot_client, ids):
     with pytest.raises(ValueError):

@@ -41,6 +41,7 @@ import sys
 import time
 import gc
 import hashlib
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -63,7 +64,9 @@ logger = logging.getLogger("kaggle_worker")
 # =============================================================================
 
 
-def _display_final_report(jobs_processed: int, elapsed: float, key_pool, metrics) -> None:
+def _display_final_report(
+    jobs_processed: int, elapsed: float, key_pool, metrics, stop_reason: str = ""
+) -> None:
     """
     Renders a clean visual summary in Jupyter cell output (Kaggle only).
     Falls back to logging in non-Kaggle environments.
@@ -85,6 +88,7 @@ def _display_final_report(jobs_processed: int, elapsed: float, key_pool, metrics
 | **Quota Used** | {metrics.youtube_credits_used} / {YOUTUBE_DAILY_QUOTA} ({metrics.quota_percentage():.2f}%) |
 | **API Errors** | {metrics.api_errors} |
 | **Failed Jobs** | {metrics.syncs_failed} |
+| **Stop Reason** | {stop_reason} |
 """
         display(Markdown(report))
 
@@ -412,6 +416,8 @@ async def run(
             raise ValueError("Refresh pilot requires one to five creator IDs")
         refresh_creator_ids = list(dict.fromkeys(str(UUID(value)) for value in refresh_creator_ids))
     refresh_enabled = refresh_auto or refresh_creator_ids is not None
+    starting_metrics = copy(metrics)
+    stop_reason = ""
 
     # ── Build key pool from env ───────────────────────────────────────────────
     key_pool = KeyPool.from_env()
@@ -477,6 +483,7 @@ async def run(
                 )
                 if fetch_failures >= _MAX_FETCH_FAILURES:
                     logger.error("Stopping worker because queue reads are unavailable, not empty")
+                    stop_reason = "Queue reads failed"
                     break
                 await asyncio.sleep(min(30 * (2 ** (fetch_failures - 1)), 300))
                 continue
@@ -520,6 +527,7 @@ async def run(
                     try:
                         preview = _cw.supabase_client.rpc(rpc_name, rpc_params).execute()
                     except Exception as error:
+                        stop_reason = "Refresh enqueue failed; apply outcome may be unknown"
                         logger.warning(
                             "Refresh pilot %s RPC failed after %.1fs; stopping refresh phase "
                             "without retry: %s",
@@ -551,6 +559,7 @@ async def run(
                         pilot_rows,
                     )
                     if refresh_dry_run is not False:
+                        stop_reason = "Refresh preview completed (dry run)"
                         break
                     refresh_pilot_job_ids = [
                         row["creator_id"] for row in pilot_rows if row.get("creator_id")
@@ -565,10 +574,22 @@ async def run(
                         )
                         continue
                     logger.info("No eligible unknown-activity pilot jobs were enqueued")
-                logger.info("✅ Queue empty for %d consecutive polls — stopping", empty_polls)
+                stop_reason = (
+                    "Refresh pilot has no currently eligible jobs; delayed retries may remain"
+                    if refresh_pilot_active
+                    else "No currently eligible jobs returned; delayed retries or processing jobs may remain"
+                )
+                if not refresh_enabled:
+                    stop_reason += "; queue read errors may be logged above"
+                logger.info("%s (after %d polls)", stop_reason, empty_polls)
                 break
             backoff = min(30 * (2 ** (empty_polls - 1)), 300)
-            logger.info("Queue empty (%d/%d) — sleeping %ds", empty_polls, max_empty_polls, backoff)
+            logger.info(
+                "No currently eligible jobs (%d/%d) - sleeping %ds",
+                empty_polls,
+                max_empty_polls,
+                backoff,
+            )
             await asyncio.sleep(backoff)
             continue
 
@@ -631,6 +652,7 @@ async def run(
                     continue
                 else:
                     logger.error("  🛑 All keys exhausted — stopping worker")
+                    stop_reason = "All API keys exhausted"
                     break
             else:
                 jobs_processed += 1
@@ -638,6 +660,20 @@ async def run(
 
     # ── Final summary + refresh hero stats ───────────────────────────────────
     elapsed = time.time() - start_time
+    if not stop_reason:
+        if stop_event.is_set():
+            stop_reason = "Stop requested"
+        elif key_pool.all_exhausted_event.is_set():
+            stop_reason = "All API keys exhausted"
+        else:
+            stop_reason = "Job limit reached"
+    run_metrics = copy(metrics)
+    for metric_name in ("syncs_processed", "syncs_failed", "api_errors"):
+        setattr(
+            run_metrics,
+            metric_name,
+            getattr(metrics, metric_name) - getattr(starting_metrics, metric_name),
+        )
 
     try:
         # The coverage snapshot is a small operational summary. Materialized
@@ -680,11 +716,12 @@ async def run(
         # Log text summary
         logger.info("=" * 60)
         logger.info("Kaggle worker finished")
+        logger.info("  Stop reason    : %s", stop_reason)
         logger.info("  Jobs processed : %d", jobs_processed)
         logger.info("  Uptime         : %.0fs (%.1f min)", elapsed, elapsed / 60)
-        logger.info("  Succeeded      : %d", metrics.syncs_processed)
-        logger.info("  Failed         : %d", metrics.syncs_failed)
-        logger.info("  API errors     : %d", metrics.api_errors)
+        logger.info("  Succeeded      : %d", run_metrics.syncs_processed)
+        logger.info("  Failed         : %d", run_metrics.syncs_failed)
+        logger.info("  API errors     : %d", run_metrics.api_errors)
         logger.info(
             "  YT Quota used  : %d / %d (%.2f%%)",
             metrics.youtube_credits_used,
@@ -695,7 +732,7 @@ async def run(
         logger.info("=" * 60)
     finally:
         # Always display visual report if in Kaggle, even if logging failed
-        _display_final_report(jobs_processed, elapsed, key_pool, metrics)
+        _display_final_report(jobs_processed, elapsed, key_pool, run_metrics, stop_reason)
 
 
 # ── Notebook convenience: run directly with %run kaggle_worker.py ─────────────
