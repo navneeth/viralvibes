@@ -142,8 +142,9 @@ def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
         (0, 25_000, 115, False),
     ],
 )
+@pytest.mark.parametrize("snapshot_enabled", [False, True])
 def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
-    monkeypatch, fresh_subscribers, fresh_views, fresh_videos, valid_stats
+    monkeypatch, fresh_subscribers, fresh_views, fresh_videos, valid_stats, snapshot_enabled
 ):
     import worker.creator_worker as creator_worker
 
@@ -172,6 +173,20 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
     monkeypatch.setattr(creator_worker, "mark_creator_sync_processing", lambda _job_id: True)
     monkeypatch.setattr(creator_worker, "mark_creator_sync_completed", lambda _job_id: True)
     monkeypatch.setattr(creator_worker, "_needs_category_fetch", lambda _category: False)
+    monkeypatch.setattr(
+        creator_worker, "_recent_video_snapshot_enabled", lambda _: snapshot_enabled
+    )
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    query.update.side_effect = RuntimeError("Optional snapshot update denied")
+    snapshot_write = MagicMock(wraps=creator_worker._persist_recent_video_snapshot)
+    monkeypatch.setattr(creator_worker, "_persist_recent_video_snapshot", snapshot_write)
     failed_jobs = []
     monkeypatch.setattr(
         creator_worker,
@@ -189,8 +204,14 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
             "channel_age_days": 900,
         }
 
+    fetch_options = {}
+
     async def _fetch_recent_video_intelligence(*_args, **_kwargs):
-        return creator_worker._empty_recent_video_intelligence()
+        fetch_options.update(_kwargs)
+        result = creator_worker._empty_recent_video_intelligence_success()
+        result["recent_video_sample_size"] = 1
+        result["recent_videos"] = []
+        return result
 
     monkeypatch.setattr(creator_worker, "_fetch_channel_data", _fetch_channel_data)
     monkeypatch.setattr(
@@ -217,6 +238,9 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
 
     result = asyncio.run(creator_worker.handle_sync_job(7, "creator-1"))
 
+    assert fetch_options.get("include_snapshot", False) is snapshot_enabled
+    assert snapshot_write.call_count == int(snapshot_enabled)
+    assert query.update.call_count == int(snapshot_enabled)
     if valid_stats:
         assert result is True
         assert captured["subscribers_change_30d"] == 200
