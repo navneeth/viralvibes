@@ -668,7 +668,11 @@ _CREATOR_STATE_REQUIRED_COLUMNS = (
     "prev_video_count",
     "prev_snapshot_at",
 )
-_CREATOR_STATE_OPTIONAL_COLUMNS = ("recent_upload", "avg_days_between_uploads")
+_CREATOR_STATE_OPTIONAL_COLUMNS = (
+    "recent_upload",
+    "avg_days_between_uploads",
+    "recent_videos_requested_at",
+)
 
 
 def _creator_state_select_columns(available_columns: set[str] | None) -> str:
@@ -809,9 +813,12 @@ def _recent_video_snapshot_enabled(creator_id: str) -> bool:
 
 
 def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict | None:
-    """Read at most 25 allowlisted snapshots; never enqueue or modify data."""
+    """Inspect a bounded manual or demand cohort; never enqueue or modify data."""
     configured_ids = sorted(_recent_video_snapshot_allowlist())
-    if not configured_ids:
+    demand_scope = not configured_ids and "recent_videos_requested_at" in (
+        schema_detector.available_columns or set()
+    )
+    if not configured_ids and not demand_scope:
         return None
     columns = {"recent_videos", "recent_videos_fetched_at"}
     if not columns.issubset(schema_detector.available_columns or set()):
@@ -819,13 +826,19 @@ def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict |
         return None
     selected_ids = configured_ids[:25]
     try:
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id,recent_videos,recent_videos_fetched_at")
-            .in_("id", selected_ids)
-            .limit(25)
-            .execute()
+        query = supabase_client.table(CREATOR_TABLE).select(
+            "id,recent_videos,recent_videos_fetched_at"
         )
+        if demand_scope:
+            response = (
+                query.not_.is_("recent_videos_requested_at", "null")
+                .order("recent_videos_requested_at", desc=True)
+                .limit(26)
+                .execute()
+            )
+            selected_ids = [row["id"] for row in (response.data or [])[:25]]
+        else:
+            response = query.in_("id", selected_ids).limit(25).execute()
         rows = {row["id"]: row for row in (response.data or []) if row.get("id") in selected_ids}
         now = as_of or datetime.now(timezone.utc)
         if now.tzinfo is None:
@@ -842,6 +855,16 @@ def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict |
             "invalid": 0,
             "cached_videos": 0,
         }
+        if demand_scope:
+            health.update(
+                {
+                    "scope": "recent_demand",
+                    "configured": None,
+                    "not_inspected": None,
+                    "missing_or_inaccessible": None,
+                    "has_more": len(response.data or []) > 25,
+                }
+            )
         for row in rows.values():
             snapshot = row.get("recent_videos")
             fetched_at = row.get("recent_videos_fetched_at")
@@ -880,10 +903,10 @@ def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict |
 
 
 def _persist_recent_video_snapshot(
-    creator_id: str, video_intel: dict, snapshot_started_at: datetime
+    creator_id: str, video_intel: dict, snapshot_started_at: datetime, *, enrolled: bool = False
 ) -> bool:
     """Write optional video metadata without affecting core sync success."""
-    if not _recent_video_snapshot_enabled(creator_id):
+    if not enrolled and not _recent_video_snapshot_enabled(creator_id):
         return False
     if not video_intel.get("recent_video_fetch_succeeded") or "recent_videos" not in video_intel:
         return False
@@ -1964,7 +1987,8 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
-        snapshot_enabled = _recent_video_snapshot_enabled(creator_id)
+        snapshot_enrolled = creator.get("recent_videos_requested_at") is not None
+        snapshot_enabled = snapshot_enrolled or _recent_video_snapshot_enabled(creator_id)
         video_intel = await _fetch_recent_video_intelligence(
             channel_id,
             uploads_playlist_id=channel_data.get("uploads_playlist_id"),
@@ -2310,7 +2334,12 @@ async def handle_sync_job(
                 raise Exception("DB update completely failed after fallback")
 
         if snapshot_enabled:
-            _persist_recent_video_snapshot(creator_id, video_intel, snapshot_started_at)
+            _persist_recent_video_snapshot(
+                creator_id,
+                video_intel,
+                snapshot_started_at,
+                **({"enrolled": True} if snapshot_enrolled else {}),
+            )
 
         # STAGE 5: Mark job done
         if is_invalid:

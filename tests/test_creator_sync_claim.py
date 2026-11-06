@@ -143,8 +143,15 @@ def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
     ],
 )
 @pytest.mark.parametrize("snapshot_enabled", [False, True])
+@pytest.mark.parametrize("enrolled", [False, True])
 def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
-    monkeypatch, fresh_subscribers, fresh_views, fresh_videos, valid_stats, snapshot_enabled
+    monkeypatch,
+    fresh_subscribers,
+    fresh_views,
+    fresh_videos,
+    valid_stats,
+    snapshot_enabled,
+    enrolled,
 ):
     import worker.creator_worker as creator_worker
 
@@ -162,6 +169,7 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
         "prev_snapshot_at": old_snapshot_at.isoformat(),
         "recent_upload": {"published_at": "2026-10-20T12:00:00Z"},
         "avg_days_between_uploads": 4.25,
+        "recent_videos_requested_at": "2026-11-06T00:00:00Z" if enrolled else None,
     }
     query = MagicMock()
     query.select.return_value = query
@@ -238,9 +246,11 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
 
     result = asyncio.run(creator_worker.handle_sync_job(7, "creator-1"))
 
-    assert fetch_options.get("include_snapshot", False) is snapshot_enabled
-    assert snapshot_write.call_count == int(snapshot_enabled)
-    assert query.update.call_count == int(snapshot_enabled)
+    assert fetch_options.get("include_snapshot", False) is (snapshot_enabled or enrolled)
+    assert snapshot_write.call_count == int(snapshot_enabled or enrolled)
+    assert query.update.call_count == int(snapshot_enabled or enrolled)
+    if enrolled:
+        assert snapshot_write.call_args.kwargs == {"enrolled": True}
     if valid_stats:
         assert result is True
         assert captured["subscribers_change_30d"] == 200
