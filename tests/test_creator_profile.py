@@ -10,6 +10,7 @@ Coverage:
 """
 
 from html.parser import HTMLParser
+from copy import deepcopy
 
 import pytest
 from starlette.testclient import TestClient
@@ -33,7 +34,10 @@ def test_video_deep_dive_is_read_only_bounded_and_escapes_titles():
         }
         for index in range(15)
     ]
-    html = to_xml(render_video_deep_dive({"recent_videos": videos}))
+    creator = {"recent_videos": videos, "recent_videos_fetched_at": "2026-11-06T00:00:00Z"}
+    original = deepcopy(creator)
+    html = to_xml(render_video_deep_dive(creator))
+    assert creator == original
     assert html.count('data-vv-video="') == 12
     assert "Latest 12 cached videos" in html
     assert "&lt;script&gt;" in html

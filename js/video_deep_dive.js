@@ -7,14 +7,18 @@
         return new Promise(resolve => {
             const image = new Image();
             let timer;
-            const finish = available => {
+            let settled = false;
+            const finish = (available, cancel = false) => {
+                if (settled) return;
+                settled = true;
                 clearTimeout(timer);
                 image.onload = image.onerror = null;
+                if (cancel) image.removeAttribute('src');
                 resolve(available);
             };
             image.onload = () => finish(image.naturalWidth > 120);
             image.onerror = () => finish(false);
-            timer = setTimeout(() => finish(false), 10000);
+            timer = setTimeout(() => finish(false, true), 10000);
             image.src = url;
         });
     }
