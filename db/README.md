@@ -119,6 +119,47 @@ History pagination, Shorts classification, scoring, image storage, and new
 queue lanes remain deferred. Verify the public image URLs across representative
 videos and browsers; frame timestamps and availability are not guaranteed.
 
+### Video Snapshot Pilot Diagnostics (PR 4)
+
+The Kaggle summary reports per-run video snapshots saved, snapshot-write errors,
+and migration-column skips. These counters do not reset cumulative YouTube quota
+accounting. A stale-write guard that returns no updated row is not counted as a
+successful write or an error.
+
+Optional coverage diagnostics are disabled by default. Enable them before a
+normal worker run with:
+
+```python
+import os
+os.environ["KAGGLE_REPORT_VIDEO_SNAPSHOT_HEALTH"] = "true"
+```
+
+The health reader inspects only the first 25 sorted, valid UUIDs configured in
+`CREATOR_RECENT_VIDEO_ALLOWLIST`, using one primary-key-filtered read. It reports
+configured/inspected/not-inspected counts, missing-or-inaccessible creators,
+uncollected/empty/populated/invalid snapshots, cached video count, and snapshots
+at least seven days old. Stale is a freshness diagnostic, not a content-quality
+verdict or an automatic refresh trigger. Invalid includes malformed snapshot
+shape, invalid video IDs, and missing, malformed, or future fetch timestamps.
+
+No allowlist means no health read. Missing columns or read failures make health
+unavailable, not healthy; warnings identify the reason. Report failures do not
+interrupt the regular run summary. The read itself does not enqueue, update,
+download images, or call YouTube. It transfers bounded cached metadata rather
+than scanning the creator population. No migration or index is added.
+
+After the worker has initialized, diagnostics can also be inspected separately:
+
+```python
+import worker.creator_worker as cw
+print(cw.get_recent_video_snapshot_health())
+```
+
+This helper is read-only. A normal worker invocation is not: its existing job
+processing and startup/end-of-run maintenance are unchanged. Disable automatic
+health reads by unsetting `KAGGLE_REPORT_VIDEO_SNAPSHOT_HEALTH` or setting it to
+`false`.
+
 ### Unknown-Activity Refresh Pilot (083)
 
 Migration 083 installs `enqueue_unknown_activity_refreshes` without inserting

@@ -35,6 +35,131 @@ _AS_OF = datetime(2026, 2, 1, tzinfo=timezone.utc)
 _SNAPSHOT_CREATOR_ID = "6488b4d0-96e9-4cb3-b7da-36cc086f8e75"
 
 
+def test_snapshot_health_is_bounded_allowlisted_and_read_only(monkeypatch):
+    import worker.creator_worker as creator_worker
+
+    ids = [f"{index:08x}-0000-0000-0000-000000000000" for index in range(30)]
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", ",".join(reversed(ids)))
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    client = MagicMock()
+    query = client.table.return_value
+    query.select.return_value = query
+    query.in_.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(
+        data=[
+            {"id": ids[0], "recent_videos": None, "recent_videos_fetched_at": None},
+            {"id": ids[1], "recent_videos": [], "recent_videos_fetched_at": _AS_OF.isoformat()},
+            {
+                "id": ids[2],
+                "recent_videos": [{"video_id": "abcdefghijk"}],
+                "recent_videos_fetched_at": (_AS_OF - timedelta(days=7)).isoformat(),
+            },
+            {"id": ids[3], "recent_videos": "bad", "recent_videos_fetched_at": _AS_OF.isoformat()},
+            {"id": ids[4], "recent_videos": [], "recent_videos_fetched_at": None},
+            {"id": ids[29], "recent_videos": [], "recent_videos_fetched_at": _AS_OF.isoformat()},
+        ]
+    )
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    assert creator_worker.get_recent_video_snapshot_health(as_of=_AS_OF) == {
+        "configured": 30,
+        "inspected": 25,
+        "not_inspected": 5,
+        "missing_or_inaccessible": 20,
+        "uncollected": 1,
+        "empty": 1,
+        "populated": 1,
+        "stale": 1,
+        "invalid": 2,
+        "cached_videos": 1,
+    }
+    query.in_.assert_called_once_with("id", sorted(ids)[:25])
+    query.limit.assert_called_once_with(25)
+    query.update.assert_not_called()
+    query.insert.assert_not_called()
+    client.rpc.assert_not_called()
+
+
+@pytest.mark.parametrize("reason", ["disabled", "missing_columns", "read_failed"])
+def test_snapshot_health_reports_unavailable_without_writes(monkeypatch, reason):
+    import worker.creator_worker as creator_worker
+
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    client = MagicMock()
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    if reason == "disabled":
+        monkeypatch.delenv("CREATOR_RECENT_VIDEO_ALLOWLIST")
+    elif reason == "missing_columns":
+        monkeypatch.setattr(creator_worker.schema_detector, "available_columns", None)
+    else:
+        client.table.side_effect = RuntimeError("read failed")
+
+    assert creator_worker.get_recent_video_snapshot_health(as_of=_AS_OF) is None
+    if reason != "read_failed":
+        client.table.assert_not_called()
+    client.rpc.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "snapshot, fetched_at",
+    [
+        ([], "bad"),
+        ([], "2027-01-01T00:00:00Z"),
+        ([{"video_id": "../bad"}], "2026-02-01T00:00:00Z"),
+        ([{"video_id": "abcdefghijk"}] * 13, "2026-02-01T00:00:00Z"),
+    ],
+)
+def test_snapshot_health_flags_invalid_data(monkeypatch, snapshot, fetched_at):
+    import worker.creator_worker as creator_worker
+
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    client = MagicMock()
+    query = client.table.return_value
+    query.select.return_value = query
+    query.in_.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value = SimpleNamespace(
+        data=[
+            {
+                "id": _SNAPSHOT_CREATOR_ID,
+                "recent_videos": snapshot,
+                "recent_videos_fetched_at": fetched_at,
+            }
+        ]
+    )
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    health = creator_worker.get_recent_video_snapshot_health(as_of=_AS_OF)
+
+    assert health["invalid"] == 1
+    assert health["populated"] == health["empty"] == health["cached_videos"] == 0
+    query.update.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "configured, enabled",
     [
@@ -59,6 +184,7 @@ def test_snapshot_write_replaces_data_with_its_own_timestamp_guard(monkeypatch, 
     import worker.creator_worker as creator_worker
 
     monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(creator_worker.metrics, "video_snapshots_saved", 0)
     monkeypatch.setattr(
         creator_worker.schema_detector,
         "available_columns",
@@ -90,6 +216,7 @@ def test_snapshot_write_replaces_data_with_its_own_timestamp_guard(monkeypatch, 
         }
     )
     query.eq.assert_called_once_with("id", _SNAPSHOT_CREATOR_ID)
+    assert creator_worker.metrics.video_snapshots_saved == 1
     query.or_.assert_called_once_with(
         "recent_videos_fetched_at.is.null," f"recent_videos_fetched_at.lt.{_AS_OF.isoformat()}"
     )
@@ -100,6 +227,7 @@ def test_snapshot_write_skips_without_touching_cached_data(monkeypatch, reason):
     import worker.creator_worker as creator_worker
 
     monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(creator_worker.metrics, "video_snapshot_schema_skips", 0)
     monkeypatch.setattr(
         creator_worker.schema_detector,
         "available_columns",
@@ -129,6 +257,7 @@ def test_snapshot_write_skips_without_touching_cached_data(monkeypatch, reason):
         is False
     )
     client.table.assert_not_called()
+    assert creator_worker.metrics.video_snapshot_schema_skips == int(reason == "missing_columns")
 
 
 @pytest.mark.parametrize(
@@ -138,6 +267,7 @@ def test_snapshot_database_errors_are_nonfatal(monkeypatch, error, caplog):
     import worker.creator_worker as creator_worker
 
     monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(creator_worker.metrics, "video_snapshot_write_errors", 0)
     monkeypatch.setattr(
         creator_worker.schema_detector,
         "available_columns",
@@ -159,6 +289,7 @@ def test_snapshot_database_errors_are_nonfatal(monkeypatch, error, caplog):
         is False
     )
     assert "snapshot write failed" in caplog.text
+    assert creator_worker.metrics.video_snapshot_write_errors == 1
 
 
 @pytest.mark.parametrize("include_snapshot", [False, True])

@@ -595,6 +595,9 @@ def test_repeated_runs_report_only_current_outcomes_without_resetting_quota(
         "syncs_failed": 20,
         "api_errors": 5,
         "youtube_credits_used": 300,
+        "video_snapshots_saved": 10,
+        "video_snapshot_write_errors": 3,
+        "video_snapshot_schema_skips": 2,
     }.items():
         monkeypatch.setattr(kaggle_worker.metrics, metric_name, value)
     monkeypatch.setattr(
@@ -609,6 +612,7 @@ def test_repeated_runs_report_only_current_outcomes_without_resetting_quota(
     async def handle(**kwargs):
         kaggle_worker.metrics.syncs_processed += 1
         kaggle_worker.metrics.youtube_credits_used += 1
+        kaggle_worker.metrics.video_snapshots_saved += 1
         return True
 
     monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
@@ -618,6 +622,10 @@ def test_repeated_runs_report_only_current_outcomes_without_resetting_quota(
         run_metrics = report.call_args.args[3]
         assert run_metrics.syncs_processed == 1
         assert run_metrics.syncs_failed == run_metrics.api_errors == 0
+        assert run_metrics.video_snapshots_saved == 1
+        assert (
+            run_metrics.video_snapshot_write_errors == run_metrics.video_snapshot_schema_skips == 0
+        )
         assert run_metrics.youtube_credits_used == expected_quota
         assert report.call_args.args[4] == "Job limit reached"
 
@@ -625,6 +633,42 @@ def test_repeated_runs_report_only_current_outcomes_without_resetting_quota(
     assert kaggle_worker.metrics.syncs_failed == 20
     assert kaggle_worker.metrics.api_errors == 5
     assert kaggle_worker.metrics.youtube_credits_used == 302
+    assert kaggle_worker.metrics.video_snapshots_saved == 12
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_runner_snapshot_health_report_is_opt_in_and_does_not_enqueue(
+    monkeypatch, pilot_client, enabled, caplog
+):
+    _fake_pool(monkeypatch)
+    monkeypatch.setenv("KAGGLE_REPORT_VIDEO_SNAPSHOT_HEALTH", "true" if enabled else "false")
+    health = MagicMock(return_value={"inspected": 1, "uncollected": 1})
+    monkeypatch.setattr(creator_worker, "get_recent_video_snapshot_health", health)
+    caplog.set_level("INFO", logger="kaggle_worker")
+
+    asyncio.run(kaggle_worker.run(max_jobs=0))
+
+    assert health.call_count == int(enabled)
+    assert ("[Video Snapshot Health]" in caplog.text) is enabled
+    pilot_client.rpc.assert_not_called()
+
+
+def test_snapshot_health_report_failure_preserves_runner_summary(monkeypatch, pilot_client, caplog):
+    _fake_pool(monkeypatch)
+    monkeypatch.setenv("KAGGLE_REPORT_VIDEO_SNAPSHOT_HEALTH", "true")
+    monkeypatch.setattr(
+        creator_worker,
+        "get_recent_video_snapshot_health",
+        MagicMock(side_effect=RuntimeError("report failed")),
+    )
+    report = MagicMock()
+    monkeypatch.setattr(kaggle_worker, "_display_final_report", report)
+
+    asyncio.run(kaggle_worker.run(max_jobs=0))
+
+    report.assert_called_once()
+    assert "Report failed" in caplog.text
+    pilot_client.rpc.assert_not_called()
 
 
 @pytest.mark.parametrize(

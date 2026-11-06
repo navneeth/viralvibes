@@ -175,6 +175,9 @@ class WorkerMetrics:
     api_errors: int = 0
     db_errors: int = 0
     timeout_errors: int = 0
+    video_snapshots_saved: int = 0
+    video_snapshot_write_errors: int = 0
+    video_snapshot_schema_skips: int = 0
     youtube_credits_used: int = 0  # YouTube API quota units consumed
     start_time: float = 0.0
 
@@ -780,15 +783,11 @@ def _build_recent_video_snapshot(video_items: list[dict]) -> list[dict]:
     )[:RECENT_VIDEO_SNAPSHOT_LIMIT]
 
 
-def _recent_video_snapshot_enabled(creator_id: str) -> bool:
-    """Enable collection only for explicit creator UUIDs; an empty list disables it."""
+def _recent_video_snapshot_allowlist() -> set[str]:
+    """Return normalized explicit pilot UUIDs from the worker environment."""
     configured = os.environ.get("CREATOR_RECENT_VIDEO_ALLOWLIST", "")
     if not configured.strip():
-        return False
-    try:
-        normalized_id = str(UUID(str(creator_id)))
-    except (TypeError, ValueError, AttributeError):
-        return False
+        return set()
     allowed_ids = set()
     for value in configured.split(","):
         if not value.strip():
@@ -797,7 +796,87 @@ def _recent_video_snapshot_enabled(creator_id: str) -> bool:
             allowed_ids.add(str(UUID(value.strip())))
         except ValueError:
             logger.warning("Ignoring invalid UUID in CREATOR_RECENT_VIDEO_ALLOWLIST")
-    return normalized_id in allowed_ids
+    return allowed_ids
+
+
+def _recent_video_snapshot_enabled(creator_id: str) -> bool:
+    """Enable collection only for explicit creator UUIDs; an empty list disables it."""
+    try:
+        normalized_id = str(UUID(str(creator_id)))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return normalized_id in _recent_video_snapshot_allowlist()
+
+
+def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict | None:
+    """Read at most 25 allowlisted snapshots; never enqueue or modify data."""
+    configured_ids = sorted(_recent_video_snapshot_allowlist())
+    if not configured_ids:
+        return None
+    columns = {"recent_videos", "recent_videos_fetched_at"}
+    if not columns.issubset(schema_detector.available_columns or set()):
+        logger.warning("Video snapshot health unavailable: migration 087 columns not detected")
+        return None
+    selected_ids = configured_ids[:25]
+    try:
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("id,recent_videos,recent_videos_fetched_at")
+            .in_("id", selected_ids)
+            .limit(25)
+            .execute()
+        )
+        rows = {row["id"]: row for row in (response.data or []) if row.get("id") in selected_ids}
+        now = as_of or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        health = {
+            "configured": len(configured_ids),
+            "inspected": len(selected_ids),
+            "not_inspected": len(configured_ids) - len(selected_ids),
+            "missing_or_inaccessible": len(selected_ids) - len(rows),
+            "uncollected": 0,
+            "empty": 0,
+            "populated": 0,
+            "stale": 0,
+            "invalid": 0,
+            "cached_videos": 0,
+        }
+        for row in rows.values():
+            snapshot = row.get("recent_videos")
+            fetched_at = row.get("recent_videos_fetched_at")
+            if snapshot is None and fetched_at is None:
+                health["uncollected"] += 1
+                continue
+            if (
+                not isinstance(snapshot, list)
+                or len(snapshot) > RECENT_VIDEO_SNAPSHOT_LIMIT
+                or any(
+                    not isinstance(video, dict)
+                    or not isinstance(video.get("video_id"), str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video["video_id"])
+                    for video in snapshot
+                )
+            ):
+                health["invalid"] += 1
+                continue
+            try:
+                fetched = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+                if fetched.tzinfo is None:
+                    fetched = fetched.replace(tzinfo=timezone.utc)
+                if fetched > now:
+                    raise ValueError("Future snapshot timestamp")
+            except (AttributeError, TypeError, ValueError):
+                health["invalid"] += 1
+                continue
+            health["populated" if snapshot else "empty"] += 1
+            health["cached_videos"] += len(snapshot)
+            if (now - fetched).total_seconds() >= 7 * 86400:
+                health["stale"] += 1
+        return health
+    except Exception as error:
+        logger.warning("Video snapshot health read failed: %s", error)
+        return None
 
 
 def _persist_recent_video_snapshot(
@@ -810,6 +889,7 @@ def _persist_recent_video_snapshot(
         return False
     columns = {"recent_videos", "recent_videos_fetched_at"}
     if not columns.issubset(schema_detector.available_columns or set()):
+        metrics.video_snapshot_schema_skips += 1
         logger.warning("Recent-video snapshot skipped: migration 087 columns are unavailable")
         return False
     try:
@@ -827,11 +907,13 @@ def _persist_recent_video_snapshot(
             .execute()
         )
         if response.data:
+            metrics.video_snapshots_saved += 1
             logger.info("Recent-video snapshot saved for creator %s", creator_id)
         else:
             logger.debug("Recent-video snapshot unchanged: creator missing or newer data stored")
         return bool(response.data)
     except Exception as error:
+        metrics.video_snapshot_write_errors += 1
         logger.warning("Recent-video snapshot write failed for %s: %s", creator_id, error)
         return False
 
