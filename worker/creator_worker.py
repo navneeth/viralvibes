@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, List, Optional
+from uuid import UUID
 import json as _json
 
 from supabase import Client
@@ -779,6 +780,62 @@ def _build_recent_video_snapshot(video_items: list[dict]) -> list[dict]:
     )[:RECENT_VIDEO_SNAPSHOT_LIMIT]
 
 
+def _recent_video_snapshot_enabled(creator_id: str) -> bool:
+    """Enable collection only for explicit creator UUIDs; an empty list disables it."""
+    configured = os.environ.get("CREATOR_RECENT_VIDEO_ALLOWLIST", "")
+    if not configured.strip():
+        return False
+    try:
+        normalized_id = str(UUID(str(creator_id)))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    allowed_ids = set()
+    for value in configured.split(","):
+        if not value.strip():
+            continue
+        try:
+            allowed_ids.add(str(UUID(value.strip())))
+        except ValueError:
+            logger.warning("Ignoring invalid UUID in CREATOR_RECENT_VIDEO_ALLOWLIST")
+    return normalized_id in allowed_ids
+
+
+def _persist_recent_video_snapshot(
+    creator_id: str, video_intel: dict, snapshot_started_at: datetime
+) -> bool:
+    """Write optional video metadata without affecting core sync success."""
+    if not _recent_video_snapshot_enabled(creator_id):
+        return False
+    if not video_intel.get("recent_video_fetch_succeeded") or "recent_videos" not in video_intel:
+        return False
+    columns = {"recent_videos", "recent_videos_fetched_at"}
+    if not columns.issubset(schema_detector.available_columns or set()):
+        logger.warning("Recent-video snapshot skipped: migration 087 columns are unavailable")
+        return False
+    try:
+        snapshot_iso = snapshot_started_at.isoformat()
+        response = (
+            supabase_client.table(CREATOR_TABLE)
+            .update(
+                {
+                    "recent_videos": video_intel["recent_videos"],
+                    "recent_videos_fetched_at": snapshot_iso,
+                }
+            )
+            .eq("id", creator_id)
+            .or_("recent_videos_fetched_at.is.null," f"recent_videos_fetched_at.lt.{snapshot_iso}")
+            .execute()
+        )
+        if response.data:
+            logger.info("Recent-video snapshot saved for creator %s", creator_id)
+        else:
+            logger.debug("Recent-video snapshot unchanged: creator missing or newer data stored")
+        return bool(response.data)
+    except Exception as error:
+        logger.warning("Recent-video snapshot write failed for %s: %s", creator_id, error)
+        return False
+
+
 def _pick_thumbnail(thumbnails: dict) -> str:
     thumbnails = thumbnails or {}
     for key in ("maxres", "standard", "high", "medium", "default"):
@@ -1046,6 +1103,8 @@ async def _fetch_recent_video_intelligence(
     channel_id: str,
     uploads_playlist_id: str | None = None,
     sample_size: int = RECENT_VIDEO_SAMPLE_SIZE,
+    *,
+    include_snapshot: bool = False,
 ) -> dict:
     """
     Fetch recent uploads once and derive all creator-level video intelligence.
@@ -1092,7 +1151,10 @@ async def _fetch_recent_video_intelligence(
             if item.get("contentDetails", {}).get("videoId")
         ]
         if not video_ids:
-            return _empty_recent_video_intelligence_success()
+            result = _empty_recent_video_intelligence_success()
+            if include_snapshot and playlist_response.get("items") == []:
+                result["recent_videos"] = []
+            return result
 
         try:
             videos_response = await asyncio.wait_for(
@@ -1114,6 +1176,17 @@ async def _fetch_recent_video_intelligence(
             videos_response.get("items", []),
         )
         result["recent_video_fetch_succeeded"] = True
+        if include_snapshot:
+            try:
+                video_items = videos_response.get("items")
+                if isinstance(video_items, list):
+                    snapshot = _build_recent_video_snapshot(video_items)
+                    if snapshot or not video_items:
+                        result["recent_videos"] = snapshot
+                    else:
+                        logger.warning("Recent-video snapshot skipped: no valid metadata rows")
+            except Exception as error:
+                logger.warning("Recent-video snapshot normalization failed: %s", error)
         logger.debug(
             "[RecentVideos] %s: sample=%s median=%s outliers=%s avg_views_10=%s",
             channel_id,
@@ -1809,9 +1882,11 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
+        snapshot_enabled = _recent_video_snapshot_enabled(creator_id)
         video_intel = await _fetch_recent_video_intelligence(
             channel_id,
             uploads_playlist_id=channel_data.get("uploads_playlist_id"),
+            **({"include_snapshot": True} if snapshot_enabled else {}),
         )
         video_intel = _preserve_cached_recent_upload_fields(video_intel, creator)
         engagement = video_intel["engagement_score"]
@@ -2151,6 +2226,9 @@ async def handle_sync_job(
                 logger.error(f"   Full error:     {update_error}")
                 logger.error(f"   Fallback error: {fallback_error}")
                 raise Exception("DB update completely failed after fallback")
+
+        if snapshot_enabled:
+            _persist_recent_video_snapshot(creator_id, video_intel, snapshot_started_at)
 
         # STAGE 5: Mark job done
         if is_invalid:

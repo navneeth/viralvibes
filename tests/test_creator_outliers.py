@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta, timezone
+import asyncio
 import sys
 import types
+from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,6 +32,204 @@ def _playlist_items(count: int) -> list[dict]:
 
 
 _AS_OF = datetime(2026, 2, 1, tzinfo=timezone.utc)
+_SNAPSHOT_CREATOR_ID = "6488b4d0-96e9-4cb3-b7da-36cc086f8e75"
+
+
+@pytest.mark.parametrize(
+    "configured, enabled",
+    [
+        ("", False),
+        ("*", False),
+        ("invalid", False),
+        (_SNAPSHOT_CREATOR_ID, True),
+        (f"invalid, {_SNAPSHOT_CREATOR_ID.upper()},", True),
+        ("14076ba5-f130-4f86-9b53-ecf3b93ed077", False),
+    ],
+)
+def test_snapshot_allowlist_requires_explicit_matching_uuid(monkeypatch, configured, enabled):
+    import worker.creator_worker as creator_worker
+
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", configured)
+    assert creator_worker._recent_video_snapshot_enabled(_SNAPSHOT_CREATOR_ID) is enabled
+    assert creator_worker._recent_video_snapshot_enabled("not-a-uuid") is False
+
+
+@pytest.mark.parametrize("snapshot", [[], [{"video_id": "abcdefghijk"}]])
+def test_snapshot_write_replaces_data_with_its_own_timestamp_guard(monkeypatch, snapshot):
+    import worker.creator_worker as creator_worker
+
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    client = MagicMock()
+    query = client.table.return_value
+    query.update.return_value = query
+    query.eq.return_value = query
+    query.or_.return_value = query
+    query.execute.return_value = SimpleNamespace(data=[{"id": _SNAPSHOT_CREATOR_ID}])
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    assert (
+        creator_worker._persist_recent_video_snapshot(
+            _SNAPSHOT_CREATOR_ID,
+            {"recent_video_fetch_succeeded": True, "recent_videos": snapshot},
+            _AS_OF,
+        )
+        is True
+    )
+    query.update.assert_called_once_with(
+        {
+            "recent_videos": snapshot,
+            "recent_videos_fetched_at": _AS_OF.isoformat(),
+        }
+    )
+    query.eq.assert_called_once_with("id", _SNAPSHOT_CREATOR_ID)
+    query.or_.assert_called_once_with(
+        "recent_videos_fetched_at.is.null," f"recent_videos_fetched_at.lt.{_AS_OF.isoformat()}"
+    )
+
+
+@pytest.mark.parametrize("reason", ["disabled", "fetch_failed", "no_snapshot", "missing_columns"])
+def test_snapshot_write_skips_without_touching_cached_data(monkeypatch, reason):
+    import worker.creator_worker as creator_worker
+
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    client = MagicMock()
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    payload = {"recent_video_fetch_succeeded": True, "recent_videos": []}
+    if reason == "disabled":
+        monkeypatch.delenv("CREATOR_RECENT_VIDEO_ALLOWLIST")
+    elif reason == "fetch_failed":
+        payload["recent_video_fetch_succeeded"] = False
+    elif reason == "no_snapshot":
+        del payload["recent_videos"]
+    else:
+        monkeypatch.setattr(creator_worker.schema_detector, "available_columns", {"recent_videos"})
+
+    assert (
+        creator_worker._persist_recent_video_snapshot(
+            _SNAPSHOT_CREATOR_ID,
+            payload,
+            _AS_OF,
+        )
+        is False
+    )
+    client.table.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error", [RuntimeError("write failed"), RuntimeError("PGRST204 schema cache lag")]
+)
+def test_snapshot_database_errors_are_nonfatal(monkeypatch, error, caplog):
+    import worker.creator_worker as creator_worker
+
+    monkeypatch.setenv("CREATOR_RECENT_VIDEO_ALLOWLIST", _SNAPSHOT_CREATOR_ID)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+        },
+    )
+    client = MagicMock()
+    client.table.side_effect = error
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    assert (
+        creator_worker._persist_recent_video_snapshot(
+            _SNAPSHOT_CREATOR_ID,
+            {"recent_video_fetch_succeeded": True, "recent_videos": []},
+            _AS_OF,
+        )
+        is False
+    )
+    assert "snapshot write failed" in caplog.text
+
+
+@pytest.mark.parametrize("include_snapshot", [False, True])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "normal",
+        "empty_playlist",
+        "empty_videos",
+        "fetch_error",
+        "invalid_metadata",
+        "missing_video_items",
+        "normalization_error",
+    ],
+)
+def test_snapshot_fetch_reuses_existing_requests(monkeypatch, include_snapshot, scenario):
+    import worker.creator_worker as creator_worker
+
+    youtube = MagicMock()
+    resolver = MagicMock()
+    resolver._get_youtube_client.return_value = youtube
+    video = {
+        "id": "abcdefghijk",
+        "snippet": {"title": "Example", "publishedAt": "2026-01-01T00:00:00Z"},
+        "statistics": {"viewCount": "100"},
+        "contentDetails": {"duration": "PT1M"},
+    }
+    playlist = {"items": [{"contentDetails": {"videoId": video["id"]}}]}
+    response = {"items": [video]}
+    if scenario == "empty_playlist":
+        playlist = {"items": []}
+    elif scenario == "empty_videos":
+        response = {"items": []}
+    elif scenario == "invalid_metadata":
+        response = {"items": [{**video, "snippet": {"publishedAt": "bad"}}]}
+    elif scenario == "missing_video_items":
+        response = {}
+    elif scenario == "normalization_error":
+        monkeypatch.setattr(
+            creator_worker,
+            "_build_recent_video_snapshot",
+            MagicMock(side_effect=RuntimeError("normalization failed")),
+        )
+    responses = [playlist, RuntimeError("API failed") if scenario == "fetch_error" else response]
+    resolver._execute_async = AsyncMock(side_effect=responses)
+    monkeypatch.setattr(creator_worker, "youtube_resolver", resolver)
+    monkeypatch.setattr(creator_worker.metrics, "youtube_credits_used", 0)
+
+    result = asyncio.run(
+        creator_worker._fetch_recent_video_intelligence(
+            "UCexample",
+            uploads_playlist_id="UUexample",
+            include_snapshot=include_snapshot,
+        )
+    )
+
+    expected_requests = 1 if scenario == "empty_playlist" else 2
+    assert resolver._execute_async.await_count == expected_requests
+    assert creator_worker.metrics.youtube_credits_used == (
+        1 if scenario == "fetch_error" else expected_requests
+    )
+    if include_snapshot and scenario in ("normal", "empty_playlist", "empty_videos"):
+        assert result["recent_video_fetch_succeeded"] is True
+        assert result["recent_videos"] == (
+            _build_recent_video_snapshot([video]) if scenario == "normal" else []
+        )
+    else:
+        assert "recent_videos" not in result
+    if scenario == "normalization_error":
+        assert result["recent_video_fetch_succeeded"] is True
+        assert result["recent_video_sample_size"] == 1
 
 
 def test_recent_video_snapshot_is_bounded_newest_first_and_metadata_only():

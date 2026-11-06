@@ -63,10 +63,44 @@ It still checks new inserts and updates. The migration does not populate data
 or enable collection. Apply it separately from the worker rollout and verify
 both columns using the included read-only query.
 
-PR 2 will opt selected creator UUIDs into snapshot writes using the existing
-recent-video API response. Fetch failures preserve the snapshot; a successful
-empty response writes `[]`. Other creators remain `NULL`. Writes replace rather
-than append, and missing migration columns must not break creator syncs.
+PR 2 opts selected creator UUIDs into snapshot writes using the existing
+recent-video API response, with no additional YouTube requests. Collection is
+disabled by default. Set `CREATOR_RECENT_VIDEO_ALLOWLIST` to a comma-separated
+list of `creators.id` UUIDs (not channel IDs). Invalid UUIDs are ignored with a
+warning; wildcards are not supported. The worker reads the environment per job.
+
+For Kaggle, set the environment variable before launching the runner:
+
+```python
+import os
+os.environ["CREATOR_RECENT_VIDEO_ALLOWLIST"] = "6488b4d0-96e9-4cb3-b7da-36cc086f8e75"
+```
+
+Use only reviewed pilot IDs. For other runtimes, configure the same variable in
+the creator worker's environment; setting it on the web application alone does
+not configure a separately deployed worker. This does not enqueue jobs: the
+snapshot is collected the next time an enabled creator is normally synced.
+
+Fetch failures preserve the snapshot; a successful empty response writes `[]`.
+Malformed metadata that cannot produce valid rows does not clear cached data.
+Other creators are not written; previously stored snapshots are retained if an
+ID is later removed from the allowlist. Writes replace rather than append and
+use `recent_videos_fetched_at` to reject older concurrent snapshots. Optional
+writes run separately from the core creator update. Missing migration columns,
+schema-cache lag, or snapshot-write errors must not fail an otherwise valid sync.
+
+After a pilot run, verify only reviewed IDs using this read-only query:
+
+```sql
+SELECT id, recent_videos_fetched_at,
+       jsonb_array_length(recent_videos) AS cached_video_count,
+       octet_length(recent_videos::text) AS snapshot_bytes
+FROM public.creators
+WHERE id = '6488b4d0-96e9-4cb3-b7da-36cc086f8e75'::uuid;
+```
+
+To stop new collection, unset the variable or set it to an empty string. No
+history, image data, or new queue lanes are introduced.
 
 PR 3 will add the latest-12 profile comparison with browser-only frame loading,
 neutral availability states, and frame switching. History pagination, Shorts
