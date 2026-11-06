@@ -17,6 +17,7 @@ sys.modules.setdefault("googleapiclient.errors", googleapiclient_errors_stub)
 
 from worker.creator_worker import (
     _build_recent_video_intelligence,
+    _build_recent_video_snapshot,
     _empty_recent_video_intelligence,
     _empty_recent_video_intelligence_success,
     _preserve_cached_recent_upload_fields,
@@ -28,6 +29,90 @@ def _playlist_items(count: int) -> list[dict]:
 
 
 _AS_OF = datetime(2026, 2, 1, tzinfo=timezone.utc)
+
+
+def test_recent_video_snapshot_is_bounded_newest_first_and_metadata_only():
+    items = [
+        {
+            "id": f"{index:011d}",
+            "snippet": {
+                "title": "Example",
+                "publishedAt": f"2026-01-{index + 1:02d}T00:00:00Z",
+                "thumbnails": {"high": {"url": "https://i.ytimg.com/example.jpg"}},
+            },
+            "statistics": {"viewCount": "100", "likeCount": "0"},
+            "contentDetails": {"duration": "PT1M30S"},
+        }
+        for index in range(20)
+    ]
+    snapshot = _build_recent_video_snapshot(items)
+
+    assert len(snapshot) == 12
+    assert snapshot[0]["video_id"] == "00000000019"
+    assert snapshot[-1]["video_id"] == "00000000008"
+    assert snapshot[0]["duration_sec"] == 90
+    assert snapshot[0]["view_count"] == 100
+    assert snapshot[0]["like_count"] == 0
+    assert snapshot[0]["comment_count"] is None
+    assert set(snapshot[0]) == {
+        "video_id",
+        "title",
+        "published_at",
+        "duration_sec",
+        "view_count",
+        "like_count",
+        "comment_count",
+    }
+
+
+def test_recent_video_snapshot_validates_ids_dates_counts_and_deduplicates():
+    valid = {
+        "id": "abcdefghijk",
+        "snippet": {"title": "x" * 1000, "publishedAt": "2026-01-01T01:00:00+01:00"},
+        "statistics": {"viewCount": "bad", "likeCount": "-1", "commentCount": True},
+    }
+    snapshot = _build_recent_video_snapshot(
+        [
+            valid,
+            valid,
+            {**valid, "id": "invalid/id"},
+            {**valid, "id": "ABCDEFGHIJK", "snippet": {"publishedAt": "bad"}},
+        ]
+    )
+
+    assert len(snapshot) == 1
+    assert len(snapshot[0]["title"]) == 500
+    assert snapshot[0]["published_at"] == "2026-01-01T00:00:00.000000+00:00"
+    assert snapshot[0]["duration_sec"] is None
+    assert all(snapshot[0][key] is None for key in ("view_count", "like_count", "comment_count"))
+    assert _build_recent_video_snapshot([]) == []
+
+
+@pytest.mark.parametrize("duration", [None, "bad", 123])
+def test_recent_video_snapshot_preserves_unknown_duration(duration):
+    snapshot = _build_recent_video_snapshot(
+        [
+            {
+                "id": "abcdefghijk",
+                "snippet": {"publishedAt": "2026-01-01T00:00:00Z"},
+                "contentDetails": {"duration": duration},
+            }
+        ]
+    )
+
+    assert snapshot[0]["duration_sec"] is None
+
+
+def test_recent_video_snapshot_uses_video_id_to_break_publication_ties():
+    items = [
+        {"id": video_id, "snippet": {"publishedAt": "2026-01-01T00:00:00Z"}}
+        for video_id in ("aaaaaaaaaaa", "bbbbbbbbbbb")
+    ]
+
+    assert [row["video_id"] for row in _build_recent_video_snapshot(items)] == [
+        "bbbbbbbbbbb",
+        "aaaaaaaaaaa",
+    ]
 
 
 def test_empty_recent_video_sample_preserves_cached_cadence_and_latest_upload():

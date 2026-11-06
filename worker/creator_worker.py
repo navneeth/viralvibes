@@ -118,6 +118,7 @@ YOUTUBE_CREDITS_PER_CHANNEL_FETCH = 1  # channels.list costs 1 unit
 YOUTUBE_CREDITS_PER_CATEGORY_FETCH = 2  # playlistItems.list (1) + videos.list (1)
 YOUTUBE_CREDITS_PER_RECENT_VIDEO_FETCH = 2  # playlistItems.list + videos.list for uploads
 RECENT_VIDEO_SAMPLE_SIZE = 50
+RECENT_VIDEO_SNAPSHOT_LIMIT = 12
 MAX_STORED_OUTLIERS = 5
 
 
@@ -722,6 +723,60 @@ def _safe_int(value, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _build_recent_video_snapshot(video_items: list[dict]) -> list[dict]:
+    """Normalize a bounded metadata-only snapshot from an existing API response."""
+
+    def optional_count(value):
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            count = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return count if count >= 0 else None
+
+    rows = {}
+    for item in video_items:
+        video_id = item.get("id")
+        if (
+            not isinstance(video_id, str)
+            or len(video_id) != 11
+            or not all(
+                character.isascii() and (character.isalnum() or character in "_-")
+                for character in video_id
+            )
+        ):
+            continue
+        snippet = item.get("snippet") or {}
+        try:
+            published_at = datetime.fromisoformat(
+                snippet.get("publishedAt", "").replace("Z", "+00:00")
+            )
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=timezone.utc)
+        published_at = published_at.astimezone(timezone.utc)
+        stats = item.get("statistics") or {}
+        duration = (item.get("contentDetails") or {}).get("duration")
+        rows[video_id] = {
+            "video_id": video_id,
+            "title": str(snippet.get("title") or "Untitled").strip()[:500] or "Untitled",
+            "published_at": published_at.isoformat(timespec="microseconds"),
+            "duration_sec": (
+                _parse_iso8601_duration(duration)
+                if isinstance(duration, str) and _ISO8601_DURATION_RE.fullmatch(duration)
+                else None
+            ),
+            "view_count": optional_count(stats.get("viewCount")),
+            "like_count": optional_count(stats.get("likeCount")),
+            "comment_count": optional_count(stats.get("commentCount")),
+        }
+    return sorted(
+        rows.values(), key=lambda row: (row["published_at"], row["video_id"]), reverse=True
+    )[:RECENT_VIDEO_SNAPSHOT_LIMIT]
 
 
 def _pick_thumbnail(thumbnails: dict) -> str:
