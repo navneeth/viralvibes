@@ -640,6 +640,57 @@ class TestCreatorProfile:
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
         assert r.status_code == 200
 
+    @pytest.mark.parametrize(
+        "actor, rollout, fresh, expected",
+        [
+            (None, "true", False, False),
+            (FAKE_CREATOR_UUID, "false", False, False),
+            (FAKE_CREATOR_UUID, "true", True, False),
+            (FAKE_CREATOR_UUID, "true", False, True),
+        ],
+    )
+    def test_demand_is_background_only_and_authenticated(
+        self, monkeypatch, actor, rollout, fresh, expected
+    ):
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from fasthtml.common import to_xml
+        import routes.creators as routes
+        from services import video_snapshot_demand as demand
+
+        self._patch_profile_db(
+            monkeypatch,
+            creator={
+                **FAKE_CREATOR,
+                "recent_videos": [] if fresh else None,
+                "recent_videos_fetched_at": (
+                    datetime.now(timezone.utc).isoformat() if fresh else None
+                ),
+            },
+        )
+        monkeypatch.setenv("VIDEO_SNAPSHOT_DEMAND_ENABLED", rollout)
+        monkeypatch.setattr(routes, "_get_similar_creators", lambda _: [])
+        monkeypatch.setattr(routes, "get_category_peer_benchmarks", lambda _: {})
+        monkeypatch.setattr(routes, "get_category_leaderboard", lambda *args, **kwargs: [])
+        monkeypatch.setattr(routes, "get_embedding_peers", lambda *args, **kwargs: None)
+        admission = MagicMock()
+        monkeypatch.setattr(demand, "request_video_snapshot", admission)
+
+        result = routes.creator_profile_route(
+            SimpleNamespace(query_params={}),
+            FAKE_CREATOR_UUID,
+            user_id=actor,
+        )
+
+        html = to_xml(result.body)
+        assert ('hx-post="' in html and '/videos/request"' in html) is expected
+        if expected:
+            assert 'hx-trigger="click once"' in html
+            assert "Request a fresh video snapshot" in html
+            assert 'hx-swap="none"' in html
+        admission.assert_not_called()
+
     def test_profile_renders_cached_video_snapshot_without_a_new_endpoint(
         self, client, monkeypatch
     ):

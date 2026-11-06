@@ -2059,6 +2059,13 @@ def creator_profile(req, sess, creator_id: str):
     )
 
 
+@rt("/creator/{creator_id}/videos/request", methods=["POST"])
+def creator_video_snapshot_request(req, sess, creator_id: str):
+    from routes.creators import request_creator_video_snapshot_route
+
+    return request_creator_video_snapshot_route(req, sess, creator_id)
+
+
 @rt("/creator/{creator_id}/favourite", methods=["POST"])
 def creator_favourite(req, sess, creator_id: str):
     """

@@ -67,6 +67,20 @@ from utils.creator_metrics import get_country_flag, get_language_emoji, get_lang
 logger = logging.getLogger(__name__)
 
 
+def request_creator_video_snapshot_route(req, sess, creator_id: str):
+    from starlette.responses import JSONResponse
+    from services.video_snapshot_demand import request_video_snapshot
+
+    if not sess.get("auth") or not sess.get("user_id"):
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    if req.headers.get("HX-Request", "").lower() != "true" or req.headers.get("origin") != str(
+        req.base_url
+    ).rstrip("/"):
+        return JSONResponse({"status": "forbidden"}, status_code=403)
+    status = request_video_snapshot(creator_id, sess["user_id"])
+    return JSONResponse({"status": status}, headers={"Cache-Control": "no-store"})
+
+
 def _log_search_intent_shadow(search: str, old_branch: str) -> None:
     """PR2a: log what the new shared classifier would decide, alongside
     today's live branch decision, without acting on it. Purely additive —
@@ -830,6 +844,29 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
         is_authenticated=is_authenticated,
         compare_a_id=compare_a_id,
     )
+    if is_authenticated:
+        from services.video_snapshot_demand import (
+            needs_video_snapshot,
+            video_snapshot_demand_enabled,
+        )
+
+        if video_snapshot_demand_enabled() and needs_video_snapshot(creator):
+            body = Div(
+                body,
+                Div(
+                    Button(
+                        "Request a fresh video snapshot",
+                        hx_post=f"/creator/{creator['id']}/videos/request",
+                        hx_trigger="click once",
+                        hx_swap="none",
+                    ),
+                    P(
+                        "This queues a background refresh; it may take a few minutes.",
+                        cls="text-sm text-muted-foreground",
+                    ),
+                    cls="mt-4",
+                ),
+            )
     return CreatorProfileResult(body=body, creator=creator)
 
 

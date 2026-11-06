@@ -668,51 +668,91 @@ _CREATOR_STATE_REQUIRED_COLUMNS = (
     "prev_video_count",
     "prev_snapshot_at",
 )
-_CREATOR_STATE_OPTIONAL_COLUMNS = ("recent_upload", "avg_days_between_uploads")
+_CREATOR_STATE_OPTIONAL_COLUMNS = (
+    "recent_upload",
+    "avg_days_between_uploads",
+    "recent_videos_requested_at",
+)
 
 
 def _creator_state_select_columns(available_columns: set[str] | None) -> str:
-    """Select recent-upload fields only when startup schema detection found them."""
+    """Optimistically select enrollment and include upload fields when available."""
     columns = list(_CREATOR_STATE_REQUIRED_COLUMNS)
     if available_columns:
         columns.extend(
-            column for column in _CREATOR_STATE_OPTIONAL_COLUMNS if column in available_columns
+            column
+            for column in _CREATOR_STATE_OPTIONAL_COLUMNS
+            if column in available_columns or column == "recent_videos_requested_at"
         )
+    else:
+        columns.append("recent_videos_requested_at")
     return ",".join(columns)
 
 
-def _is_missing_optional_creator_column_error(error: Exception) -> bool:
+def _is_missing_optional_creator_column_error(error: Exception) -> str | None:
     code = str(getattr(error, "code", ""))
     message = str(error).lower()
-    references_optional_column = any(
-        column in message for column in _CREATOR_STATE_OPTIONAL_COLUMNS
+    if code not in {"42703", "PGRST204"}:
+        return None
+    return next(
+        (column for column in _CREATOR_STATE_OPTIONAL_COLUMNS if column in message),
+        None,
     )
-    return references_optional_column and code in {"42703", "PGRST204"}
 
 
 def _fetch_creator_state(creator_id: str) -> dict:
-    """Fetch creator state, retrying without optional columns on schema-cache lag."""
+    """Fetch creator state while retaining columns unaffected by schema-cache lag."""
     client = supabase_client
-    columns = _creator_state_select_columns(schema_detector.available_columns)
-    query = client.table(CREATOR_TABLE).select(columns).eq("id", creator_id)
-    try:
-        response = query.execute()
-    except Exception as error:
-        selected_columns = set(columns.split(","))
-        has_optional_columns = bool(selected_columns.intersection(_CREATOR_STATE_OPTIONAL_COLUMNS))
-        if not has_optional_columns or not _is_missing_optional_creator_column_error(error):
-            raise
+    available_columns = schema_detector.available_columns
+    selected_columns = _creator_state_select_columns(available_columns).split(",")
+    enrollment_column_missing = False
 
-        logger.warning(
-            "Optional creator columns are missing from the PostgREST schema cache; "
-            "retrying creator-state read without them"
-        )
-        required_columns = ",".join(_CREATOR_STATE_REQUIRED_COLUMNS)
-        response = (
-            client.table(CREATOR_TABLE).select(required_columns).eq("id", creator_id).execute()
-        )
+    while True:
+        query = client.table(CREATOR_TABLE).select(",".join(selected_columns)).eq("id", creator_id)
+        try:
+            response = query.execute()
+            creator = response.data[0] if response.data else {}
+            if not creator:
+                return creator
 
-    return response.data[0] if response.data else {}
+            if enrollment_column_missing:
+                try:
+                    enrollment = client.rpc(
+                        "creator_video_snapshot_is_enrolled",
+                        {"p_creator_id": creator_id},
+                    ).execute()
+                except Exception as error:
+                    if (
+                        available_columns is None
+                        or "recent_videos_requested_at" in available_columns
+                    ):
+                        raise RuntimeError(
+                            "Could not determine creator video snapshot enrollment"
+                        ) from error
+                    creator["_snapshot_enrolled"] = False
+                else:
+                    if not isinstance(enrollment.data, bool):
+                        raise RuntimeError("Could not determine creator video snapshot enrollment")
+                    creator["_snapshot_enrolled"] = enrollment.data
+                creator["_snapshot_enrollment_known"] = True
+            else:
+                creator["_snapshot_enrolled"] = (
+                    creator.get("recent_videos_requested_at") is not None
+                )
+                creator["_snapshot_enrollment_known"] = True
+            return creator
+        except Exception as error:
+            missing_column = _is_missing_optional_creator_column_error(error)
+            if missing_column not in selected_columns:
+                raise
+            logger.warning(
+                "Optional creator column %s is missing from the PostgREST schema cache; "
+                "retrying without that column",
+                missing_column,
+            )
+            selected_columns.remove(missing_column)
+            if missing_column == "recent_videos_requested_at":
+                enrollment_column_missing = True
 
 
 def _empty_recent_video_intelligence_success() -> dict:
@@ -809,9 +849,12 @@ def _recent_video_snapshot_enabled(creator_id: str) -> bool:
 
 
 def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict | None:
-    """Read at most 25 allowlisted snapshots; never enqueue or modify data."""
+    """Inspect a bounded manual or demand cohort; never enqueue or modify data."""
     configured_ids = sorted(_recent_video_snapshot_allowlist())
-    if not configured_ids:
+    demand_scope = not configured_ids and "recent_videos_requested_at" in (
+        schema_detector.available_columns or set()
+    )
+    if not configured_ids and not demand_scope:
         return None
     columns = {"recent_videos", "recent_videos_fetched_at"}
     if not columns.issubset(schema_detector.available_columns or set()):
@@ -819,13 +862,19 @@ def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict |
         return None
     selected_ids = configured_ids[:25]
     try:
-        response = (
-            supabase_client.table(CREATOR_TABLE)
-            .select("id,recent_videos,recent_videos_fetched_at")
-            .in_("id", selected_ids)
-            .limit(25)
-            .execute()
+        query = supabase_client.table(CREATOR_TABLE).select(
+            "id,recent_videos,recent_videos_fetched_at"
         )
+        if demand_scope:
+            response = (
+                query.not_.is_("recent_videos_requested_at", "null")
+                .order("recent_videos_requested_at", desc=True)
+                .limit(26)
+                .execute()
+            )
+            selected_ids = [row["id"] for row in (response.data or [])[:25]]
+        else:
+            response = query.in_("id", selected_ids).limit(25).execute()
         rows = {row["id"]: row for row in (response.data or []) if row.get("id") in selected_ids}
         now = as_of or datetime.now(timezone.utc)
         if now.tzinfo is None:
@@ -842,6 +891,16 @@ def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict |
             "invalid": 0,
             "cached_videos": 0,
         }
+        if demand_scope:
+            health.update(
+                {
+                    "scope": "recent_demand",
+                    "configured": None,
+                    "not_inspected": None,
+                    "missing_or_inaccessible": None,
+                    "has_more": len(response.data or []) > 25,
+                }
+            )
         for row in rows.values():
             snapshot = row.get("recent_videos")
             fetched_at = row.get("recent_videos_fetched_at")
@@ -880,10 +939,10 @@ def get_recent_video_snapshot_health(*, as_of: datetime | None = None) -> dict |
 
 
 def _persist_recent_video_snapshot(
-    creator_id: str, video_intel: dict, snapshot_started_at: datetime
+    creator_id: str, video_intel: dict, snapshot_started_at: datetime, *, enrolled: bool = False
 ) -> bool:
     """Write optional video metadata without affecting core sync success."""
-    if not _recent_video_snapshot_enabled(creator_id):
+    if not enrolled and not _recent_video_snapshot_enabled(creator_id):
         return False
     if not video_intel.get("recent_video_fetch_succeeded") or "recent_videos" not in video_intel:
         return False
@@ -1923,6 +1982,12 @@ async def handle_sync_job(
         creator = _fetch_creator_state(creator_id)
         if not creator:
             raise ValueError(f"Creator not found in DB: {creator_id}")
+        if not creator.get("_snapshot_enrollment_known", True):
+            raise RuntimeError("Could not read creator video snapshot enrollment state")
+        snapshot_enrolled = creator.get(
+            "_snapshot_enrolled",
+            creator.get("recent_videos_requested_at") is not None,
+        )
         channel_id = creator.get("channel_id")
         channel_name = creator.get("channel_name", "unknown")
 
@@ -1964,7 +2029,7 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
-        snapshot_enabled = _recent_video_snapshot_enabled(creator_id)
+        snapshot_enabled = snapshot_enrolled or _recent_video_snapshot_enabled(creator_id)
         video_intel = await _fetch_recent_video_intelligence(
             channel_id,
             uploads_playlist_id=channel_data.get("uploads_playlist_id"),
@@ -2310,7 +2375,12 @@ async def handle_sync_job(
                 raise Exception("DB update completely failed after fallback")
 
         if snapshot_enabled:
-            _persist_recent_video_snapshot(creator_id, video_intel, snapshot_started_at)
+            _persist_recent_video_snapshot(
+                creator_id,
+                video_intel,
+                snapshot_started_at,
+                **({"enrolled": True} if snapshot_enrolled else {}),
+            )
 
         # STAGE 5: Mark job done
         if is_invalid:

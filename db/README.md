@@ -160,6 +160,78 @@ processing and startup/end-of-run maintenance are unchanged. Disable automatic
 health reads by unsetting `KAGGLE_REPORT_VIDEO_SNAPSHOT_HEALTH` or setting it to
 `false`.
 
+### Bounded Profile Demand Enrollment (088)
+
+Set `VIDEO_SNAPSHOT_DEMAND_ENABLED=true` on the web application only after the
+migration and staging tests pass. It is disabled by default. Authenticated
+profiles with missing or seven-day-old snapshots issue a same-origin HTMX POST
+after rendering. Anonymous profiles never request admission. GET rendering does
+not enqueue or call YouTube; cached data is returned immediately.
+
+The service-role-only `request_creator_video_snapshot` RPC persists
+`creators.recent_videos_requested_at`, which all updated creator workers honor
+without environment allowlists. Existing manual allowlists remain supported.
+Restart workers after applying the migration so schema detection sees the new
+column. If PostgREST's cache lags despite schema detection, workers use the
+service-role-only `creator_video_snapshot_is_enrolled` RPC to preserve demand
+state. Disabling the web flag stops new demand admissions; existing enrollment
+and snapshots remain intact.
+
+Admission is serialized with the existing creator-sync enqueue lock. Pending
+jobs are reused under a row lock; processing jobs are deferred rather than
+enrolled after their metadata read. Invalid channels and archived creators are
+not admitted. Limits are fixed in SQL:
+
+| Limit | Value |
+| --- | --- |
+| Admissions per UTC day | 50 |
+| Admissions per user per UTC day | 10 |
+| Per-creator request cooldown | 24 hours |
+| Persistently enrolled creators | 1,000 |
+| Pending queue ceiling for new jobs | 250 |
+
+Enrollment has no automatic expiry; its cap bounds snapshot storage to at most
+1,000 arrays of 12 videos and 32 KiB, excluding older manual-pilot snapshots.
+The private daily budget table cleans up counters older than 30 days on every
+admission RPC call, including calls rejected by admission limits. Actor UUIDs
+are retained for that short rate-limit window even if a user is deleted,
+preventing deletion from resetting the global budget. It is inaccessible to
+client roles.
+
+The existing worker scheduler must still be running. Admission does not promise
+immediate processing, and this PR does not poll or automatically replace the
+profile after a job completes. Revisit the profile after the worker processes it.
+Busy, cooldown, queue/cohort limits, and unavailable admissions leave existing
+data unchanged. No images, scores, history, or new job types are introduced.
+
+With no manual allowlist and migration 088 detected, the opt-in health reader
+inspects up to 25 most recently requested creators using the enrollment index
+(26 rows fetched to identify more results). The report uses `scope=recent_demand`
+and `has_more`; global and inaccessible counts are unknown rather than reported
+as zero. An explicit manual allowlist continues to take precedence.
+
+Migration 088 uses a regular `CREATE INDEX` so it can be run in the Supabase
+web SQL editor. This index build takes a write-blocking lock on `creators`;
+schedule it during a maintenance window if writes to that table cannot pause.
+The migration depends on 087 and the active-job uniqueness/enqueue
+serialization from 077 and 086. Verify the enrollment index is ready and valid;
+do not enable the flag if its build failed. Apply the migration first, then
+deploy and restart every creator worker. Verify all workers have loaded the
+enrollment column and are healthy before enabling the web flag; do not enable
+admissions while any old worker can claim sync jobs.
+
+Run admission tests only on an empty disposable Supabase database with its
+standard roles available. The fixture refuses existing application tables:
+
+```bash
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/video_snapshot_demand.sql
+```
+
+The SQL test covers enrollment, queue reuse, processing deferral, freshness,
+cooldown, actor/creator rejection, caps, and RPC permissions. Concurrent
+admission and job-claim behavior must also be verified in staging. Local
+Python tests do not prove deployed SQL constraints or locks.
+
 ### Unknown-Activity Refresh Pilot (083)
 
 Migration 083 installs `enqueue_unknown_activity_refreshes` without inserting
