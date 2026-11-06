@@ -56,6 +56,7 @@ from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from services.creator_topics import parse_creator_topics
 from components.add_creator import AddCreatorForm
+from components.video_deep_dive import render_video_deep_dive
 from components.buttons import (
     EstimatedBadge,
     SignUpNudge,
@@ -5054,6 +5055,7 @@ def render_creator_profile_page(
         banner_section,
         stats_row,
         body_cols,
+        render_video_deep_dive(creator),
         similar_section,
         embedding_peers_section,
         box_plot_section,

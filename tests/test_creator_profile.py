@@ -17,6 +17,72 @@ from starlette.testclient import TestClient
 import main
 
 
+def test_video_deep_dive_is_read_only_bounded_and_escapes_titles():
+    from fasthtml.common import to_xml
+    from components.video_deep_dive import render_video_deep_dive
+
+    videos = [
+        {
+            "video_id": f"{index:011d}",
+            "title": "<script>alert(1)</script>",
+            "published_at": "2026-11-01T00:00:00Z",
+            "duration_sec": 90,
+            "view_count": 100,
+            "like_count": 10,
+            "comment_count": 2,
+        }
+        for index in range(15)
+    ]
+    html = to_xml(render_video_deep_dive({"recent_videos": videos}))
+    assert html.count('data-vv-video="') == 12
+    assert "Latest 12 cached videos" in html
+    assert "&lt;script&gt;" in html
+    assert "<script>alert" not in html
+    assert "Engagement: 12.0%" in html
+    assert "Frame not loaded" in html
+    assert 'loading="lazy"' in html
+    assert 'src="/js/video_deep_dive.js"' in html
+    assert "maxres2.jpg" not in html
+    assert "Load more" not in html
+
+
+def test_video_deep_dive_distinguishes_uncollected_empty_and_invalid_snapshots():
+    from fasthtml.common import to_xml
+    from components.video_deep_dive import render_video_deep_dive
+
+    assert render_video_deep_dive({}) is None
+    assert render_video_deep_dive({"recent_videos": None}) is None
+    assert render_video_deep_dive({"recent_videos": "broken"}) is None
+    html = to_xml(render_video_deep_dive({"recent_videos": []}))
+    assert "No accessible videos" in html
+    html = to_xml(render_video_deep_dive({"recent_videos": [{"video_id": "../bad"}]}))
+    assert "Video metadata unavailable" in html
+    assert "i.ytimg.com" not in html
+
+
+def test_video_deep_dive_missing_metrics_are_not_zero_or_honesty_labels():
+    from fasthtml.common import to_xml
+    from components.video_deep_dive import render_video_deep_dive
+
+    html = to_xml(
+        render_video_deep_dive(
+            {
+                "recent_videos": [
+                    {
+                        "video_id": "abcdefghijk",
+                        "view_count": 100,
+                        "like_count": None,
+                    }
+                ]
+            }
+        )
+    )
+    assert "Likes: Unavailable" in html
+    assert "Engagement: Unavailable" in html
+    assert "Duration unavailable" in html
+    assert "Low honesty" not in html
+
+
 def test_topic_preview_labels_legacy_source_and_upload_date():
     from fasthtml.common import to_xml
     from views.creators import _render_content_dna_preview
@@ -569,6 +635,38 @@ class TestCreatorProfile:
         self._patch_profile_db(monkeypatch)
         r = client.get(f"/creator/{FAKE_CREATOR_UUID}")
         assert r.status_code == 200
+
+    def test_profile_renders_cached_video_snapshot_without_a_new_endpoint(
+        self, client, monkeypatch
+    ):
+        self._patch_profile_db(
+            monkeypatch,
+            creator={
+                **FAKE_CREATOR,
+                "recent_videos": [
+                    {
+                        "video_id": "abcdefghijk",
+                        "title": "Cached upload",
+                        "published_at": "2026-11-01T00:00:00Z",
+                    }
+                ],
+                "recent_videos_fetched_at": "2026-11-06T00:00:00Z",
+            },
+        )
+        response = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+
+        assert response.status_code == 200
+        assert "Video Deep Dive" in response.text
+        assert "Cached upload" in response.text
+        assert "Latest 1 cached video / Updated Nov 06, 2026" in response.text
+        assert response.text.count('src="/js/video_deep_dive.js"') == 1
+
+    def test_video_deep_dive_script_is_served_by_the_application(self, client):
+        response = client.get("/js/video_deep_dive.js")
+
+        assert response.status_code == 200
+        assert "resolveFrame" in response.text
+        assert "naturalWidth > 120" in response.text
 
     def test_known_creator_shows_channel_name(self, client, monkeypatch):
         """Profile page must include the creator's channel name."""
