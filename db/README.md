@@ -172,7 +172,9 @@ The service-role-only `request_creator_video_snapshot` RPC persists
 `creators.recent_videos_requested_at`, which all updated creator workers honor
 without environment allowlists. Existing manual allowlists remain supported.
 Restart workers after applying the migration so schema detection sees the new
-column. Disabling the web flag stops new demand admissions; existing enrollment
+column. If PostgREST's cache lags despite schema detection, workers use the
+service-role-only `creator_video_snapshot_is_enrolled` RPC to preserve demand
+state. Disabling the web flag stops new demand admissions; existing enrollment
 and snapshots remain intact.
 
 Admission is serialized with the existing creator-sync enqueue lock. Pending
@@ -190,10 +192,11 @@ not admitted. Limits are fixed in SQL:
 
 Enrollment has no automatic expiry; its cap bounds snapshot storage to at most
 1,000 arrays of 12 videos and 32 KiB, excluding older manual-pilot snapshots.
-The private daily budget table retains at most 30 days of active admission
-counters through cleanup on successful admission. Actor UUIDs are retained for
-that short rate-limit window even if a user is deleted, preventing deletion
-from resetting the global budget. It is inaccessible to client roles.
+The private daily budget table cleans up counters older than 30 days on every
+admission RPC call, including calls rejected by admission limits. Actor UUIDs
+are retained for that short rate-limit window even if a user is deleted,
+preventing deletion from resetting the global budget. It is inaccessible to
+client roles.
 
 The existing worker scheduler must still be running. Admission does not promise
 immediate processing, and this PR does not poll or automatically replace the
@@ -207,15 +210,15 @@ inspects up to 25 most recently requested creators using the enrollment index
 and `has_more`; global and inaccessible counts are unknown rather than reported
 as zero. An explicit manual allowlist continues to take precedence.
 
-Migration 088 contains `CREATE INDEX CONCURRENTLY`; run with psql autocommit,
-not `--single-transaction` or a transaction-wrapping runner. It depends on 087
-and the active-job uniqueness/enqueue serialization from 077 and 086. Verify
-the enrollment index is ready and valid; do not enable the flag if its build
-failed. Stage the migration before deploying the web flag and updated workers:
-
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/088_video_snapshot_demand.sql
-```
+Migration 088 uses a regular `CREATE INDEX` so it can be run in the Supabase
+web SQL editor. This index build takes a write-blocking lock on `creators`;
+schedule it during a maintenance window if writes to that table cannot pause.
+The migration depends on 087 and the active-job uniqueness/enqueue
+serialization from 077 and 086. Verify the enrollment index is ready and valid;
+do not enable the flag if its build failed. Apply the migration first, then
+deploy and restart every creator worker. Verify all workers have loaded the
+enrollment column and are healthy before enabling the web flag; do not enable
+admissions while any old worker can claim sync jobs.
 
 Run admission tests only on an empty disposable Supabase database with its
 standard roles available. The fixture refuses existing application tables:

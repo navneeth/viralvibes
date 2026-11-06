@@ -686,7 +686,8 @@ class TestCreatorProfile:
         html = to_xml(result.body)
         assert ('hx-post="' in html and '/videos/request"' in html) is expected
         if expected:
-            assert 'hx-trigger="load once"' in html
+            assert 'hx-trigger="click once"' in html
+            assert "Request a fresh video snapshot" in html
             assert 'hx-swap="none"' in html
         admission.assert_not_called()
 

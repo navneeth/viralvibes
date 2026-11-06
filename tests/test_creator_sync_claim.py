@@ -174,7 +174,13 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
     query = MagicMock()
     query.select.return_value = query
     query.eq.return_value = query
-    query.execute.return_value = SimpleNamespace(data=[creator])
+    selected_columns = []
+    query.select.side_effect = lambda columns: selected_columns.append(columns) or query
+    query.execute.side_effect = lambda: SimpleNamespace(
+        data=[
+            {key: value for key, value in creator.items() if key in selected_columns[-1].split(",")}
+        ]
+    )
     client = MagicMock()
     client.table.return_value = query
     monkeypatch.setattr(creator_worker, "supabase_client", client)
@@ -190,6 +196,9 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
         {
             "recent_videos",
             "recent_videos_fetched_at",
+            "recent_videos_requested_at",
+            "recent_upload",
+            "avg_days_between_uploads",
         },
     )
     query.update.side_effect = RuntimeError("Optional snapshot update denied")
@@ -287,7 +296,15 @@ def test_creator_state_read_retries_without_optional_columns_after_schema_cache_
     query.eq.return_value = query
     query.execute.side_effect = [
         _MissingOptionalColumnError("recent_upload missing from schema cache"),
-        SimpleNamespace(data=[{"channel_id": "UCcreator"}]),
+        SimpleNamespace(
+            data=[
+                {
+                    "channel_id": "UCcreator",
+                    "avg_days_between_uploads": 4.25,
+                    "recent_videos_requested_at": "2026-11-06T00:00:00Z",
+                }
+            ]
+        ),
     ]
     client = MagicMock()
     client.table.return_value = query
@@ -301,12 +318,55 @@ def test_creator_state_read_retries_without_optional_columns_after_schema_cache_
 
     result = creator_worker._fetch_creator_state("creator-1")
 
-    assert result == {"channel_id": "UCcreator"}
+    assert result["channel_id"] == "UCcreator"
+    assert result["_snapshot_enrollment_known"] is True
+    assert result["_snapshot_enrolled"] is True
+    assert result["avg_days_between_uploads"] == 4.25
+    assert result["recent_videos_requested_at"] == "2026-11-06T00:00:00Z"
     selected_columns = [call.args[0] for call in query.select.call_args_list]
     assert "recent_upload" in selected_columns[0]
     assert "avg_days_between_uploads" in selected_columns[0]
     assert "recent_upload" not in selected_columns[1]
-    assert "avg_days_between_uploads" not in selected_columns[1]
+    assert "avg_days_between_uploads" in selected_columns[1]
+    assert "recent_videos_requested_at" in selected_columns[1]
+
+
+def test_creator_state_read_preserves_enrollment_when_postgrest_cache_lags(monkeypatch):
+    import worker.creator_worker as creator_worker
+
+    class _MissingOptionalColumnError(Exception):
+        code = "PGRST204"
+
+    query = MagicMock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.execute.side_effect = [
+        _MissingOptionalColumnError("recent_videos_requested_at missing from schema cache"),
+        SimpleNamespace(data=[{"channel_id": "UCcreator"}]),
+    ]
+    client = MagicMock()
+    client.table.return_value = query
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=True)
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(
+        creator_worker.schema_detector,
+        "available_columns",
+        set(creator_worker._CREATOR_STATE_REQUIRED_COLUMNS)
+        | set(creator_worker._CREATOR_STATE_OPTIONAL_COLUMNS),
+    )
+
+    result = creator_worker._fetch_creator_state("creator-1")
+
+    assert result["_snapshot_enrollment_known"] is True
+    assert result["_snapshot_enrolled"] is True
+    client.rpc.assert_called_once_with(
+        "creator_video_snapshot_is_enrolled",
+        {"p_creator_id": "creator-1"},
+    )
+    selected_columns = [call.args[0] for call in query.select.call_args_list]
+    assert "recent_upload" in selected_columns[1]
+    assert "avg_days_between_uploads" in selected_columns[1]
+    assert "recent_videos_requested_at" not in selected_columns[1]
 
 
 def test_creator_state_read_omits_optional_columns_when_schema_lacks_them(monkeypatch):
@@ -315,7 +375,14 @@ def test_creator_state_read_omits_optional_columns_when_schema_lacks_them(monkey
     query = MagicMock()
     query.select.return_value = query
     query.eq.return_value = query
-    query.execute.return_value = SimpleNamespace(data=[{"channel_id": "UCcreator"}])
+    query.execute.return_value = SimpleNamespace(
+        data=[
+            {
+                "channel_id": "UCcreator",
+                "recent_videos_requested_at": "2026-11-06T00:00:00Z",
+            }
+        ]
+    )
     client = MagicMock()
     client.table.return_value = query
     monkeypatch.setattr(creator_worker, "supabase_client", client)
@@ -327,7 +394,10 @@ def test_creator_state_read_omits_optional_columns_when_schema_lacks_them(monkey
 
     result = creator_worker._fetch_creator_state("creator-1")
 
-    assert result == {"channel_id": "UCcreator"}
+    assert result["channel_id"] == "UCcreator"
+    assert result["_snapshot_enrollment_known"] is True
+    assert result["_snapshot_enrolled"] is True
     selected_columns = query.select.call_args.args[0]
+    assert "recent_videos_requested_at" in selected_columns
     assert "recent_upload" not in selected_columns
     assert "avg_days_between_uploads" not in selected_columns

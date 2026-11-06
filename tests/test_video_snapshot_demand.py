@@ -23,22 +23,31 @@ def test_request_is_scoped_and_uses_only_admission_rpc(monkeypatch):
     monkeypatch.setattr("db.supabase_client", client)
 
     assert demand.request_video_snapshot(CREATOR_ID, USER_ID) == "queued"
-    client.rpc.assert_called_once_with("request_creator_video_snapshot", {
-        "p_creator_id": CREATOR_ID, "p_user_id": USER_ID,
-    })
+    client.rpc.assert_called_once_with(
+        "request_creator_video_snapshot",
+        {
+            "p_creator_id": CREATOR_ID,
+            "p_user_id": USER_ID,
+        },
+    )
     client.table.assert_not_called()
 
 
 @pytest.mark.parametrize("scenario", ["disabled", "invalid", "rpc_failed"])
 def test_demand_safely_rejects_or_handles_failure(monkeypatch, scenario):
-    monkeypatch.setenv("VIDEO_SNAPSHOT_DEMAND_ENABLED", "false" if scenario == "disabled" else "true")
+    monkeypatch.setenv(
+        "VIDEO_SNAPSHOT_DEMAND_ENABLED", "false" if scenario == "disabled" else "true"
+    )
     client = MagicMock()
     client.rpc.side_effect = RuntimeError("RPC missing")
     monkeypatch.setattr("db.supabase_client", client)
 
     result = demand.request_video_snapshot("bad" if scenario == "invalid" else CREATOR_ID, USER_ID)
 
-    assert result == {"disabled": "disabled", "invalid": "invalid", "rpc_failed": "unavailable"}[scenario]
+    assert (
+        result
+        == {"disabled": "disabled", "invalid": "invalid", "rpc_failed": "unavailable"}[scenario]
+    )
     if scenario != "rpc_failed":
         client.rpc.assert_not_called()
 
@@ -47,19 +56,42 @@ def test_demand_only_requests_missing_or_stale_nonarchived_snapshots():
     now = datetime.now(timezone.utc)
     assert demand.needs_video_snapshot({}) is True
     assert demand.needs_video_snapshot({"archived_at": now.isoformat()}) is False
-    assert demand.needs_video_snapshot({"recent_videos": [], "recent_videos_fetched_at": now.isoformat()}) is False
-    assert demand.needs_video_snapshot({
-        "recent_videos": [], "recent_videos_fetched_at": (now - timedelta(days=8)).isoformat(),
-    }) is True
-    assert demand.needs_video_snapshot({
-        "recent_videos": [], "recent_videos_fetched_at": (now + timedelta(days=8)).isoformat(),
-    }) is True
+    assert (
+        demand.needs_video_snapshot(
+            {"recent_videos": [], "recent_videos_fetched_at": now.isoformat()}
+        )
+        is False
+    )
+    assert (
+        demand.needs_video_snapshot(
+            {
+                "recent_videos": [],
+                "recent_videos_fetched_at": (now - timedelta(days=8)).isoformat(),
+            }
+        )
+        is True
+    )
+    assert (
+        demand.needs_video_snapshot(
+            {
+                "recent_videos": [],
+                "recent_videos_fetched_at": (now + timedelta(days=8)).isoformat(),
+            }
+        )
+        is True
+    )
 
 
-@pytest.mark.parametrize("scenario, status_code", [
-    ("anonymous", 401), ("no_auth", 401), ("cross_origin", 403),
-    ("no_hx", 403), ("allowed", 200),
-])
+@pytest.mark.parametrize(
+    "scenario, status_code",
+    [
+        ("anonymous", 401),
+        ("no_auth", 401),
+        ("cross_origin", 403),
+        ("no_hx", 403),
+        ("allowed", 200),
+    ],
+)
 def test_demand_endpoint_requires_auth_and_same_origin(monkeypatch, scenario, status_code):
     from routes.creators import request_creator_video_snapshot_route
 
@@ -103,19 +135,31 @@ def test_health_discovers_bounded_demand_cohort_without_manual_allowlist(monkeyp
     import worker.creator_worker as worker
 
     monkeypatch.delenv("CREATOR_RECENT_VIDEO_ALLOWLIST", raising=False)
-    monkeypatch.setattr(worker.schema_detector, "available_columns", {
-        "recent_videos", "recent_videos_fetched_at", "recent_videos_requested_at",
-    })
+    monkeypatch.setattr(
+        worker.schema_detector,
+        "available_columns",
+        {
+            "recent_videos",
+            "recent_videos_fetched_at",
+            "recent_videos_requested_at",
+        },
+    )
     client = MagicMock()
     query = client.table.return_value
     query.select.return_value = query
     query.not_.is_.return_value = query
     query.order.return_value = query
     query.limit.return_value = query
-    query.execute.return_value = SimpleNamespace(data=[
-        {"id": str(index), "recent_videos": [], "recent_videos_fetched_at": datetime.now(timezone.utc).isoformat()}
-        for index in range(26)
-    ])
+    query.execute.return_value = SimpleNamespace(
+        data=[
+            {
+                "id": str(index),
+                "recent_videos": [],
+                "recent_videos_fetched_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for index in range(26)
+        ]
+    )
     monkeypatch.setattr(worker, "supabase_client", client)
 
     health = worker.get_recent_video_snapshot_health()
@@ -126,4 +170,6 @@ def test_health_discovers_bounded_demand_cohort_without_manual_allowlist(monkeyp
     assert health["has_more"] is True
     assert health["configured"] is None
     query.limit.assert_called_once_with(26)
+    query.not_.is_.assert_called_once_with("recent_videos_requested_at", "null")
+    query.order.assert_called_once_with("recent_videos_requested_at", desc=True)
     query.update.assert_not_called()

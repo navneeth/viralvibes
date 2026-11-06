@@ -676,47 +676,83 @@ _CREATOR_STATE_OPTIONAL_COLUMNS = (
 
 
 def _creator_state_select_columns(available_columns: set[str] | None) -> str:
-    """Select recent-upload fields only when startup schema detection found them."""
+    """Optimistically select enrollment and include upload fields when available."""
     columns = list(_CREATOR_STATE_REQUIRED_COLUMNS)
     if available_columns:
         columns.extend(
-            column for column in _CREATOR_STATE_OPTIONAL_COLUMNS if column in available_columns
+            column
+            for column in _CREATOR_STATE_OPTIONAL_COLUMNS
+            if column in available_columns or column == "recent_videos_requested_at"
         )
+    else:
+        columns.append("recent_videos_requested_at")
     return ",".join(columns)
 
 
-def _is_missing_optional_creator_column_error(error: Exception) -> bool:
+def _is_missing_optional_creator_column_error(error: Exception) -> str | None:
     code = str(getattr(error, "code", ""))
     message = str(error).lower()
-    references_optional_column = any(
-        column in message for column in _CREATOR_STATE_OPTIONAL_COLUMNS
+    if code not in {"42703", "PGRST204"}:
+        return None
+    return next(
+        (column for column in _CREATOR_STATE_OPTIONAL_COLUMNS if column in message),
+        None,
     )
-    return references_optional_column and code in {"42703", "PGRST204"}
 
 
 def _fetch_creator_state(creator_id: str) -> dict:
-    """Fetch creator state, retrying without optional columns on schema-cache lag."""
+    """Fetch creator state while retaining columns unaffected by schema-cache lag."""
     client = supabase_client
-    columns = _creator_state_select_columns(schema_detector.available_columns)
-    query = client.table(CREATOR_TABLE).select(columns).eq("id", creator_id)
-    try:
-        response = query.execute()
-    except Exception as error:
-        selected_columns = set(columns.split(","))
-        has_optional_columns = bool(selected_columns.intersection(_CREATOR_STATE_OPTIONAL_COLUMNS))
-        if not has_optional_columns or not _is_missing_optional_creator_column_error(error):
-            raise
+    available_columns = schema_detector.available_columns
+    selected_columns = _creator_state_select_columns(available_columns).split(",")
+    enrollment_column_missing = False
 
-        logger.warning(
-            "Optional creator columns are missing from the PostgREST schema cache; "
-            "retrying creator-state read without them"
-        )
-        required_columns = ",".join(_CREATOR_STATE_REQUIRED_COLUMNS)
-        response = (
-            client.table(CREATOR_TABLE).select(required_columns).eq("id", creator_id).execute()
-        )
+    while True:
+        query = client.table(CREATOR_TABLE).select(",".join(selected_columns)).eq("id", creator_id)
+        try:
+            response = query.execute()
+            creator = response.data[0] if response.data else {}
+            if not creator:
+                return creator
 
-    return response.data[0] if response.data else {}
+            if enrollment_column_missing:
+                try:
+                    enrollment = client.rpc(
+                        "creator_video_snapshot_is_enrolled",
+                        {"p_creator_id": creator_id},
+                    ).execute()
+                except Exception as error:
+                    if (
+                        available_columns is None
+                        or "recent_videos_requested_at" in available_columns
+                    ):
+                        raise RuntimeError(
+                            "Could not determine creator video snapshot enrollment"
+                        ) from error
+                    creator["_snapshot_enrolled"] = False
+                else:
+                    if not isinstance(enrollment.data, bool):
+                        raise RuntimeError("Could not determine creator video snapshot enrollment")
+                    creator["_snapshot_enrolled"] = enrollment.data
+                creator["_snapshot_enrollment_known"] = True
+            else:
+                creator["_snapshot_enrolled"] = (
+                    creator.get("recent_videos_requested_at") is not None
+                )
+                creator["_snapshot_enrollment_known"] = True
+            return creator
+        except Exception as error:
+            missing_column = _is_missing_optional_creator_column_error(error)
+            if missing_column not in selected_columns:
+                raise
+            logger.warning(
+                "Optional creator column %s is missing from the PostgREST schema cache; "
+                "retrying without that column",
+                missing_column,
+            )
+            selected_columns.remove(missing_column)
+            if missing_column == "recent_videos_requested_at":
+                enrollment_column_missing = True
 
 
 def _empty_recent_video_intelligence_success() -> dict:
@@ -1946,6 +1982,12 @@ async def handle_sync_job(
         creator = _fetch_creator_state(creator_id)
         if not creator:
             raise ValueError(f"Creator not found in DB: {creator_id}")
+        if not creator.get("_snapshot_enrollment_known", True):
+            raise RuntimeError("Could not read creator video snapshot enrollment state")
+        snapshot_enrolled = creator.get(
+            "_snapshot_enrolled",
+            creator.get("recent_videos_requested_at") is not None,
+        )
         channel_id = creator.get("channel_id")
         channel_name = creator.get("channel_name", "unknown")
 
@@ -1987,7 +2029,6 @@ async def handle_sync_job(
         # If EXIT_AFTER_JOB is ever disabled, consider a per-call YouTube client
         # instance to restore safe concurrency.
         should_fetch_categories = _needs_category_fetch(creator.get("primary_category"))
-        snapshot_enrolled = creator.get("recent_videos_requested_at") is not None
         snapshot_enabled = snapshot_enrolled or _recent_video_snapshot_enabled(creator_id)
         video_intel = await _fetch_recent_video_intelligence(
             channel_id,

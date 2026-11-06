@@ -17,8 +17,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.video_snapshot_demand_budget TO s
 
 COMMIT;
 
--- Run with psql autocommit, not --single-transaction.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_creators_video_snapshot_enrollment
+CREATE INDEX IF NOT EXISTS idx_creators_video_snapshot_enrollment
     ON public.creators (recent_videos_requested_at)
     WHERE recent_videos_requested_at IS NOT NULL;
 
@@ -39,6 +38,8 @@ DECLARE
     v_day date := (statement_timestamp() AT TIME ZONE 'UTC')::date;
     v_user_admissions integer;
 BEGIN
+    DELETE FROM public.video_snapshot_demand_budget WHERE admission_day <= v_day - 30;
+
     IF p_user_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_user_id) THEN
         RETURN 'unauthorized';
     END IF;
@@ -107,12 +108,27 @@ BEGIN
     VALUES (v_day, p_user_id, 1)
     ON CONFLICT (admission_day, user_id) DO UPDATE
         SET admissions = public.video_snapshot_demand_budget.admissions + 1;
-    DELETE FROM public.video_snapshot_demand_budget WHERE admission_day <= v_day - 30;
     RETURN 'queued';
 END;
 $$;
 REVOKE ALL ON FUNCTION public.request_creator_video_snapshot(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.request_creator_video_snapshot(uuid, uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.creator_video_snapshot_is_enrolled(p_creator_id uuid)
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.creators
+        WHERE id = p_creator_id
+          AND archived_at IS NULL
+          AND recent_videos_requested_at IS NOT NULL
+    );
+$$;
+REVOKE ALL ON FUNCTION public.creator_video_snapshot_is_enrolled(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.creator_video_snapshot_is_enrolled(uuid) TO service_role;
 
 COMMENT ON COLUMN public.creators.recent_videos_requested_at IS
     'Persisted demand enrollment, honored by all creator workers. At most 1000 creators admitted; no automatic expiry.';

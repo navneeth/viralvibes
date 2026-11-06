@@ -10,7 +10,10 @@ logger = logging.getLogger(__name__)
 
 def video_snapshot_demand_enabled() -> bool:
     return os.environ.get("VIDEO_SNAPSHOT_DEMAND_ENABLED", "").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 
@@ -40,9 +43,13 @@ def request_video_snapshot(creator_id: str, user_id: str) -> str:
     try:
         from db import supabase_client
 
-        result = supabase_client.rpc("request_creator_video_snapshot", {
-            "p_creator_id": creator_id, "p_user_id": user_id,
-        }).execute()
+        result = supabase_client.rpc(
+            "request_creator_video_snapshot",
+            {
+                "p_creator_id": creator_id,
+                "p_user_id": user_id,
+            },
+        ).execute()
         return result.data if isinstance(result.data, str) else "unavailable"
     except Exception:
         logger.warning("Video snapshot demand admission unavailable", exc_info=True)

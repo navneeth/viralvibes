@@ -46,11 +46,23 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM public.creators WHERE id = md5('1')::uuid AND recent_videos_requested_at IS NOT NULL) THEN
         RAISE EXCEPTION 'Enrollment was not persisted';
     END IF;
+    INSERT INTO public.video_snapshot_demand_budget (admission_day, user_id, admissions)
+    VALUES (
+        (now() AT TIME ZONE 'UTC')::date - 31,
+        md5('expired-budget-user')::uuid,
+        1
+    );
     IF public.request_creator_video_snapshot(md5('1')::uuid, v_user) <> 'cooldown' THEN
         RAISE EXCEPTION 'Creator cooldown was not enforced';
     END IF;
     IF public.request_creator_video_snapshot(md5('2')::uuid, NULL) <> 'unauthorized' THEN
         RAISE EXCEPTION 'Missing actor was admitted';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.video_snapshot_demand_budget
+        WHERE user_id = md5('expired-budget-user')::uuid
+    ) THEN
+        RAISE EXCEPTION 'Expired budget row was not cleaned on a rejected request';
     END IF;
 END;
 $$;
@@ -123,6 +135,13 @@ BEGIN
     IF has_function_privilege('anon', 'public.request_creator_video_snapshot(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege('authenticated', 'public.request_creator_video_snapshot(uuid,uuid)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Client roles can execute admission RPC';
+    END IF;
+    IF public.creator_video_snapshot_is_enrolled(md5('1')::uuid) IS NOT TRUE THEN
+        RAISE EXCEPTION 'Enrollment fallback did not identify enrolled creator';
+    END IF;
+    IF has_function_privilege('anon', 'public.creator_video_snapshot_is_enrolled(uuid)', 'EXECUTE')
+       OR has_function_privilege('authenticated', 'public.creator_video_snapshot_is_enrolled(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Client roles can execute enrollment fallback RPC';
     END IF;
 END;
 $$;

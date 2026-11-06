@@ -854,10 +854,17 @@ def creator_profile_route(request, creator_id: str, user_id: str | None = None):
             body = Div(
                 body,
                 Div(
-                    hx_post=f"/creator/{creator['id']}/videos/request",
-                    hx_trigger="load once",
-                    hx_swap="none",
-                    hidden=True,
+                    Button(
+                        "Request a fresh video snapshot",
+                        hx_post=f"/creator/{creator['id']}/videos/request",
+                        hx_trigger="click once",
+                        hx_swap="none",
+                    ),
+                    P(
+                        "This queues a background refresh; it may take a few minutes.",
+                        cls="text-sm text-muted-foreground",
+                    ),
+                    cls="mt-4",
                 ),
             )
     return CreatorProfileResult(body=body, creator=creator)
