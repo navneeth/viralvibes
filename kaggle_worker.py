@@ -88,6 +88,9 @@ def _display_final_report(
 | **Quota Used** | {metrics.youtube_credits_used} / {YOUTUBE_DAILY_QUOTA} ({metrics.quota_percentage():.2f}%) |
 | **API Errors** | {metrics.api_errors} |
 | **Failed Jobs** | {metrics.syncs_failed} |
+| **Video snapshots saved** | {metrics.video_snapshots_saved} |
+| **Video snapshot write errors** | {metrics.video_snapshot_write_errors} |
+| **Video snapshot schema skips** | {metrics.video_snapshot_schema_skips} |
 | **Stop Reason** | {stop_reason} |
 """
         display(Markdown(report))
@@ -668,7 +671,14 @@ async def run(
         else:
             stop_reason = "Job limit reached"
     run_metrics = copy(metrics)
-    for metric_name in ("syncs_processed", "syncs_failed", "api_errors"):
+    for metric_name in (
+        "syncs_processed",
+        "syncs_failed",
+        "api_errors",
+        "video_snapshots_saved",
+        "video_snapshot_write_errors",
+        "video_snapshot_schema_skips",
+    ):
         setattr(
             run_metrics,
             metric_name,
@@ -713,6 +723,25 @@ async def run(
             except Exception as e:
                 logger.warning("[Worker maintenance] Refresh exception: %s", e)
 
+        if os.environ.get("KAGGLE_REPORT_VIDEO_SNAPSHOT_HEALTH", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            try:
+                health = _cw.get_recent_video_snapshot_health()
+                if health is not None:
+                    logger.info(
+                        "[Video Snapshot Health] %s (stale means at least 7 days old)", health
+                    )
+                else:
+                    logger.info(
+                        "[Video Snapshot Health] No report available; inspect warnings and allowlist"
+                    )
+            except Exception as error:
+                logger.warning("[Video Snapshot Health] Report failed: %s", error)
+
         # Log text summary
         logger.info("=" * 60)
         logger.info("Kaggle worker finished")
@@ -722,6 +751,9 @@ async def run(
         logger.info("  Succeeded      : %d", run_metrics.syncs_processed)
         logger.info("  Failed         : %d", run_metrics.syncs_failed)
         logger.info("  API errors     : %d", run_metrics.api_errors)
+        logger.info("  Video snapshots saved : %d", run_metrics.video_snapshots_saved)
+        logger.info("  Video snapshot write errors : %d", run_metrics.video_snapshot_write_errors)
+        logger.info("  Video snapshot schema skips : %d", run_metrics.video_snapshot_schema_skips)
         logger.info(
             "  YT Quota used  : %d / %d (%.2f%%)",
             metrics.youtube_credits_used,
