@@ -49,6 +49,29 @@ done
 
 ## Current Migrations
 
+### Recent Video Snapshot Foundation (087)
+
+PR 1 adds nullable `creators.recent_videos` and
+`recent_videos_fetched_at` columns plus a metadata-only normalization helper.
+Snapshots contain at most 12 videos and 32 KiB of serialized JSON. No image
+URLs, bytes, availability flags, scores, indexes, backfill, or new grants are
+added. Existing creator-table access policies continue to apply; verify those
+policies before enabling the pilot.
+
+The constraint is installed `NOT VALID` to avoid scanning the creator table.
+It still checks new inserts and updates. The migration does not populate data
+or enable collection. Apply it separately from the worker rollout and verify
+both columns using the included read-only query.
+
+PR 2 will opt selected creator UUIDs into snapshot writes using the existing
+recent-video API response. Fetch failures preserve the snapshot; a successful
+empty response writes `[]`. Other creators remain `NULL`. Writes replace rather
+than append, and missing migration columns must not break creator syncs.
+
+PR 3 will add the latest-12 profile comparison with browser-only frame loading,
+neutral availability states, and frame switching. History pagination, Shorts
+classification, scoring, and new queue lanes are explicitly deferred.
+
 ### Unknown-Activity Refresh Pilot (083)
 
 Migration 083 installs `enqueue_unknown_activity_refreshes` without inserting
