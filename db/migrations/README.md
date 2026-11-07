@@ -105,16 +105,18 @@ Migration 085 adds a partial index for cooldown lookups. Run it separately with
 psql autocommit because it uses `CREATE INDEX CONCURRENTLY`; verify the index is
 valid and ready before proceeding. Migration 086 adds a trigger that shares the
 enqueue advisory lock across direct inserts and updates the growth-baseline RPC
-to use the same lock. Apply 084-086 before enabling Kaggle's `refresh_auto=True`.
+to use the same lock. Apply 084-089 and restart every creator worker before
+running Kaggle's automatic refresh.
 
 The disposable SQL regression suite checks two-candidate selection, the
 remaining queue slot, malformed upload timestamps, rank order, long-running
 failure cooldown, and shared-lock installation. It has not been run locally
 because PostgreSQL is unavailable. Measure automatic dry-run latency in the
-target database before applying jobs. Automatic mode is opt-in and defaults to
-dry run, but the worker still processes ordinary queued jobs first; it is not a
-preview-only invocation. Set `refresh_dry_run=False` only after reviewing the
-preview and its query latency.
+target database before applying jobs. The `run()` API remains opt-in and
+defaults to dry run, but the Kaggle script entry point (`%run kaggle_worker.py`)
+and documented notebook invocation explicitly use `refresh_auto=True` and
+`refresh_dry_run=False`. The worker still processes ordinary queued jobs first;
+automatic refresh is attempted only after that queue drains.
 
 ### Concurrent Hero Stats Refresh (082)
 

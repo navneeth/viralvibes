@@ -259,8 +259,10 @@ existing per-user cap. The cohort can grow by at most five new creators per
 nightly run, depending on eligibility. The Kaggle runner attempts this batch
 only after the general FIFO queue has no currently eligible jobs; if it reaches
 `max_jobs` first, the automatic batch does not run. Apply migration 089, restart
-every creator worker, then keep the Kaggle nightly run explicitly configured
-with `refresh_auto=True` and `refresh_dry_run=False`.
+every creator worker before running Kaggle. The script entry point
+(`%run kaggle_worker.py`) and documented notebook invocation explicitly use
+`refresh_auto=True` and `refresh_dry_run=False`, so the automatic batch is
+attempted after the regular queue drains.
 
 Apply the migration, then run this preview in Supabase SQL Editor:
 
