@@ -1793,11 +1793,11 @@ def mark_creator_sync_processing(job_id: int) -> bool:
                 {
                     "status": "processing",
                     "started_at": datetime.now(timezone.utc).isoformat(),
-                }
+                },
+                returning="representation",
             )
             .eq("id", job_id)
             .eq("status", "pending")
-            .select("id")
             .execute()
         )
 

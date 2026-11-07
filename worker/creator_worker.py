@@ -1930,10 +1930,9 @@ def _update_creator_snapshot(
     snapshot_iso = snapshot_started_at.isoformat()
     return (
         supabase_client.table(CREATOR_TABLE)
-        .update(payload)
+        .update(payload, returning="representation")
         .eq("id", creator_id)
         .or_(f"last_synced_at.is.null,last_synced_at.lt.{snapshot_iso}")
-        .select("id")
         .execute()
     )
 

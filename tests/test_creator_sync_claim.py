@@ -77,9 +77,11 @@ def test_mark_creator_sync_processing_claims_only_pending_jobs(monkeypatch):
     monkeypatch.setattr(db, "supabase_client", client)
 
     assert db.mark_creator_sync_processing(7) is True
+    query.update.assert_called_once()
+    assert query.update.call_args.kwargs == {"returning": "representation"}
     query.eq.assert_any_call("id", 7)
     query.eq.assert_any_call("status", "pending")
-    query.select.assert_called_once_with("id")
+    query.select.assert_not_called()
 
 
 def test_mark_creator_sync_processing_returns_false_when_claim_was_lost(monkeypatch):
@@ -104,7 +106,6 @@ def test_creator_snapshot_update_rejects_older_syncs(monkeypatch):
     query.update.return_value = query
     query.eq.return_value = query
     query.or_.return_value = query
-    query.select.return_value = query
     query.execute.return_value = SimpleNamespace(data=[])
     client = MagicMock()
     client.table.return_value = query
@@ -115,11 +116,13 @@ def test_creator_snapshot_update_rejects_older_syncs(monkeypatch):
         "creator-1", {"current_view_count": 10}, snapshot_started_at
     )
 
+    query.update.assert_called_once_with({"current_view_count": 10}, returning="representation")
     query.eq.assert_called_once_with("id", "creator-1")
     query.or_.assert_called_once_with(
         "last_synced_at.is.null,last_synced_at.lt.2026-10-23T00:00:00+00:00"
     )
-    query.select.assert_called_once_with("id")
+    query.select.assert_not_called()
+    query.execute.assert_called_once_with()
 
 
 def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
