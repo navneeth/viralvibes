@@ -1933,7 +1933,6 @@ def _update_creator_snapshot(
         .update(payload)
         .eq("id", creator_id)
         .or_(f"last_synced_at.is.null,last_synced_at.lt.{snapshot_iso}")
-        .select("id")
         .execute()
     )
 
