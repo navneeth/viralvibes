@@ -244,6 +244,24 @@ are changed. Automatic candidate supply is a separate path provided by migration
 084-086 and remains disabled unless Kaggle is explicitly run with
 `refresh_auto=True`.
 
+Migration 089 connects that automatic batch to snapshot enrollment. Apply it
+after migration 088 and before the next Kaggle run. Each nightly
+`refresh_auto=True, refresh_dry_run=False` run can select up to five eligible
+creators; only creators whose refresh jobs are actually inserted are enrolled.
+Updated workers then collect snapshots for those jobs without a manual
+`CREATOR_RECENT_VIDEO_ALLOWLIST`. Enrollment persists and snapshots are
+collected again on later syncs for enrolled creators.
+
+Automatic admissions and authenticated profile requests share the 50-per-UTC-
+day limit and 1,000-creator lifetime cohort cap. Automatic runs count only new
+enrollments against those limits; profile requests still also have their
+existing per-user cap. The cohort can grow by at most five new creators per
+nightly run, depending on eligibility. The Kaggle runner attempts this batch
+only after the general FIFO queue has no currently eligible jobs; if it reaches
+`max_jobs` first, the automatic batch does not run. Apply migration 089, restart
+every creator worker, then keep the Kaggle nightly run explicitly configured
+with `refresh_auto=True` and `refresh_dry_run=False`.
+
 Apply the migration, then run this preview in Supabase SQL Editor:
 
 ```sql
