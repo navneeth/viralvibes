@@ -7,7 +7,7 @@ USAGE — run this entire cell once:
 
 Or equivalently:
     import kaggle_worker
-    await kaggle_worker.run(max_jobs=500)
+    await kaggle_worker.run(refresh_auto=True, refresh_dry_run=False)
 
 WHY THIS EXISTS
 ───────────────
@@ -769,4 +769,4 @@ async def run(
 
 # ── Notebook convenience: run directly with %run kaggle_worker.py ─────────────
 if __name__ == "__main__":
-    asyncio.run(run())
+    asyncio.run(run(refresh_auto=True, refresh_dry_run=False))
