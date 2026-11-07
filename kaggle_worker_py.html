@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="main_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.2">coverage.py v7.17.2</a>,
-            created at 2026-11-07 07:51 +0000
+            created at 2026-11-07 14:48 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -91,7 +91,7 @@
     <p class="pln"><span class="n"><a id="t7" href="#t7">7</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="str">Or equivalently:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="str">    import kaggle_worker</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="str">    await kaggle_worker.run(max_jobs=500)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="str">    await kaggle_worker.run(refresh_auto=True, refresh_dry_run=False)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="str">WHY THIS EXISTS</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="str">&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;</span>&nbsp;</span><span class="r"></span></p>
@@ -853,7 +853,7 @@
     <p class="pln"><span class="n"><a id="t769" href="#t769">769</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t770" href="#t770">770</a></span><span class="t"><span class="com"># &#9472;&#9472; Notebook convenience: run directly with %run kaggle_worker.py &#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;</span>&nbsp;</span><span class="r"></span></p>
     <p class="exc show_exc"><span class="n"><a id="t771" href="#t771">771</a></span><span class="t"><span class="key">if</span> <span class="nam">__name__</span> <span class="op">==</span> <span class="str">&quot;__main__&quot;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="exc show_exc"><span class="n"><a id="t772" href="#t772">772</a></span><span class="t">    <span class="nam">asyncio</span><span class="op">.</span><span class="nam">run</span><span class="op">(</span><span class="nam">run</span><span class="op">(</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="exc show_exc"><span class="n"><a id="t772" href="#t772">772</a></span><span class="t">    <span class="nam">asyncio</span><span class="op">.</span><span class="nam">run</span><span class="op">(</span><span class="nam">run</span><span class="op">(</span><span class="nam">refresh_auto</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">refresh_dry_run</span><span class="op">=</span><span class="key">False</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -863,7 +863,7 @@
             <a class="nav" href="main_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.2">coverage.py v7.17.2</a>,
-            created at 2026-11-07 07:51 +0000
+            created at 2026-11-07 14:48 +0000
         </p>
     </div>
 </footer>
