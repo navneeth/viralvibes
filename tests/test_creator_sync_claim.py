@@ -77,6 +77,8 @@ def test_mark_creator_sync_processing_claims_only_pending_jobs(monkeypatch):
     monkeypatch.setattr(db, "supabase_client", client)
 
     assert db.mark_creator_sync_processing(7) is True
+    query.update.assert_called_once()
+    assert query.update.call_args.kwargs == {"returning": "representation"}
     query.eq.assert_any_call("id", 7)
     query.eq.assert_any_call("status", "pending")
     query.select.assert_not_called()
@@ -114,6 +116,7 @@ def test_creator_snapshot_update_rejects_older_syncs(monkeypatch):
         "creator-1", {"current_view_count": 10}, snapshot_started_at
     )
 
+    query.update.assert_called_once_with({"current_view_count": 10}, returning="representation")
     query.eq.assert_called_once_with("id", "creator-1")
     query.or_.assert_called_once_with(
         "last_synced_at.is.null,last_synced_at.lt.2026-10-23T00:00:00+00:00"
