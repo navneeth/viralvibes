@@ -41,6 +41,21 @@ _Live Example: https://www.viralvibes.fyi_
 ### Deployment
 - **Vercel** – Platform used for deployment; supports one-click deploy or CLI usage via `vercel --prod`
 
+### Public Page Cache Policies
+
+Country/category/language lists, list explorers, and category-country rankings
+share the anonymous policy `public, s-maxage=300, stale-while-revalidate=3600`.
+Authenticated responses using the shared helper are `private, no-store`.
+Complete page HTML, navigation, canonical tags, and viewport metadata are retained.
+Load-more fragments and filtered discovery caching are unchanged.
+
+These responses retain `Vary: Cookie` for session-dependent content. Vercel's
+current CDN does not cache responses with that header, so policy consistency
+alone does not reduce origin requests there. Do not remove the header blindly:
+trusted edge session isolation or a separate public shell is a follow-up PR.
+Verify actual `x-vercel-cache` behavior after deployment; TTL headers are not
+proof of cache hits. See [Vercel's cache criteria](https://vercel.com/docs/caching/cdn-cache).
+
 ## Getting Started
 
 1. Clone the repository:

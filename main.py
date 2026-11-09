@@ -273,10 +273,14 @@ def _render_page(ft_response) -> str:
 # ---------------------------------------------------------------------------
 # CDN edge-cache helpers
 # ---------------------------------------------------------------------------
-# TTL strings for public (logged-out) responses served via Vercel's edge CDN.
+# TTL policies introduced for caching public (logged-out) pages at Vercel's edge.
 # s-maxage: how long the CDN serves without revalidating.
 # stale-while-revalidate: how long the CDN may serve stale content while
-# refreshing in the background (users never wait for a cache miss).
+# refreshing in the background, avoiding a wait when a stale copy exists.
+# A cold cache miss still needs an origin response.
+# These are requested cache lifetimes, not proof of an edge hit: Vercel currently
+# does not cache responses with Vary: Cookie. Preserve cookie variation until a
+# separate session-isolation design makes public HTML safely cacheable there.
 _CC_STD = "public, s-maxage=300, stale-while-revalidate=3600"  # creator profiles, lists, blueprints
 _CC_BLOG = "public, s-maxage=3600, stale-while-revalidate=86400"  # blog pages — rarely change
 _CC_RSS = "public, s-maxage=900, stale-while-revalidate=3600"  # RSS feed
@@ -292,18 +296,27 @@ def _is_authenticated(sess) -> bool:
 
 
 def _public_cached_response(sess, page, cache_control: str):
-    """Return *page* wrapped in a CDN-cacheable HTMLResponse for logged-out visitors.
+    """Return complete HTML with a public or authenticated-private cache policy.
 
-    Logged-in users receive the raw FastHTML ``Titled`` response so FastHTML's
-    pipeline can inject session-specific nav state.  ``Vary: Cookie`` tells the
-    CDN to keep both cache entries (logged-in / logged-out) separate.
+    FastHTML's normal pipeline renders both public and authenticated pages,
+    preserving request context and default scripts (including HTMX). Callers
+    render navigation from the session; HttpHeader objects attach the matching
+    cache policy without bypassing framework rendering.
+
+    The original isolation goal remains: a logged-in menu, avatar, or sign-out
+    link must not enter a public cache. Authenticated pages are private and
+    not stored. Vary: Cookie distinguishes session variants in HTTP caches
+    that support it; Vercel currently declines to cache those responses rather
+    than storing separate cookie variants. This preserves privacy, but does
+    not establish Vercel edge hits without a separate session-isolation design.
     """
-    if not _is_authenticated(sess):
-        return HTMLResponse(
-            _render_page(page),
-            headers={"Cache-Control": cache_control, "Vary": "Cookie"},
-        )
-    return page
+    content = page if isinstance(page, tuple) else (page,)
+    policy = "private, no-store" if _is_authenticated(sess) else cache_control
+    return (
+        *content,
+        HttpHeader("Cache-Control", policy),
+        HttpHeader("Vary", "Cookie"),
+    )
 
 
 def _creator_not_found_response(req, sess, message: str) -> HTMLResponse:
@@ -1683,9 +1696,10 @@ def lists(req, sess):
         footer(),
     )
 
-    # Cache at the CDN edge for logged-out visitors only.
-    # Vary: Cookie tells the CDN to keep separate cache entries per
-    # cookie presence, so logged-in users always get a fresh response.
+    # Cache policy was introduced for anonymous lists without sharing logged-in nav.
+    # The helper preserves that boundary with private, no-store for authenticated
+    # pages and Cookie variation for session-dependent content. Vercel currently
+    # bypasses such responses rather than storing separate cookie-based entries.
     return _public_cached_response(sess, response, _CC_STD)
 
 
@@ -1718,7 +1732,7 @@ def lists_country_detail(req, sess, country_code: str):
         f"Browse the top YouTube creators from {country_name}, ranked by subscriber count. "
         "Discover channels, engagement rates and contact info."
     )
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1726,6 +1740,7 @@ def lists_country_detail(req, sess, country_code: str):
         ),
         *page_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/lists/country/{country_code}/more")
@@ -1745,7 +1760,7 @@ def lists_categories_explorer(req, sess):
         "Find top channels by niche, ranked by subscriber count."
     )
     page_content = categories_explorer_route()
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1753,6 +1768,7 @@ def lists_categories_explorer(req, sess):
         ),
         *page_seo_tags(_title, _desc, "/lists/categories"),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/lists/countries")
@@ -1764,7 +1780,7 @@ def lists_countries_explorer(req, sess):
         "Find the top channels from any region."
     )
     page_content = countries_explorer_route()
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1772,6 +1788,7 @@ def lists_countries_explorer(req, sess):
         ),
         *page_seo_tags(_title, _desc, "/lists/countries"),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/lists/languages")
@@ -1783,7 +1800,7 @@ def lists_languages_explorer(req, sess):
         "Find top channels by language, ranked by subscriber count."
     )
     page_content = languages_explorer_route()
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1791,6 +1808,7 @@ def lists_languages_explorer(req, sess):
         ),
         *page_seo_tags(_title, _desc, "/lists/languages"),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/lists/category/{category_slug}")
@@ -1804,7 +1822,7 @@ def lists_category_detail(req, sess, category_slug: str):
         f"Browse the top {display_name} YouTube creators, ranked by subscriber count. "
         "Discover channels, engagement rates and contact info."
     )
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1812,6 +1830,7 @@ def lists_category_detail(req, sess, category_slug: str):
         ),
         *page_seo_tags(_title, _desc, f"/lists/category/{category_slug}"),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/lists/category/{category_slug}/more")
@@ -1844,7 +1863,7 @@ def rankings_category_country(req, sess, category_slug: str, country_slug: str):
         "Compare channels, engagement signals and creator stats for outreach."
     )
     page_content = ranking_detail_route(req, category_slug, country_slug)
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1852,6 +1871,7 @@ def rankings_category_country(req, sess, category_slug: str, country_slug: str):
         ),
         *page_seo_tags(_title, _desc, canonical_path),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 @rt("/rankings/{category_slug}/{country_slug}/more")
@@ -1872,7 +1892,7 @@ def lists_language_detail(req, sess, language_code: str):
         "Discover channels, engagement rates and contact info."
     )
     page_content = language_detail_route(req, language_code)
-    return Titled(
+    page = Titled(
         _title,
         Container(
             NavComponent(oauth, req, sess),
@@ -1880,6 +1900,7 @@ def lists_language_detail(req, sess, language_code: str):
         ),
         *page_seo_tags(_title, _desc, f"/lists/language/{language_code.lower()}"),
     )
+    return _public_cached_response(sess, page, _CC_STD)
 
 
 # Wire mentions route (must come before generic /creator/{creator_id} for path resolution)
