@@ -438,7 +438,9 @@ if os.getenv("VERCEL") == "1" or os.getenv("ENABLE_VERCEL_INSIGHTS") == "1":
     )
 
 # Auth beforeware — canonical FastHTML pattern (adv_app.py, quickstart docs).
-# skip uses re.search(), so regex patterns like r'/static/.*' cover all children.
+# skip uses re.fullmatch(), so directory exemptions need patterns like r'/static/.*'.
+# The shared AUTH_SKIP_ROUTE_PATTERNS list keeps this beforeware and OAuth consistent;
+# a directory prefix without its suffix pattern does not exempt child pages.
 _login_redir = RedirectResponse("/login", status_code=303)
 
 

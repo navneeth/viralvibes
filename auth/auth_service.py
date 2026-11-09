@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # AUTH SKIP PATTERNS - Centralized for consistency
 # =============================================================================
-# Skip list uses re.search() — same as Beforeware.skip.
-# Use regex patterns for directories, exact strings for page routes.
+# FastHTML Beforeware uses re.fullmatch() against the URL path, without query parameters.
+# Directory exemptions need complete patterns such as r'/static/.*'; a prefix alone
+# does not exempt its child routes. Use exact strings for individual page routes.
 # See canonical pattern: adv_app.py and quickstart docs.
 # NOTE: Patterns are centralized here so that both ViralVibesAuth and the
 # Beforeware in main.py share a single source of truth for auth-skipped routes.
@@ -48,12 +49,18 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     # Browse routes — guests can explore without signing in.
     # Persistence (save/export) is soft-gated per-action, not at route level.
     "/creators",
+    r"/creators/top(?:/[^/]+)?/?",
+    r"/rankings/[^/]+/[^/]+(?:/more)?/?",
+    r"/blog(?:/[^/]+)?/?",
+    r"/rss\.xml",
     r"/creator/.*",
-    # Canonical handle-based creator profiles — must be crawlable by Google.
-    # re.search() means r"/creators/@" covers /creators/@handle and
-    # /creators/@handle/blueprint.  Without this, the OAuth middleware blocks
-    # unauthenticated access and Googlebot gets the login page instead of the
-    # canonical profile content, defeating the entire SEO URL migration.
+    # Canonical handle URLs were introduced to make creator profiles indexable.
+    # Without a matching exemption, OAuth returns login content before the profile
+    # renderer and its SEO tags, so anonymous visitors and Googlebot cannot see them.
+    # This legacy rule assumed prefix matching: under re.fullmatch(), it exempts
+    # neither /creators/@handle nor /creators/@handle/blueprint.
+    # Keep access unchanged until the public-profile cohort is decided; do not
+    # broaden this rule to the entire creator population as part of the hub fix.
     r"/creators/@",
     "/lists",
     r"/lists/.*",
