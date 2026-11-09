@@ -298,10 +298,10 @@ def _is_authenticated(sess) -> bool:
 def _public_cached_response(sess, page, cache_control: str):
     """Return complete HTML with a public or authenticated-private cache policy.
 
-    Authenticated Titled responses previously used FastHTML's normal pipeline
-    to preserve session-specific navigation. Callers still render that nav
-    from the session; both branches now use _render_page to retain complete
-    HTML, app CSS/JS, head tags, and viewport metadata while attaching headers.
+    FastHTML's normal pipeline renders both public and authenticated pages,
+    preserving request context and default scripts (including HTMX). Callers
+    render navigation from the session; HttpHeader objects attach the matching
+    cache policy without bypassing framework rendering.
 
     The original isolation goal remains: a logged-in menu, avatar, or sign-out
     link must not enter a public cache. Authenticated pages are private and
@@ -310,12 +310,12 @@ def _public_cached_response(sess, page, cache_control: str):
     than storing separate cookie variants. This preserves privacy, but does
     not establish Vercel edge hits without a separate session-isolation design.
     """
-    return HTMLResponse(
-        _render_page(page),
-        headers={
-            "Cache-Control": "private, no-store" if _is_authenticated(sess) else cache_control,
-            "Vary": "Cookie",
-        },
+    content = page if isinstance(page, tuple) else (page,)
+    policy = "private, no-store" if _is_authenticated(sess) else cache_control
+    return (
+        *content,
+        HttpHeader("Cache-Control", policy),
+        HttpHeader("Vary", "Cookie"),
     )
 
 
