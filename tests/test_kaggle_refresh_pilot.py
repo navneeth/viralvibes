@@ -146,6 +146,11 @@ def pilot_client(monkeypatch):
     client.rpc.return_value.execute.return_value = SimpleNamespace(data=[])
     monkeypatch.setattr(creator_worker, "supabase_client", client)
     monkeypatch.setattr(kaggle_worker, "init", AsyncMock())
+    monkeypatch.setattr(
+        kaggle_worker,
+        "_fetch_creator_sync_health",
+        lambda client: {"ready_jobs": 0, "retry_delayed_jobs": 0, "processing_jobs": 0},
+    )
     return client
 
 
@@ -237,14 +242,14 @@ def test_auto_pilot_defaults_to_dry_run_after_normal_queue_drains(monkeypatch, p
     asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_auto=True))
 
     pilot_client.rpc.assert_called_once_with(
-        "enqueue_unknown_activity_refresh_batch",
+        "enqueue_unknown_activity_refresh_batch_after_drain",
         {"p_limit": 5, "p_dry_run": True, "p_max_queue": 1000},
     )
     assert events == [
         ("fetch", {"batch_size": 1, "raise_on_error": True}),
         (
             "rpc",
-            "enqueue_unknown_activity_refresh_batch",
+            "enqueue_unknown_activity_refresh_batch_after_drain",
             {"p_limit": 5, "p_dry_run": True, "p_max_queue": 1000},
         ),
     ]
@@ -280,7 +285,7 @@ def test_auto_pilot_respects_remaining_budget_and_targets_returned_ids(monkeypat
     )
 
     pilot_client.rpc.assert_called_once_with(
-        "enqueue_unknown_activity_refresh_batch",
+        "enqueue_unknown_activity_refresh_batch_after_drain",
         {"p_limit": 2, "p_dry_run": False, "p_max_queue": 1000},
     )
     assert fetch.call_args_list[2].kwargs == {
@@ -295,6 +300,98 @@ def test_auto_pilot_respects_remaining_budget_and_targets_returned_ids(monkeypat
         second_id,
     ]
     assert pool.record_job.call_count == 3
+
+
+def test_fetch_creator_sync_health_parses_single_row():
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(
+        data=[
+            {
+                "ready_jobs": 2,
+                "retry_delayed_jobs": 3,
+                "processing_jobs": 1,
+                "coverage_sampled_at": None,
+            }
+        ]
+    )
+
+    assert kaggle_worker._fetch_creator_sync_health(client) == {
+        "ready_jobs": 2,
+        "retry_delayed_jobs": 3,
+        "processing_jobs": 1,
+    }
+    client.rpc.assert_called_once_with("get_creator_sync_health_v2")
+
+
+@pytest.mark.parametrize(
+    "queue_health, expected_wait",
+    [
+        ({"ready_jobs": 1, "retry_delayed_jobs": 0, "processing_jobs": 0}, 30),
+        ({"ready_jobs": 0, "retry_delayed_jobs": 1, "processing_jobs": 0}, 300),
+        ({"ready_jobs": 0, "retry_delayed_jobs": 0, "processing_jobs": 1}, 30),
+    ],
+)
+def test_auto_pilot_waits_for_queue_to_drain(
+    monkeypatch, pilot_client, queue_health, expected_wait
+):
+    _fake_pool(monkeypatch)
+    health = MagicMock(
+        side_effect=[
+            queue_health,
+            {"ready_jobs": 0, "retry_delayed_jobs": 0, "processing_jobs": 0},
+        ]
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(kaggle_worker, "_fetch_creator_sync_health", health)
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", sleep)
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", MagicMock(return_value=[]))
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_auto=True))
+
+    assert health.call_count == 2
+    sleep.assert_awaited_once_with(expected_wait)
+    pilot_client.rpc.assert_called_once_with(
+        "enqueue_unknown_activity_refresh_batch_after_drain",
+        {"p_limit": 5, "p_dry_run": True, "p_max_queue": 1000},
+    )
+
+
+def test_auto_pilot_skips_when_queue_health_is_unavailable(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    report = MagicMock()
+    monkeypatch.setattr(kaggle_worker, "_display_final_report", report)
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", MagicMock(return_value=[]))
+    monkeypatch.setattr(
+        kaggle_worker,
+        "_fetch_creator_sync_health",
+        MagicMock(side_effect=RuntimeError("health RPC unavailable")),
+    )
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_auto=True))
+
+    pilot_client.rpc.assert_not_called()
+    assert "Queue health unavailable" in report.call_args.args[4]
+
+
+def test_auto_pilot_skips_after_drain_wait_timeout(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    report = MagicMock()
+    sleep = AsyncMock()
+    monkeypatch.setattr(kaggle_worker, "_display_final_report", report)
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", MagicMock(return_value=[]))
+    monkeypatch.setattr(
+        kaggle_worker,
+        "_fetch_creator_sync_health",
+        lambda client: {"ready_jobs": 1, "retry_delayed_jobs": 0, "processing_jobs": 0},
+    )
+    monkeypatch.setattr(kaggle_worker.asyncio, "sleep", sleep)
+    monkeypatch.setattr(kaggle_worker, "_AUTO_REFRESH_DRAIN_WAIT_SECONDS", 0)
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_auto=True))
+
+    pilot_client.rpc.assert_not_called()
+    sleep.assert_not_awaited()
+    assert "queue did not drain" in report.call_args.args[4]
 
 
 def test_auto_and_explicit_pilot_modes_are_mutually_exclusive(pilot_client):
