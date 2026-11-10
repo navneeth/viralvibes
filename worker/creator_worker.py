@@ -2117,13 +2117,6 @@ async def handle_sync_job(
                 f"{job_tag} ⚠️  Invalid stats: {channel_id} has 0 subs AND 0 views. "
                 "Flagging for retry. (Could be deleted channel or bad channel_id)"
             )
-        elif subs == 0 and views > 0:
-            is_invalid = True
-            sync_status = "invalid"
-            sync_error = "Zero subscribers but has views — suspicious, will retry"
-            logger.warning(
-                f"{job_tag} ⚠️  Suspicious stats: {channel_id} has 0 subs but {views:,} views"
-            )
 
         # STAGE 3.75: Calculate 30-day changes
         # Determine if we should take a new snapshot (every ~30 days)

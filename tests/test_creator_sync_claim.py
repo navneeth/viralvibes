@@ -142,7 +142,8 @@ def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
     ("fresh_subscribers", "fresh_views", "fresh_videos", "valid_stats"),
     [
         (1200, 25_000, 115, True),
-        (0, 25_000, 115, False),
+        (0, 25_000, 115, True),
+        (0, 0, 0, False),
     ],
 )
 @pytest.mark.parametrize("snapshot_enabled", [False, True])
@@ -220,6 +221,7 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
             "current_subscribers": fresh_subscribers,
             "current_view_count": fresh_views,
             "current_video_count": fresh_videos,
+            "hidden_subscriber_count": False,
             "topic_categories": [],
             "channel_age_days": 900,
         }
@@ -265,12 +267,13 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
         assert snapshot_write.call_args.kwargs == {"enrolled": True}
     if valid_stats:
         assert result is True
-        assert captured["subscribers_change_30d"] == 200
+        assert captured["subscribers_change_30d"] == fresh_subscribers - 1000
         assert captured["views_change_30d"] == 15_000
         assert captured["videos_change_30d"] == 15
         assert captured["prev_subscribers"] == captured["current_subscribers"] == fresh_subscribers
         assert captured["prev_view_count"] == captured["current_view_count"] == fresh_views
         assert captured["prev_video_count"] == captured["current_video_count"] == fresh_videos
+        assert captured["hidden_subscriber_count"] is False
         assert captured["recent_upload"] == creator["recent_upload"]
         assert captured["avg_days_between_uploads"] == 4.25
         assert not failed_jobs
