@@ -600,13 +600,22 @@ async def run(
         job = jobs[0]
 
         try:
-            result = await asyncio.wait_for(
-                handle_sync_job(
+            job_type = job.get("job_type", "sync_stats")
+            if job_type == "resolve_and_add":
+                job_coro = _cw.handle_resolve_and_add_job(
+                    job_id=job["id"],
+                    input_query=job.get("input_query") or "",
+                    job_number=jobs_processed + 1,
+                )
+            else:
+                job_coro = handle_sync_job(
                     job_id=job["id"],
                     creator_id=job["creator_id"],
                     job_number=jobs_processed + 1,
                     retry_count=job.get("retry_count", 0),
-                ),
+                )
+            result = await asyncio.wait_for(
+                job_coro,
                 timeout=90,
             )
             jobs_processed += 1
