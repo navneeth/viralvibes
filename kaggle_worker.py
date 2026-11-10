@@ -76,14 +76,15 @@ def _display_final_report(
 
     try:
         duration_min = elapsed / 60
-        success_rate = (metrics.syncs_processed / jobs_processed * 100) if jobs_processed > 0 else 0
+        success_rate = metrics.success_rate()
+        outcome_count = metrics.syncs_processed + metrics.syncs_failed
 
         report = f"""
 ### 📊 Worker Execution Summary
 | Metric | Value |
 | :--- | :--- |
 | **Total Jobs Processed** | {jobs_processed} |
-| **Success Rate** | {success_rate:.1f}% ({metrics.syncs_processed} / {jobs_processed}) |
+| **Success Rate** | {success_rate:.1f}% ({metrics.syncs_processed} / {outcome_count} outcomes) |
 | **Uptime** | {duration_min:.2f} minutes |
 | **Quota Used** | {metrics.youtube_credits_used} / {YOUTUBE_DAILY_QUOTA} ({metrics.quota_percentage():.2f}%) |
 | **API Errors** | {metrics.api_errors} |
@@ -600,13 +601,22 @@ async def run(
         job = jobs[0]
 
         try:
-            result = await asyncio.wait_for(
-                handle_sync_job(
+            job_type = job.get("job_type", "sync_stats")
+            if job_type == "resolve_and_add":
+                job_coro = _cw.handle_resolve_and_add_job(
+                    job_id=job["id"],
+                    input_query=job.get("input_query") or "",
+                    job_number=jobs_processed + 1,
+                )
+            else:
+                job_coro = handle_sync_job(
                     job_id=job["id"],
                     creator_id=job["creator_id"],
                     job_number=jobs_processed + 1,
                     retry_count=job.get("retry_count", 0),
-                ),
+                )
+            result = await asyncio.wait_for(
+                job_coro,
                 timeout=90,
             )
             jobs_processed += 1

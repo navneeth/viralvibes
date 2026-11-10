@@ -429,6 +429,8 @@ class TestHandleResolveAndAddJob:
     async def test_uc_id_skips_resolution_and_inserts_stub(self, monkeypatch):
         import worker.creator_worker as cw
 
+        monkeypatch.setattr(cw.metrics, "syncs_processed", 0)
+        monkeypatch.setattr(cw.metrics, "syncs_failed", 0)
         fake_supabase = self._mock_supabase(creators_data=[], insert_data=[{"id": "stub-id"}])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
         monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
@@ -439,6 +441,8 @@ class TestHandleResolveAndAddJob:
             input_query="UCX6OQ3DkcsbYNE6H8uQQuVA",
         )
         assert result is True
+        assert cw.metrics.syncs_processed == 1
+        assert cw.metrics.syncs_failed == 0
 
     @pytest.mark.asyncio
     async def test_handle_resolved_and_stub_inserted(self, monkeypatch):
@@ -504,6 +508,8 @@ class TestHandleResolveAndAddJob:
     async def test_channel_not_found_marks_failed(self, monkeypatch):
         import worker.creator_worker as cw
 
+        monkeypatch.setattr(cw.metrics, "syncs_processed", 0)
+        monkeypatch.setattr(cw.metrics, "syncs_failed", 0)
         fake_supabase = self._mock_supabase(creators_data=[])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
         monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
@@ -520,15 +526,24 @@ class TestHandleResolveAndAddJob:
         result = await cw.handle_resolve_and_add_job(job_id=5, input_query="@ghost_channel")
         assert result is False
         assert 5 in failed_jobs
+        assert cw.metrics.syncs_processed == 0
+        assert cw.metrics.syncs_failed == 1
 
     @pytest.mark.asyncio
     async def test_quota_exception_is_reraised(self, monkeypatch):
         import worker.creator_worker as cw
 
+        monkeypatch.setattr(cw.metrics, "syncs_processed", 0)
+        monkeypatch.setattr(cw.metrics, "syncs_failed", 0)
         fake_supabase = self._mock_supabase(creators_data=[])
         monkeypatch.setattr(cw, "supabase_client", fake_supabase)
         monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
-        monkeypatch.setattr(cw, "mark_creator_sync_failed", lambda jid, error=None: None)
+        failed_jobs = []
+        monkeypatch.setattr(
+            cw,
+            "mark_creator_sync_failed",
+            lambda jid, error=None: failed_jobs.append((jid, error)),
+        )
 
         mock_resolver = AsyncMock()
         mock_resolver.resolve_handle_to_channel_id = AsyncMock(
@@ -538,6 +553,9 @@ class TestHandleResolveAndAddJob:
 
         with pytest.raises(cw.QuotaExceededException):
             await cw.handle_resolve_and_add_job(job_id=7, input_query="@MrBeast")
+        assert failed_jobs == [(7, "YouTube quota exceeded — will retry")]
+        assert cw.metrics.syncs_processed == 0
+        assert cw.metrics.syncs_failed == 1
 
 
 # ===========================================================================

@@ -166,6 +166,28 @@ def _fake_pool(monkeypatch):
     return pool
 
 
+def test_kaggle_dispatches_resolve_and_add_jobs_without_creator_id(monkeypatch, pilot_client):
+    pool = _fake_pool(monkeypatch)
+    fetch = MagicMock(
+        side_effect=[
+            [{"id": 17, "job_type": "resolve_and_add", "creator_id": None, "input_query": "@test"}],
+            [],
+        ]
+    )
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    resolve = AsyncMock(return_value=True)
+    sync = AsyncMock(return_value=True)
+    monkeypatch.setattr(creator_worker, "handle_resolve_and_add_job", resolve)
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", sync)
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", MagicMock())
+
+    asyncio.run(kaggle_worker.run(max_jobs=1, max_empty_polls=1))
+
+    resolve.assert_awaited_once_with(job_id=17, input_query="@test", job_number=1)
+    sync.assert_not_awaited()
+    pool.record_job.assert_called_once_with()
+
+
 def test_pilot_defaults_to_dry_run_after_normal_queue_drains(monkeypatch, pilot_client):
     _fake_pool(monkeypatch)
     events = []
