@@ -66,7 +66,8 @@ from db import (
     supabase_client,
 )
 from utils import normalize_category_name
-from services.channel_utils import ChannelIDValidator, YouTubeResolver, get_video_category_name
+from services.channel_utils import YouTubeResolver, get_video_category_name
+from validators import ChannelIDValidator
 from services.youtube_errors import is_quota_exhausted_error, QuotaExceededException
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
@@ -352,6 +353,23 @@ def _diagnose_creator_db_state() -> None:
 # =============================================================================
 
 
+def _filter_creators_with_valid_channel_ids(creators: List[dict], source: str) -> List[dict]:
+    valid_creators = [
+        creator
+        for creator in creators
+        if isinstance(creator.get("channel_id"), str)
+        and channel_validator.is_valid(creator["channel_id"])
+    ]
+    invalid_count = len(creators) - len(valid_creators)
+    if invalid_count:
+        logger.warning(
+            "Skipping %d %s creator(s) with invalid channel IDs",
+            invalid_count,
+            source,
+        )
+    return valid_creators
+
+
 def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] = None) -> int:
     """
     Queue creators that have never been synced (last_synced_at IS NULL).
@@ -380,15 +398,18 @@ def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] 
         response = (
             client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .is_("last_synced_at", "null")
             .is_("archived_at", "null")
             .limit(batch_size)
             .execute()
         )
 
-        creators = response.data or []
+        creators = _filter_creators_with_valid_channel_ids(
+            response.data or [], "bootstrap_unsynced"
+        )
         if not creators:
-            logger.debug("  No unsynced creators found (last_synced_at IS NULL)")
+            logger.debug("  No valid unsynced creators found (last_synced_at IS NULL)")
             return 0
 
         logger.info(
@@ -439,6 +460,7 @@ def _queue_creators_for_extended_refresh(
         response = (
             client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,last_synced_at")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .in_("sync_status", ["synced", "synced_partial", "invalid", "failed"])
             .is_("archived_at", "null")
             .lt("last_synced_at", cutoff)
@@ -446,10 +468,10 @@ def _queue_creators_for_extended_refresh(
             .execute()
         )
 
-        creators = response.data or []
+        creators = _filter_creators_with_valid_channel_ids(response.data or [], "scheduled_refresh")
         if not creators:
             logger.debug(
-                f"  No stale creators found (last synced > {days_since_last_sync} days ago)"
+                f"  No valid stale creators found (last synced > {days_since_last_sync} days ago)"
             )
             return 0
 

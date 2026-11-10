@@ -35,6 +35,7 @@ from typing import Optional
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from services.youtube_errors import is_quota_exhausted_error
+from validators import ChannelIDValidator
 
 logger = logging.getLogger(__name__)
 
@@ -82,68 +83,6 @@ YOUTUBE_VIDEO_CATEGORIES: dict[str, str] = {
 def get_video_category_name(category_id: str) -> str:
     """Resolve a YouTube video categoryId to its human-readable name."""
     return YOUTUBE_VIDEO_CATEGORIES.get(str(category_id), f"Unknown ({category_id})")
-
-
-class ChannelIDValidator:
-    """
-    Regex-based YouTube channel ID extraction and validation.
-
-    Single source of truth for channel ID pattern.
-    Works offline - no API calls required.
-    """
-
-    # YouTube channel IDs are: UC followed by 22 alphanumeric/underscore/hyphen chars
-    CHANNEL_ID_RE = re.compile(r"(UC[a-zA-Z0-9_-]{22})")
-
-    @staticmethod
-    def extract_from_url(url: str) -> Optional[str]:
-        """
-        Extract UC channel ID from a YouTube URL if present.
-
-        Args:
-            url: Any string potentially containing a YouTube URL or channel ID
-
-        Returns:
-            Channel ID if found (UCxxxxxx), None otherwise
-        """
-        if not url:
-            return None
-
-        match = ChannelIDValidator.CHANNEL_ID_RE.search(url)
-        if match:
-            return match.group(1)
-        return None
-
-    @staticmethod
-    def extract_from_text(text: str) -> set[str]:
-        """
-        Extract all UC channel IDs from unstructured text.
-
-        Args:
-            text: Any text containing channel IDs
-
-        Returns:
-            Set of unique channel IDs found
-        """
-        if not text:
-            return set()
-        return set(ChannelIDValidator.CHANNEL_ID_RE.findall(text))
-
-    @staticmethod
-    def is_valid(channel_id: str) -> bool:
-        """
-        Validate that a string is a properly formatted channel ID.
-
-        Args:
-            channel_id: String to validate
-
-        Returns:
-            True if valid channel ID format, False otherwise
-        """
-        if not channel_id:
-            return False
-        match = ChannelIDValidator.CHANNEL_ID_RE.fullmatch(channel_id)
-        return match is not None
 
 
 class YouTubeResolver:

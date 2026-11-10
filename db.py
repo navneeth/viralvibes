@@ -50,6 +50,7 @@ from utils import (
     normalize_category_name,
     safe_get_value,
 )
+from validators import ChannelIDValidator
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
@@ -1094,6 +1095,7 @@ def queue_invalid_creators_for_retry(
         failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .in_("sync_status", ["invalid", "failed", "synced_partial"])
             .is_("archived_at", "null")
             .not_.is_("last_synced_at", "null")  # ← only rows where value exists
@@ -1112,6 +1114,7 @@ def queue_invalid_creators_for_retry(
         never_synced_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .is_("last_synced_at", "null")
             .is_("archived_at", "null")
             .limit(batch_size)
@@ -1128,14 +1131,26 @@ def queue_invalid_creators_for_retry(
                 seen_ids.add(c["id"])
                 unique_creators.append(c)
         creators = unique_creators
+        valid_creators = [
+            creator
+            for creator in creators
+            if isinstance(creator.get("channel_id"), str)
+            and ChannelIDValidator.is_valid(creator["channel_id"])
+        ]
+        invalid_count = len(creators) - len(valid_creators)
+        if invalid_count:
+            logger.warning(
+                "Auto-retry skipped %d creator(s) with invalid channel IDs",
+                invalid_count,
+            )
 
         logger.info(
             f"[queue_invalid_creators_for_retry] "
-            f"Found {len(failed_resp.data or [])} failed/invalid + "
-            f"{len(never_synced_resp.data or [])} never-synced creators"
+            f"Found {len(valid_creators)} queueable creators; "
+            f"skipped {invalid_count} with invalid channel IDs"
         )
 
-        creator_ids = [c["id"] for c in creators]
+        creator_ids = [c["id"] for c in valid_creators]
         queued_count, skipped_count = queue_creator_sync_bulk(creator_ids, source="auto_retry")
 
         if queued_count > 0:
@@ -1316,7 +1331,6 @@ def queue_creator_sync_bulk(
 # ============================================================================
 
 # Regex patterns for input validation — compiled once at module load
-_UC_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{22}$")
 _HANDLE_RE = re.compile(r"^@[a-zA-Z0-9._-]{1,100}$")
 
 # Per-user rate limit: max requests per window
@@ -1336,7 +1350,7 @@ def _validate_creator_input(q: str) -> tuple[bool, str]:
         (is_valid, normalised_input)  — normalised lowercases handles, leaves UC IDs as-is.
     """
     q = q.strip()
-    if _UC_ID_RE.match(q):
+    if ChannelIDValidator.is_valid(q):
         return True, q
     # Strings that start with "UC" but fail the strict regex are malformed
     # channel IDs — reject them rather than silently treating as a handle.
@@ -3249,6 +3263,10 @@ def get_or_create_creator_from_playlist(
     Returns:
         Creator UUID (id) if successful, None if error
     """
+    if not isinstance(channel_id, str) or not ChannelIDValidator.is_valid(channel_id):
+        logger.warning("Skipping playlist creator with invalid channel ID")
+        return None
+
     if not supabase_client:
         logger.warning("Supabase client not available for creator discovery")
         return None
@@ -3472,6 +3490,10 @@ def add_creator_by_handle(
     Returns:
         Creator UUID if successful, None otherwise
     """
+    if not isinstance(channel_id, str) or not ChannelIDValidator.is_valid(channel_id):
+        logger.warning("Skipping creator addition with invalid channel ID for handle %s", handle)
+        return None
+
     if not supabase_client:
         logger.warning("Supabase client not available for creator addition")
         return None
