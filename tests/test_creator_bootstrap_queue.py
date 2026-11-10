@@ -29,6 +29,7 @@ def test_pending_job_fetch_preserves_fifo_and_optionally_targets_pilot(monkeypat
         result = creator_worker._fetch_pending_jobs(1)
 
     assert result == jobs
+    query.select.assert_called_once_with("id,creator_id,source,retry_count,job_type,input_query")
     query.order.assert_called_once_with("created_at", desc=False)
     query.limit.assert_called_once_with(1)
     query.eq.assert_any_call("status", "pending")

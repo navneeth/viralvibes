@@ -76,14 +76,15 @@ def _display_final_report(
 
     try:
         duration_min = elapsed / 60
-        success_rate = (metrics.syncs_processed / jobs_processed * 100) if jobs_processed > 0 else 0
+        success_rate = metrics.success_rate()
+        outcome_count = metrics.syncs_processed + metrics.syncs_failed
 
         report = f"""
 ### 📊 Worker Execution Summary
 | Metric | Value |
 | :--- | :--- |
 | **Total Jobs Processed** | {jobs_processed} |
-| **Success Rate** | {success_rate:.1f}% ({metrics.syncs_processed} / {jobs_processed}) |
+| **Success Rate** | {success_rate:.1f}% ({metrics.syncs_processed} / {outcome_count} outcomes) |
 | **Uptime** | {duration_min:.2f} minutes |
 | **Quota Used** | {metrics.youtube_credits_used} / {YOUTUBE_DAILY_QUOTA} ({metrics.quota_percentage():.2f}%) |
 | **API Errors** | {metrics.api_errors} |

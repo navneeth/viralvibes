@@ -518,7 +518,7 @@ def _fetch_pending_jobs(
         # ~547k fresh jobs were exhausted (~154 days).
         query = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id,creator_id,source,retry_count,job_type")
+            .select("id,creator_id,source,retry_count,job_type,input_query")
             .eq("status", JobStatus.PENDING.value)
             .or_(f"next_retry_at.is.null,next_retry_at.lte.{now_iso}")
             .order("created_at", desc=False)
@@ -1891,28 +1891,34 @@ async def handle_resolve_and_add_job(
             job_id,
             creator_id,
         )
+        metrics.syncs_processed += 1
         return True
 
     except ChannelNotFoundException as exc:
         err = str(exc)
         logger.warning("%s ❌ Channel not found: %s", job_tag, err)
         mark_creator_sync_failed(job_id, error=err)
+        metrics.syncs_failed += 1
         return False
 
     except asyncio.TimeoutError:
         err = f"YouTube API timeout after {SYNC_TIMEOUT}s during handle resolution"
         logger.warning("%s ❌ %s", job_tag, err)
         mark_creator_sync_failed(job_id, error=err)
+        metrics.syncs_failed += 1
         return False
 
     except QuotaExceededException:
-        # Let the outer loop catch this and halt processing
+        mark_creator_sync_failed(job_id, error="YouTube quota exceeded — will retry")
+        metrics.syncs_failed += 1
+        # Let the outer loop rotate keys; the failed helper returns the job to pending.
         raise
 
     except Exception as exc:
         err = f"Unexpected error during resolve_and_add: {exc}"
         logger.exception("%s ❌ %s", job_tag, err)
         mark_creator_sync_failed(job_id, error=err)
+        metrics.syncs_failed += 1
         return False
 
 
