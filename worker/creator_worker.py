@@ -398,6 +398,7 @@ def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] 
         response = (
             client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .is_("last_synced_at", "null")
             .is_("archived_at", "null")
             .limit(batch_size)
@@ -459,6 +460,7 @@ def _queue_creators_for_extended_refresh(
         response = (
             client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,last_synced_at")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .in_("sync_status", ["synced", "synced_partial", "invalid", "failed"])
             .is_("archived_at", "null")
             .lt("last_synced_at", cutoff)
@@ -466,7 +468,6 @@ def _queue_creators_for_extended_refresh(
             .execute()
         )
 
-        creators = response.data or []
         creators = _filter_creators_with_valid_channel_ids(response.data or [], "scheduled_refresh")
         if not creators:
             logger.debug(

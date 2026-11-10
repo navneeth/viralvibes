@@ -93,6 +93,10 @@ class _CreatorQuery:
     def in_(self, *args, **kwargs):
         return self
 
+    def filter(self, *args, **kwargs):
+        self.filters.append(("filter", args, kwargs))
+        return self
+
     def lt(self, *args, **kwargs):
         return self
 
@@ -142,10 +146,16 @@ def test_unsynced_query_excludes_archived_creators(monkeypatch):
     creator_worker._queue_unsynced_creators()
 
     assert ("is", ("archived_at", "null"), {}) in filters
+    assert (
+        "filter",
+        ("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$"),
+        {},
+    ) in filters
 
 
 def test_stale_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatch):
     creator_id = "creator-stale"
+    filters = []
     client = SimpleNamespace(
         table=lambda _name: _CreatorQuery(
             [
@@ -154,7 +164,8 @@ def test_stale_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatc
                     "channel_id": VALID_CHANNEL_ID,
                     "last_synced_at": "2026-01-01",
                 }
-            ]
+            ],
+            filters=filters,
         )
     )
     queued = []
@@ -176,6 +187,7 @@ def test_stale_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatc
     assert bulk_calls == [
         ([creator_id], "scheduled_refresh", {"client": client}),
     ]
+    assert ("filter", ("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$"), {}) in filters
 
 
 def test_unsynced_queue_skips_invalid_channel_ids(monkeypatch):
@@ -229,10 +241,39 @@ def test_stale_queue_skips_invalid_channel_ids(monkeypatch):
     assert bulk_calls == [(["valid"], "scheduled_refresh")]
 
 
+def test_playlist_creator_rejects_invalid_id_before_database_access(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    result = db.get_or_create_creator_from_playlist(
+        channel_id="SixTONES,artist,keywords",
+        channel_name="SixTONES",
+        channel_url="https://www.youtube.com/channel/SixTONES",
+    )
+
+    assert result is None
+    client.table.assert_not_called()
+
+
+def test_handle_creator_rejects_invalid_id_before_database_access(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    result = db.add_creator_by_handle(
+        handle="@example",
+        channel_id="167689828",
+        channel_name="Example",
+        custom_url="example",
+    )
+
+    assert result is None
+    client.table.assert_not_called()
+
+
 def test_auto_retry_skips_invalid_channel_ids(monkeypatch):
     client = MagicMock()
     query = MagicMock()
-    for method in ("select", "in_", "is_", "lt", "limit"):
+    for method in ("select", "in_", "is_", "lt", "limit", "filter"):
         getattr(query, method).return_value = query
     query.not_.is_.return_value = query
     query.execute.side_effect = [
@@ -260,6 +301,8 @@ def test_auto_retry_skips_invalid_channel_ids(monkeypatch):
 
     assert db.queue_invalid_creators_for_retry(hours_since_last_sync=24, batch_size=50) == 2
     assert bulk_calls == [(["valid-failed", "valid-unsynced"], "auto_retry")]
+    assert query.filter.call_count == 2
+    query.filter.assert_any_call("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
 
 
 @pytest.mark.parametrize("skip_stats", [False, True])

@@ -1095,6 +1095,7 @@ def queue_invalid_creators_for_retry(
         failed_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .in_("sync_status", ["invalid", "failed", "synced_partial"])
             .is_("archived_at", "null")
             .not_.is_("last_synced_at", "null")  # ← only rows where value exists
@@ -1113,6 +1114,7 @@ def queue_invalid_creators_for_retry(
         never_synced_resp = (
             supabase_client.table(CREATOR_TABLE)
             .select("id,channel_id,sync_status,sync_error_message,last_synced_at")
+            .filter("channel_id", "match", r"^UC[a-zA-Z0-9_-]{22}$")
             .is_("last_synced_at", "null")
             .is_("archived_at", "null")
             .limit(batch_size)
@@ -3261,6 +3263,10 @@ def get_or_create_creator_from_playlist(
     Returns:
         Creator UUID (id) if successful, None if error
     """
+    if not isinstance(channel_id, str) or not ChannelIDValidator.is_valid(channel_id):
+        logger.warning("Skipping playlist creator with invalid channel ID")
+        return None
+
     if not supabase_client:
         logger.warning("Supabase client not available for creator discovery")
         return None
@@ -3484,6 +3490,10 @@ def add_creator_by_handle(
     Returns:
         Creator UUID if successful, None otherwise
     """
+    if not isinstance(channel_id, str) or not ChannelIDValidator.is_valid(channel_id):
+        logger.warning("Skipping creator addition with invalid channel ID for handle %s", handle)
+        return None
+
     if not supabase_client:
         logger.warning("Supabase client not available for creator addition")
         return None
