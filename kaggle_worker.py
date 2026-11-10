@@ -385,6 +385,24 @@ _DEFAULT_MAX_EMPTY_POLLS = 5
 # sustained load and is safe well past 50 iterations.
 _RESOLVER_RESET_INTERVAL = 100
 _MAX_FETCH_FAILURES = 5
+_AUTO_REFRESH_DRAIN_WAIT_SECONDS = 8 * 60 * 60
+_AUTO_REFRESH_DRAIN_POLL_SECONDS = 300
+_AUTO_REFRESH_QUEUE_NOT_DRAINED_SQLSTATE = "VQ001"
+
+
+def _fetch_creator_sync_health(client) -> dict[str, int]:
+    response = client.rpc("get_creator_sync_health_v2").execute()
+    rows = response.data or []
+    if len(rows) != 1:
+        raise RuntimeError("Unexpected creator sync health response")
+
+    row = rows[0]
+    return {
+        "ready_jobs": int(row.get("ready_jobs") or 0),
+        "retry_delayed_jobs": int(row.get("retry_delayed_jobs") or 0),
+        "processing_jobs": int(row.get("processing_jobs") or 0),
+    }
+
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
@@ -408,7 +426,8 @@ async def run(
         max_jobs:        Stop after processing this many jobs.
         max_empty_polls: Stop after this many consecutive empty queue polls.
         refresh_creator_ids: After the normal queue drains, optionally pilot up to five IDs.
-        refresh_auto: After the normal queue drains, select a bounded refresh batch in SQL.
+        refresh_auto: After pending and processing jobs drain, select a bounded refresh batch.
+            Wait up to eight hours for delayed retries before skipping automatic refresh.
         refresh_dry_run: Preview the remaining-capacity pilot unless explicitly False.
     """
     import worker.creator_worker as _cw
@@ -443,6 +462,7 @@ async def run(
     fetch_failures = 0
     refresh_pilot_active = False
     refresh_pilot_job_ids: list[str] = []
+    auto_refresh_drain_started_at: Optional[float] = None
     start_time = time.time()
 
     while (
@@ -498,6 +518,64 @@ async def run(
             if empty_polls >= phase_empty_limit:
                 remaining_jobs = max_jobs - jobs_processed
                 if (
+                    refresh_auto
+                    and not refresh_pilot_active
+                    and remaining_jobs > 0
+                    and not stop_event.is_set()
+                    and not key_pool.all_exhausted_event.is_set()
+                ):
+                    try:
+                        if _cw.supabase_client is None:
+                            raise RuntimeError("Supabase client is not initialized")
+                        queue_health = _fetch_creator_sync_health(_cw.supabase_client)
+                    except Exception as error:
+                        logger.error(
+                            "Skipping automatic refresh because queue health is unavailable: %s",
+                            error,
+                        )
+                        stop_reason = "Queue health unavailable; automatic refresh skipped"
+                        break
+
+                    unfinished_jobs = (
+                        queue_health["ready_jobs"]
+                        + queue_health["retry_delayed_jobs"]
+                        + queue_health["processing_jobs"]
+                    )
+                    if unfinished_jobs:
+                        if auto_refresh_drain_started_at is None:
+                            auto_refresh_drain_started_at = time.monotonic()
+                        wait_elapsed = time.monotonic() - auto_refresh_drain_started_at
+                        if wait_elapsed >= _AUTO_REFRESH_DRAIN_WAIT_SECONDS:
+                            logger.warning(
+                                "Skipping automatic refresh after %.1f hours; "
+                                "%d pending and %d processing jobs remain",
+                                wait_elapsed / 3600,
+                                queue_health["ready_jobs"] + queue_health["retry_delayed_jobs"],
+                                queue_health["processing_jobs"],
+                            )
+                            stop_reason = "Automatic refresh skipped; creator queue did not drain"
+                            break
+
+                        wait_seconds = (
+                            _AUTO_REFRESH_DRAIN_POLL_SECONDS
+                            if queue_health["retry_delayed_jobs"]
+                            else 30
+                        )
+                        logger.info(
+                            "Waiting before automatic refresh: %d ready, %d retry-delayed, "
+                            "%d processing; checking again in %ds",
+                            queue_health["ready_jobs"],
+                            queue_health["retry_delayed_jobs"],
+                            queue_health["processing_jobs"],
+                            wait_seconds,
+                        )
+                        empty_polls = phase_empty_limit - 1
+                        await asyncio.sleep(wait_seconds)
+                        continue
+
+                    auto_refresh_drain_started_at = None
+
+                if (
                     not refresh_pilot_active
                     and refresh_enabled
                     and remaining_jobs > 0
@@ -512,7 +590,7 @@ async def run(
                     rpc_name = (
                         "enqueue_unknown_activity_refreshes"
                         if pilot_ids is not None
-                        else "enqueue_unknown_activity_refresh_batch"
+                        else "enqueue_unknown_activity_refresh_batch_after_drain"
                     )
                     rpc_params = (
                         {
@@ -531,6 +609,19 @@ async def run(
                     try:
                         preview = _cw.supabase_client.rpc(rpc_name, rpc_params).execute()
                     except Exception as error:
+                        if (
+                            refresh_auto
+                            and getattr(error, "code", None)
+                            == _AUTO_REFRESH_QUEUE_NOT_DRAINED_SQLSTATE
+                        ):
+                            logger.info(
+                                "Creator queue changed before automatic refresh; "
+                                "returning to FIFO polling"
+                            )
+                            empty_polls = 0
+                            auto_refresh_drain_started_at = None
+                            continue
+
                         stop_reason = "Refresh enqueue failed; apply outcome may be unknown"
                         logger.warning(
                             "Refresh pilot %s RPC failed after %.1fs; stopping refresh phase "
