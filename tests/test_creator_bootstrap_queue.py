@@ -9,6 +9,9 @@ import worker.creator_worker as creator_worker
 import db
 
 
+VALID_CHANNEL_ID = "UC" + "A" * 22
+
+
 @pytest.mark.parametrize("mode", ["normal", "targeted"])
 def test_pending_job_fetch_preserves_fifo_and_optionally_targets_pilot(monkeypatch, mode):
     fixed_now = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
@@ -103,7 +106,7 @@ class _CreatorQuery:
 def test_unsynced_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatch):
     creator_id = "creator-unsynced"
     client = SimpleNamespace(
-        table=lambda _name: _CreatorQuery([{"id": creator_id, "channel_id": "UC123"}])
+        table=lambda _name: _CreatorQuery([{"id": creator_id, "channel_id": VALID_CHANNEL_ID}])
     )
     queued = []
     bulk_calls = []
@@ -130,7 +133,7 @@ def test_unsynced_query_excludes_archived_creators(monkeypatch):
     filters = []
     client = SimpleNamespace(
         table=lambda _name: _CreatorQuery(
-            [{"id": "creator", "channel_id": "UC123"}], filters=filters
+            [{"id": "creator", "channel_id": VALID_CHANNEL_ID}], filters=filters
         )
     )
     monkeypatch.setattr(creator_worker, "supabase_client", client)
@@ -145,7 +148,13 @@ def test_stale_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatc
     creator_id = "creator-stale"
     client = SimpleNamespace(
         table=lambda _name: _CreatorQuery(
-            [{"id": creator_id, "channel_id": "UC123", "last_synced_at": "2026-01-01"}]
+            [
+                {
+                    "id": creator_id,
+                    "channel_id": VALID_CHANNEL_ID,
+                    "last_synced_at": "2026-01-01",
+                }
+            ]
         )
     )
     queued = []
@@ -167,6 +176,90 @@ def test_stale_queue_uses_explicit_client_when_worker_global_is_empty(monkeypatc
     assert bulk_calls == [
         ([creator_id], "scheduled_refresh", {"client": client}),
     ]
+
+
+def test_unsynced_queue_skips_invalid_channel_ids(monkeypatch):
+    client = SimpleNamespace(
+        table=lambda _name: _CreatorQuery(
+            [
+                {"id": "valid", "channel_id": VALID_CHANNEL_ID},
+                {"id": "numeric", "channel_id": 167689828},
+                {"id": "text", "channel_id": "SixTONES,artist,keywords"},
+            ]
+        )
+    )
+    bulk_calls = []
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(
+        creator_worker,
+        "queue_creator_sync_bulk",
+        lambda ids, source, **kwargs: bulk_calls.append((ids, source)) or (len(ids), 0),
+    )
+
+    assert creator_worker._queue_unsynced_creators() == 1
+    assert bulk_calls == [(["valid"], "bootstrap_unsynced")]
+
+
+def test_stale_queue_skips_invalid_channel_ids(monkeypatch):
+    client = SimpleNamespace(
+        table=lambda _name: _CreatorQuery(
+            [
+                {
+                    "id": "valid",
+                    "channel_id": VALID_CHANNEL_ID,
+                    "last_synced_at": "2026-01-01",
+                },
+                {
+                    "id": "invalid",
+                    "channel_id": "SixTONES,artist,keywords",
+                    "last_synced_at": "2026-01-01",
+                },
+            ]
+        )
+    )
+    bulk_calls = []
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+    monkeypatch.setattr(
+        creator_worker,
+        "queue_creator_sync_bulk",
+        lambda ids, source, **kwargs: bulk_calls.append((ids, source)) or (len(ids), 0),
+    )
+
+    assert creator_worker._queue_creators_for_extended_refresh() == 1
+    assert bulk_calls == [(["valid"], "scheduled_refresh")]
+
+
+def test_auto_retry_skips_invalid_channel_ids(monkeypatch):
+    client = MagicMock()
+    query = MagicMock()
+    for method in ("select", "in_", "is_", "lt", "limit"):
+        getattr(query, method).return_value = query
+    query.not_.is_.return_value = query
+    query.execute.side_effect = [
+        SimpleNamespace(
+            data=[
+                {"id": "valid-failed", "channel_id": VALID_CHANNEL_ID},
+                {"id": "numeric", "channel_id": "167689828"},
+            ]
+        ),
+        SimpleNamespace(
+            data=[
+                {"id": "valid-unsynced", "channel_id": "UC" + "B" * 22},
+                {"id": "text", "channel_id": "SixTONES,artist,keywords"},
+            ]
+        ),
+    ]
+    client.table.return_value = query
+    bulk_calls = []
+    monkeypatch.setattr(db, "supabase_client", client)
+    monkeypatch.setattr(
+        db,
+        "queue_creator_sync_bulk",
+        lambda ids, source: bulk_calls.append((ids, source)) or (len(ids), 0),
+    )
+
+    assert db.queue_invalid_creators_for_retry(hours_since_last_sync=24, batch_size=50) == 2
+    assert bulk_calls == [(["valid-failed", "valid-unsynced"], "auto_retry")]
 
 
 @pytest.mark.parametrize("skip_stats", [False, True])

@@ -352,6 +352,23 @@ def _diagnose_creator_db_state() -> None:
 # =============================================================================
 
 
+def _filter_creators_with_valid_channel_ids(creators: List[dict], source: str) -> List[dict]:
+    valid_creators = [
+        creator
+        for creator in creators
+        if isinstance(creator.get("channel_id"), str)
+        and channel_validator.is_valid(creator["channel_id"])
+    ]
+    invalid_count = len(creators) - len(valid_creators)
+    if invalid_count:
+        logger.warning(
+            "Skipping %d %s creator(s) with invalid channel IDs",
+            invalid_count,
+            source,
+        )
+    return valid_creators
+
+
 def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] = None) -> int:
     """
     Queue creators that have never been synced (last_synced_at IS NULL).
@@ -386,9 +403,11 @@ def _queue_unsynced_creators(batch_size: int = 100, *, client: Optional[Client] 
             .execute()
         )
 
-        creators = response.data or []
+        creators = _filter_creators_with_valid_channel_ids(
+            response.data or [], "bootstrap_unsynced"
+        )
         if not creators:
-            logger.debug("  No unsynced creators found (last_synced_at IS NULL)")
+            logger.debug("  No valid unsynced creators found (last_synced_at IS NULL)")
             return 0
 
         logger.info(
@@ -447,9 +466,10 @@ def _queue_creators_for_extended_refresh(
         )
 
         creators = response.data or []
+        creators = _filter_creators_with_valid_channel_ids(response.data or [], "scheduled_refresh")
         if not creators:
             logger.debug(
-                f"  No stale creators found (last synced > {days_since_last_sync} days ago)"
+                f"  No valid stale creators found (last synced > {days_since_last_sync} days ago)"
             )
             return 0
 
