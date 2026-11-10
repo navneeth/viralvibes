@@ -373,6 +373,42 @@ def test_auto_pilot_skips_when_queue_health_is_unavailable(monkeypatch, pilot_cl
     assert "Queue health unavailable" in report.call_args.args[4]
 
 
+def test_auto_pilot_retries_when_guard_detects_new_queue_work(monkeypatch, pilot_client):
+    _fake_pool(monkeypatch)
+    regular_job = {"id": 71, "creator_id": CREATOR_ID}
+    fetch = MagicMock(side_effect=[[], [regular_job], []])
+    monkeypatch.setattr(kaggle_worker, "_fetch_pending_jobs", fetch)
+    monkeypatch.setattr(
+        kaggle_worker,
+        "_fetch_creator_sync_health",
+        lambda client: {"ready_jobs": 0, "retry_delayed_jobs": 0, "processing_jobs": 0},
+    )
+    handle = AsyncMock(return_value=True)
+    monkeypatch.setattr(kaggle_worker, "handle_sync_job", handle)
+    monkeypatch.setattr("db.refresh_creator_sync_coverage", MagicMock())
+    queue_changed_error = RuntimeError("Creator sync queue is not drained")
+    queue_changed_error.code = kaggle_worker._AUTO_REFRESH_QUEUE_NOT_DRAINED_SQLSTATE
+    pilot_client.rpc.return_value.execute.side_effect = [
+        queue_changed_error,
+        SimpleNamespace(data=[]),
+    ]
+
+    asyncio.run(kaggle_worker.run(max_empty_polls=1, refresh_auto=True))
+
+    assert fetch.call_count == 3
+    handle.assert_awaited_once_with(
+        job_id=71,
+        creator_id=CREATOR_ID,
+        job_number=1,
+        retry_count=0,
+    )
+    assert pilot_client.rpc.call_count == 2
+    assert [call.args[0] for call in pilot_client.rpc.call_args_list] == [
+        "enqueue_unknown_activity_refresh_batch_after_drain",
+        "enqueue_unknown_activity_refresh_batch_after_drain",
+    ]
+
+
 def test_auto_pilot_skips_after_drain_wait_timeout(monkeypatch, pilot_client):
     _fake_pool(monkeypatch)
     report = MagicMock()

@@ -387,6 +387,7 @@ _RESOLVER_RESET_INTERVAL = 100
 _MAX_FETCH_FAILURES = 5
 _AUTO_REFRESH_DRAIN_WAIT_SECONDS = 8 * 60 * 60
 _AUTO_REFRESH_DRAIN_POLL_SECONDS = 300
+_AUTO_REFRESH_QUEUE_NOT_DRAINED_SQLSTATE = "VQ001"
 
 
 def _fetch_creator_sync_health(client) -> dict[str, int]:
@@ -608,6 +609,19 @@ async def run(
                     try:
                         preview = _cw.supabase_client.rpc(rpc_name, rpc_params).execute()
                     except Exception as error:
+                        if (
+                            refresh_auto
+                            and getattr(error, "code", None)
+                            == _AUTO_REFRESH_QUEUE_NOT_DRAINED_SQLSTATE
+                        ):
+                            logger.info(
+                                "Creator queue changed before automatic refresh; "
+                                "returning to FIFO polling"
+                            )
+                            empty_polls = 0
+                            auto_refresh_drain_started_at = None
+                            continue
+
                         stop_reason = "Refresh enqueue failed; apply outcome may be unknown"
                         logger.warning(
                             "Refresh pilot %s RPC failed after %.1fs; stopping refresh phase "

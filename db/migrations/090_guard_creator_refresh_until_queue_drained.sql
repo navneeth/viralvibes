@@ -24,7 +24,9 @@ BEGIN
         FROM public.creator_sync_jobs
         WHERE status IN ('pending', 'processing')
     ) THEN
-        RAISE EXCEPTION 'Creator sync queue is not drained; retry automatic refresh later';
+        RAISE EXCEPTION USING
+            ERRCODE = 'VQ001',
+            MESSAGE = 'Creator sync queue is not drained; retry automatic refresh later';
     END IF;
 
     RETURN QUERY
@@ -44,5 +46,40 @@ REVOKE ALL ON FUNCTION public.enqueue_unknown_activity_refresh_batch_after_drain
 FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.enqueue_unknown_activity_refresh_batch_after_drain(integer, boolean, integer)
 TO service_role;
+
+COMMENT ON FUNCTION public.enqueue_unknown_activity_refresh_batch(integer, boolean, integer) IS
+    'Internal enqueue primitive; service-role callers must use enqueue_unknown_activity_refresh_batch_after_drain.';
+REVOKE ALL ON FUNCTION public.enqueue_unknown_activity_refresh_batch(integer, boolean, integer)
+FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.lock_creator_sync_job_enqueue()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        PERFORM pg_advisory_xact_lock(
+            hashtextextended('public.enqueue_creator_syncs', 0)
+        );
+    ELSIF OLD.status = 'failed' AND NEW.status = 'pending' THEN
+        PERFORM pg_advisory_xact_lock(
+            hashtextextended('public.enqueue_creator_syncs', 0)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.lock_creator_sync_job_enqueue()
+FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.lock_creator_sync_job_enqueue()
+TO service_role;
+
+DROP TRIGGER IF EXISTS trg_creator_sync_jobs_enqueue_lock
+ON public.creator_sync_jobs;
+CREATE TRIGGER trg_creator_sync_jobs_enqueue_lock
+BEFORE INSERT OR UPDATE OF status ON public.creator_sync_jobs
+FOR EACH ROW EXECUTE FUNCTION public.lock_creator_sync_job_enqueue();
 
 COMMIT;

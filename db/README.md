@@ -258,7 +258,7 @@ enrollments against those limits; profile requests still also have their
 existing per-user cap. The cohort can grow by at most five new creators per
 nightly run, depending on eligibility. The Kaggle runner attempts this batch
 only after the general FIFO queue has no currently eligible jobs; if it reaches
-`max_jobs` first, the automatic batch does not run. Apply migration 089, restart
+`max_jobs` first, the automatic batch does not run. Apply migrations 089 and 090, restart
 every creator worker before running Kaggle. The script entry point
 (`%run kaggle_worker.py`) and documented notebook invocation explicitly use
 `refresh_auto=True` and `refresh_dry_run=False`, so the automatic batch is
@@ -304,13 +304,14 @@ After apply, verify
 these creators' `last_synced_at` advances and inspect their job outcomes before
 expanding the lane. Do not rerun enqueue on every poll or increase the pilot cap.
 
-Automatic mode calls migration 084's `enqueue_unknown_activity_refresh_batch`
-after regular FIFO work drains. Migration 084 requires the safe timestamp parser
+Automatic mode calls migration 090's `enqueue_unknown_activity_refresh_batch_after_drain`
+after regular FIFO work drains. It serializes the queue check and refresh enqueue,
+and the underlying batch RPC is restricted to this wrapper. Migration 084 requires the safe timestamp parser
 from 078 and the active-job unique index from 077. Migration 085 adds the failed
 refresh cooldown index using `CREATE INDEX CONCURRENTLY`; run it with psql
 autocommit, outside a transaction. Migration 086 serializes direct
 `creator_sync_jobs` inserts with the enqueue RPCs by using their shared advisory
-lock. Apply 084-086 before enabling automatic mode. The automatic RPC defaults
+lock. Apply 084-090 before enabling automatic mode. The guarded RPC defaults
 to dry run, but dry-run mode still processes the regular worker queue; it is not
 a preview-only invocation. Review candidate count and query latency before
 setting `refresh_dry_run=False`.
@@ -624,6 +625,18 @@ transaction lock serializes calls to this enqueue function when allocating its
 queue budget; independent legacy queue producers are not covered by that lock.
 The pending unique index remains the final duplicate guard. Automatic enqueue
 cron scheduling is still disabled; review a dry run before enabling any schedule.
+
+Migration 090 adds `enqueue_unknown_activity_refresh_batch_after_drain`. It takes
+the shared creator-enqueue advisory lock, rejects the batch if any pending or
+processing jobs exist, then delegates to the existing automatic refresh RPC.
+The unguarded batch RPC is internal to the wrapper, and failed-to-pending job
+rescues take the same lock. Verify it on a
+disposable database with an application schema and at least one creator without
+an active job:
+
+```bash
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/automatic_refresh_drain.sql
+```
 
 Run the SQL integration script only on an empty, disposable database:
 
