@@ -2049,9 +2049,15 @@ async def handle_sync_job(
                 "category_distribution": None,  # None = leave existing DB value as-is
             }
             logger.debug(f"{job_tag} Category already set — skipping fetch")
-        quality = _compute_quality_grade(engagement, channel_data["current_subscribers"])
+        hidden_subscriber_count = bool(channel_data.get("hidden_subscriber_count", False))
+        reported_subscribers = channel_data["current_subscribers"]
+        subs = (
+            (creator.get("current_subscribers") or 0)
+            if hidden_subscriber_count
+            else reported_subscribers
+        )
+        quality = _compute_quality_grade(engagement, subs)
 
-        subs = channel_data["current_subscribers"]
         views = channel_data["current_view_count"]
         videos = channel_data["current_video_count"]
 
@@ -2109,20 +2115,13 @@ async def handle_sync_job(
         sync_status = "synced"
         sync_error = None
 
-        if subs == 0 and views == 0:
+        if not hidden_subscriber_count and reported_subscribers == 0 and views == 0:
             is_invalid = True
             sync_status = "invalid"
             sync_error = "Zero subs + zero views — likely invalid/deleted channel"
             logger.warning(
                 f"{job_tag} ⚠️  Invalid stats: {channel_id} has 0 subs AND 0 views. "
                 "Flagging for retry. (Could be deleted channel or bad channel_id)"
-            )
-        elif subs == 0 and views > 0:
-            is_invalid = True
-            sync_status = "invalid"
-            sync_error = "Zero subscribers but has views — suspicious, will retry"
-            logger.warning(
-                f"{job_tag} ⚠️  Suspicious stats: {channel_id} has 0 subs but {views:,} views"
             )
 
         # STAGE 3.75: Calculate 30-day changes
@@ -2177,11 +2176,12 @@ async def handle_sync_job(
 
         # Calculate changes based on snapshot values (only if we have valid baseline)
         if has_valid_baseline:
-            subs_change_30d = subs - prev_subs
+            subs_change_30d = None if hidden_subscriber_count else subs - prev_subs
             views_change_30d = views - prev_views
             videos_change_30d = videos - prev_videos
             logger.info(
-                f"{job_tag} 30-day changes: subs={subs_change_30d:+,}, "
+                f"{job_tag} 30-day changes: subs="
+                f"{'unavailable' if subs_change_30d is None else f'{subs_change_30d:+,}'}, "
                 f"views={views_change_30d:+,}, videos={videos_change_30d:+}"
             )
         else:
@@ -2223,7 +2223,7 @@ async def handle_sync_job(
         }
 
         # Update snapshot if enough time has passed
-        if should_update_snapshot and not is_invalid:
+        if should_update_snapshot and not is_invalid and not hidden_subscriber_count:
             full_payload["prev_subscribers"] = subs
             full_payload["prev_view_count"] = views
             full_payload["prev_video_count"] = videos
