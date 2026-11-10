@@ -6,12 +6,38 @@ YouTube-related data structures.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
 # Get logger instance
 logger = logging.getLogger(__name__)
+
+
+class ChannelIDValidator:
+    """Extract and validate canonical YouTube channel IDs without API dependencies."""
+
+    CHANNEL_ID_RE = re.compile(r"(UC[a-zA-Z0-9_-]{22})")
+
+    @staticmethod
+    def extract_from_url(url: str) -> Optional[str]:
+        if not url:
+            return None
+        match = ChannelIDValidator.CHANNEL_ID_RE.search(url)
+        return match.group(1) if match else None
+
+    @staticmethod
+    def extract_from_text(text: str) -> set[str]:
+        if not text:
+            return set()
+        return set(ChannelIDValidator.CHANNEL_ID_RE.findall(text))
+
+    @staticmethod
+    def is_valid(channel_id: str) -> bool:
+        if not channel_id:
+            return False
+        return ChannelIDValidator.CHANNEL_ID_RE.fullmatch(channel_id) is not None
 
 
 @dataclass

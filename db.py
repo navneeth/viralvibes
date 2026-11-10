@@ -50,7 +50,7 @@ from utils import (
     normalize_category_name,
     safe_get_value,
 )
-from services.channel_utils import ChannelIDValidator
+from validators import ChannelIDValidator
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")

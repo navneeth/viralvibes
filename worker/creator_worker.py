@@ -66,7 +66,8 @@ from db import (
     supabase_client,
 )
 from utils import normalize_category_name
-from services.channel_utils import ChannelIDValidator, YouTubeResolver, get_video_category_name
+from services.channel_utils import YouTubeResolver, get_video_category_name
+from validators import ChannelIDValidator
 from services.youtube_errors import is_quota_exhausted_error, QuotaExceededException
 from services.schema_detector import schema_detector
 from services.youtube_config import get_creator_worker_api_key
