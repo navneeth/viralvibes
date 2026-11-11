@@ -591,6 +591,10 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
             youtube_resolver.get_channel_data(channel_id), timeout=SYNC_TIMEOUT
         )
 
+        # A successful channels.list response with no matching items is still
+        # quota-billed, so count it before handling the not-found result.
+        metrics.youtube_credits_used += YOUTUBE_CREDITS_PER_CHANNEL_FETCH
+
         if channel_data is None:
             # YouTubeResolver returns None specifically when the channel ID is not
             # found on YouTube (distinct from network errors, which raise exceptions).
@@ -604,9 +608,6 @@ async def _fetch_channel_data(channel_id: str) -> Dict:
             f"  YouTube API response for {channel_id}: "
             f"subs={subs:,}, views={views:,}, videos={videos:,}"
         )
-
-        # Track YouTube API quota usage (channels.list = 1 credit)
-        metrics.youtube_credits_used += YOUTUBE_CREDITS_PER_CHANNEL_FETCH
 
         return channel_data
 

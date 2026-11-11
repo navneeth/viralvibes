@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -25,6 +25,19 @@ def test_coverage_refresh_failure_is_nonfatal():
     client = MagicMock()
     client.rpc.side_effect = RuntimeError("refresh failed")
     assert db.refresh_creator_sync_coverage(client=client) is False
+
+
+def test_not_found_channel_response_still_counts_api_quota(monkeypatch):
+    import worker.creator_worker as creator_worker
+
+    resolver = SimpleNamespace(get_channel_data=AsyncMock(return_value=None))
+    monkeypatch.setattr(creator_worker, "youtube_resolver", resolver)
+    monkeypatch.setattr(creator_worker.metrics, "youtube_credits_used", 0)
+
+    with pytest.raises(creator_worker.ChannelNotFoundException):
+        asyncio.run(creator_worker._fetch_channel_data("UC" + "A" * 22))
+
+    assert creator_worker.metrics.youtube_credits_used == 1
 
 
 @pytest.mark.parametrize("exhausted", [False, True])
