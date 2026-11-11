@@ -218,22 +218,25 @@ async def _supervisor_loop() -> None:
         if time.time() - last_periodic_check >= PERIODIC_CHECK_INTERVAL:
             logger.info("⏰ Periodic maintenance check...")
             try:
-                n = _cw.archive_permanently_failed_creators()
+                n = await asyncio.to_thread(_cw.archive_permanently_failed_creators)
                 logger.info("  archive_permanently_failed_creators: %d archived", n)
             except Exception:
-                logger.debug(
-                    "archive_permanently_failed_creators raised (non-fatal)", exc_info=True
+                logger.exception(
+                    "Terminal creator archival failed; skipping queue maintenance this pass"
                 )
-            try:
-                n = _cw.queue_invalid_creators_for_retry(hours_since_last_sync=24)
-                logger.info("  queue_invalid_creators_for_retry: %d queued", n)
-            except Exception:
-                logger.debug("queue_invalid_creators_for_retry raised (non-fatal)", exc_info=True)
-            try:
-                n = _cw._queue_unsynced_creators(batch_size=500)
-                logger.info("  _queue_unsynced_creators: %d queued", n)
-            except Exception:
-                logger.debug("_queue_unsynced_creators raised (non-fatal)", exc_info=True)
+            else:
+                try:
+                    n = _cw.queue_invalid_creators_for_retry(hours_since_last_sync=24)
+                    logger.info("  queue_invalid_creators_for_retry: %d queued", n)
+                except Exception:
+                    logger.debug(
+                        "queue_invalid_creators_for_retry raised (non-fatal)", exc_info=True
+                    )
+                try:
+                    n = _cw._queue_unsynced_creators(batch_size=500)
+                    logger.info("  _queue_unsynced_creators: %d queued", n)
+                except Exception:
+                    logger.debug("_queue_unsynced_creators raised (non-fatal)", exc_info=True)
             last_periodic_check = time.time()
 
         # ── 2. Fetch next job ─────────────────────────────────────────────────

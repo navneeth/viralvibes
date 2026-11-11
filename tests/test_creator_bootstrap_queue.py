@@ -327,7 +327,11 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch, skip_
         "_queue_creators_for_extended_refresh",
         lambda **kwargs: events.append("stale") or calls.append(kwargs) or 1,
     )
-    monkeypatch.setattr(bootstrap, "queue_invalid_creators_for_retry", lambda **kwargs: 0)
+    monkeypatch.setattr(
+        bootstrap,
+        "queue_invalid_creators_for_retry",
+        lambda **kwargs: events.append("retry") or 0,
+    )
     monkeypatch.setattr(bootstrap, "refresh_category_stats_cache", lambda: 0)
     monkeypatch.setattr(
         bootstrap,
@@ -348,12 +352,52 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch, skip_
 
     bootstrap.main()
 
-    assert events == ["archive", "unsynced", "stale"]
+    assert events == ["archive", "unsynced", "stale", "retry"]
     assert calls == [
         {"batch_size": 5000, "client": client},
         {"days_since_last_sync": 7, "client": client},
     ]
     assert coverage_calls == ([] if skip_stats else [{"client": client}])
+
+
+def test_bootstrap_skips_queueing_when_terminal_archival_fails(monkeypatch):
+    client = object()
+    queue_unsynced = MagicMock()
+    queue_stale = MagicMock()
+    queue_retry = MagicMock()
+    monkeypatch.setattr(bootstrap, "init_supabase", lambda: client)
+    monkeypatch.setattr(
+        bootstrap,
+        "archive_permanently_failed_creators",
+        MagicMock(side_effect=RuntimeError("archival unavailable")),
+    )
+    monkeypatch.setattr(bootstrap, "_queue_unsynced_creators", queue_unsynced)
+    monkeypatch.setattr(bootstrap, "_queue_creators_for_extended_refresh", queue_stale)
+    monkeypatch.setattr(bootstrap, "queue_invalid_creators_for_retry", queue_retry)
+    monkeypatch.setattr(bootstrap.sys, "argv", ["bootstrap", "--no-stats", "--no-categories"])
+
+    with pytest.raises(RuntimeError, match="archival unavailable"):
+        bootstrap.main()
+
+    queue_unsynced.assert_not_called()
+    queue_stale.assert_not_called()
+    queue_retry.assert_not_called()
+
+
+def test_queue_creator_sync_rejects_archived_creator(monkeypatch):
+    creator_query = MagicMock()
+    for method in ("select", "eq", "limit"):
+        getattr(creator_query, method).return_value = creator_query
+    creator_query.execute.return_value = SimpleNamespace(
+        data=[{"archived_at": "2026-11-11T00:00:00+00:00"}]
+    )
+    client = MagicMock()
+    client.table.return_value = creator_query
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    assert db.queue_creator_sync("archived-creator") is False
+    client.table.assert_called_once_with(db.CREATOR_TABLE)
+    creator_query.insert.assert_not_called()
 
 
 class _BulkJobQuery:

@@ -258,7 +258,7 @@ enrollments against those limits; profile requests still also have their
 existing per-user cap. The cohort can grow by at most five new creators per
 nightly run, depending on eligibility. The Kaggle runner attempts this batch
 only after the general FIFO queue has no currently eligible jobs; if it reaches
-`max_jobs` first, the automatic batch does not run. Apply migrations 089 and 090, restart
+`max_jobs` first, the automatic batch does not run. Apply migrations 089-091, restart
 every creator worker before running Kaggle. The script entry point
 (`%run kaggle_worker.py`) and documented notebook invocation explicitly use
 `refresh_auto=True` and `refresh_dry_run=False`, so the automatic batch is
@@ -311,7 +311,7 @@ from 078 and the active-job unique index from 077. Migration 085 adds the failed
 refresh cooldown index using `CREATE INDEX CONCURRENTLY`; run it with psql
 autocommit, outside a transaction. Migration 086 serializes direct
 `creator_sync_jobs` inserts with the enqueue RPCs by using their shared advisory
-lock. Apply 084-090 before enabling automatic mode. The guarded RPC defaults
+lock. Apply 084-091 before enabling automatic mode. The guarded RPC defaults
 to dry run, but dry-run mode still processes the regular worker queue; it is not
 a preview-only invocation. Review candidate count and query latency before
 setting `refresh_dry_run=False`.
@@ -630,9 +630,17 @@ Migration 090 adds `enqueue_unknown_activity_refresh_batch_after_drain`. It take
 the shared creator-enqueue advisory lock, rejects the batch if any pending or
 processing jobs exist, then delegates to the existing automatic refresh RPC.
 The unguarded batch RPC is internal to the wrapper, and failed-to-pending job
-rescues take the same lock. Verify it on a
+rescues take the same lock. Apply migration 091 before the next worker/bootstrap
+run; it atomically archives terminal failures, skips recovered or active
+creators, and blocks jobs for archived creators. Verify it on a
 disposable database with an application schema and at least one creator without
 an active job:
+
+```bash
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/terminal_creator_sync_archive.sql
+```
+
+The drain wrapper is verified separately on a disposable database:
 
 ```bash
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/automatic_refresh_drain.sql

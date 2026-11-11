@@ -2729,30 +2729,30 @@ async def process_creator_syncs():
             logger.info("─" * 50)
             logger.info("⏰ PERIODIC CHECK: Queuing creators that need sync...")
 
-            archived_count = archive_permanently_failed_creators()
-            if archived_count:
-                logger.info("Archived %d creators that exhausted sync retries", archived_count)
+            try:
+                archived_count = await asyncio.to_thread(archive_permanently_failed_creators)
+            except Exception:
+                logger.exception(
+                    "Terminal creator archival failed; skipping queue maintenance this pass"
+                )
+            else:
+                if archived_count:
+                    logger.info("Archived %d creators that exhausted sync retries", archived_count)
 
-            # Retry: creators with sync_status IN (invalid, failed) AND
-            # last_synced_at IS NOT NULL (previously synced, now stale/broken).
-            # PostgREST's .lt() already excludes NULLs, so these two functions
-            # target strictly disjoint sets — never-synced creators are NOT
-            # picked up here.
-            invalid_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
-            logger.info(
-                f"  queue_invalid_creators_for_retry: {invalid_count} queued "
-                f"(invalid/failed, previously synced, last_synced_at < 24h ago)"
-            )
+                # Retry previously synced invalid/failed creators.
+                invalid_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
+                logger.info("  queue_invalid_creators_for_retry: %d queued", invalid_count)
 
-            # Bootstrap: creators with last_synced_at IS NULL — never processed.
-            # Exclusively handled here; disjoint from the retry query above.
-            unsynced_count = _queue_unsynced_creators(batch_size=500)
-
-            total_queued = invalid_count + unsynced_count
-            logger.info(
-                f"✅ Periodic check complete: {total_queued} total creators queued "
-                f"({invalid_count} retry, {unsynced_count} first-time/never-synced)"
-            )
+                # Queue valid never-synced creators after terminal failures are archived.
+                unsynced_count = _queue_unsynced_creators(batch_size=500)
+                total_queued = invalid_count + unsynced_count
+                logger.info(
+                    "✅ Periodic check complete: %d total creators queued "
+                    "(%d retry, %d first-time/never-synced)",
+                    total_queued,
+                    invalid_count,
+                    unsynced_count,
+                )
             last_periodic_check = time.time()
 
         # ── Extended: refresh stale but healthy syncs ──────────────────────────
