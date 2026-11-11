@@ -139,13 +139,21 @@ class _NotProxy:
 class _RoutingClient:
     """Supabase client stand-in that returns a per-table spy with seeded data."""
 
-    def __init__(self, spy: dict, data_by_table: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        spy: dict,
+        data_by_table: Optional[Dict[str, Any]] = None,
+        responses_by_table: Optional[Dict[str, List[Any]]] = None,
+    ):
         self._spy = spy
         self._data = data_by_table or {}
+        self._responses = responses_by_table or {}
 
     def table(self, name: str) -> _TableSpy:
         self._spy.setdefault("tables_touched", []).append(name)
-        return _TableSpy(self._spy, name, self._data.get(name, []))
+        responses = self._responses.get(name)
+        data = responses.pop(0) if responses else self._data.get(name, [])
+        return _TableSpy(self._spy, name, data)
 
 
 # ---------------------------------------------------------------------------
@@ -211,10 +219,8 @@ def test_archive_permanently_failed_writes_archived_at(monkeypatch):
         "supabase_client",
         _RoutingClient(
             spy,
-            {
-                db.CREATOR_SYNC_JOBS_TABLE: fake_jobs,
-                db.CREATOR_TABLE: fake_update_result,
-            },
+            {db.CREATOR_TABLE: fake_update_result},
+            {db.CREATOR_SYNC_JOBS_TABLE: [fake_jobs, []]},
         ),
     )
 
@@ -283,6 +289,25 @@ def test_archive_permanently_failed_writes_archived_at(monkeypatch):
             "avoid overwriting the existing terminal marker on repeated "
             f"passes.  This UPDATE's filters: is_calls={query['is_calls']!r}"
         )
+
+
+def test_archive_permanently_failed_skips_creator_with_active_job(monkeypatch):
+    import db
+
+    creator_id = "11111111-1111-1111-1111-111111111111"
+    spy: dict = {}
+    failed_jobs = [{"creator_id": creator_id, "retry_count": 4}]
+    active_jobs = [{"creator_id": creator_id}]
+    client = _RoutingClient(
+        spy,
+        responses_by_table={
+            db.CREATOR_SYNC_JOBS_TABLE: [failed_jobs, active_jobs],
+        },
+    )
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    assert db.archive_permanently_failed_creators(max_retries=3) == 0
+    assert db.CREATOR_TABLE not in spy.get("tables_touched", [])
 
 
 # ---------------------------------------------------------------------------

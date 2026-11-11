@@ -55,6 +55,7 @@ from constants import (
     OUTLIER_METHOD_VERSION,
 )
 from db import (
+    archive_permanently_failed_creators,
     init_supabase,
     mark_creator_sync_completed,
     mark_creator_sync_failed,
@@ -2727,6 +2728,10 @@ async def process_creator_syncs():
         if time.time() - last_periodic_check > PERIODIC_CHECK_INTERVAL:
             logger.info("─" * 50)
             logger.info("⏰ PERIODIC CHECK: Queuing creators that need sync...")
+
+            archived_count = archive_permanently_failed_creators()
+            if archived_count:
+                logger.info("Archived %d creators that exhausted sync retries", archived_count)
 
             # Retry: creators with sync_status IN (invalid, failed) AND
             # last_synced_at IS NOT NULL (previously synced, now stale/broken).

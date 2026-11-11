@@ -309,15 +309,23 @@ def test_auto_retry_skips_invalid_channel_ids(monkeypatch):
 def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch, skip_stats):
     client = object()
     calls = []
+    events = []
     coverage_calls = []
     monkeypatch.setattr(bootstrap, "init_supabase", lambda: client)
     monkeypatch.setattr(
-        bootstrap, "_queue_unsynced_creators", lambda **kwargs: calls.append(kwargs) or 1
+        bootstrap,
+        "archive_permanently_failed_creators",
+        lambda: events.append("archive") or 2,
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "_queue_unsynced_creators",
+        lambda **kwargs: events.append("unsynced") or calls.append(kwargs) or 1,
     )
     monkeypatch.setattr(
         bootstrap,
         "_queue_creators_for_extended_refresh",
-        lambda **kwargs: calls.append(kwargs) or 1,
+        lambda **kwargs: events.append("stale") or calls.append(kwargs) or 1,
     )
     monkeypatch.setattr(bootstrap, "queue_invalid_creators_for_retry", lambda **kwargs: 0)
     monkeypatch.setattr(bootstrap, "refresh_category_stats_cache", lambda: 0)
@@ -340,6 +348,7 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(monkeypatch, skip_
 
     bootstrap.main()
 
+    assert events == ["archive", "unsynced", "stale"]
     assert calls == [
         {"batch_size": 5000, "client": client},
         {"days_since_last_sync": 7, "client": client},

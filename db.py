@@ -1931,7 +1931,23 @@ def archive_permanently_failed_creators(max_retries: int = 3) -> int:
         if not failed_jobs:
             return 0
 
-        failed_creator_ids = set(job["creator_id"] for job in failed_jobs)
+        failed_creator_ids = {job["creator_id"] for job in failed_jobs if job.get("creator_id")}
+        if not failed_creator_ids:
+            return 0
+
+        active_response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .select("creator_id")
+            .in_("creator_id", list(failed_creator_ids))
+            .in_("status", ["pending", "processing"])
+            .execute()
+        )
+        active_creator_ids = {job["creator_id"] for job in (active_response.data or [])}
+        failed_creator_ids.difference_update(active_creator_ids)
+        if not failed_creator_ids:
+            logger.info("Skipping permanent-failure archival; all candidates have active jobs")
+            return 0
+
         archived_count = 0
 
         logger.info(
