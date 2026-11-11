@@ -1188,6 +1188,18 @@ def queue_creator_sync(
         return False
 
     try:
+        creator = (
+            supabase_client.table(CREATOR_TABLE)
+            .select("archived_at")
+            .eq("id", creator_id)
+            .limit(1)
+            .execute()
+        )
+        creator_rows = creator.data or []
+        if not creator_rows or creator_rows[0].get("archived_at") is not None:
+            logger.info("Creator %s is missing or archived; refusing to queue sync", creator_id)
+            return False
+
         # A processing job is active too: adding a pending job for the same
         # creator would cause duplicate worker calls after the active-job index
         # is installed.
@@ -1903,86 +1915,30 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
         return False
 
 
-def archive_permanently_failed_creators(max_retries: int = 3) -> int:
-    """
-    Archive creators that failed to sync after max retries.
+def archive_permanently_failed_creators(max_retries: int = 3, limit: int = 100) -> int:
+    """Atomically archive exhausted syncs; archived_at is the terminal marker.
 
-    Args:
-        max_retries: Retries before marking as archived (default 3)
-
-    Returns:
-        Number of creators archived
+    The SQL RPC keeps sync_status within its allowed values, skips recovered or
+    active creators, and serializes with enqueueing. Errors propagate so callers
+    can fail closed instead of queueing more work after an uncertain cleanup.
     """
     if not supabase_client:
-        logger.warning("Supabase client not available")
-        return 0
+        raise RuntimeError("Supabase client not available for terminal creator archival")
 
     try:
-        failed_response = (
-            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("creator_id, retry_count")
-            .eq("status", "failed")
-            .gte("retry_count", max_retries)
-            .limit(100)
-            .execute()
-        )
-
-        failed_jobs = failed_response.data if failed_response.data else []
-        if not failed_jobs:
-            return 0
-
-        failed_creator_ids = set(job["creator_id"] for job in failed_jobs)
-        archived_count = 0
-
-        logger.info(
-            f"Found {len(failed_creator_ids)} creators with {max_retries}+ "
-            f"failed sync attempts - archiving..."
-        )
-
-        for creator_id in failed_creator_ids:
-            try:
-                # The DB enforces a strict sync_status CHECK. "archived" is not
-                # a permitted value; normalize to "failed" and log the original
-                # attempted value so operators can audit the change.
-                try:
-                    logger.warning(
-                        f"Archiving intent for creator {creator_id}: normalizing invalid sync_status 'archived' -> 'failed'"
-                    )
-                except Exception:
-                    pass
-                # ``.is_("archived_at", "null")`` keeps the UPDATE idempotent:
-                # on the first pass archived_at is NULL so the filter matches
-                # and the row is sealed; on every subsequent pass the filter
-                # fails and the UPDATE returns zero rows, so archived_count
-                # reflects only *newly* archived creators and the original
-                # terminal timestamp is preserved.
-                result = (
-                    supabase_client.table(CREATOR_TABLE)
-                    .update(
-                        {
-                            "sync_status": "failed",
-                            "sync_error_message": f"Failed after {max_retries}+ retries",
-                            "archived_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                    .eq("id", creator_id)
-                    .is_("archived_at", "null")
-                    .execute()
-                )
-
-                if result.data:
-                    archived_count += 1
-                    logger.info(f"✅ Archived creator: {creator_id}")
-            except Exception as e:
-                logger.error(f"Error archiving {creator_id}: {e}")
-
-        if archived_count > 0:
-            logger.warning(f"Archived {archived_count} permanently failed creators")
-
+        response = supabase_client.rpc(
+            "archive_terminal_creator_syncs",
+            {"p_max_retries": max_retries, "p_limit": limit},
+        ).execute()
+        archived_count = response.data
+        if isinstance(archived_count, bool) or not isinstance(archived_count, int):
+            raise RuntimeError(f"Unexpected terminal creator archival response: {archived_count!r}")
+        if archived_count:
+            logger.warning("Archived %d permanently failed creators", archived_count)
         return archived_count
-    except Exception as e:
-        logger.exception(f"Error archiving failed creators: {e}")
-        return 0
+    except Exception:
+        logger.exception("Error archiving terminally failed creators")
+        raise
 
 
 # =============================================================================

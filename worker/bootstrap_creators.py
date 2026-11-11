@@ -22,6 +22,7 @@ import sys
 from secrets_loader import load_secrets
 
 from db import (
+    archive_permanently_failed_creators,
     init_supabase,
     queue_invalid_creators_for_retry,
     refresh_category_stats_cache,
@@ -111,6 +112,10 @@ def main() -> None:
 
     logger.info("✅ Supabase connected")
     total_queued = 0
+
+    archived = archive_permanently_failed_creators()
+    if archived:
+        logger.info("Archived %d creators that exhausted sync retries", archived)
 
     # ── 1. Never-synced creators ──────────────────────────────────────────────
     # PostgREST .lt() silently excludes NULLs, so creator_worker's periodic

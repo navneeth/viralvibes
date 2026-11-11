@@ -105,10 +105,12 @@ Migration 085 adds a partial index for cooldown lookups. Run it separately with
 psql autocommit because it uses `CREATE INDEX CONCURRENTLY`; verify the index is
 valid and ready before proceeding. Migration 086 adds a trigger that shares the
 enqueue advisory lock across direct inserts and updates the growth-baseline RPC
-to use the same lock. Apply 084-090 and restart every creator worker before
+to use the same lock. Apply 084-091 and restart every creator worker before
 running Kaggle's automatic refresh. Migration 090 adds the queue-drained wrapper,
 restricts the unguarded batch RPC to internal use, and serializes rescued
-failed-to-pending jobs with the shared enqueue lock.
+failed-to-pending jobs with the shared enqueue lock. Migration 091 atomically
+archives terminal failures under that same lock, excludes newer successful and
+active creators, and prevents new jobs from being inserted for archived creators.
 
 The disposable SQL regression suite checks two-candidate selection, the
 remaining queue slot, malformed upload timestamps, rank order, long-running

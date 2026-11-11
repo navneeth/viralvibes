@@ -1,40 +1,18 @@
-"""Regression tests for the ``creators.archived_at`` ghost-column fix.
+"""Regression tests for archived creators and terminal sync failures.
 
-Background
-----------
-``db.queue_invalid_creators_for_retry``, ``db.archive_permanently_failed_creators``,
-and ``worker/creator_worker.py``'s stale-check all assume ``creators.archived_at``
-exists.  No tracked migration ever created the column, so every call to those
-paths was returning Postgres 42703 ("column does not exist") and the broad
-``try/except`` was swallowing the failure.  Side effects:
-
-* permanently-failed creators were re-queued every bootstrap pass;
-* ``archive_permanently_failed_creators`` never persisted a single timestamp.
-
-Migration 063 adds the column.  This test suite pins the three invariants
-that must stay true going forward so the column cannot be silently dropped
-again:
-
-1. ``queue_invalid_creators_for_retry`` emits ``.is_("archived_at", "null")``
-   on BOTH its sub-queries (failed-and-stale AND never-synced branches).
-2. ``archive_permanently_failed_creators`` includes ``archived_at`` in the
-   UPDATE payload for every archived row.
-3. ``worker/creator_worker.py`` keeps the ``.is_("archived_at", "null")``
-   filter on its stale-check SELECT.
-
-The suite deliberately uses a lightweight fluent spy for (1) and (2) so the
-assertions pin actual call arguments rather than a brittle source-text
-substring.  Invariant (3) is pinned via a source-text check because the
-worker module imports ``googleapiclient``, which is not available in every
-dev environment and would make the test module uncollectable.
+Migration 063 adds ``creators.archived_at``. These tests keep requeue queries
+from selecting archived creators, verify the Python wrapper calls the atomic
+terminal-archive RPC and propagates failures, and protect the worker's stale
+creator filter. The SQL integration test for locking, recovery, and enqueue
+protection is in ``db/tests/terminal_creator_sync_archive.sql``.
 """
 
 from __future__ import annotations
 
 import pathlib
-from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -139,13 +117,21 @@ class _NotProxy:
 class _RoutingClient:
     """Supabase client stand-in that returns a per-table spy with seeded data."""
 
-    def __init__(self, spy: dict, data_by_table: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        spy: dict,
+        data_by_table: Optional[Dict[str, Any]] = None,
+        responses_by_table: Optional[Dict[str, List[Any]]] = None,
+    ):
         self._spy = spy
         self._data = data_by_table or {}
+        self._responses = responses_by_table or {}
 
     def table(self, name: str) -> _TableSpy:
         self._spy.setdefault("tables_touched", []).append(name)
-        return _TableSpy(self._spy, name, self._data.get(name, []))
+        responses = self._responses.get(name)
+        data = responses.pop(0) if responses else self._data.get(name, [])
+        return _TableSpy(self._spy, name, data)
 
 
 # ---------------------------------------------------------------------------
@@ -187,102 +173,33 @@ def test_queue_invalid_filters_on_archived_at_in_both_branches(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Invariant 2: archive_permanently_failed_creators writes archived_at.
+# Invariant 2: terminal archival uses the atomic database RPC.
 # ---------------------------------------------------------------------------
 
 
-def test_archive_permanently_failed_writes_archived_at(monkeypatch):
-    """The UPDATE payload MUST carry a valid ISO archived_at AND guard idempotency."""
+def test_archive_permanently_failed_calls_atomic_rpc(monkeypatch):
     import db
 
-    spy: dict = {}
-    # Seed one failed job so the function proceeds past the "nothing to do"
-    # guard and reaches the UPDATE step.
-    fake_jobs: List[Dict[str, Any]] = [
-        {"creator_id": "11111111-1111-1111-1111-111111111111", "retry_count": 5},
-    ]
-    # The UPDATE's execute() needs non-empty data so the function increments
-    # archived_count — otherwise the archive is silently a no-op.
-    fake_update_result: List[Dict[str, Any]] = [
-        {"id": "11111111-1111-1111-1111-111111111111"},
-    ]
-    monkeypatch.setattr(
-        db,
-        "supabase_client",
-        _RoutingClient(
-            spy,
-            {
-                db.CREATOR_SYNC_JOBS_TABLE: fake_jobs,
-                db.CREATOR_TABLE: fake_update_result,
-            },
-        ),
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=7)
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    assert db.archive_permanently_failed_creators(max_retries=4, limit=25) == 7
+    client.rpc.assert_called_once_with(
+        "archive_terminal_creator_syncs",
+        {"p_max_retries": 4, "p_limit": 25},
     )
 
-    archived = db.archive_permanently_failed_creators(max_retries=3)
 
-    assert archived == 1, (
-        f"Expected exactly one archived row, got {archived}.  The spy pipeline "
-        "probably didn't deliver the seeded fake_update_result through to the "
-        "function's result.data check."
-    )
+def test_archive_permanently_failed_propagates_rpc_errors(monkeypatch):
+    import db
 
-    updates = spy.get("update_payloads", [])
-    assert (
-        len(updates) == 1
-    ), f"Expected one UPDATE per archived creator, got {len(updates)}: {updates!r}"
+    client = MagicMock()
+    client.rpc.return_value.execute.side_effect = RuntimeError("database unavailable")
+    monkeypatch.setattr(db, "supabase_client", client)
 
-    update_table, payload = updates[0]
-    assert update_table == db.CREATOR_TABLE
-    assert "archived_at" in payload, (
-        "UPDATE payload MUST include archived_at as the terminal state "
-        "marker — without it, the next bootstrap pass can't tell this row "
-        "has already been archived and will re-queue it.  Payload keys: "
-        f"{sorted(payload.keys())!r}"
-    )
-
-    # The value must be a parseable ISO 8601 timestamp — a non-empty string
-    # alone is not enough protection against a future refactor that writes
-    # a placeholder sentinel like "pending" or an empty string.
-    archived_at_value = payload["archived_at"]
-    assert isinstance(archived_at_value, str) and archived_at_value, (
-        f"archived_at must be a non-empty ISO timestamp string, got " f"{archived_at_value!r}"
-    )
-    try:
-        parsed = datetime.fromisoformat(archived_at_value)
-    except ValueError as exc:
-        pytest.fail(f"archived_at={archived_at_value!r} does not parse as ISO 8601: {exc}")
-    # Must be timezone-aware — a naive datetime would make the terminal
-    # marker ambiguous across timezones and break ordering/comparison
-    # downstream.
-    assert parsed.tzinfo is not None, (
-        f"archived_at must be timezone-aware (UTC), got naive datetime " f"{archived_at_value!r}"
-    )
-
-    # sync_status must remain within the DB CHECK allowlist.  "archived" is
-    # NOT a permitted value — see db.py context near the archive call.
-    assert payload.get("sync_status") == "failed", (
-        "sync_status in the archive payload must stay 'failed' (DB CHECK "
-        f"constraint) — got {payload.get('sync_status')!r}"
-    )
-
-    # Idempotency guard: every creators-table UPDATE must be filtered by
-    # .is_(archived_at, null) so repeated bootstrap passes don't overwrite
-    # the original terminal marker nor double-count the archive in metrics.
-    # Asserting on each UPDATE snapshot individually (not just "somewhere
-    # in the function") catches a future refactor that keeps the guard on a
-    # SELECT but drops it from one or more UPDATEs.
-    creators_updates = [
-        q
-        for q in spy.get("executed_queries", [])
-        if q["table"] == db.CREATOR_TABLE and q["operation"] == "update"
-    ]
-    assert creators_updates, "no UPDATE query reached execute() on creators"
-    for idx, query in enumerate(creators_updates, 1):
-        assert ("archived_at", "null") in query["is_calls"], (
-            f"creators UPDATE #{idx} must include .is_(archived_at, null) to "
-            "avoid overwriting the existing terminal marker on repeated "
-            f"passes.  This UPDATE's filters: is_calls={query['is_calls']!r}"
-        )
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        db.archive_permanently_failed_creators()
 
 
 # ---------------------------------------------------------------------------
@@ -318,14 +235,17 @@ def test_worker_source_filters_on_archived_at():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "fn_name",
-    ["queue_invalid_creators_for_retry", "archive_permanently_failed_creators"],
-)
-def test_no_client_returns_zero(monkeypatch, fn_name):
+def test_queue_invalid_no_client_returns_zero(monkeypatch):
     """Guard against the module-load path where supabase_client failed to init."""
     import db
 
     monkeypatch.setattr(db, "supabase_client", None)
-    fn = getattr(db, fn_name)
-    assert fn() == 0
+    assert db.queue_invalid_creators_for_retry() == 0
+
+
+def test_terminal_archive_no_client_fails_closed(monkeypatch):
+    import db
+
+    monkeypatch.setattr(db, "supabase_client", None)
+    with pytest.raises(RuntimeError, match="not available"):
+        db.archive_permanently_failed_creators()
