@@ -275,7 +275,9 @@ Contributions are welcome! Fork the repository, open a branch, and submit a PR.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+All rights are reserved by the repository owner, navneeth. No license is
+granted to use, copy, modify, or distribute this project. See [LICENSE](LICENSE)
+for details.
 
 ## Acknowledgments
 
