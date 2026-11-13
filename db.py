@@ -54,6 +54,7 @@ from validators import ChannelIDValidator
 
 # Use a dedicated DB logger
 logger = logging.getLogger("vv_db")
+CREATOR_SYNC_ACTIVE_LOOKUP_BATCH_SIZE = 100
 
 
 # ==============================================================
@@ -1253,9 +1254,9 @@ def queue_creator_sync_bulk(
     Bulk-queue a list of creators for stats sync.
 
     Replaces the N+1 pattern of calling queue_creator_sync() in a loop.
-    Uses 2 round-trips in the common case regardless of batch size:
-      1. SELECT  — find which creator_ids already have an active job
-      2. INSERT  — insert all the rest in one call
+    Uses bounded SELECT batches to find creators with active jobs, then one
+    bulk INSERT for the remaining IDs. Bounded query-string size avoids gateway
+    URL limits on large bootstrap batches.
     If the active-job index catches a race during the bulk insert, retries the
     batch one creator at a time so one conflict does not discard other jobs.
 
@@ -1272,15 +1273,18 @@ def queue_creator_sync_bulk(
         return 0, 0
 
     try:
-        # 1. One SELECT to find creators that already have an active job.
-        existing_resp = (
-            client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("creator_id")
-            .in_("creator_id", creator_ids)
-            .in_("status", ["pending", "processing"])
-            .execute()
-        )
-        already_active = {row["creator_id"] for row in (existing_resp.data or [])}
+        # 1. Find active jobs without placing an oversized ID list in one URL.
+        already_active = set()
+        for offset in range(0, len(creator_ids), CREATOR_SYNC_ACTIVE_LOOKUP_BATCH_SIZE):
+            id_batch = creator_ids[offset : offset + CREATOR_SYNC_ACTIVE_LOOKUP_BATCH_SIZE]
+            existing_resp = (
+                client.table(CREATOR_SYNC_JOBS_TABLE)
+                .select("creator_id")
+                .in_("creator_id", id_batch)
+                .in_("status", ["pending", "processing"])
+                .execute()
+            )
+            already_active.update(row["creator_id"] for row in (existing_resp.data or []))
 
         # Preserve input order while removing duplicate IDs from the batch.
         to_insert = list(dict.fromkeys(cid for cid in creator_ids if cid not in already_active))

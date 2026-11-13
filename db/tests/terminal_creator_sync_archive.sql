@@ -1,6 +1,7 @@
--- Disposable database after migrations through 093.
+-- Disposable database after migration 093; this test applies migration 095.
 -- Requires four non-archived creators with canonical channel IDs and no jobs.
 \set ON_ERROR_STOP on
+\ir ../migrations/095_extend_terminal_archive_timeout.sql
 BEGIN;
 DO $$
 DECLARE
@@ -14,6 +15,14 @@ DECLARE
     archived_count integer;
     inserted_count bigint;
 BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE oid = 'public.archive_terminal_creator_syncs(integer,integer)'::regprocedure
+          AND proconfig @> ARRAY['statement_timeout=15s']
+    ) THEN
+        RAISE EXCEPTION 'Terminal archival RPC does not have the 15-second statement timeout';
+    END IF;
+
     IF EXISTS (
         SELECT 1 FROM public.creator_sync_jobs
         WHERE status = 'failed' AND retry_count >= 3
