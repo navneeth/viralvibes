@@ -969,10 +969,12 @@ def _persist_recent_video_snapshot(
     if not enrolled and not _recent_video_snapshot_enabled(creator_id):
         return False
     if not video_intel.get("recent_video_fetch_succeeded") or "recent_videos" not in video_intel:
+        video_intel["recent_video_snapshot_failed"] = True
         return False
     columns = {"recent_videos", "recent_videos_fetched_at"}
     if not columns.issubset(schema_detector.available_columns or set()):
         metrics.video_snapshot_schema_skips += 1
+        video_intel["recent_video_snapshot_failed"] = True
         logger.warning("Recent-video snapshot skipped: migration 087 columns are unavailable")
         return False
     try:
@@ -997,8 +999,27 @@ def _persist_recent_video_snapshot(
         return bool(response.data)
     except Exception as error:
         metrics.video_snapshot_write_errors += 1
+        video_intel["recent_video_snapshot_failed"] = True
         logger.warning("Recent-video snapshot write failed for %s: %s", creator_id, error)
         return False
+
+
+def _record_video_snapshot_refresh_failure(job_id: int, source: str | None) -> None:
+    """Persist optional snapshot failure state without failing the core sync."""
+    if source != "video_snapshot_refresh":
+        return
+    try:
+        response = (
+            supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+            .update({"snapshot_failed_at": datetime.now(timezone.utc).isoformat()})
+            .eq("id", job_id)
+            .eq("source", "video_snapshot_refresh")
+            .execute()
+        )
+        if not response.data:
+            logger.warning("Could not record snapshot refresh failure for job %s", job_id)
+    except Exception as error:
+        logger.warning("Could not record snapshot refresh failure for job %s: %s", job_id, error)
 
 
 def _pick_thumbnail(thumbnails: dict) -> str:
@@ -1349,8 +1370,12 @@ async def _fetch_recent_video_intelligence(
                     if snapshot or not video_items:
                         result["recent_videos"] = snapshot
                     else:
+                        result["recent_video_snapshot_failed"] = True
                         logger.warning("Recent-video snapshot skipped: no valid metadata rows")
+                else:
+                    result["recent_video_snapshot_failed"] = True
             except Exception as error:
+                result["recent_video_snapshot_failed"] = True
                 logger.warning("Recent-video snapshot normalization failed: %s", error)
         logger.debug(
             "[RecentVideos] %s: sample=%s median=%s outliers=%s avg_views_10=%s",
@@ -1972,6 +1997,7 @@ async def handle_sync_job(
     creator_id: str,
     job_number: int = 0,
     retry_count: int = 0,
+    source: str | None = None,
 ) -> bool:
     """
     Handle a single creator sync job with comprehensive error handling.
@@ -2410,6 +2436,11 @@ async def handle_sync_job(
                 snapshot_started_at,
                 **({"enrolled": True} if snapshot_enrolled else {}),
             )
+            if (
+                video_intel.get("recent_video_snapshot_failed")
+                and source == "video_snapshot_refresh"
+            ):
+                _record_video_snapshot_refresh_failure(job_id, source)
 
         # STAGE 5: Mark job done
         if is_invalid:
@@ -2846,6 +2877,7 @@ async def process_creator_syncs():
                             creator_id=job["creator_id"],
                             job_number=i,
                             retry_count=job.get("retry_count", 0),
+                            source=job.get("source"),
                         )
                     result = await asyncio.wait_for(
                         coro,

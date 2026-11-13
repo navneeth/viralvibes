@@ -59,7 +59,7 @@ Only unarchived, canonical-channel creators with `synced` or `synced_partial`
 status qualify. Pending jobs (including delayed retries), processing jobs, and
 snapshot-refresh failures within seven days exclude a creator.
 
-The RPC uses the shared enqueue lock, accepts at most 25 jobs per call, and
+The RPC uses the shared enqueue lock, accepts at most 40 jobs per call, and
 inserts nothing when the pending queue has reached 250. It does not require
 the general queue to drain. Jobs use the existing `sync_stats` handler with
 source `video_snapshot_refresh`; oldest snapshot timestamps are selected first.
@@ -81,15 +81,19 @@ One-time rollout:
   and fresh, archived, active, and unenrolled creators are excluded.
 4. After staging validation succeeds, change the variable to `apply` once.
   The existing bootstrap schedule sweeps at 23:50, 05:50, 11:50, and 17:50 UTC.
+  At 40 jobs per sweep it provides 1,120 weekly slots, enough to cycle the full
+  1,000-creator enrollment cap within seven days when the queue drains and the
+  worker completes those jobs. A 250-pending-job ceiling and failures can delay
+  individual snapshots, so this is a capacity target rather than a guarantee.
   The existing six-hour worker consumes the queued jobs without recurring manual
   intervention. This is a seven-day freshness target, not an exact execution
   guarantee: GitHub scheduling, queue capacity, failures, and quota can delay it.
 
 The variable defaults to `off`. Set it back to `off` to stop future snapshot
 enqueue passes; already-queued jobs and enrollment remain intact. An RPC failure
-is logged without an immediate retry because a timeout can have an unknown
-enqueue outcome. Normal discovery passes still run; archival failure retains
-the existing fail-closed behavior for all enqueue passes.
+is logged and fails the bootstrap run without an immediate retry because a
+timeout can have an unknown enqueue outcome. Archival failure remains fail-closed
+for all enqueue passes.
 
 Verify freshness and processing with these read-only queries:
 
@@ -97,6 +101,7 @@ Verify freshness and processing with these read-only queries:
 SELECT count(*) AS enrolled,
      count(*) FILTER (
         WHERE recent_videos IS NULL OR recent_videos_fetched_at IS NULL
+          OR recent_videos_fetched_at > now()
           OR recent_videos_fetched_at <= now() - interval '7 days'
      ) AS due
 FROM public.creators

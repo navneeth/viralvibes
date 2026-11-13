@@ -1,7 +1,13 @@
 BEGIN;
 
+ALTER TABLE public.creator_sync_jobs
+    ADD COLUMN IF NOT EXISTS snapshot_failed_at timestamptz;
+
+COMMENT ON COLUMN public.creator_sync_jobs.snapshot_failed_at IS
+    'Latest optional video snapshot failure for this job; does not change core sync status or retry behavior.';
+
 CREATE OR REPLACE FUNCTION public.enqueue_video_snapshot_refreshes(
-    p_limit integer DEFAULT 25,
+    p_limit integer DEFAULT 40,
     p_dry_run boolean DEFAULT true,
     p_max_queue integer DEFAULT 250
 )
@@ -15,8 +21,8 @@ DECLARE
     v_budget integer;
     v_now timestamptz := statement_timestamp();
 BEGIN
-    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 25 THEN
-        RAISE EXCEPTION 'Snapshot refresh accepts one to 25 jobs';
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 40 THEN
+        RAISE EXCEPTION 'Snapshot refresh accepts one to 40 jobs';
     END IF;
     IF NOT pg_try_advisory_xact_lock(hashtextextended('public.enqueue_creator_syncs', 0)) THEN
         RAISE EXCEPTION 'Creator enqueue maintenance is busy';
@@ -42,6 +48,7 @@ BEGIN
       AND (
           creator.recent_videos IS NULL
           OR creator.recent_videos_fetched_at IS NULL
+          OR creator.recent_videos_fetched_at > v_now
           OR creator.recent_videos_fetched_at <= v_now - interval '7 days'
       )
       AND NOT EXISTS (
@@ -53,9 +60,14 @@ BEGIN
           SELECT 1 FROM public.creator_sync_jobs AS failed_job
           WHERE failed_job.creator_id = creator.id
             AND failed_job.source = 'video_snapshot_refresh'
-            AND failed_job.status = 'failed'
-            AND COALESCE(failed_job.completed_at, failed_job.started_at, failed_job.created_at)
-                >= v_now - interval '7 days'
+            AND (
+                (
+                    failed_job.status = 'failed'
+                    AND COALESCE(failed_job.completed_at, failed_job.started_at, failed_job.created_at)
+                        >= v_now - interval '7 days'
+                )
+                OR failed_job.snapshot_failed_at >= v_now - interval '7 days'
+            )
       )
     ORDER BY creator.recent_videos_fetched_at NULLS FIRST, creator.id
     LIMIT v_budget;

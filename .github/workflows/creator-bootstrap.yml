@@ -70,8 +70,8 @@ jobs:
           SNAPSHOT_ARGS=()
           case "$VIDEO_SNAPSHOT_REFRESH_MODE" in
             off) ;;
-            preview) SNAPSHOT_ARGS=(--snapshot-refresh-batch 25) ;;
-            apply) SNAPSHOT_ARGS=(--snapshot-refresh-batch 25 --snapshot-refresh-apply) ;;
+            preview) SNAPSHOT_ARGS=(--snapshot-refresh-batch 40) ;;
+            apply) SNAPSHOT_ARGS=(--snapshot-refresh-batch 40 --snapshot-refresh-apply) ;;
             *) echo "Invalid VIDEO_SNAPSHOT_REFRESH_MODE: use off, preview, or apply"; exit 1 ;;
           esac
 

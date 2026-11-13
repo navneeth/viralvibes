@@ -357,25 +357,31 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(
         "argv",
         ["bootstrap", "--unsynced-batch", "5000", "--no-categories"]
         + (["--no-stats"] if skip_stats else [])
-        + (["--snapshot-refresh-batch", "25"] if snapshot_mode != "off" else [])
+        + (["--snapshot-refresh-batch", "40"] if snapshot_mode != "off" else [])
         + (["--snapshot-refresh-apply"] if snapshot_mode == "apply" else []),
     )
 
-    bootstrap.main()
+    if snapshot_rpc_error and snapshot_mode != "off":
+        with pytest.raises(RuntimeError, match="snapshot RPC unavailable"):
+            bootstrap.main()
+    else:
+        bootstrap.main()
 
-    assert events == (
-        ["archive"]
-        + (["snapshot"] if snapshot_mode != "off" else [])
-        + ["unsynced", "stale", "retry"]
-    )
+    expected_events = ["archive"] + (["snapshot"] if snapshot_mode != "off" else [])
+    if not (snapshot_rpc_error and snapshot_mode != "off"):
+        expected_events += ["unsynced", "stale", "retry"]
+    assert events == expected_events
     if snapshot_mode == "off":
         client.rpc.assert_not_called()
     else:
         client.rpc.assert_called_once_with(
             "enqueue_video_snapshot_refreshes",
-            {"p_limit": 25, "p_dry_run": snapshot_mode != "apply", "p_max_queue": 250},
+            {"p_limit": 40, "p_dry_run": snapshot_mode != "apply", "p_max_queue": 250},
         )
         snapshot_response.execute.assert_called_once_with()
+    if snapshot_rpc_error and snapshot_mode != "off":
+        assert calls == []
+        return
     assert calls == [
         {"batch_size": 5000, "client": client},
         {"days_since_last_sync": 7, "client": client},
@@ -386,7 +392,7 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(
 @pytest.mark.parametrize(
     "options",
     [
-        ["--snapshot-refresh-batch", "26"],
+        ["--snapshot-refresh-batch", "41"],
         ["--snapshot-refresh-batch", "-1"],
         ["--snapshot-refresh-apply"],
     ],
@@ -419,7 +425,7 @@ def test_bootstrap_skips_queueing_when_terminal_archival_fails(monkeypatch):
             "--no-stats",
             "--no-categories",
             "--snapshot-refresh-batch",
-            "25",
+            "40",
             "--snapshot-refresh-apply",
         ],
     )

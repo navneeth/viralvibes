@@ -100,10 +100,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--snapshot-refresh-batch",
         type=int,
-        choices=range(26),
+        choices=range(41),
         default=0,
-        metavar="0-25",
-        help="Preview up to 25 enrolled creators needing snapshots (0 disables this pass)",
+        metavar="0-40",
+        help="Preview up to 40 enrolled creators needing snapshots (0 disables this pass)",
     )
     parser.add_argument(
         "--snapshot-refresh-apply",
@@ -157,6 +157,7 @@ def main() -> None:
             logger.exception(
                 "Snapshot refresh RPC failed; not retrying an uncertain enqueue outcome"
             )
+            raise
 
     # ── 1. Never-synced creators ──────────────────────────────────────────────
     # PostgREST .lt() silently excludes NULLs, so creator_worker's periodic

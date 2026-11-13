@@ -169,6 +169,7 @@ def test_sync_job_stops_when_another_worker_claimed_it(monkeypatch):
 )
 @pytest.mark.parametrize("snapshot_enabled", [False, True])
 @pytest.mark.parametrize("enrolled", [False, True])
+@pytest.mark.parametrize("source", [None, "video_snapshot_refresh"])
 def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
     monkeypatch,
     fresh_subscribers,
@@ -178,6 +179,7 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
     valid_stats,
     snapshot_enabled,
     enrolled,
+    source,
 ):
     import worker.creator_worker as creator_worker
 
@@ -231,10 +233,16 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
     snapshot_write = MagicMock(wraps=creator_worker._persist_recent_video_snapshot)
     monkeypatch.setattr(creator_worker, "_persist_recent_video_snapshot", snapshot_write)
     failed_jobs = []
+    snapshot_failure_calls = []
     monkeypatch.setattr(
         creator_worker,
         "mark_creator_sync_failed",
         lambda job_id, reason: failed_jobs.append((job_id, reason)) or True,
+    )
+    monkeypatch.setattr(
+        creator_worker,
+        "_record_video_snapshot_refresh_failure",
+        lambda job_id, job_source: snapshot_failure_calls.append((job_id, job_source)),
     )
 
     async def _fetch_channel_data(_channel_id):
@@ -280,11 +288,16 @@ def test_sync_rollover_stores_fresh_counts_only_for_valid_stats(
 
     monkeypatch.setattr(creator_worker, "_update_creator_snapshot", _capture_snapshot)
 
-    result = asyncio.run(creator_worker.handle_sync_job(7, "creator-1"))
+    result = asyncio.run(creator_worker.handle_sync_job(7, "creator-1", source=source))
 
     assert fetch_options.get("include_snapshot", False) is (snapshot_enabled or enrolled)
     assert snapshot_write.call_count == int(snapshot_enabled or enrolled)
     assert query.update.call_count == int(snapshot_enabled or enrolled)
+    assert snapshot_failure_calls == (
+        [(7, "video_snapshot_refresh")]
+        if source == "video_snapshot_refresh" and (snapshot_enabled or enrolled)
+        else []
+    )
     if enrolled:
         assert snapshot_write.call_args.kwargs == {"enrolled": True}
     if valid_stats:
