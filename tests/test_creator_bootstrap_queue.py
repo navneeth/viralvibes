@@ -510,3 +510,51 @@ def test_bulk_enqueue_uses_explicit_client_when_db_global_is_unset(monkeypatch):
             "job_type": "sync_stats",
         }
     ]
+
+
+def test_bulk_enqueue_chunks_large_active_job_lookups(monkeypatch):
+    creator_ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1000)]
+    active_ids = {creator_ids[50], creator_ids[950]}
+    lookup_batches = []
+    inserted_payload = []
+
+    class Query:
+        def __init__(self):
+            self.lookup_ids = None
+            self.insert_payload = None
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def in_(self, column, values):
+            if column == "creator_id":
+                self.lookup_ids = values
+            return self
+
+        def insert(self, payload):
+            self.insert_payload = payload
+            return self
+
+        def execute(self):
+            if self.lookup_ids is not None:
+                lookup_batches.append(self.lookup_ids)
+                return SimpleNamespace(
+                    data=[{"creator_id": value} for value in self.lookup_ids if value in active_ids]
+                )
+            inserted_payload.extend(self.insert_payload)
+            return SimpleNamespace(data=self.insert_payload)
+
+    class Client:
+        def table(self, name):
+            assert name == db.CREATOR_SYNC_JOBS_TABLE
+            return Query()
+
+    monkeypatch.setattr(db, "supabase_client", None)
+
+    queued, skipped = db.queue_creator_sync_bulk(creator_ids, client=Client())
+
+    assert (queued, skipped) == (998, 2)
+    assert [len(batch) for batch in lookup_batches] == [100] * 10
+    assert [row["creator_id"] for row in inserted_payload] == [
+        creator_id for creator_id in creator_ids if creator_id not in active_ids
+    ]
