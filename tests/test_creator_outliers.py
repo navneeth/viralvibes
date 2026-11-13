@@ -256,6 +256,7 @@ def test_snapshot_write_skips_without_touching_cached_data(monkeypatch, reason):
         )
         is False
     )
+    assert payload.get("recent_video_snapshot_failed", False) is (reason != "disabled")
     client.table.assert_not_called()
     assert creator_worker.metrics.video_snapshot_schema_skips == int(reason == "missing_columns")
 
@@ -279,17 +280,42 @@ def test_snapshot_database_errors_are_nonfatal(monkeypatch, error, caplog):
     client = MagicMock()
     client.table.side_effect = error
     monkeypatch.setattr(creator_worker, "supabase_client", client)
+    payload = {"recent_video_fetch_succeeded": True, "recent_videos": []}
 
     assert (
         creator_worker._persist_recent_video_snapshot(
             _SNAPSHOT_CREATOR_ID,
-            {"recent_video_fetch_succeeded": True, "recent_videos": []},
+            payload,
             _AS_OF,
         )
         is False
     )
     assert "snapshot write failed" in caplog.text
     assert creator_worker.metrics.video_snapshot_write_errors == 1
+    assert payload["recent_video_snapshot_failed"] is True
+
+
+@pytest.mark.parametrize("source", ["video_snapshot_refresh", "unknown_activity_refresh", None])
+def test_snapshot_refresh_failure_marker_is_scoped_to_its_source(monkeypatch, source):
+    import worker.creator_worker as creator_worker
+
+    client = MagicMock()
+    client.table.return_value.update.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[{"id": 1}]
+    )
+    monkeypatch.setattr(creator_worker, "supabase_client", client)
+
+    creator_worker._record_video_snapshot_refresh_failure(12, source)
+
+    if source == "video_snapshot_refresh":
+        client.table.assert_called_once_with(creator_worker.CREATOR_SYNC_JOBS_TABLE)
+        client.table.return_value.update.assert_called_once()
+        client.table.return_value.update.return_value.eq.assert_any_call("id", 12)
+        client.table.return_value.update.return_value.eq.return_value.eq.assert_called_once_with(
+            "source", "video_snapshot_refresh"
+        )
+    else:
+        client.table.assert_not_called()
 
 
 @pytest.mark.parametrize("include_snapshot", [False, True])
@@ -358,6 +384,12 @@ def test_snapshot_fetch_reuses_existing_requests(monkeypatch, include_snapshot, 
         )
     else:
         assert "recent_videos" not in result
+    if include_snapshot and scenario in (
+        "invalid_metadata",
+        "missing_video_items",
+        "normalization_error",
+    ):
+        assert result["recent_video_snapshot_failed"] is True
     if scenario == "normalization_error":
         assert result["recent_video_fetch_succeeded"] is True
         assert result["recent_video_sample_size"] == 1

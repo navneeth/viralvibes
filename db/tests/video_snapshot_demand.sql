@@ -28,7 +28,9 @@ CREATE TABLE public.creator_sync_jobs (
     source text,
     created_at timestamptz DEFAULT now(),
     started_at timestamptz,
-    completed_at timestamptz
+    completed_at timestamptz,
+    next_retry_at timestamptz,
+    snapshot_failed_at timestamptz
 );
 CREATE UNIQUE INDEX idx_creator_sync_jobs_active_unique ON public.creator_sync_jobs (creator_id)
 WHERE status IN ('pending', 'processing');
@@ -48,6 +50,7 @@ $$;
 \ir ../migrations/088_video_snapshot_demand.sql
 \ir ../migrations/084_enqueue_unknown_activity_refresh_batch.sql
 \ir ../migrations/089_auto_refresh_snapshot_enrollment.sql
+\ir ../migrations/094_enqueue_scheduled_video_snapshots.sql
 
 BEGIN;
 INSERT INTO public.users SELECT md5('user-' || value)::uuid FROM generate_series(1, 5) value;
@@ -268,6 +271,120 @@ BEGIN
     IF has_function_privilege('anon', 'public.creator_video_snapshot_is_enrolled(uuid)', 'EXECUTE')
        OR has_function_privilege('authenticated', 'public.creator_video_snapshot_is_enrolled(uuid)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Client roles can execute enrollment fallback RPC';
+    END IF;
+END;
+$$;
+ROLLBACK;
+
+BEGIN;
+INSERT INTO public.creators (
+    id, channel_id, sync_status, recent_videos_requested_at,
+    recent_videos, recent_videos_fetched_at
+)
+SELECT md5('snapshot-' || value)::uuid, 'UC' || lpad(value::text, 22, '0'),
+       'synced', now() - interval '8 days', '[]'::jsonb, now() - interval '8 days'
+FROM generate_series(1, 13) value;
+UPDATE public.creators SET recent_videos = NULL, recent_videos_fetched_at = now()
+WHERE id = md5('snapshot-2')::uuid;
+UPDATE public.creators SET recent_videos_fetched_at = NULL WHERE id = md5('snapshot-3')::uuid;
+UPDATE public.creators SET recent_videos_fetched_at = now() + interval '1 day'
+WHERE id = md5('snapshot-4')::uuid;
+UPDATE public.creators SET recent_videos_requested_at = NULL WHERE id = md5('snapshot-5')::uuid;
+UPDATE public.creators SET archived_at = now() WHERE id = md5('snapshot-6')::uuid;
+UPDATE public.creators SET channel_id = 'invalid' WHERE id = md5('snapshot-7')::uuid;
+UPDATE public.creators SET sync_status = 'invalid_channel' WHERE id = md5('snapshot-8')::uuid;
+UPDATE public.creators SET sync_status = 'synced_partial' WHERE id = md5('snapshot-13')::uuid;
+INSERT INTO public.creator_sync_jobs (creator_id, status, job_type, next_retry_at)
+VALUES
+    (md5('snapshot-9')::uuid, 'pending', 'sync_stats', now() + interval '1 day'),
+    (md5('snapshot-10')::uuid, 'processing', 'sync_stats', NULL);
+INSERT INTO public.creators (
+    id, channel_id, sync_status, recent_videos_requested_at, recent_videos, recent_videos_fetched_at
+)
+VALUES (
+    md5('snapshot-14')::uuid, 'UC' || lpad('14', 22, '0'), 'synced',
+    now() - interval '8 days', '[]'::jsonb, now() - interval '8 days'
+);
+INSERT INTO public.creator_sync_jobs (
+    creator_id, status, job_type, source, completed_at, snapshot_failed_at
+)
+VALUES
+    (md5('snapshot-11')::uuid, 'failed', 'sync_stats', 'video_snapshot_refresh', now()),
+    (md5('snapshot-12')::uuid, 'failed', 'sync_stats', 'video_snapshot_refresh', now() - interval '8 days'),
+    (md5('snapshot-14')::uuid, 'completed', 'sync_stats', 'video_snapshot_refresh', now(), now());
+INSERT INTO public.video_snapshot_demand_budget (admission_day, user_id, admissions)
+VALUES ((now() AT TIME ZONE 'UTC')::date, md5('snapshot-user')::uuid, 10);
+INSERT INTO public.video_snapshot_demand_auto_budget (admission_day, admissions)
+VALUES ((now() AT TIME ZONE 'UTC')::date, 40);
+CREATE TEMP TABLE snapshot_enrollment_before ON COMMIT DROP AS
+SELECT id, recent_videos_requested_at FROM public.creators;
+
+DO $$
+DECLARE
+    v_count bigint;
+BEGIN
+    SELECT count(*) INTO v_count FROM public.enqueue_video_snapshot_refreshes();
+    IF v_count <> 6 THEN RAISE EXCEPTION 'Expected six due enrolled creators, got %', v_count; END IF;
+    IF (SELECT count(*) FROM public.enqueue_video_snapshot_refreshes(40, NULL)) <> 6
+       OR EXISTS (SELECT 1 FROM public.enqueue_video_snapshot_refreshes() WHERE NOT dry_run)
+       OR EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE source = 'video_snapshot_refresh' AND status = 'pending') THEN
+        RAISE EXCEPTION 'Repeated or NULL dry-run inserted jobs';
+    END IF;
+        IF (SELECT count(*) FROM public.enqueue_video_snapshot_refreshes(40, true, 1)) <> 0
+             OR (SELECT count(*) FROM public.enqueue_video_snapshot_refreshes(40, true, 3)) <> 2 THEN
+        RAISE EXCEPTION 'Pending queue budget was not respected';
+    END IF;
+    SELECT count(*) INTO v_count FROM public.enqueue_video_snapshot_refreshes(2, false);
+    IF v_count <> 2 THEN RAISE EXCEPTION 'Batch limit failed'; END IF;
+    SELECT count(*) INTO v_count FROM public.enqueue_video_snapshot_refreshes(40, false);
+    IF v_count <> 4 THEN RAISE EXCEPTION 'Remaining eligible batch failed'; END IF;
+    SELECT count(*) INTO v_count FROM public.enqueue_video_snapshot_refreshes(40, false);
+    IF v_count <> 0 THEN RAISE EXCEPTION 'Active-job deduplication failed'; END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.creator_sync_jobs
+        WHERE source = 'video_snapshot_refresh' AND status = 'pending'
+          AND (job_type <> 'sync_stats' OR creator_id NOT IN (
+              md5('snapshot-1')::uuid, md5('snapshot-2')::uuid, md5('snapshot-3')::uuid,
+              md5('snapshot-4')::uuid,
+              md5('snapshot-12')::uuid, md5('snapshot-13')::uuid
+          ))
+    ) THEN
+        RAISE EXCEPTION 'Refresh selected a fresh, unenrolled, unhealthy, active, or cooled-down creator';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.creators AS creator JOIN snapshot_enrollment_before AS before USING (id)
+        WHERE creator.recent_videos_requested_at IS DISTINCT FROM before.recent_videos_requested_at
+    ) OR (SELECT sum(admissions) FROM public.video_snapshot_demand_budget) <> 10
+      OR (SELECT sum(admissions) FROM public.video_snapshot_demand_auto_budget) <> 40 THEN
+        RAISE EXCEPTION 'Recurring refresh changed enrollment or admission budgets';
+    END IF;
+    IF has_function_privilege('anon', 'public.enqueue_video_snapshot_refreshes(integer,boolean,integer)', 'EXECUTE')
+       OR has_function_privilege('authenticated', 'public.enqueue_video_snapshot_refreshes(integer,boolean,integer)', 'EXECUTE')
+       OR NOT has_function_privilege('service_role', 'public.enqueue_video_snapshot_refreshes(integer,boolean,integer)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Scheduled refresh grants are incorrect';
+    END IF;
+END;
+$$;
+
+DELETE FROM public.creator_sync_jobs WHERE source = 'video_snapshot_refresh' AND status = 'pending';
+INSERT INTO public.creators (id, channel_id)
+SELECT md5('snapshot-' || value)::uuid, 'UC' || lpad(value::text, 22, '0')
+FROM generate_series(100, 349) value;
+INSERT INTO public.creator_sync_jobs (creator_id, status, job_type)
+SELECT md5('snapshot-' || value)::uuid, 'pending', 'sync_stats'
+FROM generate_series(100, 349) value;
+INSERT INTO public.creators (
+    id, channel_id, sync_status, recent_videos_requested_at, recent_videos,
+    recent_videos_fetched_at
+)
+VALUES (
+    md5('snapshot-350')::uuid, 'UC' || lpad('350', 22, '0'), 'synced',
+    now() - interval '8 days', '[]'::jsonb, now() - interval '8 days'
+);
+DO $$
+BEGIN
+    IF (SELECT count(*) FROM public.enqueue_video_snapshot_refreshes(40, false, 1000)) <> 0 THEN
+        RAISE EXCEPTION 'Caller bypassed the hard 250-pending queue cap';
     END IF;
 END;
 $$;

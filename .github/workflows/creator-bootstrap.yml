@@ -42,6 +42,7 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_KEY:          ${{ secrets.SUPABASE_SERVICE_KEY }}
       SUPABASE_TIMEOUT_S: "30"
+      VIDEO_SNAPSHOT_REFRESH_MODE: ${{ vars.VIDEO_SNAPSHOT_REFRESH_MODE || 'off' }}
 
       # Batch sizes — single definition so comments and invocations stay in sync.
       # queue_creator_sync_bulk deduplicates at the DB level (skips existing
@@ -66,7 +67,16 @@ jobs:
           echo "▶ Bootstrap starting at $(date)"
           echo "════════════════════════════════════════════════════════════"
 
+          SNAPSHOT_ARGS=()
+          case "$VIDEO_SNAPSHOT_REFRESH_MODE" in
+            off) ;;
+            preview) SNAPSHOT_ARGS=(--snapshot-refresh-batch 40) ;;
+            apply) SNAPSHOT_ARGS=(--snapshot-refresh-batch 40 --snapshot-refresh-apply) ;;
+            *) echo "Invalid VIDEO_SNAPSHOT_REFRESH_MODE: use off, preview, or apply"; exit 1 ;;
+          esac
+
           python -m worker.bootstrap_creators \
+            "${SNAPSHOT_ARGS[@]}" \
             --unsynced-batch "${BOOTSTRAP_UNSYNCED_BATCH}" \
             --stale-days 7 \
             --invalid-batch 50 \
