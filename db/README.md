@@ -629,12 +629,19 @@ cron scheduling is still disabled; review a dry run before enabling any schedule
 Migration 090 adds `enqueue_unknown_activity_refresh_batch_after_drain`. It takes
 the shared creator-enqueue advisory lock, rejects the batch if any pending or
 processing jobs exist, then delegates to the existing automatic refresh RPC.
+Migrations 092-093 optimize terminal archival after the observed bootstrap timeout.
+Run 092's `CREATE INDEX CONCURRENTLY` separately in autocommit (no transaction
+wrapper), verify `indisvalid` and `indisready`, then apply 093. The replacement
+uses index-ordered failed-job selection instead of a global history aggregate;
+it keeps the existing locking, recovery checks, and 100-creator update cap.
+Measure RPC latency in the target database before resuming scheduled bootstrap.
+Do not bypass archival failures or clear retry delays to restore queue supply.
+
 The unguarded batch RPC is internal to the wrapper, and failed-to-pending job
 rescues take the same lock. Apply migration 091 before the next worker/bootstrap
 run; it atomically archives terminal failures, skips recovered or active
 creators, and blocks jobs for archived creators. Verify it on a
-disposable database with an application schema and at least one creator without
-an active job:
+disposable database with an application schema and four unused creators:
 
 ```bash
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/terminal_creator_sync_archive.sql

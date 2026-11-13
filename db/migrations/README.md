@@ -49,6 +49,17 @@ done
 
 ## Current Migrations
 
+### Terminal Archival Timeout (092-093)
+
+Migration 092 adds an ordered partial failed-job index. Run its concurrent index
+statement separately in autocommit and verify the index is valid and ready;
+`IF NOT EXISTS` does not repair an interrupted index build. Apply 093 afterward
+to replace the global failed-history aggregation with index-ordered selection.
+The RPC signature, service-role grants, shared enqueue lock, recovery checks,
+and 100-creator cap remain unchanged. Existing callers require no Python edits.
+Run `db/tests/terminal_creator_sync_archive.sql` on a disposable database and
+measure the RPC's latency before resuming bootstrap.
+
 ### Unknown-Activity Refresh Pilot (083)
 
 Migration 083 installs `enqueue_unknown_activity_refreshes` without inserting

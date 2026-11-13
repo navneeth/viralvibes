@@ -1,5 +1,5 @@
--- Disposable database after migrations 063, 086, 090, and 091.
--- Requires three non-archived creators with canonical channel IDs and no jobs.
+-- Disposable database after migrations through 093.
+-- Requires four non-archived creators with canonical channel IDs and no jobs.
 \set ON_ERROR_STOP on
 BEGIN;
 DO $$
@@ -8,6 +8,7 @@ DECLARE
     recovered_id uuid;
     active_id uuid;
     terminal_id uuid;
+    later_terminal_id uuid;
     old_failure_at timestamptz := statement_timestamp() - interval '2 days';
     recovered_at timestamptz := statement_timestamp() - interval '1 hour';
     archived_count integer;
@@ -31,20 +32,21 @@ BEGIN
               WHERE job.creator_id = creator.id
           )
         ORDER BY creator.id
-        LIMIT 3
+        LIMIT 4
     ) AS fixtures;
-    IF COALESCE(cardinality(fixture_ids), 0) < 3 THEN
-        RAISE EXCEPTION 'Three unused creator rows are required';
+    IF COALESCE(cardinality(fixture_ids), 0) < 4 THEN
+        RAISE EXCEPTION 'Four unused creator rows are required';
     END IF;
 
     recovered_id := fixture_ids[1];
     active_id := fixture_ids[2];
     terminal_id := fixture_ids[3];
+    later_terminal_id := fixture_ids[4];
 
     UPDATE public.creators
     SET archived_at = NULL, sync_status = 'failed',
         last_synced_at = old_failure_at - interval '1 day'
-    WHERE id IN (recovered_id, active_id, terminal_id);
+    WHERE id IN (recovered_id, active_id, terminal_id, later_terminal_id);
 
     INSERT INTO public.creator_sync_jobs
         (creator_id, status, job_type, source, retry_count,
@@ -55,6 +57,8 @@ BEGIN
         (active_id, 'failed', 'sync_stats', 'terminal_archive_test', 4,
          old_failure_at, old_failure_at, old_failure_at),
         (terminal_id, 'failed', 'sync_stats', 'terminal_archive_test', 4,
+         old_failure_at, old_failure_at, old_failure_at),
+        (later_terminal_id, 'failed', 'sync_stats', 'terminal_archive_test', 4,
          old_failure_at, old_failure_at, old_failure_at);
 
     INSERT INTO public.creator_sync_jobs
@@ -66,9 +70,13 @@ BEGIN
     INSERT INTO public.creator_sync_jobs (creator_id, status, job_type, source)
     VALUES (active_id, 'pending', 'sync_stats', 'terminal_archive_test');
 
-    SELECT public.archive_terminal_creator_syncs(3, 100) INTO archived_count;
+    SELECT public.archive_terminal_creator_syncs(3, 1) INTO archived_count;
     IF archived_count <> 1 THEN
         RAISE EXCEPTION 'Expected one terminal creator archived, got %', archived_count;
+    END IF;
+    SELECT public.archive_terminal_creator_syncs(3, 1) INTO archived_count;
+    IF archived_count <> 1 THEN
+        RAISE EXCEPTION 'Archived history blocked the next batch, got %', archived_count;
     END IF;
     IF (SELECT archived_at FROM public.creators WHERE id = recovered_id) IS NOT NULL THEN
         RAISE EXCEPTION 'Creator with a newer successful sync was archived';
@@ -78,6 +86,9 @@ BEGIN
     END IF;
     IF (SELECT archived_at FROM public.creators WHERE id = terminal_id) IS NULL THEN
         RAISE EXCEPTION 'Terminally failed creator was not archived';
+    END IF;
+    IF (SELECT archived_at FROM public.creators WHERE id = later_terminal_id) IS NULL THEN
+        RAISE EXCEPTION 'Later terminal creator was not archived';
     END IF;
 
     UPDATE public.creator_sync_jobs
