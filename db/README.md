@@ -721,14 +721,21 @@ Run 092's `CREATE INDEX CONCURRENTLY` separately in autocommit (no transaction
 wrapper), verify `indisvalid` and `indisready`, then apply 093. The replacement
 uses index-ordered failed-job selection instead of a global history aggregate;
 it keeps the existing locking, recovery checks, and 100-creator update cap.
-Measure RPC latency in the target database before resuming scheduled bootstrap.
-Do not bypass archival failures or clear retry delays to restore queue supply.
+The production RPC subsequently hit its function-level five-second statement
+timeout. Migration 095 raises that bounded limit to 15 seconds, below the
+bootstrap HTTP timeout. Apply 095 after 093, then verify the effective setting
+and measure archival RPC latency in the target database before resuming scheduled
+bootstrap. This gives the optimized bounded query more time; it does not prove
+the plan is fast enough on every database. If it still times out, verify 092's
+index is valid and inspect the deployed query plan rather than disabling the
+fail-closed archival step. Do not clear retry delays to restore queue supply.
 
 The unguarded batch RPC is internal to the wrapper, and failed-to-pending job
 rescues take the same lock. Apply migration 091 before the next worker/bootstrap
 run; it atomically archives terminal failures, skips recovered or active
 creators, and blocks jobs for archived creators. Verify it on a
-disposable database with an application schema and four unused creators:
+disposable database with an application schema and four unused creators. The test
+applies 095 and verifies its function setting:
 
 ```bash
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/terminal_creator_sync_archive.sql
