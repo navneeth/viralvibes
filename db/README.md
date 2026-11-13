@@ -49,6 +49,88 @@ done
 
 ## Current Migrations
 
+### Scheduled Enrolled Snapshot Refresh (094)
+
+Migration 094 adds `enqueue_video_snapshot_refreshes`, a service-role-only RPC
+for recurring refresh of already-enrolled creators. It does not enroll creators
+or spend admission budgets. A snapshot is due when missing or at least seven
+days old; a fresh `[]` is a successful result and is not refreshed early.
+Only unarchived, canonical-channel creators with `synced` or `synced_partial`
+status qualify. Pending jobs (including delayed retries), processing jobs, and
+snapshot-refresh failures within seven days exclude a creator.
+
+The RPC uses the shared enqueue lock, accepts at most 25 jobs per call, and
+inserts nothing when the pending queue has reached 250. It does not require
+the general queue to drain. Jobs use the existing `sync_stats` handler with
+source `video_snapshot_refresh`; oldest snapshot timestamps are selected first.
+No additional worker, YouTube API path, or notebook setting is needed.
+
+One-time rollout:
+
+1. Test migration 094 on staging after the existing 077 and 087-093 migrations.
+  Run the disposable SQL fixture below separately, never against production.
+2. Apply 094 in Supabase SQL Editor. It is transactional and has no concurrent
+  index build. Deploy this bootstrap/workflow change to the default branch.
+  Keep the existing scheduled creator worker enabled and updated for enrollment
+  support from 088. Allowlist-only creators are not automatically enrolled.
+3. In GitHub repository Settings > Secrets and variables > Actions > Variables,
+  set `VIDEO_SNAPSHOT_REFRESH_MODE` to `preview`. Run the existing **Creator
+  Bootstrap** workflow and review its `Snapshot refresh preview` log, candidate
+  UUIDs, and RPC latency. Preview does not insert snapshot jobs; normal bootstrap
+  maintenance still runs. Confirm missing/stale eligible creators are returned
+  and fresh, archived, active, and unenrolled creators are excluded.
+4. After staging validation succeeds, change the variable to `apply` once.
+  The existing bootstrap schedule sweeps at 23:50, 05:50, 11:50, and 17:50 UTC.
+  The existing six-hour worker consumes the queued jobs without recurring manual
+  intervention. This is a seven-day freshness target, not an exact execution
+  guarantee: GitHub scheduling, queue capacity, failures, and quota can delay it.
+
+The variable defaults to `off`. Set it back to `off` to stop future snapshot
+enqueue passes; already-queued jobs and enrollment remain intact. An RPC failure
+is logged without an immediate retry because a timeout can have an unknown
+enqueue outcome. Normal discovery passes still run; archival failure retains
+the existing fail-closed behavior for all enqueue passes.
+
+Verify freshness and processing with these read-only queries:
+
+```sql
+SELECT count(*) AS enrolled,
+     count(*) FILTER (
+        WHERE recent_videos IS NULL OR recent_videos_fetched_at IS NULL
+          OR recent_videos_fetched_at <= now() - interval '7 days'
+     ) AS due
+FROM public.creators
+WHERE recent_videos_requested_at IS NOT NULL AND archived_at IS NULL;
+
+SELECT creator_id, status, created_at, completed_at
+FROM public.creator_sync_jobs
+WHERE source = 'video_snapshot_refresh'
+ORDER BY created_at DESC
+LIMIT 25;
+
+SELECT id, recent_videos_fetched_at, jsonb_array_length(recent_videos) AS cached_videos
+FROM public.creators
+WHERE recent_videos_requested_at IS NOT NULL
+ORDER BY recent_videos_fetched_at DESC NULLS LAST
+LIMIT 25;
+```
+
+The due count includes unhealthy/active creators excluded by the RPC, so it is
+not a guaranteed enqueue count. Zero enrollment means this lane has no work;
+enrollment growth remains governed by 088-090, not this scheduler.
+
+Run against an **empty disposable Supabase database** with standard roles:
+
+```bash
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/video_snapshot_demand.sql
+```
+
+The fixture now also covers recurring freshness, NULL/repeated previews,
+queue caps, batch limits, active-job deduplication, failed-refresh cooldown,
+unchanged enrollment/admission budgets, and RPC permissions. It does not prove
+production query latency or concurrent job-claim behavior; verify those in staging
+before switching to `apply`.
+
 ### Recent Video Snapshot Foundation (087)
 
 PR 1 adds nullable `creators.recent_videos` and

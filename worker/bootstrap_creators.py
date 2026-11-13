@@ -97,7 +97,23 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip total_categories recount (Pass 6). Slow (~4s); safe to skip on frequent runs.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--snapshot-refresh-batch",
+        type=int,
+        choices=range(26),
+        default=0,
+        metavar="0-25",
+        help="Preview up to 25 enrolled creators needing snapshots (0 disables this pass)",
+    )
+    parser.add_argument(
+        "--snapshot-refresh-apply",
+        action="store_true",
+        help="Enqueue the snapshot batch instead of previewing it",
+    )
+    args = parser.parse_args()
+    if args.snapshot_refresh_apply and not args.snapshot_refresh_batch:
+        parser.error("--snapshot-refresh-apply requires --snapshot-refresh-batch > 0")
+    return args
 
 
 def main() -> None:
@@ -116,6 +132,31 @@ def main() -> None:
     archived = archive_permanently_failed_creators()
     if archived:
         logger.info("Archived %d creators that exhausted sync retries", archived)
+
+    if args.snapshot_refresh_batch:
+        snapshot_dry_run = not args.snapshot_refresh_apply
+        try:
+            response = client.rpc(
+                "enqueue_video_snapshot_refreshes",
+                {
+                    "p_limit": args.snapshot_refresh_batch,
+                    "p_dry_run": snapshot_dry_run,
+                    "p_max_queue": 250,
+                },
+            ).execute()
+            snapshot_rows = response.data or []
+            logger.info(
+                "Snapshot refresh %s: %d creators %s",
+                "preview" if snapshot_dry_run else "enqueue",
+                len(snapshot_rows),
+                [row["creator_id"] for row in snapshot_rows],
+            )
+            if not snapshot_dry_run:
+                total_queued += len(snapshot_rows)
+        except Exception:
+            logger.exception(
+                "Snapshot refresh RPC failed; not retrying an uncertain enqueue outcome"
+            )
 
     # ── 1. Never-synced creators ──────────────────────────────────────────────
     # PostgREST .lt() silently excludes NULLs, so creator_worker's periodic
