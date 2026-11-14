@@ -365,6 +365,43 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
         assert "htmx.ajax('POST', '/validate/full'" in r.text
 
+    def test_full_analysis_auth_prompt_preserves_playlist_for_after_signup(self):
+        session = {}
+        nudge = main.validate_full(
+            htmx=SimpleNamespace(target=""),
+            playlist_url=TEST_PLAYLIST_URL,
+            req=SimpleNamespace(url=SimpleNamespace(path="/validate/full")),
+            sess=session,
+        )
+
+        from fasthtml.common import to_xml
+
+        html = to_xml(nudge)
+        assert "Create a free account to run the full playlist analysis" in html
+        assert "/signup?return_url=%2Fanalysis" in html
+        assert session["intended_playlist_url"] == TEST_PLAYLIST_URL
+        assert "intended_url" not in session
+
+    def test_analysis_submits_deferred_playlist_after_signup(self, monkeypatch):
+        session = {
+            "user_id": "test-user",
+            "intended_playlist_url": TEST_PLAYLIST_URL,
+        }
+        submitted = []
+        monkeypatch.setattr(
+            main,
+            "submit_playlist_job",
+            lambda playlist_url, user_id: submitted.append((playlist_url, user_id)) or True,
+        )
+        monkeypatch.setattr(main, "compute_dashboard_id", lambda playlist_url: "test-dashboard")
+
+        response = main.analysis(req=SimpleNamespace(), sess=session)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/d/test-dashboard"
+        assert submitted == [(TEST_PLAYLIST_URL, "test-user")]
+        assert "intended_playlist_url" not in session
+
     def test_preview_auto_submit_when_no_job_exists(self, client, monkeypatch):
         """
         Test: Auto-submit triggers when no active job exists.

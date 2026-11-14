@@ -7,6 +7,7 @@ Clean, professional SaaS-style login card.
 from urllib.parse import urlencode
 
 from fasthtml.common import *
+from fasthtml.svg import Path
 from monsterui.all import *
 
 

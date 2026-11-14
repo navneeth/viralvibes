@@ -8,10 +8,10 @@ import os
 from urllib.parse import urlencode, urlsplit
 
 from fasthtml.common import *
-from monsterui.all import AlertT, ButtonT, UkIcon
+from monsterui.all import UkIcon
 
 from components import NavComponent
-from components.auth_components import OneTapLoginCard
+from components.auth_components import GoogleSignInButton, OneTapLoginCard, PrivacyDisclaimer
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,11 @@ def build_login_page(oauth, req, return_url: str = "/", signup: bool = False):
 
     return Container(
         Div(
+            Img(
+                src="/static/ViralVibes_Logo.png",
+                alt="ViralVibes logo",
+                cls="auth-logo",
+            ),
             H1(
                 "Create your free account" if signup else "Sign in to ViralVibes",
                 cls="text-3xl font-bold mb-3",
@@ -98,11 +103,7 @@ def build_login_page(oauth, req, return_url: str = "/", signup: bool = False):
                 ),
                 cls="text-sm text-muted-foreground mb-6",
             ),
-            A(
-                "Continue with Google",
-                href=login_link if isinstance(login_link, str) else "#",
-                cls=f"{ButtonT.primary} inline-block",
-            ),
+            (GoogleSignInButton(href=login_link) if isinstance(login_link, str) else login_link),
             P(
                 "Already have an account? " if signup else "New to ViralVibes? ",
                 A(
@@ -116,6 +117,7 @@ def build_login_page(oauth, req, return_url: str = "/", signup: bool = False):
                 ),
                 cls="text-sm text-muted-foreground mt-5",
             ),
+            PrivacyDisclaimer(),
             cls="max-w-md mx-auto mt-20",
         ),
     )

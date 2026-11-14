@@ -44,6 +44,7 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     "/redirect",
     "/validate/url",
     "/validate/preview",
+    "/validate/full",
     "/newsletter",
     "/debug/supabase",
     "/avatar",

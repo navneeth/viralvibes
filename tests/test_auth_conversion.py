@@ -39,6 +39,7 @@ def oauth_public_page_client():
         "/sitemap.xml",
         "/creators",
         "/signup",
+        "/validate/full",
         "/lists/country/us",
         "/admin",
         "/admin/users",
@@ -76,6 +77,7 @@ def oauth_public_page_client():
         "/sitemap.xml",
         "/creators",
         "/signup",
+        "/validate/full",
         "/lists/country/us",
     ],
 )
@@ -196,3 +198,39 @@ def test_signup_entry_point_explains_creation_and_preserves_return_url():
     assert "No credit card required" in response.text
     assert "Already have an account? Sign in" in response.text
     assert "state=%2Fcreators" in response.text
+
+
+def test_auth_modal_uses_signup_entry_point():
+    from fasthtml.common import to_xml
+
+    from components.modals import AuthModal
+
+    html = to_xml(AuthModal(return_url="/creators"))
+
+    assert 'href="/signup?return_url=%2Fcreators"' in html
+
+
+def test_legacy_signup_page_reuses_branded_auth_assets():
+    from fasthtml.common import to_xml
+
+    from controllers.auth_routes import build_login_page
+
+    class OAuth:
+        def login_link(self, req):
+            return "/oauth/google"
+
+    html = to_xml(
+        build_login_page(
+            OAuth(),
+            req=None,
+            return_url="/analysis",
+            signup=True,
+        )
+    )
+
+    assert "/static/ViralVibes_Logo.png" in html
+    assert html.count("<path") == 4
+    assert all(color in html for color in ("#4285F4", "#34A853", "#FBBC05", "#EA4335"))
+    assert 'data-test="google-signin-btn"' in html
+    assert "Privacy Policy" in html
+    assert "state=%2Fanalysis" in html

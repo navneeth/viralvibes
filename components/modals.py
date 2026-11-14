@@ -233,7 +233,7 @@ def AuthModal(
     """
     from components.auth_components import GoogleGLogo  # lazy — avoids circular import
 
-    login_href = f"/login?{urlencode({'return_url': return_url})}"
+    signup_href = f"/signup?{urlencode({'return_url': return_url})}"
     close_js = f"document.getElementById('{modal_id}').classList.add('hidden')"
 
     def _benefit(icon: str, text: str):

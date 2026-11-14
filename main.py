@@ -1018,13 +1018,15 @@ def validate_full(
 
     # Check auth
     if not (sess and sess.get("auth")):
-        if sess:
-            sess["intended_url"] = str(req.url.path)
+        if sess is not None:
+            # OAuth redirects to /analysis when this is set; that route submits
+            # the deferred job and redirects the user to its dashboard.
+            sess["intended_playlist_url"] = playlist_url
         from components.modals import SignInNudge
 
         return SignInNudge(
             context_label="Create a free account to run the full playlist analysis",
-            return_url=str(req.url.path),
+            return_url="/analysis",
         )
 
     # --- Check if this is an HTMX sort request BEFORE streaming ---
