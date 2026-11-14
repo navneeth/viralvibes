@@ -90,12 +90,16 @@ class TestPublicEndpoints:
         assert "YouTube Playlist Analysis | ViralVibes" in response.text
         assert response.text.count("<h1") == 1
         assert response.text.count("<main") == 1
-        assert "Sign in to start an analysis." in response.text
+        assert (
+            "Preview a playlist without an account. Create a free account to run the full analysis."
+            in response.text
+        )
         for claim in ("Instant Engagement", "Viral Score", "Instant Results", "watch-time"):
             assert claim not in response.text
 
     def test_analysis_restored_sections_render_for_signed_in_user(self, monkeypatch):
         from fasthtml.common import to_xml
+
         from routes.analysis import analysis_page_content
 
         monkeypatch.setattr(
@@ -108,7 +112,7 @@ class TestPublicEndpoints:
         assert "Calculated Engagement" in html
         assert "Duration Analysis" in html
         assert html.count("Sample playlists") == 1
-        assert "Sign in to start an analysis." not in html
+        assert "Create a free account to run the full analysis." not in html
 
     def test_official_youtube_icon_is_served(self, client):
         from xml.etree import ElementTree
@@ -137,6 +141,7 @@ class TestPublicEndpoints:
 
     def test_analysis_sample_is_one_native_button(self):
         from fasthtml.common import to_xml
+
         from routes.analysis import _sample_row
 
         html = to_xml(_sample_row({"title": "Sample", "url": TEST_PLAYLIST_URL}))
@@ -299,9 +304,9 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
 
         # ✅ First check: auth should have worked (no login prompt)
-        assert "log in" not in r.text.lower(), (
-            "Authentication failed - session not injected properly. " f"Response: {r.text[:500]}"
-        )
+        assert (
+            "log in" not in r.text.lower()
+        ), f"Authentication failed - session not injected properly. Response: {r.text[:500]}"
 
         # ✅ Second check: response should contain EITHER:
         # 1. An HTMX trigger to load preview

@@ -5,10 +5,10 @@ Note: @rt decorators stay in main.py, but business logic goes here.
 
 import logging
 import os
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from fasthtml.common import *
-from monsterui.all import ButtonT, AlertT, UkIcon
+from monsterui.all import AlertT, ButtonT, UkIcon
 
 from components import NavComponent
 from components.auth_components import OneTapLoginCard
@@ -21,15 +21,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _LOGIN_SPLASH_FEATURES = [
-    ("trending-up", "Growth Blueprint", "Personalised action plan for any channel"),
-    ("users", "1M+ Creators", "Filter by category, country, language & grade"),
-    ("bar-chart-2", "Deep Analytics", "VPV, viral coefficient, peer benchmarks"),
-    ("download", "Outreach Export", "Contact CSV for your saved creator list"),
+    ("users", "1M+ creators", "Browse and filter rankings across categories and countries"),
+    ("bar-chart-2", "Creator profiles", "Compare the signals behind channel performance"),
+    ("trending-up", "Growth Blueprint", "Get a personalized action plan for any channel"),
+    ("bookmark", "Save your research", "Keep favorite creators and playlist dashboards"),
 ]
 
 
 def _login_value_splash() -> Div:
-    """Compact feature strip shown above the login card to encourage sign-up."""
+    """Desktop product proof shown beside the account card."""
     chips = [
         Div(
             UkIcon(icon, cls="w-4 h-4 text-red-500 shrink-0 mt-0.5"),
@@ -43,33 +43,80 @@ def _login_value_splash() -> Div:
     ]
     return Div(
         P(
-            "Free — no credit card required",
-            cls="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-4 text-center",
+            "CREATOR INTELLIGENCE FOR YOUTUBE CAMPAIGNS",
+            cls="auth-panel-eyebrow",
         ),
-        Div(*chips, cls="grid grid-cols-2 gap-x-8 gap-y-3"),
-        cls="w-full max-w-sm mx-auto px-4 pb-6",
+        H2(
+            "Find the right creators—with data to back it up.",
+            cls="auth-panel-headline",
+        ),
+        P(
+            "Explore creator rankings, compare channel performance, and build a smarter "
+            "shortlist. Start free and upgrade only when you need more.",
+            cls="auth-panel-description",
+        ),
+        Div(*chips, cls="auth-feature-grid"),
+        Div(
+            Img(
+                src="/static/dashboard-preview.png",
+                alt="ViralVibes creator dashboard with channel rankings and performance metrics",
+                loading="lazy",
+                decoding="async",
+                cls="auth-product-preview",
+            ),
+            cls="auth-product-preview-frame",
+        ),
+        P(
+            UkIcon("shield-check", cls="w-4 h-4 text-red-600"),
+            Span("Free plan available · No credit card required"),
+            cls="auth-panel-trust",
+        ),
+        cls="auth-value-panel",
     )
 
 
-def build_login_page(oauth, req):
+def build_login_page(oauth, req, return_url: str = "/", signup: bool = False):
     """Build login page content - ORIGINAL STABLE VERSION"""
     if oauth:
         login_link = oauth.login_link(req)
+        if return_url:
+            login_link += "&" + urlencode({"state": return_url})
     else:
         login_link = Div(P("Google OAuth not configured", cls="text-red-600"))
 
-    return Titled(
-        "ViralVibes - Login",
-        Container(
-            Div(
-                H1("Login to ViralVibes", cls="text-3xl font-bold mb-6"),
-                A(
-                    "Sign in with Google",
-                    href=login_link if isinstance(login_link, str) else "#",
-                    cls=f"{ButtonT.primary} inline-block",
-                ),
-                cls="max-w-md mx-auto mt-20",
+    return Container(
+        Div(
+            H1(
+                "Create your free account" if signup else "Sign in to ViralVibes",
+                cls="text-3xl font-bold mb-3",
             ),
+            P(
+                (
+                    "Continue with Google to create your account. No credit card required."
+                    if signup
+                    else "Sign in with Google, or create a free account to get started."
+                ),
+                cls="text-sm text-muted-foreground mb-6",
+            ),
+            A(
+                "Continue with Google",
+                href=login_link if isinstance(login_link, str) else "#",
+                cls=f"{ButtonT.primary} inline-block",
+            ),
+            P(
+                "Already have an account? " if signup else "New to ViralVibes? ",
+                A(
+                    "Sign in" if signup else "Create a free account",
+                    href=(
+                        f"/login?{urlencode({'return_url': return_url or '/'})}"
+                        if signup
+                        else f"/signup?{urlencode({'return_url': return_url or '/'})}"
+                    ),
+                    cls="underline underline-offset-2",
+                ),
+                cls="text-sm text-muted-foreground mt-5",
+            ),
+            cls="max-w-md mx-auto mt-20",
         ),
     )
 
@@ -81,6 +128,7 @@ def build_onetap_login_page(
     return_url: str = None,
     remembered_email: str = None,
     subheadline: str = None,
+    signup: bool = False,
 ):
     """Build One-Tap login page - NEW OPTIONAL ENHANCEMENT
 
@@ -127,6 +175,7 @@ def build_onetap_login_page(
         remembered_avatar=remembered_avatar,
         remembered_user_id=remembered_user_id,
         subheadline=subheadline,
+        signup=signup,
     )
 
 
@@ -202,17 +251,17 @@ def safe_local_return_url(raw: str | None, default: str = "/") -> str:
         return default
     if not parsed.path.startswith("/") or parsed.path.startswith("//"):
         return default
-    if parsed.path in {"/login", "/login/new", "/login/onetap", "/redirect"}:
+    if parsed.path in {"/login", "/login/new", "/login/onetap", "/signup", "/redirect"}:
         return default
 
     return value
 
 
 def login_subheadline_for_return_url(return_url: str) -> str | None:
-    """Contextual login copy for known product-intent redirects."""
+    """Contextual account-entry copy for known product-intent redirects."""
     path = urlsplit(return_url or "").path
     if path == "/creators":
-        return "Sign in to start free. No credit card required."
+        return "Sign in to continue to creator discovery. New here? Create a free account."
     if path == "/me/dashboards":
         return "Sign in to continue to your saved dashboards."
     if path == "/me/favourites":
@@ -234,6 +283,7 @@ def build_auth_redirect_page(
     return_url: str = "/",
     use_new_ui: bool = None,
     subheadline: str = None,
+    signup: bool = False,
 ):
     """
     UNIFIED AUTH PAGE BUILDER - Single source of truth for login UI
@@ -279,26 +329,38 @@ def build_auth_redirect_page(
     if use_new_ui:
         # NEW: One-Tap Material Design card (full-page with centering)
         auth_content = build_onetap_login_page(
-            oauth, req, sess, final_return_url, subheadline=subheadline
+            oauth,
+            req,
+            sess,
+            final_return_url,
+            subheadline=subheadline,
+            signup=signup,
         )
 
-        # Return full page: navbar + centered card
-        # Don't use Container wrapper for new UI, let auth-container handle layout
-        return Titled(
-            "Sign in to ViralVibes",
+        page_title = "Create your free account | ViralVibes" if signup else "Sign in to ViralVibes"
+        return (
+            Title(page_title),
             Div(
                 NavComponent(oauth, req, sess),
-                _login_value_splash(),
-                auth_content,  # Already has full-page layout in .auth-container
+                Div(
+                    _login_value_splash(),
+                    auth_content,
+                    cls="auth-entry-layout",
+                ),
                 cls="auth-page-wrapper",
             ),
         )
     else:
         # OLD: Simple button (legacy) - wrapped in container with navbar
-        return Titled(
-            "Sign in to ViralVibes",
+        return (
+            Title("Create your free account | ViralVibes" if signup else "Sign in to ViralVibes"),
             Container(
                 NavComponent(oauth, req, sess),
-                build_login_page(oauth, req),
+                build_login_page(
+                    oauth,
+                    req,
+                    return_url=final_return_url,
+                    signup=signup,
+                ),
             ),
         )

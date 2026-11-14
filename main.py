@@ -95,13 +95,13 @@ from db import (
     get_estimated_stats,
     get_favourite_creators_with_stats,
     get_job_progress,
+    get_latest_canceled_subscription,
     get_playlist_job_status,
     get_playlist_preview_info,
     get_user_dashboards,
     get_user_favourite_creators,
     get_user_favourite_list_keys,
     get_user_favourite_lists,
-    get_latest_canceled_subscription,
     get_user_plan,
     init_supabase,
     remove_favourite_list,
@@ -423,7 +423,7 @@ hdrs = Theme.red.headers(apex_charts=True)
 # Add custom CSS and JS to headers
 hdrs += (
     # v=2 invalidates the old URL, which Vercel previously cached as immutable.
-    Link(rel="stylesheet", href="/css/main.css?v=2"),
+    Link(rel="stylesheet", href="/css/main.css?v=3"),
     Script(src="/js/index.js", defer=True),
     Script(src="/js/reveal.js", defer=True),
 )
@@ -671,6 +671,28 @@ def login(req, sess):
             sess, page, "public, s-maxage=300, stale-while-revalidate=60"
         )
     return page
+
+
+@rt("/signup")
+def signup(req, sess):
+    """Create-account entry point; Google OAuth also signs in existing users."""
+    if _is_bot_request(req):
+        return Response(status_code=410)
+
+    normalize_intended_url(sess)
+    return_url = safe_local_return_url(
+        req.query_params.get("return_url") or req.query_params.get("return_to"),
+        default="/",
+    )
+    subheadline = sess.pop("login_context", None) if sess else None
+    return build_auth_redirect_page(
+        oauth,
+        req,
+        sess,
+        return_url=return_url,
+        subheadline=subheadline,
+        signup=True,
+    )
 
 
 @rt("/login/onetap")
@@ -1001,7 +1023,7 @@ def validate_full(
         from components.modals import SignInNudge
 
         return SignInNudge(
-            context_label="Sign in to analyse playlists",
+            context_label="Create a free account to run the full playlist analysis",
             return_url=str(req.url.path),
         )
 
@@ -1493,7 +1515,8 @@ def analysis(req, sess):
     _analysis_title = "YouTube Playlist Analysis | ViralVibes"
     _analysis_desc = (
         "Analyze public YouTube playlists. Compare video views, likes, comments, "
-        "duration, and calculated engagement rates. Sign in to start an analysis."
+        "duration, and calculated engagement rates. Preview without an account; create a free "
+        "account to run the full analysis."
     )
     return (
         Title(_analysis_title),

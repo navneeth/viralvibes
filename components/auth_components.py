@@ -126,6 +126,7 @@ def OneTapLoginCard(
     remembered_avatar: str = None,
     remembered_user_id: str = None,
     subheadline: str = None,
+    signup: bool = False,
 ):
     """
     Professional Google-only sign-in card.
@@ -160,12 +161,21 @@ def OneTapLoginCard(
             else Span(site_name, cls="auth-brand")
         ),
         H1(
-            "Welcome back" if remembered_email else "Sign in",
+            (
+                "Welcome back"
+                if remembered_email
+                else "Create your free account" if signup else "Sign in"
+            ),
             cls="auth-headline",
         ),
         # Subheadline — caller can override for contextual messaging
         P(
-            subheadline or "Analyze and discover top YouTube creators.",
+            subheadline
+            or (
+                "Continue with Google to create your account. No credit card required."
+                if signup
+                else "Sign in to your account, or create a free account to get started."
+            ),
             cls="auth-subheadline",
         ),
         cls="auth-header",
@@ -196,6 +206,20 @@ def OneTapLoginCard(
         cls="auth-cta-section",
     )
 
+    mode_switch = A(
+        (
+            "Already have an account? Sign in"
+            if signup
+            else "New to ViralVibes? Create a free account"
+        ),
+        href=(
+            f"/login?{urlencode({'return_url': return_url or '/'})}"
+            if signup
+            else f"/signup?{urlencode({'return_url': return_url or '/'})}"
+        ),
+        cls="auth-mode-switch",
+    )
+
     # Footer
     card_footer = Div(
         PrivacyDisclaimer(),
@@ -208,6 +232,7 @@ def OneTapLoginCard(
             card_header,
             account_section,
             cta_section,
+            mode_switch,
             card_footer,
             cls="auth-card",
         ),

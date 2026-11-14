@@ -307,8 +307,8 @@ FAQS = [
         "ViralVibes is a creator intelligence platform for brands and agencies running YouTube "
         "campaigns. Instead of picking creators by subscriber count, you get ranked lists built "
         "on real engagement signals, growth velocity, and consistency — the inputs that actually "
-        "predict whether a campaign will convert. You can also analyze any public playlist for "
-        "free, with no account required.",
+        "predict whether a campaign will convert. You can preview a public playlist without an "
+        "account; create a free account to run the full interactive analysis.",
     ),
     (
         "What is ROAS and why does it matter for creator campaigns?",
@@ -334,9 +334,10 @@ FAQS = [
     ),
     (
         "Is it free to use?",
-        "Yes — creator lists, search, and playlist analysis are all free to explore with no "
-        "credit card required. Pro unlocks deeper rankings, exports, and saved shortlists "
-        "for agency workflows.",
+        "Yes — creator lists, search, and playlist previews are free to explore without an account. "
+        "Create a free account to run full playlist analyses and save your research; no credit "
+        "card is required. Pro unlocks deeper rankings, exports, and saved shortlists for agency "
+        "workflows.",
     ),
     (
         "How often is creator data updated?",

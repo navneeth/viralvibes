@@ -1,7 +1,8 @@
-from controllers.auth_routes import login_subheadline_for_return_url, safe_local_return_url
-from components.navigation import _branded_login_href
-from routes.pricing import _free_cta_target
 import pytest
+
+from components.navigation import _branded_login_href, _branded_signup_href
+from controllers.auth_routes import login_subheadline_for_return_url, safe_local_return_url
+from routes.pricing import _free_cta_target
 
 
 @pytest.fixture
@@ -9,6 +10,7 @@ def oauth_public_page_client():
     from fasthtml.common import P, fast_app
     from fasthtml.oauth import GoogleAppClient
     from starlette.testclient import TestClient
+
     from auth.auth_service import AUTH_SKIP_ROUTE_PATTERNS, ViralVibesAuth
 
     app, route = fast_app()
@@ -36,6 +38,7 @@ def oauth_public_page_client():
         "/robots.txt",
         "/sitemap.xml",
         "/creators",
+        "/signup",
         "/lists/country/us",
         "/admin",
         "/admin/users",
@@ -72,6 +75,7 @@ def oauth_public_page_client():
         "/robots.txt",
         "/sitemap.xml",
         "/creators",
+        "/signup",
         "/lists/country/us",
     ],
 )
@@ -119,18 +123,31 @@ def test_safe_local_return_url_rejects_open_redirects():
     assert safe_local_return_url("//evil.example/path") == "/"
     assert safe_local_return_url("creators") == "/"
     assert safe_local_return_url("/login") == "/"
+    assert safe_local_return_url("/signup") == "/"
 
 
 def test_login_subheadline_for_free_pricing_path():
     assert login_subheadline_for_return_url("/creators") == (
-        "Sign in to start free. No credit card required."
+        "Sign in to continue to creator discovery. New here? Create a free account."
     )
 
 
 def test_free_pricing_cta_preserves_creator_intent():
     href, label = _free_cta_target(is_authenticated=False)
-    assert href == "/login?return_url=/creators"
-    assert label == "Start free with Google"
+    assert href == "/signup?return_url=/creators"
+    assert label == "Create free account"
+
+
+def test_free_plan_discloses_playlist_analysis_account_requirement():
+    from fasthtml.common import to_xml
+
+    from routes.pricing import _free_card
+
+    html = to_xml(_free_card(is_authenticated=False))
+
+    assert "Full playlist analysis (free account required)" in html
+    assert "Create free account" in html
+    assert "/signup?return_url=/creators" in html
 
 
 def test_nav_login_uses_branded_login_with_current_path():
@@ -142,3 +159,40 @@ def test_nav_login_uses_branded_login_with_current_path():
         url = URL()
 
     assert _branded_login_href(Req()) == "/login?return_url=%2Fpricing%3Futm_source%3Dtest"
+
+
+def test_nav_signup_uses_branded_signup_with_current_path():
+    class URL:
+        path = "/pricing"
+        query = "utm_source=test"
+
+    class Req:
+        url = URL()
+
+    assert _branded_signup_href(Req()) == "/signup?return_url=%2Fpricing%3Futm_source%3Dtest"
+
+
+def test_nav_auth_links_preserve_intended_return_url():
+    class URL:
+        path = "/signup"
+        query = "return_url=%2Fcreators%3Fcountry%3DUS"
+
+    class Req:
+        url = URL()
+
+    assert _branded_login_href(Req()) == ("/login?return_url=%2Fcreators%3Fcountry%3DUS")
+
+
+def test_signup_entry_point_explains_creation_and_preserves_return_url():
+    from starlette.testclient import TestClient
+
+    import main
+
+    response = TestClient(main.app).get("/signup?return_url=%2Fcreators")
+
+    assert response.status_code == 200
+    assert "Create your free account" in response.text
+    assert "Continue with Google to create your account" in response.text
+    assert "No credit card required" in response.text
+    assert "Already have an account? Sign in" in response.text
+    assert "state=%2Fcreators" in response.text
