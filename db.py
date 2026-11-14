@@ -989,7 +989,7 @@ def submit_playlist_job(
         user_id: User ID (None for anonymous jobs)
 
     Returns:
-        bool: True if job submitted successfully
+        bool: True if a new or already-active job is available for this user.
     """
     if not supabase_client:
         logger.warning("Supabase client not available to submit job")
@@ -1013,14 +1013,14 @@ def submit_playlist_job(
 
         response = query.order("created_at", desc=True).limit(1).execute()
 
-        # If an unfinished job exists for this user, don't submit a new one
+        # An unfinished job already fulfills this request; don't enqueue a duplicate.
         if response.data:
             job_status = response.data[0].get("status")
             logger.info(
                 f"Skipping job submission for {playlist_url} (user={user_id}). "
                 f"Job with status '{job_status}' already exists."
             )
-            return False
+            return True
 
     except Exception as e:
         logger.error(f"Error checking for existing jobs: {e}")

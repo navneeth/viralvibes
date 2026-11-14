@@ -233,7 +233,7 @@ def AuthModal(
     """
     from components.auth_components import GoogleGLogo  # lazy — avoids circular import
 
-    login_href = f"/login?{urlencode({'return_url': return_url})}"
+    signup_href = f"/signup?{urlencode({'return_url': return_url})}"
     close_js = f"document.getElementById('{modal_id}').classList.add('hidden')"
 
     def _benefit(icon: str, text: str):
@@ -302,7 +302,7 @@ def AuthModal(
                     A(
                         GoogleGLogo(18),
                         Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
-                        href=login_href,
+                        href=signup_href,
                         cls=(
                             "flex items-center justify-center w-full px-4 py-3 "
                             "bg-white border border-gray-200 hover:border-gray-300 "
@@ -389,6 +389,7 @@ def SignInNudge(
     """
     from components.auth_components import GoogleGLogo  # lazy — avoids circular import
 
+    signup_href = f"/signup?{urlencode({'return_url': return_url})}"
     login_href = f"/login?{urlencode({'return_url': return_url})}"
 
     return Div(
@@ -398,23 +399,28 @@ def SignInNudge(
                 context_label,
                 cls="text-xs font-mono uppercase tracking-[0.14em] text-white/90",
             ),
-            cls=("px-4 py-2.5 " "bg-gradient-to-r from-blue-600 to-indigo-600 " "rounded-t-xl"),
+            cls=("px-4 py-2.5 bg-gradient-to-r from-red-600 to-rose-500 rounded-t-xl"),
         ),
         # Body
         Div(
             P(
-                "Free forever — no credit card required.",
+                "Create a free account to continue. No credit card required.",
                 cls="text-sm text-muted-foreground mb-4",
             ),
             A(
                 GoogleGLogo(18),
                 Span("Continue with Google", cls="ml-2 text-sm font-semibold"),
-                href=login_href,
+                href=signup_href,
                 cls=(
                     "flex items-center justify-center w-full px-4 py-2.5 "
                     "bg-white border border-gray-200 hover:border-gray-300 "
                     "hover:shadow-sm text-gray-800 rounded-lg transition-all no-underline"
                 ),
+            ),
+            P(
+                "Already have an account? ",
+                A("Sign in", href=login_href, cls="underline underline-offset-2"),
+                cls="text-xs text-muted-foreground text-center mt-3",
             ),
             cls="px-4 py-4",
         ),

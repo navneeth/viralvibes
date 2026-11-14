@@ -155,8 +155,9 @@ def press_page_content() -> Div:
             "ViralVibes is a creator intelligence platform for brands and agencies running "
             "YouTube campaigns. Instead of picking creators by subscriber count, customers get "
             "ranked lists built on real engagement signals, growth velocity, and consistency — "
-            "the inputs that actually predict whether a campaign will convert. Anyone can also "
-            "analyze a public playlist for free, with no account required.",
+            "the inputs that actually predict whether a campaign will convert. Anyone can preview "
+            "a public playlist without an account; a free account is required to run the full "
+            "interactive analysis.",
             variant="lead",
             eyebrow="01 — Company",
         ),

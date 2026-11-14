@@ -56,6 +56,7 @@ def clear_auth_session(sess: dict) -> None:
         "access_token",
         "refresh_token",
         "intended_url",
+        "intended_playlist_url",
         "user_id",
         "user_email",
         "user_name",

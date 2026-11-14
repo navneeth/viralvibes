@@ -4,13 +4,14 @@ Shows personalized content when user is logged in (avatar dropdown with menu).
 """
 
 import logging
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from fasthtml.common import *
 from monsterui.all import *
 
-from .auth_dropdown import AuthDropdown
 from routes.admin import _is_admin  # ✅ Import admin check
+
+from .auth_dropdown import AuthDropdown
 
 
 def _current_return_url(req) -> str:
@@ -18,14 +19,19 @@ def _current_return_url(req) -> str:
     if not req:
         return "/"
     path = req.url.path or "/"
-    if path in {"/login", "/login/new", "/login/onetap", "/redirect"}:
-        return "/"
+    if path in {"/login", "/login/new", "/login/onetap", "/signup", "/redirect"}:
+        query = parse_qs(getattr(req.url, "query", ""))
+        return (query.get("return_url") or query.get("return_to") or ["/"])[0]
     query = getattr(req.url, "query", "")
     return f"{path}?{query}" if query else path
 
 
 def _branded_login_href(req) -> str:
     return f"/login?{urlencode({'return_url': _current_return_url(req)})}"
+
+
+def _branded_signup_href(req) -> str:
+    return f"/signup?{urlencode({'return_url': _current_return_url(req)})}"
 
 
 def _nav_link_cls(req, path):
@@ -78,8 +84,8 @@ def NavComponent(oauth, req=None, sess=None):
     - If user is admin: Shows Admin Dashboard link in dropdown
 
     When logged out:
-    - Primary CTA "Explore Creators" (no friction, goes straight to product)
-    - Secondary "Sign in" text link
+    - Provides a clear "Create free account" action and a separate login link.
+    - Discovery links remain available without signing in.
 
     Args:
         oauth: OAuth instance for login link generation
@@ -108,10 +114,9 @@ def NavComponent(oauth, req=None, sess=None):
     # Build auth section (right side of navbar)
     # ============================================================================
 
-    # Route logged-out users through the branded login page so it is clear that
-    # Google OAuth is the next step. The login card still owns the direct OAuth
-    # URL, preserving the legacy path in one place.
+    # Keep account creation and returning-user sign-in as distinct entry points.
     login_href = _branded_login_href(req)
+    signup_href = _branded_signup_href(req)
 
     if is_authenticated:
         # ✅ LOGGED IN: Use AuthDropdown component
@@ -156,19 +161,24 @@ def NavComponent(oauth, req=None, sess=None):
         )
 
     else:
-        # ❌ LOGGED OUT: Single conversion action — Sign in with Google.
-        # Nav links already cover all discovery destinations. The only thing
-        # missing for a guest is a way in. Mirroring Linear/Vercel/Notion pattern:
-        # nav handles "where to go", CTA handles "what to do" — they never overlap.
-        # Wrapped in a Div to match the structural weight of AuthDropdown so
-        # NavBar's internal flex layout treats both auth states consistently.
+        # Discovery stays open; account actions are explicit and distinct.
         auth_section = Div(
             A(
-                "Sign in with Google",
+                "Log in",
                 href=login_href,
                 rel="nofollow",
-                cls="btn-cta-primary text-sm",
+                cls=(
+                    "text-sm font-semibold text-gray-700 hover:text-red-600 "
+                    "transition-colors duration-150"
+                ),
             ),
+            A(
+                "Create free account",
+                href=signup_href,
+                rel="nofollow",
+                cls="btn-cta-primary btn-nav-signup",
+            ),
+            cls="flex items-center gap-2",
         )
 
     # ============================================================================

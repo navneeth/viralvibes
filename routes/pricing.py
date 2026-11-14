@@ -89,7 +89,7 @@ def _free_cta_target(is_authenticated: bool) -> tuple[str, str]:
     """Return (href, label) for the free-tier CTA based on auth state."""
     if is_authenticated:
         return "/creators", "Go to creators"
-    return "/login?return_url=/creators", "Start free with Google"
+    return "/signup?return_url=/creators", "Create free account"
 
 
 def _free_card(is_authenticated: bool) -> Div:
@@ -121,7 +121,7 @@ def _free_card(is_authenticated: bool) -> Div:
             _feature("Full creator profiles"),
             _feature("Growth Blueprint for any channel"),
             _feature("Side-by-side creator comparison"),
-            _feature("Playlist analysis (unlimited)"),
+            _feature("Full playlist analysis (free account required)"),
             _feature("Saved playlist dashboards"),
             _feature("Outreach workspace & contact export"),
             _feature("Saved favourites & list bookmarks"),
@@ -356,7 +356,7 @@ def _comparison_table() -> Div:
 
 def _bottom_cta(is_authenticated: bool) -> Div:
     cta_href, _ = _free_cta_target(is_authenticated)
-    cta_label = "Start browsing creators" if is_authenticated else "Start free with Google"
+    cta_label = "Start browsing creators" if is_authenticated else "Create free account"
     return Div(
         P(
             "Still deciding?",
@@ -367,7 +367,7 @@ def _bottom_cta(is_authenticated: bool) -> Div:
             cls="text-2xl font-bold text-foreground mb-2",
         ),
         P(
-            "Browse 1M+ creators, run playlist analysis, and upgrade only when you\u2019re ready.",
+            "Browse 1M+ creators, run full playlist analysis, and upgrade only when you\u2019re ready.",
             cls="text-muted-foreground mb-6",
         ),
         A(

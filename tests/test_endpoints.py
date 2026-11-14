@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from starlette.testclient import TestClient
 
+import db
 import main
 from constants import KNOWN_PLAYLISTS, JobStatus
 from db import (
@@ -90,12 +91,16 @@ class TestPublicEndpoints:
         assert "YouTube Playlist Analysis | ViralVibes" in response.text
         assert response.text.count("<h1") == 1
         assert response.text.count("<main") == 1
-        assert "Sign in to start an analysis." in response.text
+        assert (
+            "Preview a playlist without an account. Create a free account to run the full analysis."
+            in response.text
+        )
         for claim in ("Instant Engagement", "Viral Score", "Instant Results", "watch-time"):
             assert claim not in response.text
 
     def test_analysis_restored_sections_render_for_signed_in_user(self, monkeypatch):
         from fasthtml.common import to_xml
+
         from routes.analysis import analysis_page_content
 
         monkeypatch.setattr(
@@ -108,7 +113,7 @@ class TestPublicEndpoints:
         assert "Calculated Engagement" in html
         assert "Duration Analysis" in html
         assert html.count("Sample playlists") == 1
-        assert "Sign in to start an analysis." not in html
+        assert "Create a free account to run the full analysis." not in html
 
     def test_official_youtube_icon_is_served(self, client):
         from xml.etree import ElementTree
@@ -137,6 +142,7 @@ class TestPublicEndpoints:
 
     def test_analysis_sample_is_one_native_button(self):
         from fasthtml.common import to_xml
+
         from routes.analysis import _sample_row
 
         html = to_xml(_sample_row({"title": "Sample", "url": TEST_PLAYLIST_URL}))
@@ -260,14 +266,13 @@ class TestListPageTitleCounts:
 class TestURLValidationAndPreview:
     """Tests for /validate/url and /validate/preview endpoints."""
 
-    def test_validate_url_requires_auth(self, client):
-        """Test /validate/url requires authentication."""
+    def test_validate_url_allows_anonymous_preview(self, client):
+        """Guests may preview a valid playlist without being sent to login."""
         r = client.post("/validate/url", data={"playlist_url": TEST_PLAYLIST_URL})
 
-        assert r.status_code in (200, 303, 401)
-        # Should prompt for login
-        if r.status_code == 200:
-            assert "log in" in r.text.lower() or "login" in r.text.lower()
+        assert r.status_code == 200
+        assert "/validate/preview" in r.text
+        assert "login" not in r.text.lower()
 
     @pytest.mark.skip(reason="Temporarily disabled for debugging")
     def test_validate_url_invalid_format(self, authenticated_client):
@@ -299,9 +304,9 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
 
         # ✅ First check: auth should have worked (no login prompt)
-        assert "log in" not in r.text.lower(), (
-            "Authentication failed - session not injected properly. " f"Response: {r.text[:500]}"
-        )
+        assert (
+            "log in" not in r.text.lower()
+        ), f"Authentication failed - session not injected properly. Response: {r.text[:500]}"
 
         # ✅ Second check: response should contain EITHER:
         # 1. An HTMX trigger to load preview
@@ -359,6 +364,122 @@ class TestURLValidationAndPreview:
 
         assert r.status_code == 200
         assert "htmx.ajax('POST', '/validate/full'" in r.text
+
+    def test_full_analysis_auth_prompt_preserves_playlist_for_after_signup(self):
+        replacement_url = "https://www.youtube.com/playlist?list=PLReplacement123"
+        session = {"intended_playlist_url": TEST_PLAYLIST_URL}
+        nudge = main.validate_full(
+            htmx=SimpleNamespace(target=""),
+            playlist_url=replacement_url,
+            req=SimpleNamespace(url=SimpleNamespace(path="/validate/full")),
+            sess=session,
+        )
+
+        from fasthtml.common import to_xml
+
+        html = to_xml(nudge)
+        assert "Create a free account to run the full playlist analysis" in html
+        assert "/signup?return_url=%2Fanalysis" in html
+        assert session["intended_playlist_url"] == replacement_url
+        assert "intended_url" not in session
+
+    def test_full_analysis_rejects_invalid_url_before_deferring(self):
+        session = {}
+        response = main.validate_full(
+            htmx=SimpleNamespace(target=""),
+            playlist_url="not-a-valid-url",
+            req=SimpleNamespace(url=SimpleNamespace(path="/validate/full")),
+            sess=session,
+        )
+
+        from fasthtml.common import to_xml
+
+        assert "Invalid YouTube URL" in to_xml(response)
+        assert "intended_playlist_url" not in session
+
+    def test_analysis_submits_deferred_playlist_after_signup(self, monkeypatch):
+        session = {
+            "user_id": "test-user",
+            "intended_playlist_url": TEST_PLAYLIST_URL,
+        }
+        submitted = []
+        monkeypatch.setattr(
+            main,
+            "submit_playlist_job",
+            lambda playlist_url, user_id: submitted.append((playlist_url, user_id)) or True,
+        )
+        monkeypatch.setattr(main, "compute_dashboard_id", lambda playlist_url: "test-dashboard")
+
+        response = main.analysis(req=SimpleNamespace(), sess=session)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/d/test-dashboard"
+        assert submitted == [(TEST_PLAYLIST_URL, "test-user")]
+        assert "intended_playlist_url" not in session
+
+    def test_analysis_keeps_deferred_playlist_when_submission_fails(self, monkeypatch):
+        session = {
+            "user_id": "test-user",
+            "intended_playlist_url": TEST_PLAYLIST_URL,
+        }
+        monkeypatch.setattr(main, "submit_playlist_job", lambda *args, **kwargs: False)
+        monkeypatch.setattr(main, "NavComponent", lambda *args, **kwargs: main.Div())
+        monkeypatch.setattr(main, "analysis_page_content", lambda **kwargs: main.Div())
+        monkeypatch.setattr(main, "page_seo_tags", lambda *args, **kwargs: [])
+
+        main.analysis(req=SimpleNamespace(), sess=session)
+
+        assert session["intended_playlist_url"] == TEST_PLAYLIST_URL
+
+    def test_dashboards_keeps_deferred_playlist_when_submission_fails(self, monkeypatch):
+        session = {
+            "auth": True,
+            "user_id": "test-user",
+            "intended_playlist_url": TEST_PLAYLIST_URL,
+        }
+        monkeypatch.setattr(main, "submit_playlist_job", lambda *args, **kwargs: False)
+        monkeypatch.setattr(main, "get_user_dashboards", lambda *args, **kwargs: [])
+        monkeypatch.setattr(main, "get_user_plan", lambda user_id: {"plan": "free"})
+        monkeypatch.setattr(main, "get_latest_canceled_subscription", lambda user_id: None)
+        monkeypatch.setattr(main, "get_user_favourite_lists", lambda user_id: [])
+        monkeypatch.setattr(main, "NavComponent", lambda *args, **kwargs: main.Div())
+        monkeypatch.setattr(main, "render_my_dashboards_page", lambda **kwargs: main.Div())
+
+        response = main.my_dashboards(
+            req=SimpleNamespace(url=SimpleNamespace(path="/me/dashboards")),
+            sess=session,
+            htmx=False,
+        )
+
+        assert not hasattr(response, "status_code")
+        assert session["intended_playlist_url"] == TEST_PLAYLIST_URL
+
+    def test_logout_clears_deferred_playlist_from_both_paths(self):
+        session = {"intended_playlist_url": TEST_PLAYLIST_URL}
+        main.clear_auth_session(session)
+        assert "intended_playlist_url" not in session
+
+        session = {"intended_playlist_url": TEST_PLAYLIST_URL}
+        auth = object.__new__(main.ViralVibesAuth)
+        auth.logout(session)
+        assert "intended_playlist_url" not in session
+
+    def test_existing_active_job_counts_as_accepted_submission(self, monkeypatch):
+        query = MagicMock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.not_.eq.return_value = query
+        query.order.return_value = query
+        query.limit.return_value = query
+        query.execute.return_value = SimpleNamespace(data=[{"status": JobStatus.PENDING}])
+        client = MagicMock()
+        client.table.return_value = query
+        monkeypatch.setattr(db, "supabase_client", client)
+        monkeypatch.setattr(
+            db, "upsert_row", lambda *args, **kwargs: pytest.fail("duplicate job was inserted")
+        )
+
+        assert db.submit_playlist_job(TEST_PLAYLIST_URL, user_id="test-user") is True
 
     def test_preview_auto_submit_when_no_job_exists(self, client, monkeypatch):
         """

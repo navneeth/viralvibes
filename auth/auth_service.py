@@ -12,8 +12,8 @@ import requests
 from fasthtml.common import RedirectResponse
 from fasthtml.oauth import GoogleAppClient, OAuth
 
-from db import is_admin as _db_is_admin
 from db import _db_execute, _db_execute_readonly
+from db import is_admin as _db_is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +40,11 @@ AUTH_SKIP_ROUTE_PATTERNS: list[str] = [
     # Public page routes (exact strings)
     "/",
     "/login",
+    "/signup",
     "/redirect",
     "/validate/url",
     "/validate/preview",
+    "/validate/full",
     "/newsletter",
     "/debug/supabase",
     "/avatar",
@@ -179,11 +181,13 @@ class ViralVibesAuth(OAuth):
                     }
 
                     _db_execute(
-                        lambda: self.supabase_client.table("users")
-                        .update(user_data)
-                        .eq("id", user_id)
-                        .or_(f"last_login_at.is.null,last_login_at.lt.{login_at}")
-                        .execute()
+                        lambda: (
+                            self.supabase_client.table("users")
+                            .update(user_data)
+                            .eq("id", user_id)
+                            .or_(f"last_login_at.is.null,last_login_at.lt.{login_at}")
+                            .execute()
+                        )
                     )
                     logger.info(f"✅ Updated existing user {email}")
                 else:
@@ -232,9 +236,11 @@ class ViralVibesAuth(OAuth):
                         auth_provider_data["token_expires_at"] = token_expires_at
 
                     _db_execute(
-                        lambda: self.supabase_client.table("auth_providers")
-                        .upsert(auth_provider_data, on_conflict="user_id,provider")
-                        .execute()
+                        lambda: (
+                            self.supabase_client.table("auth_providers")
+                            .upsert(auth_provider_data, on_conflict="user_id,provider")
+                            .execute()
+                        )
                     )
 
                     logger.info(f"✅ Stored auth provider info for {email}")
@@ -300,6 +306,7 @@ class ViralVibesAuth(OAuth):
         session_keys_to_clear = [
             "auth",
             "intended_url",
+            "intended_playlist_url",
             "login_context",
             "access_token",
             "refresh_token",

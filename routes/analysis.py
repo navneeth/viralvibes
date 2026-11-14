@@ -21,9 +21,8 @@ from components.buttons import FeaturePill
 from components.cards import AnalysisFormCard
 from constants import KNOWN_PLAYLISTS
 from db import get_user_dashboards
-from utils.dates import format_date_relative
 from utils import format_number
-
+from utils.dates import format_date_relative
 
 # ---------------------------------------------------------------------------
 # Page header — compact, aligned with /lists and /creators patterns
@@ -60,7 +59,7 @@ def _page_header(signed_in: bool = False) -> Div:
             (
                 "New analyses are processed in the background."
                 if signed_in
-                else "Sign in to start an analysis."
+                else "Preview a playlist without an account. Create a free account to run the full analysis."
             ),
             cls="text-xs text-muted-foreground mt-3",
         ),

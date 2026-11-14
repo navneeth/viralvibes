@@ -95,13 +95,13 @@ from db import (
     get_estimated_stats,
     get_favourite_creators_with_stats,
     get_job_progress,
+    get_latest_canceled_subscription,
     get_playlist_job_status,
     get_playlist_preview_info,
     get_user_dashboards,
     get_user_favourite_creators,
     get_user_favourite_list_keys,
     get_user_favourite_lists,
-    get_latest_canceled_subscription,
     get_user_plan,
     init_supabase,
     remove_favourite_list,
@@ -423,7 +423,7 @@ hdrs = Theme.red.headers(apex_charts=True)
 # Add custom CSS and JS to headers
 hdrs += (
     # v=2 invalidates the old URL, which Vercel previously cached as immutable.
-    Link(rel="stylesheet", href="/css/main.css?v=2"),
+    Link(rel="stylesheet", href="/css/main.css?v=3"),
     Script(src="/js/index.js", defer=True),
     Script(src="/js/reveal.js", defer=True),
 )
@@ -673,6 +673,28 @@ def login(req, sess):
     return page
 
 
+@rt("/signup")
+def signup(req, sess):
+    """Create-account entry point; Google OAuth also signs in existing users."""
+    if _is_bot_request(req):
+        return Response(status_code=410)
+
+    normalize_intended_url(sess)
+    return_url = safe_local_return_url(
+        req.query_params.get("return_url") or req.query_params.get("return_to"),
+        default="/",
+    )
+    subheadline = sess.pop("login_context", None) if sess else None
+    return build_auth_redirect_page(
+        oauth,
+        req,
+        sess,
+        return_url=return_url,
+        subheadline=subheadline,
+        signup=True,
+    )
+
+
 @rt("/login/onetap")
 def login_onetap_test(req, sess):
     """
@@ -846,9 +868,8 @@ def get_avatar(user_id: str):
 
 @rt("/validate/url", methods=["POST"])
 def validate_url(playlist: YoutubePlaylist, req, sess):
-    """Validate playlist URL - requires authentication"""
+    """Validate a playlist URL and start its public preview."""
 
-    # Validate URL FIRST (before storing or processing)
     errors = YoutubePlaylistValidator.validate(playlist)
     if errors:
         return Div(
@@ -856,16 +877,6 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
             cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded",
         )
 
-    # Check auth AFTER validation (only store valid URLs)
-    if not (sess and sess.get("auth")):
-        # Store the VALIDATED playlist URL they want to analyze
-        sess["intended_playlist_url"] = playlist.playlist_url
-        # After login, auth_service redirects to /analysis which picks this up
-
-        # Redirect to clean login page (avoids navbar duplication)
-        return RedirectResponse("/login", status_code=303)
-
-    # Authenticated user - proceed to preview.
     # Return two things at once via HTMX OOB:
     #   1. A loading skeleton swapped into #preview-box immediately (OOB innerHTML)
     #   2. A Script that fires the actual /validate/preview HTMX request
@@ -991,19 +1002,35 @@ def validate_full(
 ):
     """Full playlist analysis - PROTECTED route"""
 
+    playlist = YoutubePlaylist(playlist_url)
+    errors = YoutubePlaylistValidator.validate(playlist)
+    if errors:
+        return Div(
+            Ul(*[Li(e, cls="text-red-600 list-disc") for e in errors]),
+            cls="text-red-100 bg-red-50 p-4 border border-red-300 rounded",
+        )
+    playlist_url = playlist.playlist_url
+
     # Extract user_id from session
     user_id = sess.get("user_id") if sess else None
 
     # Check auth
     if not (sess and sess.get("auth")):
-        if sess:
-            sess["intended_url"] = str(req.url.path)
+        if sess is not None:
+            # OAuth redirects to /analysis when this is set; that route submits
+            # the latest requested playlist and redirects to its dashboard.
+            sess["intended_playlist_url"] = playlist_url
         from components.modals import SignInNudge
 
         return SignInNudge(
-            context_label="Sign in to analyse playlists",
-            return_url=str(req.url.path),
+            context_label="Create a free account to run the full playlist analysis",
+            return_url="/analysis",
         )
+
+    # A new authenticated analysis supersedes any deferred request left by an
+    # earlier failed submission in this browser session.
+    if sess is not None:
+        sess.pop("intended_playlist_url", None)
 
     # --- Check if this is an HTMX sort request BEFORE streaming ---
     if htmx.target == "playlist-table-container":
@@ -1471,6 +1498,21 @@ def export_json(dashboard_id: str, req, sess):
     )
 
 
+def _submit_deferred_playlist(sess, user_id):
+    """Submit a deferred playlist and consume its intent only on success."""
+    playlist_url = sess.get("intended_playlist_url") if sess else None
+    if not playlist_url or not user_id:
+        return None
+
+    if submit_playlist_job(playlist_url, user_id=user_id):
+        sess.pop("intended_playlist_url", None)
+        dashboard_id = compute_dashboard_id(playlist_url)
+        return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
+
+    logger.warning(f"Deferred job submission failed for {playlist_url}; keeping it for retry")
+    return None
+
+
 @rt("/analysis")
 def analysis(req, sess):
     """Playlist analysis page — PUBLIC route"""
@@ -1478,22 +1520,14 @@ def analysis(req, sess):
 
     # Post-login: user submitted a playlist URL before authenticating.
     # Submit the job now that we have a user_id and redirect straight to the result.
-    intended_playlist_url = sess.get("intended_playlist_url")
-    if intended_playlist_url and user_id:
-        logger.info(f"Submitting deferred job for {intended_playlist_url} after login")
-        if submit_playlist_job(intended_playlist_url, user_id=user_id):
-            sess.pop("intended_playlist_url", None)
-            dashboard_id = compute_dashboard_id(intended_playlist_url)
-            return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
-        # Submission failed (DB unavailable or insert error) — keep the session
-        # value so the user can retry, and fall through to the analysis form.
-        logger.warning(
-            f"Deferred job submission failed for {intended_playlist_url}; showing analysis form"
-        )
+    redirect = _submit_deferred_playlist(sess, user_id)
+    if redirect is not None:
+        return redirect
     _analysis_title = "YouTube Playlist Analysis | ViralVibes"
     _analysis_desc = (
         "Analyze public YouTube playlists. Compare video views, likes, comments, "
-        "duration, and calculated engagement rates. Sign in to start an analysis."
+        "duration, and calculated engagement rates. Preview without an account; create a free "
+        "account to run the full analysis."
     )
     return (
         Title(_analysis_title),
@@ -2253,14 +2287,10 @@ def my_dashboards(
         sess["intended_url"] = str(req.url.path)
         return RedirectResponse("/login", status_code=303)
 
-    # Check if user just logged in to analyze a playlist
-    intended_playlist_url = sess.get("intended_playlist_url")
-    if intended_playlist_url:
-        sess.pop("intended_playlist_url", None)  # Remove after using
-        logger.info(f"Submitting job for {intended_playlist_url} after login")
-        submit_playlist_job(intended_playlist_url, user_id=user_id)
-        dashboard_id = compute_dashboard_id(intended_playlist_url)
-        return RedirectResponse(f"/d/{dashboard_id}", status_code=303)
+    # Also resume after a login flow that returned directly to this page.
+    redirect = _submit_deferred_playlist(sess, user_id)
+    if redirect is not None:
+        return redirect
 
     # Fetch all matching dashboards (search/sort applied in DB), paginate in Python
     offset = (page - 1) * _PAGE_SIZE
