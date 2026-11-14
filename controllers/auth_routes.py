@@ -8,7 +8,7 @@ import os
 from urllib.parse import urlencode, urlsplit
 
 from fasthtml.common import *
-from monsterui.all import UkIcon
+from monsterui.all import Container, UkIcon
 
 from components import NavComponent
 from components.auth_components import GoogleSignInButton, OneTapLoginCard, PrivacyDisclaimer

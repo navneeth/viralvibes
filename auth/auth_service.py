@@ -306,6 +306,7 @@ class ViralVibesAuth(OAuth):
         session_keys_to_clear = [
             "auth",
             "intended_url",
+            "intended_playlist_url",
             "login_context",
             "access_token",
             "refresh_token",
