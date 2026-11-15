@@ -16,25 +16,22 @@ from views.preview import (
 logger = logging.getLogger(__name__)
 
 
-def preview_playlist_controller(playlist_url: str):
+def preview_playlist_controller(playlist_url: str, *, authenticated: bool = False):
     """
-    Orchestrates playlist preview  flow (frontend-safe).
-    - cache → redirect to full analysis
-    - job state → redirect / blocked
-    - fallback preview → render a preview card
-    (guaranteed UI safe; no youutube analysis here)
+    Orchestrate the preview flow without starting full analysis for guests.
 
     Data sources:
     - Supabase only (frontend-safe)
     - YouTube enrichment happens asynchronously in workers
-    - job state → redirect / blocked / auto-submit
-    - fallback preview → render a preview card WITH auto-submit
+    - authenticated users may auto-submit or skip directly to existing results
+    - guests see the preview before choosing whether to request full analysis
     """
     logger.info(f"Received request to preview playlist: {playlist_url}")
 
-    # 1. Cache hit → skip preview entirely & redirect to full analysis
+    # Authenticated users can go straight to full analysis for existing data.
+    # Guests should see the preview first and decide whether to request full analysis.
     cached = get_cached_playlist_stats(playlist_url, check_date=True)
-    if cached:
+    if cached and authenticated:
         logger.info("Preview: cache hit → redirect to full")
         return render_redirect_to_full(playlist_url)
 
@@ -42,7 +39,7 @@ def preview_playlist_controller(playlist_url: str):
     job_status = get_playlist_job_status(playlist_url)
 
     # ✅ Use constants instead of string literals
-    if job_status == JobStatus.COMPLETE:
+    if job_status == JobStatus.COMPLETE and authenticated:
         logger.info("Preview: job done → redirect to full")
         return render_redirect_to_full(playlist_url)
 
@@ -53,7 +50,7 @@ def preview_playlist_controller(playlist_url: str):
 
     # ✅ Auto-submit if no job exists or job failed — return before the
     # preview-info DB query; that data is unused by the placeholder.
-    if job_status is None or job_status == JobStatus.FAILED:
+    if (job_status is None or job_status == JobStatus.FAILED) and authenticated:
         logger.info(f"Auto-submitting job for {playlist_url}")
         return render_queuing_placeholder(playlist_url=playlist_url)
 
@@ -65,4 +62,5 @@ def preview_playlist_controller(playlist_url: str):
         job_status=job_status,
         preview_info=preview_info,
         auto_submit=False,
+        needs_auth=not authenticated,
     )

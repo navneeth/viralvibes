@@ -69,6 +69,7 @@ def render_preview_card(
     preview_info: dict,
     auto_submit: bool = False,
     user_id: str | None = None,
+    needs_auth: bool = False,
 ):
     """
     Render preview card with optional auto-submit.
@@ -213,10 +214,10 @@ def render_preview_card(
                 cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-gray-400 cursor-not-allowed text-white w-full",
                 type="button",
             )
-            if (is_processing or auto_submit)
+            if ((is_processing and not needs_auth) or auto_submit)
             else Button(
-                "Start Deep Analysis",
-                hx_post="/submit-job",
+                "Create a free account for full analysis" if needs_auth else "Start Deep Analysis",
+                hx_post="/validate/full" if needs_auth else "/submit-job",
                 hx_vals={
                     "playlist_url": playlist_url,
                     **({"user_id": user_id} if user_id else {}),  # ✅ Include user_id if present

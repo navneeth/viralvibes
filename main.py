@@ -904,7 +904,10 @@ def validate_url(playlist: YoutubePlaylist, req, sess):
 def preview_playlist(playlist_url: str, req, sess):
     """Preview playlist - No auth check allow public previews"""
 
-    return preview_playlist_controller(playlist_url)
+    return preview_playlist_controller(
+        playlist_url,
+        authenticated=bool(sess and sess.get("auth")),
+    )
 
 
 def update_meter(meter_id: str, value: int = None, max_value: int = None):
