@@ -50,8 +50,8 @@ def render_queuing_placeholder(*, playlist_url: str, user_id: str | None = None)
     )
 
 
-def render_blocked_preview():
-    return Div(
+def render_blocked_preview(preview=None):
+    blocked_message = Div(
         UkIcon("ban", width=48, height=48, cls="text-red-500 mb-4"),
         H2("YouTube Bot Challenge Detected", cls="text-xl font-bold text-red-700"),
         P(
@@ -60,6 +60,9 @@ def render_blocked_preview():
         ),
         cls="p-8 bg-red-50 border border-red-200 rounded-xl text-center max-w-md mx-auto",
     )
+    if preview is None:
+        return blocked_message
+    return Div(preview, blocked_message, cls="space-y-4 max-w-3xl mx-auto")
 
 
 def render_preview_card(
@@ -69,6 +72,8 @@ def render_preview_card(
     preview_info: dict,
     auto_submit: bool = False,
     user_id: str | None = None,
+    needs_auth: bool = False,
+    allow_analysis: bool = True,
 ):
     """
     Render preview card with optional auto-submit.
@@ -207,25 +212,35 @@ def render_preview_card(
         # Action button (hidden when auto-submitting)
         # =========================================================
         (
-            Button(
-                "Analysis in Progress…",
-                disabled=True,
-                cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-gray-400 cursor-not-allowed text-white w-full",
-                type="button",
+            (
+                Button(
+                    "Analysis in Progress…",
+                    disabled=True,
+                    cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-gray-400 cursor-not-allowed text-white w-full",
+                    type="button",
+                )
+                if ((is_processing and not needs_auth) or auto_submit)
+                else Button(
+                    (
+                        "Create a free account for full analysis"
+                        if needs_auth
+                        else "Start Deep Analysis"
+                    ),
+                    hx_post="/validate/full" if needs_auth else "/submit-job",
+                    hx_vals={
+                        "playlist_url": playlist_url,
+                        **(
+                            {"user_id": user_id} if user_id else {}
+                        ),  # ✅ Include user_id if present
+                    },
+                    hx_target="#preview-box",
+                    hx_indicator="#loading-bar",
+                    cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-blue-600 hover:bg-blue-700 text-white w-full transition",
+                    type="button",
+                )
             )
-            if (is_processing or auto_submit)
-            else Button(
-                "Start Deep Analysis",
-                hx_post="/submit-job",
-                hx_vals={
-                    "playlist_url": playlist_url,
-                    **({"user_id": user_id} if user_id else {}),  # ✅ Include user_id if present
-                },
-                hx_target="#preview-box",
-                hx_indicator="#loading-bar",
-                cls="mt-6 px-6 py-3 rounded-xl font-semibold shadow bg-blue-600 hover:bg-blue-700 text-white w-full transition",
-                type="button",
-            )
+            if allow_analysis
+            else None
         ),
         Div(
             Loading(

@@ -16,25 +16,33 @@ from views.preview import (
 logger = logging.getLogger(__name__)
 
 
-def preview_playlist_controller(playlist_url: str):
+def preview_playlist_controller(
+    playlist_url: str,
+    *,
+    authenticated: bool = False,
+    user_id: str | None = None,
+):
     """
-    Orchestrates playlist preview  flow (frontend-safe).
-    - cache → redirect to full analysis
-    - job state → redirect / blocked
-    - fallback preview → render a preview card
-    (guaranteed UI safe; no youutube analysis here)
+    Orchestrate the preview flow without starting full analysis for guests.
 
     Data sources:
     - Supabase only (frontend-safe)
     - YouTube enrichment happens asynchronously in workers
-    - job state → redirect / blocked / auto-submit
-    - fallback preview → render a preview card WITH auto-submit
+    - authenticated users may auto-submit or skip directly to existing results
+    - guests see the preview before choosing whether to request full analysis
     """
     logger.info(f"Received request to preview playlist: {playlist_url}")
 
-    # 1. Cache hit → skip preview entirely & redirect to full analysis
-    cached = get_cached_playlist_stats(playlist_url, check_date=True)
-    if cached:
+    # Authenticated users can go straight to full analysis for existing data.
+    # Guests should see the preview first and decide whether to request full analysis.
+    if user_id is not None:
+        cached = get_cached_playlist_stats(playlist_url, user_id=user_id, check_date=True)
+        # Preserve the shared anonymous cache path while preferring this user's own cache.
+        if not cached and authenticated:
+            cached = get_cached_playlist_stats(playlist_url, check_date=True)
+    else:
+        cached = get_cached_playlist_stats(playlist_url, check_date=True)
+    if cached and authenticated:
         logger.info("Preview: cache hit → redirect to full")
         return render_redirect_to_full(playlist_url)
 
@@ -42,27 +50,42 @@ def preview_playlist_controller(playlist_url: str):
     job_status = get_playlist_job_status(playlist_url)
 
     # ✅ Use constants instead of string literals
-    if job_status == JobStatus.COMPLETE:
+    if job_status == JobStatus.COMPLETE and authenticated:
         logger.info("Preview: job done → redirect to full")
         return render_redirect_to_full(playlist_url)
 
     # ⚠️ BLOCKED job → show error
     if job_status == JobStatus.BLOCKED:
         logger.warning("Preview: job blocked")
+        if cached and not authenticated:
+            preview_info = (
+                get_playlist_preview_info(playlist_url, user_id=user_id, scope_to_user=True) or {}
+            )
+            preview = render_preview_card(
+                playlist_url=playlist_url,
+                job_status=job_status,
+                preview_info=preview_info,
+                needs_auth=True,
+                allow_analysis=False,
+            )
+            return render_blocked_preview(preview=preview)
         return render_blocked_preview()
 
     # ✅ Auto-submit if no job exists or job failed — return before the
     # preview-info DB query; that data is unused by the placeholder.
-    if job_status is None or job_status == JobStatus.FAILED:
+    if (job_status is None or job_status == JobStatus.FAILED) and authenticated:
         logger.info(f"Auto-submitting job for {playlist_url}")
         return render_queuing_placeholder(playlist_url=playlist_url)
 
     # 3. Preview data (DB stub or API fallback) — only needed for the card
-    preview_info = get_playlist_preview_info(playlist_url) or {}
+    preview_info = (
+        get_playlist_preview_info(playlist_url, user_id=user_id, scope_to_user=True) or {}
+    )
 
     return render_preview_card(
         playlist_url=playlist_url,
         job_status=job_status,
         preview_info=preview_info,
         auto_submit=False,
+        needs_auth=not authenticated,
     )

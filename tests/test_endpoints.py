@@ -328,7 +328,7 @@ class TestURLValidationAndPreview:
             has_preview_reference
         ), f"Expected preview trigger or content in response. Got: {r.text[:1000]}"
 
-    def test_preview_cache_hit_redirects_to_full_analysis(self, client, monkeypatch):
+    def test_preview_cache_hit_redirects_to_full_analysis(self, monkeypatch):
         """
         Test: When cached data exists, /validate/preview redirects to full analysis.
 
@@ -343,13 +343,20 @@ class TestURLValidationAndPreview:
             lambda url, check_date=True: {"title": "Cached Playlist", "df_json": "[]"},
         )
 
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+        from fasthtml.common import to_xml
 
-        assert r.status_code == 200
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True},
+            )
+        )
+
         # Should redirect to full analysis
-        assert "htmx.ajax('POST', '/validate/full'" in r.text
+        assert "htmx.ajax('POST', '/validate/full'" in html
 
-    def test_preview_redirects_when_job_complete(self, client, monkeypatch):
+    def test_preview_redirects_when_job_complete(self, monkeypatch):
         """Test /validate/preview redirects when job is complete."""
         monkeypatch.setattr(
             "controllers.preview.get_cached_playlist_stats",
@@ -360,10 +367,115 @@ class TestURLValidationAndPreview:
             lambda url: JobStatus.COMPLETE,  # ✅ Use constant instead of "done"
         )
 
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+        from fasthtml.common import to_xml
 
-        assert r.status_code == 200
-        assert "htmx.ajax('POST', '/validate/full'" in r.text
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True},
+            )
+        )
+
+        assert "htmx.ajax('POST', '/validate/full'" in html
+
+    def test_guest_with_cached_playlist_sees_preview_before_signup(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: {"title": "Cached Playlist", "df_json": "[]"},
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.COMPLETE,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_preview_info",
+            lambda url, **kwargs: make_test_preview_data(),
+        )
+
+        response = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert response.status_code == 200
+        assert "Test Playlist" in response.text
+        assert "htmx.ajax('POST', '/validate/full'" not in response.text
+        assert "Create a free account for full analysis" in response.text
+        assert 'hx-post="/validate/full"' in response.text
+
+    def test_guest_with_active_job_can_still_request_full_analysis(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: None,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.PROCESSING,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_preview_info",
+            lambda url, **kwargs: make_test_preview_data(),
+        )
+
+        response = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert response.status_code == 200
+        assert "Create a free account for full analysis" in response.text
+        assert 'hx-post="/validate/full"' in response.text
+
+    def test_authenticated_preview_checks_user_scoped_cache(self, monkeypatch):
+        cache_lookups = []
+
+        def get_cache(url, user_id=None, check_date=True):
+            cache_lookups.append(user_id)
+            return {"title": "User Cache", "df_json": "[]"} if user_id else None
+
+        monkeypatch.setattr("controllers.preview.get_cached_playlist_stats", get_cache)
+
+        from fasthtml.common import to_xml
+
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True, "user_id": "user-123"},
+            )
+        )
+
+        assert cache_lookups == ["user-123"]
+        assert "htmx.ajax('POST', '/validate/full'" in html
+
+    @pytest.mark.parametrize("user_id", [None, "user-123"])
+    def test_preview_info_scopes_rows_and_selects_latest(self, monkeypatch, user_id):
+        query = MagicMock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.is_.return_value = query
+        query.or_.return_value = query
+        query.order.return_value = query
+        query.limit.return_value = query
+        query.execute.return_value = SimpleNamespace(
+            data=[
+                {
+                    "title": "Newest visible playlist",
+                    "channel_name": "Visible channel",
+                    "channel_thumbnail": None,
+                    "summary_stats": {"actual_playlist_count": 4},
+                }
+            ]
+        )
+        client = MagicMock()
+        client.table.return_value = query
+        monkeypatch.setattr(db, "supabase_client", client)
+
+        info = db.get_playlist_preview_info(
+            TEST_PLAYLIST_URL, user_id=user_id, scope_to_user=True
+        )
+
+        if user_id is None:
+            query.is_.assert_called_once_with("user_id", None)
+        else:
+            query.or_.assert_called_once_with("user_id.eq.user-123,user_id.is.null")
+        query.order.assert_called_once_with("processed_on", desc=True)
+        assert info["title"] == "Newest visible playlist"
 
     def test_full_analysis_auth_prompt_preserves_playlist_for_after_signup(self):
         replacement_url = "https://www.youtube.com/playlist?list=PLReplacement123"
@@ -481,7 +593,7 @@ class TestURLValidationAndPreview:
 
         assert db.submit_playlist_job(TEST_PLAYLIST_URL, user_id="test-user") is True
 
-    def test_preview_auto_submit_when_no_job_exists(self, client, monkeypatch):
+    def test_preview_auto_submit_when_no_job_exists(self, monkeypatch):
         """
         Test: Auto-submit triggers when no active job exists.
 
@@ -501,17 +613,24 @@ class TestURLValidationAndPreview:
         )
         # get_playlist_preview_info is NOT called on the auto-submit path
 
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+        from fasthtml.common import to_xml
 
-        assert r.status_code == 200
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True},
+            )
+        )
+
         # Placeholder — no preview card content visible
-        assert "Test Playlist" not in r.text
-        assert "Queuing analysis" in r.text
+        assert "Test Playlist" not in html
+        assert "Queuing analysis" in html
         # Auto-submit trigger must still be present
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load"' in r.text
+        assert 'hx-post="/submit-job"' in html
+        assert 'hx-trigger="load"' in html
 
-    def test_preview_auto_submit_when_job_failed(self, client, monkeypatch):
+    def test_preview_auto_submit_when_job_failed(self, monkeypatch):
         """
         Test: Auto-submit triggers retry when previous job failed.
 
@@ -534,13 +653,20 @@ class TestURLValidationAndPreview:
             lambda url: make_test_preview_data(),
         )
 
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+        from fasthtml.common import to_xml
 
-        assert r.status_code == 200
-        assert 'hx-post="/submit-job"' in r.text
-        assert 'hx-trigger="load"' in r.text  # ✅ Fixed: removed "once"
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True},
+            )
+        )
 
-    def test_preview_shows_existing_job_without_auto_submit(self, client, monkeypatch):
+        assert 'hx-post="/submit-job"' in html
+        assert 'hx-trigger="load"' in html  # ✅ Fixed: removed "once"
+
+    def test_preview_shows_existing_job_without_auto_submit(self, monkeypatch):
         """
         Test: When job is processing, show status without auto-submit.
 
@@ -560,19 +686,26 @@ class TestURLValidationAndPreview:
         )
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
+            lambda url, **kwargs: make_test_preview_data(),
         )
 
-        r = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+        from fasthtml.common import to_xml
 
-        assert r.status_code == 200
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True},
+            )
+        )
+
         # Should NOT have auto-submit trigger with "load"
         # It may have polling trigger with "every 2s" but not load trigger
         assert (
-            'hx-trigger="load"' not in r.text or 'hx-post="/submit-job"' not in r.text
+            'hx-trigger="load"' not in html or 'hx-post="/submit-job"' not in html
         )  # ✅ Fixed logic
         # Should show processing state
-        assert "Analysis in Progress" in r.text or "Processing" in r.text.lower()
+        assert "Analysis in Progress" in html or "Processing" in html.lower()
 
     def test_preview_handles_blocked_job(self, client, monkeypatch):
         """Test /validate/preview shows blocked message for YouTube-blocked playlists."""
@@ -590,6 +723,30 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
         assert "blocked" in r.text.lower() or "YouTube" in r.text
 
+    def test_guest_with_cached_preview_and_blocked_job_sees_preview_without_action(
+        self, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: {"title": "Cached", "df_json": "[]"},
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.BLOCKED,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_preview_info",
+            lambda url, **kwargs: make_test_preview_data(),
+        )
+
+        response = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert response.status_code == 200
+        assert "Test Playlist" in response.text
+        assert "YouTube Bot Challenge Detected" in response.text
+        assert 'hx-post="/validate/full"' not in response.text
+        assert 'hx-post="/submit-job"' not in response.text
+
     def test_preview_public_access_no_auth_required(self, client, monkeypatch):
         """Test /validate/preview is publicly accessible (no auth required)."""
         # Mock preview data
@@ -600,7 +757,7 @@ class TestURLValidationAndPreview:
         monkeypatch.setattr("controllers.preview.get_playlist_job_status", lambda url: None)
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
+            lambda url, **kwargs: make_test_preview_data(),
         )
 
         # No authentication - should still work
@@ -609,6 +766,10 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
         # Should NOT show auth error
         assert "log in" not in r.text.lower()
+        assert "Test Playlist" in r.text
+        assert "Create a free account for full analysis" in r.text
+        assert 'hx-post="/validate/full"' in r.text
+        assert 'hx-post="/submit-job"' not in r.text
 
 
 # ============================================================

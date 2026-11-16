@@ -896,7 +896,12 @@ def get_playlist_job_status(playlist_url: str) -> Optional[str]:
         return None
 
 
-def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
+def get_playlist_preview_info(
+    playlist_url: str,
+    user_id: Optional[str] = None,
+    *,
+    scope_to_user: bool = False,
+) -> Dict[str, Any]:
     """
     Returns minimal info about a playlist for preview.
     Flattens `summary_stats` JSON into usable front-end fields.
@@ -914,13 +919,19 @@ def get_playlist_preview_info(playlist_url: str) -> Dict[str, Any]:
         return default
 
     try:
-        response = (
+        query = (
             supabase_client.table(PLAYLIST_STATS_TABLE)
             .select("title, channel_name, channel_thumbnail, summary_stats")
             .eq("playlist_url", playlist_url)
-            .limit(1)
-            .execute()
         )
+
+        if scope_to_user:
+            if user_id is None:
+                query = query.is_("user_id", None)
+            else:
+                query = query.or_(f"user_id.eq.{user_id},user_id.is.null")
+
+        response = query.order("processed_on", desc=True).limit(1).execute()
 
         if not response.data:
             logger.warning(f"No playlist stats found for {playlist_url}")
