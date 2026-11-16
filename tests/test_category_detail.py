@@ -6,6 +6,8 @@ import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 supabase_stub = types.ModuleType("supabase")
 supabase_stub.Client = object
 supabase_stub.create_client = lambda *args, **kwargs: None
@@ -321,7 +323,10 @@ def test_get_topic_category_country_creators_filters_country_and_category(monkey
     call = fake_client.calls[0]
     assert call["ilike"][0] == "topic_categories"
     assert ("country_code", "US") in call["eq"]
-    assert call["order"]["args"] == ("current_subscribers",)
+    assert call["order_calls"] == [
+        {"args": ("current_subscribers",), "kwargs": {"desc": True}},
+        {"args": ("id",), "kwargs": {"desc": False}},
+    ]
 
 
 def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
@@ -484,10 +489,10 @@ def test_fetch_country_page_uses_country_specific_query(monkeypatch):
 
 
 def test_fetch_ranking_page_uses_topic_category_country_query(monkeypatch):
-    page_result = db_lists.TopicCategoryPageResult(
-        creators=[{"channel_name": "Gaming Channel", "current_subscribers": 1000}],
-        total_count=41,
-    )
+    page_result = [
+        {"channel_name": f"Gaming Channel {rank}", "current_subscribers": 1000 - rank}
+        for rank in range(1, 22)
+    ]
 
     monkeypatch.setattr(
         lists_routes,
@@ -497,23 +502,41 @@ def test_fetch_ranking_page_uses_topic_category_country_query(monkeypatch):
     mock_get = MagicMock(return_value=page_result)
     monkeypatch.setattr(lists_routes, "get_topic_category_country_creators", mock_get)
 
-    creators, total_count, total_pages, category_name, country_code = (
-        lists_routes._fetch_ranking_page(
-            "gaming",
-            "united-states",
-            page=2,
-        )
+    creators, has_more, category_name, country_code = lists_routes._fetch_ranking_page(
+        "gaming",
+        "united-states",
+        page=2,
     )
 
     assert category_name == "Video game culture"
     assert country_code == "US"
-    assert total_count == 41
-    assert total_pages == 3
-    assert creators[0]["channel_name"] == "Gaming Channel"
+    assert has_more is True
+    assert len(creators) == 20
+    assert creators[0]["channel_name"] == "Gaming Channel 1"
+    assert creators[-1]["channel_name"] == "Gaming Channel 20"
     mock_get.assert_called_once_with(
         "Video game culture",
         "US",
-        limit=20,
+        limit=21,
         offset=20,
-        return_count=True,
+        return_count=False,
     )
+
+
+@pytest.mark.parametrize("creator_count", [0, 5, 20])
+def test_fetch_ranking_page_has_no_next_page_for_empty_or_last_page(monkeypatch, creator_count):
+    monkeypatch.setattr(
+        lists_routes,
+        "resolve_ranking_category_slug",
+        lambda slug: "Video game culture",
+    )
+
+    def fetch_page(*args, **kwargs):
+        return [{"channel_name": f"Creator {rank}"} for rank in range(creator_count)]
+
+    monkeypatch.setattr(lists_routes, "get_topic_category_country_creators", fetch_page)
+
+    creators, has_more, _, _ = lists_routes._fetch_ranking_page("gaming", "united-states", page=2)
+
+    assert len(creators) == creator_count
+    assert has_more is False

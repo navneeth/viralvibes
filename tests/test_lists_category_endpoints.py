@@ -620,16 +620,12 @@ def test_category_detail_more_route_happy_path(monkeypatch):
 
 
 def test_ranking_detail_route_renders_category_country_page(monkeypatch):
+    creators = [{"channel_name": "Gaming creator", "id": "creator-1"}]
+    fetch_page = MagicMock(return_value=(creators, True, "Video game culture", "US"))
     monkeypatch.setattr(
         lists_routes,
         "_fetch_ranking_page",
-        lambda category_slug, country_slug, page: (
-            [{"channel_name": "A"}],
-            21,
-            2,
-            "Video game culture",
-            "US",
-        ),
+        fetch_page,
     )
 
     captured = {}
@@ -650,8 +646,9 @@ def test_ranking_detail_route_renders_category_country_page(monkeypatch):
     assert out["country_slug"] == "united-states"
     assert out["category_name"] == "Video game culture"
     assert out["country_code"] == "US"
-    assert out["total_count"] == 21
-    assert out["total_pages"] == 2
+    assert out["creators"] == creators
+    assert out["has_more"] is True
+    fetch_page.assert_called_once_with("gaming", "united-states", 1)
 
 
 def test_ranking_detail_more_route_requires_slugs(monkeypatch):
@@ -663,16 +660,12 @@ def test_ranking_detail_more_route_requires_slugs(monkeypatch):
 
 
 def test_ranking_detail_more_route_happy_path(monkeypatch):
+    creators = [{"channel_name": "Gaming creator", "id": "creator-1"}]
+    fetch_page = MagicMock(return_value=(creators, True, "Video game culture", "US"))
     monkeypatch.setattr(
         lists_routes,
         "_fetch_ranking_page",
-        lambda category_slug, country_slug, page: (
-            [{"channel_name": "A"}],
-            21,
-            2,
-            "Video game culture",
-            "US",
-        ),
+        fetch_page,
     )
 
     captured = {}
@@ -685,7 +678,7 @@ def test_ranking_detail_more_route_happy_path(monkeypatch):
 
     out = lists_routes.ranking_detail_more_route(
         _ranking_req(
-            query_params={"page": "1"},
+            query_params={"page": "2"},
             category_slug="gaming",
             country_slug="united-states",
         )
@@ -695,5 +688,7 @@ def test_ranking_detail_more_route_happy_path(monkeypatch):
     assert out["country_slug"] == "united-states"
     assert out["category_name"] == "Video game culture"
     assert out["country_code"] == "US"
-    assert out["page"] == 1
-    assert out["total_pages"] == 2
+    assert out["creators"] == creators
+    assert out["page"] == 2
+    assert out["has_more"] is True
+    fetch_page.assert_called_once_with("gaming", "united-states", 2)

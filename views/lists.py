@@ -582,19 +582,21 @@ def _page_based_load_more_button(
     endpoint_url: str,
     section_type: str,
     page: int,
-    total_pages: int,
+    total_pages: int | None = None,
+    has_more: bool | None = None,
 ) -> Div:
     """
-    HTMX "Load More" button for page-based detail views (country/category/language).
+    HTMX "Load More" button for page-based detail views.
 
     Generates a button that fetches the next page and appends rows to a list,
     or an empty out-of-band placeholder when at the last page.
 
     Args:
         endpoint_url: Full URL with {section_type} (e.g., "/lists/country/US/more")
-        section_type: "country", "category", or "language" — used for ID names
+        section_type: List type used for IDs (country/category/language/ranking).
         page: Current page number (1-based)
-        total_pages: Total number of pages
+        total_pages: Total number of pages for count-based pagination.
+        has_more: Whether another page exists when totals are not available.
 
     Returns:
         Div with load-more button or empty OOB placeholder
@@ -602,6 +604,7 @@ def _page_based_load_more_button(
     list_id = f"{section_type}-creators-list"
     btn_id = f"{section_type}-load-more-btn"
 
+    show_button = has_more if has_more is not None else page < (total_pages or 1)
     return (
         Div(
             Button(
@@ -615,7 +618,7 @@ def _page_based_load_more_button(
             hx_swap_oob="true",
             cls="mt-8 text-center",
         )
-        if page < total_pages
+        if show_button
         else Div(id=btn_id, hx_swap_oob="true")
     )
 
@@ -1735,8 +1738,7 @@ def render_ranking_detail_page(
     country_slug: str,
     creators: list[dict],
     page: int = 1,
-    total_pages: int = 1,
-    total_count: int = 0,
+    has_more: bool = False,
     page_size: int = 20,
     category_name: str | None = None,
     country_code: str | None = None,
@@ -1750,7 +1752,7 @@ def render_ranking_detail_page(
     flag = get_country_flag(country_code) if country_code else ""
 
     start_rank = (page - 1) * page_size + 1
-    end_rank = min(page * page_size, total_count)
+    end_rank = start_rank + len(creators) - 1
 
     return Div(
         Div(
@@ -1763,7 +1765,7 @@ def render_ranking_detail_page(
                         cls="text-3xl sm:text-4xl font-bold text-foreground",
                     ),
                     P(
-                        f"{format_number(total_count)} {display_name} creators in {country_name}, ranked by subscriber count.",
+                        f"{display_name} YouTube creators in {country_name}, ranked by subscriber count.",
                         cls="text-muted-foreground mt-1",
                     ),
                     cls="flex-1 min-w-0",
@@ -1787,11 +1789,15 @@ def render_ranking_detail_page(
             cls="pt-6 pb-4 border-b border-border",
         ),
         (
-            _empty_detail_state(f"No {display_name} creators in {country_name} yet.")
-            if not total_count
+            _empty_detail_state(
+                f"No {display_name} creators found on this page."
+                if page > 1
+                else f"No {display_name} creators in {country_name} yet."
+            )
+            if not creators
             else Div(
                 P(
-                    f"Showing {format_number(start_rank)}-{format_number(end_rank)} of {format_number(total_count)} creators",
+                    f"Showing creators {format_number(start_rank)}-{format_number(end_rank)}",
                     cls="text-sm text-muted-foreground mb-6",
                 ),
                 Div(
@@ -1817,7 +1823,7 @@ def render_ranking_detail_page(
                 id="ranking-load-more-btn",
                 cls="mt-8 text-center",
             )
-            if page < total_pages
+            if has_more
             else None
         ),
         cls="max-w-4xl mx-auto px-4 pb-16",
@@ -1829,8 +1835,7 @@ def render_ranking_creators_rows(
     country_slug: str,
     creators: list[dict],
     page: int = 1,
-    total_pages: int = 1,
-    total_count: int = 0,
+    has_more: bool = False,
     page_size: int = 20,
     category_name: str | None = None,
     country_code: str | None = None,
@@ -1842,7 +1847,7 @@ def render_ranking_creators_rows(
         endpoint_url=f"/rankings/{category_slug}/{country_slug}/more",
         section_type="ranking",
         page=page,
-        total_pages=total_pages,
+        has_more=has_more,
     )
     return (*rows, next_btn)
 
