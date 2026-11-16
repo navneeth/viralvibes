@@ -907,6 +907,7 @@ def preview_playlist(playlist_url: str, req, sess):
     return preview_playlist_controller(
         playlist_url,
         authenticated=bool(sess and sess.get("auth")),
+        user_id=(sess.get("user_id") if sess and sess.get("auth") else None),
     )
 
 

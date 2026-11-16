@@ -390,7 +390,7 @@ class TestURLValidationAndPreview:
         )
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
+            lambda url, **kwargs: make_test_preview_data(),
         )
 
         response = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
@@ -412,7 +412,7 @@ class TestURLValidationAndPreview:
         )
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
+            lambda url, **kwargs: make_test_preview_data(),
         )
 
         response = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
@@ -420,6 +420,62 @@ class TestURLValidationAndPreview:
         assert response.status_code == 200
         assert "Create a free account for full analysis" in response.text
         assert 'hx-post="/validate/full"' in response.text
+
+    def test_authenticated_preview_checks_user_scoped_cache(self, monkeypatch):
+        cache_lookups = []
+
+        def get_cache(url, user_id=None, check_date=True):
+            cache_lookups.append(user_id)
+            return {"title": "User Cache", "df_json": "[]"} if user_id else None
+
+        monkeypatch.setattr("controllers.preview.get_cached_playlist_stats", get_cache)
+
+        from fasthtml.common import to_xml
+
+        html = to_xml(
+            main.preview_playlist(
+                playlist_url=TEST_PLAYLIST_URL,
+                req=SimpleNamespace(),
+                sess={"auth": True, "user_id": "user-123"},
+            )
+        )
+
+        assert cache_lookups == ["user-123"]
+        assert "htmx.ajax('POST', '/validate/full'" in html
+
+    @pytest.mark.parametrize("user_id", [None, "user-123"])
+    def test_preview_info_scopes_rows_and_selects_latest(self, monkeypatch, user_id):
+        query = MagicMock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.is_.return_value = query
+        query.or_.return_value = query
+        query.order.return_value = query
+        query.limit.return_value = query
+        query.execute.return_value = SimpleNamespace(
+            data=[
+                {
+                    "title": "Newest visible playlist",
+                    "channel_name": "Visible channel",
+                    "channel_thumbnail": None,
+                    "summary_stats": {"actual_playlist_count": 4},
+                }
+            ]
+        )
+        client = MagicMock()
+        client.table.return_value = query
+        monkeypatch.setattr(db, "supabase_client", client)
+
+        info = db.get_playlist_preview_info(
+            TEST_PLAYLIST_URL, user_id=user_id, scope_to_user=True
+        )
+
+        if user_id is None:
+            query.is_.assert_called_once_with("user_id", None)
+        else:
+            query.or_.assert_called_once_with("user_id.eq.user-123,user_id.is.null")
+        query.order.assert_called_once_with("processed_on", desc=True)
+        assert info["title"] == "Newest visible playlist"
 
     def test_full_analysis_auth_prompt_preserves_playlist_for_after_signup(self):
         replacement_url = "https://www.youtube.com/playlist?list=PLReplacement123"
@@ -630,7 +686,7 @@ class TestURLValidationAndPreview:
         )
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
+            lambda url, **kwargs: make_test_preview_data(),
         )
 
         from fasthtml.common import to_xml
@@ -667,6 +723,30 @@ class TestURLValidationAndPreview:
         assert r.status_code == 200
         assert "blocked" in r.text.lower() or "YouTube" in r.text
 
+    def test_guest_with_cached_preview_and_blocked_job_sees_preview_without_action(
+        self, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "controllers.preview.get_cached_playlist_stats",
+            lambda url, check_date=True: {"title": "Cached", "df_json": "[]"},
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_job_status",
+            lambda url: JobStatus.BLOCKED,
+        )
+        monkeypatch.setattr(
+            "controllers.preview.get_playlist_preview_info",
+            lambda url, **kwargs: make_test_preview_data(),
+        )
+
+        response = client.post("/validate/preview", data={"playlist_url": TEST_PLAYLIST_URL})
+
+        assert response.status_code == 200
+        assert "Test Playlist" in response.text
+        assert "YouTube Bot Challenge Detected" in response.text
+        assert 'hx-post="/validate/full"' not in response.text
+        assert 'hx-post="/submit-job"' not in response.text
+
     def test_preview_public_access_no_auth_required(self, client, monkeypatch):
         """Test /validate/preview is publicly accessible (no auth required)."""
         # Mock preview data
@@ -677,7 +757,7 @@ class TestURLValidationAndPreview:
         monkeypatch.setattr("controllers.preview.get_playlist_job_status", lambda url: None)
         monkeypatch.setattr(
             "controllers.preview.get_playlist_preview_info",
-            lambda url: make_test_preview_data(),
+            lambda url, **kwargs: make_test_preview_data(),
         )
 
         # No authentication - should still work
