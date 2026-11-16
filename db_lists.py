@@ -516,6 +516,7 @@ def get_topic_category_country_creators(
         query = (
             query.eq("country_code", normalized_country)
             .order("current_subscribers", desc=True)
+            .order("id", desc=False)
             .limit(limit)
         )
         if offset:

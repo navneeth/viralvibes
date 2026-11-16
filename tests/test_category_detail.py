@@ -323,7 +323,10 @@ def test_get_topic_category_country_creators_filters_country_and_category(monkey
     call = fake_client.calls[0]
     assert call["ilike"][0] == "topic_categories"
     assert ("country_code", "US") in call["eq"]
-    assert call["order"]["args"] == ("current_subscribers",)
+    assert call["order_calls"] == [
+        {"args": ("current_subscribers",), "kwargs": {"desc": True}},
+        {"args": ("id",), "kwargs": {"desc": False}},
+    ]
 
 
 def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
