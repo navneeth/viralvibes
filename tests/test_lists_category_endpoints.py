@@ -625,8 +625,7 @@ def test_ranking_detail_route_renders_category_country_page(monkeypatch):
         "_fetch_ranking_page",
         lambda category_slug, country_slug, page: (
             [{"channel_name": "A"}],
-            21,
-            2,
+            True,
             "Video game culture",
             "US",
         ),
@@ -650,8 +649,7 @@ def test_ranking_detail_route_renders_category_country_page(monkeypatch):
     assert out["country_slug"] == "united-states"
     assert out["category_name"] == "Video game culture"
     assert out["country_code"] == "US"
-    assert out["total_count"] == 21
-    assert out["total_pages"] == 2
+    assert out["has_more"] is True
 
 
 def test_ranking_detail_more_route_requires_slugs(monkeypatch):
@@ -668,8 +666,7 @@ def test_ranking_detail_more_route_happy_path(monkeypatch):
         "_fetch_ranking_page",
         lambda category_slug, country_slug, page: (
             [{"channel_name": "A"}],
-            21,
-            2,
+            True,
             "Video game culture",
             "US",
         ),
@@ -696,4 +693,4 @@ def test_ranking_detail_more_route_happy_path(monkeypatch):
     assert out["category_name"] == "Video game culture"
     assert out["country_code"] == "US"
     assert out["page"] == 1
-    assert out["total_pages"] == 2
+    assert out["has_more"] is True

@@ -430,7 +430,7 @@ def _fetch_ranking_page(
     category_slug: str,
     country_slug: str,
     page: int,
-) -> tuple[list, int, int, str, str | None]:
+) -> tuple[list, bool, str, str | None]:
     """Fetch creators for a public category/country ranking landing page."""
     decoded_slug = unquote(category_slug)
     category_name = (
@@ -440,21 +440,18 @@ def _fetch_ranking_page(
     )
     country_code = resolve_country_slug(country_slug)
     if not country_code:
-        return [], 0, 1, category_name, None
+        return [], False, category_name, None
 
     result = get_topic_category_country_creators(
         category_name,
         country_code,
-        limit=DETAIL_PAGE_LIMIT,
+        limit=DETAIL_PAGE_LIMIT + 1,
         offset=(page - 1) * DETAIL_PAGE_LIMIT,
-        return_count=True,
+        return_count=False,
     )
-    creators = result.creators if result else []
-    total_count = result.total_count if result else 0
-    total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
-    )
-    return creators, total_count, total_pages, category_name, country_code
+    creators = result or []
+    has_more = len(creators) > DETAIL_PAGE_LIMIT
+    return creators[:DETAIL_PAGE_LIMIT], has_more, category_name, country_code
 
 
 def ranking_detail_route(request, category_slug: str, country_slug: str):
@@ -463,7 +460,7 @@ def ranking_detail_route(request, category_slug: str, country_slug: str):
     country_slug = country_slug.lower()
     page = _parse_page(request)
 
-    creators, total_count, total_pages, category_name, country_code = _fetch_ranking_page(
+    creators, has_more, category_name, country_code = _fetch_ranking_page(
         category_slug,
         country_slug,
         page,
@@ -476,8 +473,7 @@ def ranking_detail_route(request, category_slug: str, country_slug: str):
         country_code=country_code,
         creators=creators,
         page=page,
-        total_pages=total_pages,
-        total_count=total_count,
+        has_more=has_more,
         page_size=DETAIL_PAGE_LIMIT,
     )
 
@@ -494,7 +490,7 @@ def ranking_detail_more_route(request):
         return Div("Error: Invalid ranking", cls="text-red-500")
 
     page = _parse_page(request)
-    creators, total_count, total_pages, category_name, country_code = _fetch_ranking_page(
+    creators, has_more, category_name, country_code = _fetch_ranking_page(
         category_slug,
         country_slug,
         page,
@@ -507,8 +503,7 @@ def ranking_detail_more_route(request):
         country_code=country_code,
         creators=creators,
         page=page,
-        total_pages=total_pages,
-        total_count=total_count,
+        has_more=has_more,
         page_size=DETAIL_PAGE_LIMIT,
     )
 
