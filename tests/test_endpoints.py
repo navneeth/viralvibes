@@ -466,9 +466,7 @@ class TestURLValidationAndPreview:
         client.table.return_value = query
         monkeypatch.setattr(db, "supabase_client", client)
 
-        info = db.get_playlist_preview_info(
-            TEST_PLAYLIST_URL, user_id=user_id, scope_to_user=True
-        )
+        info = db.get_playlist_preview_info(TEST_PLAYLIST_URL, user_id=user_id, scope_to_user=True)
 
         if user_id is None:
             query.is_.assert_called_once_with("user_id", None)
