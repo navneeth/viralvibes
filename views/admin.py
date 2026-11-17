@@ -357,6 +357,7 @@ def _QueueSection(data: dict) -> Div:
     oldest_str = _fmt_age(data.get("oldest_pending_secs"))
     warn_pending = pending > 100_000
     warn_failed = data["queue_failed"] > 0
+    creator_add_requests = data.get("creator_add_requests")
 
     failed_quota = data.get("failed_quota", 0)
     failed_invalid = data.get("failed_invalid", 0)
@@ -404,7 +405,13 @@ def _QueueSection(data: dict) -> Div:
             _StatCard(
                 "Failed", data["queue_failed"], "need manual review", "red", warn=warn_failed
             ),
-            cols_md=3,
+            _StatCard(
+                "Creator Requests",
+                creator_add_requests if isinstance(creator_add_requests, int) else "Unavailable",
+                "accepted rows, all-time",
+                "blue",
+            ),
+            cols_md=4,
             gap=4,
         ),
         (failed_detail if warn_failed else None),

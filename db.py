@@ -1481,7 +1481,7 @@ def queue_creator_add_request(
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
             .select("id", count="exact")
             .eq("requested_by", user_id)
-            .eq("job_type", "resolve_and_add")
+            .eq("source", "user_add")
             .gte("created_at", window_start)
             .execute()
         )

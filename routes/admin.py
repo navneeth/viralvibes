@@ -271,6 +271,7 @@ def _fetch_admin_data() -> dict:
         "queue_pending": 0,
         "queue_processing": 0,
         "queue_failed": 0,
+        "creator_add_requests": None,
         # Creator sync health (None means unavailable, not zero)
         "creator_sync_health_available": False,
         "creator_sync_ready_jobs": None,
@@ -422,6 +423,19 @@ def _fetch_admin_data() -> dict:
                 data["oldest_pending_secs"] = int((now - dt).total_seconds())
     except Exception:
         logger.exception("[Admin] Job queue queries failed")
+
+    # Keep this independent so count failures do not hide the rest of queue health.
+    try:
+        data["creator_add_requests"] = (
+            sc.table("creator_sync_jobs")
+            .select("id", count="exact")
+            .eq("source", "user_add")
+            .execute()
+            .count
+            or 0
+        )
+    except Exception:
+        logger.exception("[Admin] Creator add request count failed")
 
     # ── Throughput counts ──────────────────────────────────────────────────────
     try:
