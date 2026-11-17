@@ -3600,7 +3600,7 @@ _CREATORS_LIST_COLUMNS = (
     "primary_category,topic_categories,country_code,default_language,"
     # Stats (subs / views / videos + 30-day deltas)
     "current_subscribers,current_view_count,current_video_count,"
-    "subscribers_change_30d,views_change_30d,videos_change_30d,"
+    "subscribers_change_30d,views_change_30d,videos_change_30d,growth_window_days,"
     # Engagement / quality
     "engagement_score,quality_grade,monthly_uploads,"
     "avg_views_10,avg_days_between_uploads,"

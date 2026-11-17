@@ -47,6 +47,7 @@ REQUIRED_COLUMNS = frozenset(
         "subscribers_change_30d",
         "views_change_30d",
         "videos_change_30d",
+        "growth_window_days",
         # Engagement / quality
         "engagement_score",
         "quality_grade",
