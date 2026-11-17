@@ -65,7 +65,8 @@ def test_admin_data_counts_persisted_user_creator_requests(monkeypatch):
     data = _fetch_admin_data()
 
     assert data["creator_add_requests"] == 26
-    query.eq.assert_any_call("source", "user_add")
+    client.table.assert_any_call("creator_add_request_history")
+    query.select.assert_any_call("job_id", count="exact")
 
 
 def test_queue_section_shows_creator_request_count_or_unavailable():

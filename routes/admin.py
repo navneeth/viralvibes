@@ -427,11 +427,7 @@ def _fetch_admin_data() -> dict:
     # Keep this independent so count failures do not hide the rest of queue health.
     try:
         data["creator_add_requests"] = (
-            sc.table("creator_sync_jobs")
-            .select("id", count="exact")
-            .eq("source", "user_add")
-            .execute()
-            .count
+            sc.table("creator_add_request_history").select("job_id", count="exact").execute().count
             or 0
         )
     except Exception:
