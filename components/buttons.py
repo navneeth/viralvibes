@@ -163,10 +163,11 @@ def ViralVibesButton(
 # ---------------------------------------------------------------------------
 
 _EST_REVENUE_DETAIL = (
-    "ViralVibes estimates this from public view, subscriber, and upload data combined "
-    "with country-level CPM benchmarks and category multipliers. "
-    "YouTube doesn\u2019t expose revenue, CPM, or monetisation data for channels you "
-    "don\u2019t own \u2014 this is our own model, not a number from YouTube\u2019s API."
+    "Estimated monthly ad revenue only, excluding sponsorships and merchandise. "
+    "Uses public subscriber counts and lifetime views averaged over channel age, "
+    "adjusted by measured view growth where available. Channel country is only an "
+    "audience proxy; audience geography, Shorts mix and monetisation are unknown. "
+    "This is a low-confidence model estimate, not verified earnings from YouTube."
 )
 _EST_MOMENTUM_DETAIL = (
     "ViralVibes-computed score derived from 30-day subscriber and view velocity. "

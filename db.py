@@ -2975,7 +2975,8 @@ _PEER_CREATOR_FIELDS_FOR_DISPLAY = (
     "id, channel_name, channel_url, custom_url, "
     "channel_thumbnail_url, channel_description, "
     "current_subscribers, current_view_count, current_video_count, "
-    "subscribers_change_30d, views_change_30d, "
+    "subscribers_change_30d, views_change_30d, growth_window_days, channel_age_days, "
+    "topic_categories, is_made_for_kids, hidden_subscriber_count, sync_status, "
     "engagement_score, quality_grade, primary_category, "
     "country_code, default_language, "
     "has_contact_info, contact_signals_extracted_at"
@@ -2989,7 +2990,8 @@ _PEER_CREATOR_FIELDS_WITH_CONTACT = (
     "id, channel_id, channel_name, channel_url, custom_url, "
     "channel_thumbnail_url, channel_description, keywords, "
     "current_subscribers, current_view_count, current_video_count, "
-    "subscribers_change_30d, views_change_30d, "
+    "subscribers_change_30d, views_change_30d, growth_window_days, channel_age_days, "
+    "topic_categories, is_made_for_kids, hidden_subscriber_count, sync_status, "
     "engagement_score, quality_grade, primary_category, "
     "country_code, default_language, "
     "has_contact_info, contact_signals_extracted_at, "
@@ -3075,11 +3077,22 @@ def get_embedding_peers(
         creators_by_id: dict[str, dict] = {}
         for i in range(0, len(fetch_ids), _HYDRATION_BATCH_SIZE):
             batch = fetch_ids[i : i + _HYDRATION_BATCH_SIZE]
-            batch_resp = _db_execute(
-                lambda b=batch: (
-                    supabase_client.table(CREATOR_TABLE).select(fields).in_("id", b).execute()
+
+            def fetch_batch(columns):
+                return _db_execute(
+                    lambda: supabase_client.table(CREATOR_TABLE)
+                    .select(columns)
+                    .in_("id", batch)
+                    .execute()
                 )
-            )
+
+            try:
+                batch_resp = fetch_batch(fields)
+            except Exception as exc:
+                if not _is_missing_growth_window_error(exc):
+                    raise
+                fields = _without_growth_window(fields)
+                batch_resp = fetch_batch(fields)
             for c in batch_resp.data or []:
                 creators_by_id[c["id"]] = c
 
@@ -3600,7 +3613,7 @@ _CREATORS_LIST_COLUMNS = (
     "primary_category,topic_categories,country_code,default_language,"
     # Stats (subs / views / videos + 30-day deltas)
     "current_subscribers,current_view_count,current_video_count,"
-    "subscribers_change_30d,views_change_30d,videos_change_30d,"
+    "subscribers_change_30d,views_change_30d,videos_change_30d,growth_window_days,"
     # Engagement / quality
     "engagement_score,quality_grade,monthly_uploads,"
     "avg_views_10,avg_days_between_uploads,"
@@ -3769,6 +3782,23 @@ def _find_creator_by_normalized_handle(
     return None
 
 
+def _is_missing_growth_window_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "growth_window_days" in text and (
+        str(getattr(exc, "code", "")) in ("42703", "PGRST204")
+        or "42703" in text
+        or "pgrst204" in text
+        or "does not exist" in text
+        or ("could not find" in text and "schema cache" in text)
+    )
+
+
+def _without_growth_window(columns: str) -> str:
+    return ",".join(
+        column for column in columns.split(",") if column.strip() != "growth_window_days"
+    )
+
+
 def _is_statement_timeout_error(exc: Exception) -> bool:
     """Return True when Postgres canceled a query with statement timeout."""
     text = str(exc).lower()
@@ -3924,6 +3954,8 @@ def get_creators(
     return_count: bool = False,
     cursor_value: any = None,  # New: for keyset/cursor pagination
     count_strategy: str = "estimated",
+    *,
+    _include_growth_window: bool = True,
 ) -> list[dict] | CreatorsResult:
     """
     Fetch creators for frontend display with comprehensive filtering and sorting.
@@ -4078,7 +4110,11 @@ def get_creators(
             count_strategy if count_strategy in ("exact", "planned", "estimated") else "estimated"
         )
         query = supabase_client.table(CREATOR_TABLE).select(
-            _CREATORS_LIST_COLUMNS,
+            (
+                _CREATORS_LIST_COLUMNS
+                if _include_growth_window
+                else _without_growth_window(_CREATORS_LIST_COLUMNS)
+            ),
             count=_resolved_count_strategy if (return_count and not _use_mv_count) else None,
         )
 
@@ -4242,6 +4278,24 @@ def get_creators(
             # that may leave an expensive database scan running.
             response = _db_execute_readonly_without_read_timeout(lambda: query.execute())
         except Exception as e:
+            if _include_growth_window and _is_missing_growth_window_error(e):
+                logger.warning("Creator growth window unavailable; retrying without optional field")
+                return get_creators(
+                    search=search,
+                    sort=sort,
+                    grade_filter=grade_filter,
+                    language_filter=language_filter,
+                    activity_filter=activity_filter,
+                    age_filter=age_filter,
+                    country_filter=country_filter,
+                    category_filter=category_filter,
+                    limit=limit,
+                    offset=offset,
+                    return_count=return_count,
+                    cursor_value=cursor_value,
+                    count_strategy=count_strategy,
+                    _include_growth_window=False,
+                )
             _query_dur_ms = int((time.perf_counter() - _query_t0) * 1000)
             if search and no_extra_filters and offset == 0 and _is_statement_timeout_error(e):
                 # Guard the fallback lookup: if it raises during timeout

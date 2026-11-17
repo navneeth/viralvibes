@@ -39,7 +39,6 @@ from utils.creator_metrics import (
     calculate_growth_rate,
     calculate_momentum_score,
     calculate_views_per_subscriber,
-    estimate_monthly_revenue_v4,
     get_momentum_label,
     format_channel_age,
     get_activity_badge,
@@ -52,6 +51,7 @@ from utils.creator_metrics import (
     get_language_name,
     get_sync_status_badge,
 )
+from utils.revenue_model import estimate_creator_ad_revenue
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from services.creator_topics import parse_creator_topics
@@ -2051,10 +2051,14 @@ def _build_primary_metrics(
     )
 
 
+def _format_ad_revenue(amount: float | None) -> str:
+    return f"${format_number(round(amount))}" if amount is not None else "Unavailable"
+
+
 def _build_performance_metrics(
     avg_views_per_video: int,
     current_videos: int,
-    estimated_revenue: int,
+    estimated_revenue: float | None,
     views_per_sub: float,
 ) -> Div:
     """Build performance metrics grid."""
@@ -2102,16 +2106,16 @@ def _build_performance_metrics(
         Div(
             Div(
                 P(
-                    "EST. REVENUE",
+                    "EST. AD REVENUE",
                     cls="text-xs font-semibold text-green-700 dark:text-green-400 uppercase",
                 ),
                 EstimatedBadge(),
                 cls="flex items-center justify-center gap-1.5",
             ),
             P(
-                f"${format_number(estimated_revenue)}",
+                _format_ad_revenue(estimated_revenue),
                 cls="text-lg font-bold text-green-600 dark:text-green-400 mt-1 truncate",
-                title=f"${estimated_revenue:,}/month est.",
+                title=f"{_format_ad_revenue(estimated_revenue)} / month; ad revenue only",
             ),
             P("/month est.", cls="text-xs text-green-600 dark:text-green-400"),
             cls="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
@@ -2655,16 +2659,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     is_made_for_kids = bool(safe_get_value(creator, "is_made_for_kids", False))
     has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status", False))
 
-    # v4 revenue model — uses country + niche for accurate CPM, Shorts split, sponsorships
-    _rev = estimate_monthly_revenue_v4(
-        total_subs=current_subs,
-        total_views=current_views,
-        video_count=current_videos,
-        country_code=country_code or "US",
-        niche=primary_category,
-    )
-    # Round to the nearest whole dollar instead of truncating to avoid systematic under-reporting
-    estimated_revenue = round(_rev["est_monthly_total"])
+    estimated_revenue = estimate_creator_ad_revenue(creator).monthly_usd
     keywords = safe_get_value(creator, "keywords", "")
 
     info_strip = _build_info_strip(
@@ -3243,7 +3238,7 @@ def _count_by_grade(creators: list[dict]) -> dict:
 
 # NOTE: Helper functions moved to utils/creator_metrics.py for better organization
 # - get_language_emoji, get_language_name, get_activity_badge
-# - estimate_monthly_revenue_v4 (revenue model)
+# - estimate_creator_ad_revenue (versioned ad-only revenue model)
 
 
 # ============================================================================
@@ -3611,17 +3606,8 @@ def render_creator_profile_page(
         upload_cadence = f"every {format_float(30.0 / monthly_uploads, 1)} days"
     else:
         upload_cadence = None
-    # v4 revenue model — country + niche-aware, Shorts-split, sponsorships included
-    _rev = estimate_monthly_revenue_v4(
-        total_subs=current_subs,
-        total_views=current_views,
-        video_count=current_videos,
-        country_code=country_code or "US",
-        niche=primary_category or "general",
-    )
-    estimated_revenue = int(_rev["est_monthly_total"])
-    revenue_split = _rev["revenue_split"]
-    assumed_shorts_pct = _rev["assumed_shorts_pct"]
+    revenue_estimate = estimate_creator_ad_revenue(creator)
+    estimated_revenue = revenue_estimate.monthly_usd
     handle_display = f"@{custom_url.lstrip('@')}" if custom_url else ""
     country_flag = get_country_flag(country_code) if country_code else ""
     lang_emoji = get_language_emoji(language) if language else ""
@@ -3959,8 +3945,12 @@ def render_creator_profile_page(
             "bg-accent",
         ),
         _stat_card(
-            "Est. Revenue",
-            f"${format_number(estimated_revenue)}/mo",
+            "Est. Ad Revenue",
+            (
+                f"{_format_ad_revenue(estimated_revenue)}/mo"
+                if estimated_revenue is not None
+                else "Unavailable"
+            ),
             None,
             "text-emerald-600 dark:text-emerald-400",
             "bg-emerald-50 dark:bg-emerald-950/40",
@@ -4423,61 +4413,40 @@ def render_creator_profile_page(
         secondary_metrics,
         *([creator_insight] if creator_insight else []),
         trend_section,
-        # ── Revenue breakdown (v4 model) ─────────────────────────────────────
         Div(
             DivFullySpaced(
                 Div(
                     UkIcon("circle-dollar-sign", cls="w-4 h-4 text-emerald-500 mr-1.5"),
                     Span(
-                        "Est. Monthly Revenue",
+                        "Est. Monthly Ad Revenue",
                         cls=_CLS_LABEL,
                     ),
                     EstimatedBadge(),
                     cls="flex items-center gap-1.5",
                 ),
                 Span(
-                    f"${format_number(estimated_revenue)}",
+                    _format_ad_revenue(estimated_revenue),
                     cls="text-sm font-bold text-emerald-600 dark:text-emerald-400",
                 ),
-                cls="mb-2",
+                cls="mb-2 flex-wrap gap-x-3 gap-y-2",
             ),
-            Div(
-                _perf_row(
-                    "AdSense — long-form",
-                    f"${format_number(revenue_split['adsense_long'])}",
-                    "text-emerald-600 dark:text-emerald-400",
-                ),
-                _perf_row(
-                    "AdSense — Shorts",
-                    f"${format_number(revenue_split['adsense_shorts'])}",
-                    "text-emerald-600 dark:text-emerald-400",
-                ),
-                _perf_row(
-                    "Brand deals (est.)",
-                    f"${format_number(revenue_split['brand_deals'])}",
-                    "text-emerald-600 dark:text-emerald-400",
-                ),
-                _perf_row(
-                    "Assumed Shorts mix",
-                    assumed_shorts_pct,
+            _perf_row(
+                "Scenario range / month",
+                (
+                    f"{_format_ad_revenue(revenue_estimate.low_usd)} - {_format_ad_revenue(revenue_estimate.high_usd)}"
+                    if estimated_revenue is not None
+                    else "Unavailable"
                 ),
             ),
-            # Kids content warning — AdSense CPM drops ~90%; brand deals unavailable
-            *(
-                [
-                    Div(
-                        UkIcon("alert-triangle", cls="w-3.5 h-3.5 text-yellow-500 shrink-0 mt-0.5"),
-                        P(
-                            "Made for Kids content earns ~90% less via AdSense and "
-                            "is ineligible for brand sponsorships. These estimates assume standard rates.",
-                            cls="text-xs text-yellow-800 dark:text-yellow-300 leading-relaxed",
-                        ),
-                        cls="flex items-start gap-2 mt-2 p-2.5 rounded-lg "
-                        "bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800",
-                    )
-                ]
-                if is_made_for_kids
-                else []
+            P(
+                "Ad revenue only; excludes sponsorships and merchandise. "
+                "Public-data estimate, not verified earnings. The range is not a confidence interval.",
+                cls="text-xs text-muted-foreground mt-2",
+            ),
+            P(
+                f"Confidence: {revenue_estimate.confidence.replace('_', ' ')}. "
+                f"Model: {revenue_estimate.model_version}.",
+                cls="text-xs text-muted-foreground mt-1",
             ),
             cls="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 mt-4",
         ),
