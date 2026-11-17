@@ -95,7 +95,7 @@ The sharp 500K switch is retained for fidelity, not endorsed as a natural bounda
 | Country tiers, niche multipliers, kids override, RPM guard | Retained with explicit proxy/prior labels; not asserted as verified audience or universal revenue limits. |
 | Explicit niche hint | Retained as an optional caller-provided override. Unknown hints fall back to category matching; the database adapter does not invent a hint. |
 | /3..*3 range and disagreement diagnostic | Retained as scenarios and flags, not a statistically calibrated confidence interval. |
-| Zero revenue for zero/missing subscribers | Changed: hidden/missing subscribers can still use the view component. Zero known views/videos still returns zero. |
+| Zero revenue for zero/missing subscribers or zero public videos | Changed: hidden/missing subscribers can still use the view component. Zero public videos is flagged rather than forcing zero. Known zero lifetime views still returns zero. |
 | Bare `views_30d` input from the database | Changed: normalize using the recorded observation window; unknown windows do not silently become 30 days. |
 | Infer 50% Shorts share from a view surge | Deferred: a corrupt/growing delta does not identify format. Explicit known shares work; unknown shares stay flagged. This remains a major source of error for Shorts-heavy channels. |
 | Profile fields for upload cadence and last-10 views | Not carried as unused ad-model inputs; do not imply they influence this estimate. |
@@ -136,14 +136,21 @@ particular assumptions were retired instead of keeping a second callable model.
   with `growth_window_days >= 7`, normalizing to 30 days before the ratio checks.
   Missing, negative, or nonfinite measurements are ignored. Implausibly large
   ratios are rejected; other positive ratios are clipped as in the supplied code.
+  Rows marked `synced_partial` ignore growth entirely: the worker's minimal
+  fallback can refresh counts while leaving growth from an older measurement.
 - Hidden subscribers disable the subscriber component, not the view component.
 - Country is channel location, not audience geography. Missing or unmapped
   locations use the supplied default tier, never an implicit US assumption.
 - Unknown Shorts share remains unknown (zero-share calculation assumption with
   a diagnostic flag); the unvalidated surge-based Shorts inference is not used.
+  Inputs outside 0-1 are flagged invalid and treated as unknown, never silently
+  interpreted as 100% Shorts. Such estimates carry very-low confidence.
 - Topic categories accept JSON arrays, Python lists or legacy comma-separated
   text; labels and Wikipedia URLs are normalized before niche matching.
-- Known zero views/videos produce zero. Insufficient data produces Unavailable.
+- Known zero lifetime views produce zero. Zero public videos alone does not
+  establish zero revenue from historical/unlisted content: remaining components
+  may produce a provisional estimate, flagged `no_public_videos` with very-low
+  confidence. Without usable evidence the result is Unavailable.
 - The supplied 500K blend boundary is retained. Smaller-channel extrapolations
   and single-component fallbacks are marked very low confidence; other estimates
   remain low confidence. No estimate is labeled high confidence.
@@ -198,9 +205,18 @@ and no actual observation window was available from the public card.
 
 ## Deployment Checks
 
-Migration 075 already defines `growth_window_days`; ensure it is present in the
-target database before deployment, since the explicit listing projection now
-includes it. Coefficients ship with `utils/revenue_model.py`; no separate data
-file needs bundling.
+Migration 075 already defines `growth_window_days`. Listings and peer hydration
+retry once without that optional field only for a matching missing-column or
+PostgREST schema-cache error; unrelated errors keep their existing handling.
+Without the field the model ignores the delta rather than assuming a 30-day
+measurement. Apply 075/refresh the schema cache to enable measured-window inputs.
+Both peer display and contact projections include age and the other model inputs.
+Coefficients ship with `utils/revenue_model.py`; no separate data file needs bundling.
 After deploying, check directory cards and a signed-in profile for ad-only labels,
 matching estimates, model version, missing-data behavior and scenario range.
+
+The removed v4 helper was an internal application utility, not a separately
+distributed package API. Its total-income return contract cannot be preserved
+honestly with an ad-only shim that lacks channel age. No in-repository callers
+remain; the removal is intentional and documented, not a silent compatibility
+wrapper. A verified external integration would require an explicit migration.

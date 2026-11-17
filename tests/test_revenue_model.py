@@ -105,6 +105,14 @@ def test_unknown_country_not_treated_as_us_and_small_channel_low_confidence():
         ("views_weight_small", 2),
         ("band_fold", float("nan")),
         ("delta_clip", [4, 0.25]),
+        ("delta_clip", None),
+        ("delta_clip", [1]),
+        ("delta_clip", [0.25, "4"]),
+        ("subscriber_intercept", "bad"),
+        ("subscriber_shorts_adjustment", None),
+        ("base_rpm", "1.7"),
+        ("views_weight_small", "0.6"),
+        ("band_fold", "3"),
     ],
 )
 def test_invalid_parameter_updates_are_rejected(key, value):
@@ -226,3 +234,45 @@ def test_extreme_finite_inputs_do_not_raise():
         )
     )
     assert result.monthly_usd is None or math.isfinite(result.monthly_usd)
+
+
+@pytest.mark.parametrize("share", [50, -0.5, float("nan"), "bad", True])
+def test_invalid_shorts_share_is_unknown_not_all_shorts(share):
+    profile = RevenueProfile(subscribers=1e6, total_views=120e6, channel_age_years=10)
+    baseline = estimate_monthly_ad_revenue(profile)
+    result = estimate_monthly_ad_revenue(replace(profile, shorts_share=share))
+    assert result.monthly_usd == baseline.monthly_usd
+    assert result.shorts_share is None
+    assert "invalid_shorts_share" in result.flags
+    assert result.confidence == "very_low"
+
+
+def test_zero_public_videos_does_not_erase_historical_view_evidence():
+    result = estimate_monthly_ad_revenue(
+        RevenueProfile(
+            subscribers=1e6,
+            total_views=120e6,
+            channel_age_years=10,
+            video_count=0,
+        )
+    )
+    assert result.monthly_usd > 0
+    assert result.method == "blend"
+    assert "no_public_videos" in result.flags
+    assert result.confidence == "very_low"
+    assert estimate_monthly_ad_revenue(RevenueProfile(video_count=0)).monthly_usd is None
+
+
+def test_partial_sync_does_not_apply_old_growth_to_fresh_counts():
+    creator = {
+        "current_subscribers": 1e6,
+        "current_view_count": 120e6,
+        "channel_age_days": 3652.5,
+        "sync_status": "synced_partial",
+    }
+    baseline = estimate_creator_ad_revenue(creator)
+    stale = estimate_creator_ad_revenue(
+        creator | {"views_change_30d": 4e6, "growth_window_days": 30}
+    )
+    assert stale.monthly_usd == baseline.monthly_usd
+    assert "growth_ignored_partial_sync" in stale.flags

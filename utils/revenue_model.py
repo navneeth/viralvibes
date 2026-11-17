@@ -15,7 +15,7 @@ See docs/revenue-model.md for proposal differences and the retired model.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import exp, isfinite, log, log10
 from typing import Mapping
 
@@ -96,7 +96,7 @@ NICHE_KEYWORDS = {
 class RevenueParameters:
     """Edit defaults/version together; pass a replace() copy to compare a candidate."""
 
-    version: str = "ads-2026-11-17.2"
+    version: str = "ads-2026-11-17.3"
     # FIT: log10(monthly USD) subscriber curve and Shorts-share adjustment.
     subscriber_intercept: float = -1.969
     subscriber_exponent: float = 0.906
@@ -123,7 +123,12 @@ class RevenueParameters:
     disagreement_fold: float = 6.0
 
     def __post_init__(self):
-        if not self.version:
+        def finite_number(value):
+            return (
+                isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+            )
+
+        if not isinstance(self.version, str) or not self.version:
             raise ValueError("Missing revenue model version")
         for name in (
             "base_rpm",
@@ -136,19 +141,25 @@ class RevenueParameters:
             "disagreement_fold",
         ):
             value = getattr(self, name)
-            if _number(value) is None or value <= 0:
+            if not finite_number(value) or value <= 0:
                 raise ValueError(f"Invalid revenue parameter: {name}")
         for name in ("views_weight_large", "views_weight_small", "shorts_rpm_ratio"):
-            value = _number(getattr(self, name))
-            if value is None or not 0 <= value <= 1:
+            value = getattr(self, name)
+            if not finite_number(value) or not 0 <= value <= 1:
                 raise ValueError(f"Invalid revenue parameter: {name}")
         for value in (self.subscriber_intercept, self.subscriber_shorts_adjustment):
-            if isinstance(value, bool) or not isfinite(value):
+            if not finite_number(value):
                 raise ValueError("Invalid subscriber coefficient")
-        lower, upper = self.delta_clip
-        if _number(lower) is None or _number(upper) is None or not 0 < lower <= upper:
+        if (
+            not isinstance(self.delta_clip, (tuple, list))
+            or len(self.delta_clip) != 2
+            or not all(finite_number(value) for value in self.delta_clip)
+        ):
             raise ValueError("Invalid delta clipping range")
-        if _number(self.band_fold) is None or self.band_fold < 1:
+        lower, upper = self.delta_clip
+        if not 0 < lower <= upper:
+            raise ValueError("Invalid delta clipping range")
+        if not finite_number(self.band_fold) or self.band_fold < 1:
             raise ValueError("Invalid scenario band")
 
 
@@ -266,7 +277,10 @@ def estimate_monthly_ad_revenue(
     flags = []
     subscribers = _number(profile.subscribers)
     known_shorts_share = _number(profile.shorts_share)
-    shorts = min(known_shorts_share, 1.0) if known_shorts_share is not None else 0.0
+    if profile.shorts_share is not None and (known_shorts_share is None or known_shorts_share > 1):
+        known_shorts_share = None
+        flags.append("invalid_shorts_share")
+    shorts = known_shorts_share if known_shorts_share is not None else 0.0
     if known_shorts_share is None:
         flags.append("shorts_mix_unknown")
     country = (profile.country or "").strip().upper()
@@ -276,6 +290,8 @@ def estimate_monthly_ad_revenue(
     monthly_views = effective_rpm = structural = statistical = weight = None
 
     def result(amount, method, confidence):
+        if "no_public_videos" in flags or "invalid_shorts_share" in flags:
+            confidence = "very_low"
         band = parameters.band_fold
         if amount is not None and (not isfinite(amount) or not isfinite(amount * band)):
             amount, method, confidence = None, "unavailable", "very_low"
@@ -298,8 +314,10 @@ def estimate_monthly_ad_revenue(
             shorts_share=shorts if known_shorts_share is not None else None,
         )
 
-    if _number(profile.total_views) == 0 or _number(profile.video_count) == 0:
+    if _number(profile.total_views) == 0:
         return result(0.0, "zero", "low")
+    if _number(profile.video_count) == 0:
+        flags.append("no_public_videos")
 
     monthly_views, view_flags = estimate_monthly_views(profile, parameters)
     flags.extend(view_flags)
@@ -362,7 +380,10 @@ def estimate_creator_ad_revenue(
     delta = _number(creator.get("views_change_30d"))
     window = _number(creator.get("growth_window_days"))
     monthly_delta = delta * 30 / window if delta is not None and window and window >= 7 else None
-    return estimate_monthly_ad_revenue(
+    partial_sync = creator.get("sync_status") == "synced_partial"
+    if partial_sync:
+        monthly_delta = None
+    estimate = estimate_monthly_ad_revenue(
         RevenueProfile(
             subscribers=(
                 None
@@ -379,3 +400,6 @@ def estimate_creator_ad_revenue(
         ),
         parameters,
     )
+    if partial_sync and delta is not None:
+        return replace(estimate, flags=estimate.flags + ("growth_ignored_partial_sync",))
+    return estimate
