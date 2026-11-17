@@ -235,9 +235,7 @@ class TestQueueCreatorAddRequest:
         import db as db_module
 
         inserted_job = [{"id": 42}]
-        duplicate_query = _chainable(_make_supabase_resp(data=[]))
         rate_limit_query = _chainable(_make_supabase_resp(data=[], count=0))
-        insert_query = _chainable(_make_supabase_resp(data=inserted_job))
         call_count = {"n": 0}
 
         def make_table(name):
@@ -245,10 +243,10 @@ class TestQueueCreatorAddRequest:
                 return _chainable(_make_supabase_resp(data=[]))  # not in DB
             call_count["n"] += 1
             if call_count["n"] == 1:
-                return duplicate_query
+                return _chainable(_make_supabase_resp(data=[]))  # no dup
             if call_count["n"] == 2:
                 return rate_limit_query  # under limit
-            return insert_query
+            return _chainable(_make_supabase_resp(data=inserted_job))  # insert
 
         fake_client = SimpleNamespace(table=make_table)
         monkeypatch.setattr(db_module, "supabase_client", fake_client)
@@ -260,10 +258,8 @@ class TestQueueCreatorAddRequest:
         assert ok is True
         assert msg == "queued"
         assert creator_id is None
-        rate_limit_query.eq.assert_any_call("source", "user_add")
-        assert ("job_type", "resolve_and_add") not in [
-            call.args for call in rate_limit_query.eq.call_args_list
-        ]
+        rate_limit_query.eq.assert_any_call("requested_by", "user-1")
+        rate_limit_query.eq.assert_any_call("job_type", "resolve_and_add")
 
     def test_unique_conflict_with_pending_job_is_success(self, monkeypatch):
         import db as db_module
