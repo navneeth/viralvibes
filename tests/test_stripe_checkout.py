@@ -10,6 +10,7 @@ import main
 from db import get_latest_canceled_subscription
 from routes import stripe_checkout
 from services import stripe_service
+from services.pricing import PRO_PRICE_CENTS
 from views.my_dashboards import render_my_dashboards_page
 
 
@@ -76,19 +77,28 @@ async def test_checkout_rejects_product_id_as_price_before_calling_stripe(monkey
     [
         ("pro", "month", "STRIPE_PRICE_PRO_MONTHLY"),
         ("pro", "year", "STRIPE_PRICE_PRO_ANNUAL"),
-        ("agency", "month", "STRIPE_PRICE_AGENCY_MONTHLY"),
-        ("agency", "year", "STRIPE_PRICE_AGENCY_ANNUAL"),
     ],
 )
-async def test_checkout_creates_trial_session_for_each_paid_plan(
+async def test_checkout_creates_trial_session_for_each_pro_interval(
     monkeypatch, plan, interval, price_env
 ):
-    """Every configured plan interval reaches Stripe with its price and 7-day trial."""
+    """Every configured Pro interval reaches Stripe with its price and 7-day trial."""
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_checkout")
     monkeypatch.setenv(price_env, "price_test_selected")
     mock_session = MagicMock()
     mock_session.url = "https://checkout.stripe.com/pay/session_123"
     create_session = MagicMock(return_value=mock_session)
+    monkeypatch.setattr(
+        stripe_checkout.stripe.Price,
+        "retrieve",
+        MagicMock(
+            return_value=SimpleNamespace(
+                unit_amount=PRO_PRICE_CENTS[interval],
+                currency="usd",
+                recurring=SimpleNamespace(interval=interval, interval_count=1),
+            )
+        ),
+    )
     monkeypatch.setattr(stripe_checkout.stripe.checkout.Session, "create", create_session)
 
     response = await stripe_checkout._do_checkout(

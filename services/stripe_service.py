@@ -7,8 +7,8 @@ Environment variables required:
     STRIPE_PUBLISHABLE_KEY      pk_live_... or pk_test_...
     STRIPE_PRICE_PRO_MONTHLY    price_...
     STRIPE_PRICE_PRO_ANNUAL     price_...
-    STRIPE_PRICE_AGENCY_MONTHLY price_...
-    STRIPE_PRICE_AGENCY_ANNUAL  price_...
+    STRIPE_PRICE_AGENCY_MONTHLY price_... (legacy subscriptions only)
+    STRIPE_PRICE_AGENCY_ANNUAL  price_... (legacy subscriptions only)
     DOMAIN_URL                  https://viralvibes.fyi  (no trailing slash)
 """
 
@@ -50,8 +50,6 @@ PLAN_RANK: dict[str, int] = {"free": 0, "pro": 1, "agency": 2}
 _REQUIRED_PRICE_VARS = (
     "STRIPE_PRICE_PRO_MONTHLY",
     "STRIPE_PRICE_PRO_ANNUAL",
-    "STRIPE_PRICE_AGENCY_MONTHLY",
-    "STRIPE_PRICE_AGENCY_ANNUAL",
 )
 
 _log = _logging.getLogger(__name__)

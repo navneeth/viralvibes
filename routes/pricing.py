@@ -1,16 +1,20 @@
-"""Pricing page — Free / Pro / Agency tiers."""
+"""Pricing page — Free and Pro tiers."""
 
 from __future__ import annotations
 
 from fasthtml.common import *
 from monsterui.all import *
+from services.pricing import PRO_PRICE_USD
 
 # ---------------------------------------------------------------------------
 # Pricing data — single source of truth for all tier details
 # ---------------------------------------------------------------------------
 _PRICING = {
-    "pro": {"monthly": "$19", "annual": "$15", "annual_total": "$180"},
-    "agency": {"monthly": "$49", "annual": "$39", "annual_total": "$468"},
+    "pro": {
+        "monthly": f"${PRO_PRICE_USD['month']}",
+        "annual": f"${PRO_PRICE_USD['year'] // 12}",
+        "annual_total": f"${PRO_PRICE_USD['year']}",
+    },
     "free": {},
 }
 
@@ -23,9 +27,7 @@ _TOGGLE_SCRIPT = Script(
     var annual = true;
     var data = {{
         'pro-price':      ['{_PRICING["pro"]["annual"]}', '{_PRICING["pro"]["monthly"]}'],
-        'agency-price':   ['{_PRICING["agency"]["annual"]}', '{_PRICING["agency"]["monthly"]}'],
         'pro-billing':    ['{_PRICING["pro"]["annual_total"]} billed annually', 'Billed monthly'],
-        'agency-billing': ['{_PRICING["agency"]["annual_total"]} billed annually', 'Billed monthly'],
     }};
     function apply(announce) {{
         var i = annual ? 0 : 1;
@@ -146,7 +148,7 @@ def _pro_card(is_authenticated: bool) -> Div:
         # "Most popular" badge positioned above the card border
         Div(
             Span(
-                "Most popular",
+                "For deeper research",
                 cls="px-4 py-1 bg-red-500 text-white text-xs font-bold uppercase tracking-wider rounded-full",
             ),
             cls="absolute -top-3.5 left-1/2 -translate-x-1/2 whitespace-nowrap",
@@ -175,62 +177,14 @@ def _pro_card(is_authenticated: bool) -> Div:
         _checkout_hint(is_authenticated),
         Ul(
             _feature("Everything in Free", bold=True, color="red"),
-            _feature("Unlimited saved dashboards", color="red"),
-            _feature("Saved shortlists", color="red"),
-            _feature("Full database CSV export", color="red"),
-            _feature("Daily data refresh", color="red"),
-            _feature("Priority support", color="red"),
+            _feature("Export playlist analysis as CSV or JSON", color="red"),
+            _feature("Watchlist Pulse: saved creators ranked by 30-day growth", color="red"),
             cls="space-y-3",
         ),
         cls=(
             "bg-background rounded-2xl p-8 flex flex-col h-full relative "
             "ring-2 ring-red-500 shadow-xl shadow-red-500/10"
         ),
-    )
-
-
-def _agency_card(is_authenticated: bool) -> Div:
-    cta_label = (
-        "Start Agency free for 7 days" if is_authenticated else "Start Agency trial with Google"
-    )
-    return Div(
-        Div(
-            P(
-                "Agency",
-                cls="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2",
-            ),
-            Div(
-                Span(id="agency-price", cls="text-5xl font-extrabold text-foreground"),
-                Span("/mo", cls="text-muted-foreground text-sm ml-1 mb-2"),
-                cls="flex items-end",
-            ),
-            P(id="agency-billing", cls="text-xs text-muted-foreground mt-1"),
-            cls="mb-6",
-        ),
-        Form(
-            Input(type="hidden", name="plan", value="agency"),
-            Input(type="hidden", name="interval", value="year"),
-            Button(
-                cta_label,
-                type="submit",
-                cls=(
-                    "block w-full text-center font-semibold text-sm py-2.5 mb-8 rounded-lg "
-                    "border-2 border-foreground text-foreground "
-                    "hover:bg-foreground hover:text-background transition-colors"
-                ),
-            ),
-            method="post",
-            action="/billing/checkout",
-        ),
-        _checkout_hint(is_authenticated),
-        Ul(
-            _feature("Everything in Pro", bold=True),
-            _feature("Unlimited shortlists & creator slots"),
-            _feature("Client-shareable dashboard links"),
-            _feature("Dedicated account manager"),
-            cls="space-y-3",
-        ),
-        cls="bg-background rounded-2xl border border-border p-8 flex flex-col h-full",
     )
 
 
@@ -257,7 +211,7 @@ def _billing_toggle() -> Div:
         Div(
             Span("Annual", cls="text-sm font-semibold text-foreground"),
             Span(
-                "Save 20%",
+                "2 months free",
                 cls=(
                     "ml-1.5 px-1.5 py-0.5 text-xs font-semibold rounded-full "
                     "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
@@ -285,37 +239,22 @@ def _yes(color: str = "green") -> Div:
 
 
 def _comparison_table() -> Div:
-    def row(label, free, pro, agency):
+    def row(label, free, pro):
         return Tr(
             Td(label, cls="py-3 pr-6 text-muted-foreground text-sm"),
             Td(free, cls="py-3 px-4 text-center"),
             Td(pro, cls="py-3 px-4 text-center"),
-            Td(agency, cls="py-3 px-4 text-center"),
         )
 
     rows = [
-        row("Creator discovery & rankings", _yes(), _yes("red"), _yes()),
-        row("Creator profiles", _yes(), _yes("red"), _yes()),
-        row("Growth Blueprint", _yes(), _yes("red"), _yes()),
-        row("Side-by-side comparison", _yes(), _yes("red"), _yes()),
-        row("Playlist analysis", _yes(), _yes("red"), _yes()),
-        row(
-            "Saved dashboards",
-            _yes(),
-            Span("Unlimited", cls="text-xs font-semibold text-red-500"),
-            Span("Unlimited", cls="text-xs"),
-        ),
-        row("Outreach workspace & CSV export", _yes(), _yes("red"), _yes()),
-        row("Saved favourites & bookmarks", _yes(), _yes("red"), _yes()),
-        row(
-            "Saved shortlists",
-            _no(),
-            _yes("red"),
-            Span("Unlimited", cls="text-xs"),
-        ),
-        row("Full database CSV export", _no(), _yes("red"), _yes()),
-        row("Daily data refresh", _no(), _yes("red"), _yes()),
-        row("Client-shareable dashboard links", _no(), _no(), _yes()),
+        row("Creator discovery & rankings", _yes(), _yes("red")),
+        row("Creator profiles & Growth Blueprint", _yes(), _yes("red")),
+        row("Side-by-side comparison", _yes(), _yes("red")),
+        row("Playlist analysis", _yes(), _yes("red")),
+        row("Saved playlist dashboards", _yes(), _yes("red")),
+        row("Outreach workspace & contact export", _yes(), _yes("red")),
+        row("Playlist analysis export (CSV & JSON)", _no(), _yes("red")),
+        row("Saved creator Watchlist Pulse", _no(), _yes("red")),
     ]
 
     return Div(
@@ -333,10 +272,6 @@ def _comparison_table() -> Div:
                             cls="text-center py-3 px-4 text-foreground font-semibold text-sm",
                         ),
                         Th("Pro", cls="text-center py-3 px-4 text-red-600 font-semibold text-sm"),
-                        Th(
-                            "Agency",
-                            cls="text-center py-3 px-4 text-foreground font-semibold text-sm",
-                        ),
                         cls="border-b-2 border-border",
                     ),
                 ),
@@ -367,7 +302,7 @@ def _bottom_cta(is_authenticated: bool) -> Div:
             cls="text-2xl font-bold text-foreground mb-2",
         ),
         P(
-            "Browse 1M+ creators, run full playlist analysis, and upgrade only when you\u2019re ready.",
+            "Browse creators and analyze playlists free. Upgrade when you need exportable reports and a growth-ranked watchlist.",
             cls="text-muted-foreground mb-6",
         ),
         A(
@@ -416,7 +351,7 @@ def pricing_page_content(error: str = "", *, is_authenticated: bool) -> Div:
                 cls="text-5xl font-extrabold text-foreground mb-4",
             ),
             P(
-                "Start free. Upgrade when campaigns get serious.",
+                "Discover creators and analyze playlists free. Upgrade for reusable reports and growth tracking.",
                 cls="text-xl text-muted-foreground max-w-xl mx-auto",
             ),
             cls="text-center mb-12",
@@ -428,12 +363,11 @@ def pricing_page_content(error: str = "", *, is_authenticated: bool) -> Div:
         Div(
             _free_card(is_authenticated),
             _pro_card(is_authenticated),
-            _agency_card(is_authenticated),
-            cls="grid grid-cols-1 md:grid-cols-3 gap-8 items-start",
+            cls="grid grid-cols-1 md:grid-cols-2 gap-8 items-start max-w-4xl mx-auto",
         ),
         # ── Trust strip ───────────────────────────────────────────────────
         P(
-            "All plans include a 7-day free trial \u00b7 Cancel anytime \u00b7 No hidden fees",
+            "Pro includes a 7-day free trial \u00b7 Cancel anytime \u00b7 No hidden fees",
             cls="text-center text-sm text-muted-foreground mt-10",
         ),
         # ── Feature comparison table ──────────────────────────────────────
