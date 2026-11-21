@@ -13,6 +13,7 @@ billing_portal          GET  /billing/portal          â€” open Customer Portal â
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional, Union
 from urllib.parse import urlencode
@@ -74,7 +75,7 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
         return RedirectResponse("/pricing?error=config", status_code=303)
 
     try:
-        stripe_price = stripe.Price.retrieve(price_id)
+        stripe_price = await asyncio.to_thread(stripe.Price.retrieve, price_id)
         recurring = getattr(stripe_price, "recurring", None)
         if (
             getattr(stripe_price, "unit_amount", None) != PRO_PRICE_CENTS[interval]
@@ -89,7 +90,8 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
             )
             return RedirectResponse("/pricing?error=config", status_code=303)
 
-        session = stripe.checkout.Session.create(
+        session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
             subscription_data={"trial_period_days": 7},

@@ -254,9 +254,17 @@ def test_price_lookups_follow_environment_changes(monkeypatch):
         "STRIPE_PRICE_PRO_ANNUAL": "price_new_pro_year",
         "STRIPE_PRICE_AGENCY_MONTHLY": "price_new_agency_month",
         "STRIPE_PRICE_AGENCY_ANNUAL": "price_new_agency_year",
+        "STRIPE_LEGACY_PRICE_PRO_MONTHLY": "price_old_pro_month, price_older_pro_month",
+        "STRIPE_LEGACY_PRICE_PRO_ANNUAL": "price_old_pro_year",
+        "STRIPE_LEGACY_PRICE_AGENCY_MONTHLY": "price_old_agency_month",
+        "STRIPE_LEGACY_PRICE_AGENCY_ANNUAL": "price_old_agency_year",
     }
     for key, value in env_values.items():
         monkeypatch.setenv(key, value)
 
     assert stripe_service.get_price_for_plan("pro", "month") == "price_new_pro_month"
     assert stripe_service.get_plan_for_price("price_new_pro_month") == ("pro", "month")
+    assert stripe_service.get_plan_for_price("price_old_pro_month") == ("pro", "month")
+    assert stripe_service.get_plan_for_price("price_older_pro_month") == ("pro", "month")
+    assert stripe_service.get_plan_for_price("price_old_pro_year") == ("pro", "year")
+    assert stripe_service.get_plan_for_price("price_old_agency_month") == ("agency", "month")

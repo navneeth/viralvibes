@@ -1726,6 +1726,25 @@ def upsert_subscription(
         return False
 
 
+def get_subscription_plan_by_stripe_id(stripe_subscription_id: str) -> Dict[str, Any] | None:
+    """Return the last persisted plan and interval for a Stripe subscription."""
+    if not supabase_client or not stripe_subscription_id:
+        return None
+    try:
+        resp = (
+            supabase_client.table(SUBSCRIPTIONS_TABLE)
+            .select("plan, interval, stripe_price_id")
+            .eq("stripe_subscription_id", stripe_subscription_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.exception("[DB] get_subscription_plan_by_stripe_id failed: %s", exc)
+        return None
+
+
 def get_user_plan(user_id: str) -> Dict[str, Any]:
     """
     Return the active subscription info for a user.
