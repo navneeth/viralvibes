@@ -13,6 +13,7 @@ billing_portal          GET  /billing/portal          — open Customer Portal �
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional, Union
 from urllib.parse import urlencode
@@ -23,6 +24,7 @@ from fasthtml.common import Redirect, RedirectResponse, Response
 from monsterui.all import *
 
 from db import get_stripe_customer_id, get_user_plan
+from services.pricing import PRO_PRICE_CENTS
 from services.stripe_service import DOMAIN_URL, ensure_stripe_api_key, get_price_for_plan
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,16 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
     """Core Stripe session creation — caller must have already verified auth."""
     user_id: str = sess.get("user_id")
     assert user_id, "_do_checkout called without an authenticated user_id in session"
+    # Agency remains in the Stripe price map so legacy subscriptions and webhook
+    # events resolve correctly, but it is no longer an offer available for sale.
+    if plan != "pro" or interval not in ("month", "year"):
+        logger.warning(
+            "[Checkout] Rejected unavailable checkout selection plan=%s interval=%s",
+            plan,
+            interval,
+        )
+        return RedirectResponse("/pricing?error=config", status_code=303)
+
     price_id = get_price_for_plan(plan, interval)
     if not price_id:
         logger.error(
@@ -63,7 +75,23 @@ async def _do_checkout(sess, plan: str, interval: str) -> Response:
         return RedirectResponse("/pricing?error=config", status_code=303)
 
     try:
-        session = stripe.checkout.Session.create(
+        stripe_price = await asyncio.to_thread(stripe.Price.retrieve, price_id)
+        recurring = getattr(stripe_price, "recurring", None)
+        if (
+            getattr(stripe_price, "unit_amount", None) != PRO_PRICE_CENTS[interval]
+            or str(getattr(stripe_price, "currency", "")).lower() != "usd"
+            or getattr(recurring, "interval", None) != interval
+            or getattr(recurring, "interval_count", None) != 1
+        ):
+            logger.error(
+                "[Checkout] Configured Stripe Price does not match public Pro pricing "
+                "for interval=%s; update STRIPE_PRICE_PRO_* before enabling checkout",
+                interval,
+            )
+            return RedirectResponse("/pricing?error=config", status_code=303)
+
+        session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
             subscription_data={"trial_period_days": 7},

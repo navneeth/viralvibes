@@ -26,7 +26,11 @@ import stripe
 from fasthtml.common import Request
 from starlette.responses import JSONResponse
 
-from db import get_user_id_by_stripe_customer, upsert_subscription
+from db import (
+    get_subscription_plan_by_stripe_id,
+    get_user_id_by_stripe_customer,
+    upsert_subscription,
+)
 from services.stripe_service import WEBHOOK_SECRET, get_plan_for_price
 
 logger = logging.getLogger(__name__)
@@ -127,7 +131,7 @@ def _handle_subscription_upsert(subscription: dict) -> None:
         )
         return
 
-    plan, interval = get_plan_for_price(price_id)
+    plan, interval = _resolve_subscription_plan(price_id, subscription.get("id", ""))
     if plan == "free":
         # price_id wasn't in our mapping — likely a misconfigured env var
         logger.error(
@@ -171,9 +175,9 @@ def _handle_subscription_deleted(subscription: dict) -> None:
         return
 
     price_id = _extract_price_id(subscription)
-    # For deletions we preserve whatever price/plan was on the event if available,
-    # but we never skip — cancellation must always be written regardless.
-    plan, interval = get_plan_for_price(price_id) if price_id else ("free", "")
+    # Keep the last known plan/interval when the retired Price ID is no longer
+    # configured, so cancellation updates preserve billing history.
+    plan, interval = _resolve_subscription_plan(price_id, subscription.get("id", ""))
 
     upsert_subscription(
         user_id=user_id,
@@ -202,3 +206,32 @@ def _extract_price_id(subscription: dict) -> str:
         return subscription["items"]["data"][0]["price"]["id"]
     except (KeyError, IndexError, TypeError):
         return ""
+
+
+def _resolve_subscription_plan(price_id: str, subscription_id: str) -> tuple[str, str]:
+    """Resolve a current Price ID, or reuse the plan saved for this subscription.
+
+    Price IDs can be retired when pricing changes. For an existing subscription,
+    its persisted plan and interval are authoritative when Stripe sends an event
+    for a Price ID no longer present in deployment config. This lets status and
+    cancellation events apply without treating the customer as Free.
+    """
+    plan, interval = get_plan_for_price(price_id) if price_id else ("free", "")
+    if plan != "free":
+        return plan, interval
+
+    previous = get_subscription_plan_by_stripe_id(subscription_id)
+    previous_plan = (previous or {}).get("plan", "free")
+    previous_interval = (previous or {}).get("interval", "")
+    if previous_plan in ("pro", "agency") and previous_interval in ("month", "year"):
+        logger.warning(
+            "[Webhook] Price ID %s is no longer configured for subscription %s; "
+            "keeping stored plan=%s/%s",
+            price_id or "(missing)",
+            subscription_id,
+            previous_plan,
+            previous_interval,
+        )
+        return previous_plan, previous_interval
+
+    return "free", ""

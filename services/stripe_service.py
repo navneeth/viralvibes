@@ -3,12 +3,14 @@ Stripe integration — single source of truth for API config and plan metadata.
 
 Environment variables required:
     STRIPE_SECRET_KEY           sk_live_... or sk_test_...
+                                restricted keys need Prices: read and Checkout Sessions: write
     STRIPE_WEBHOOK_SECRET       whsec_...
     STRIPE_PUBLISHABLE_KEY      pk_live_... or pk_test_...
     STRIPE_PRICE_PRO_MONTHLY    price_...
     STRIPE_PRICE_PRO_ANNUAL     price_...
-    STRIPE_PRICE_AGENCY_MONTHLY price_...
-    STRIPE_PRICE_AGENCY_ANNUAL  price_...
+    STRIPE_PRICE_AGENCY_MONTHLY price_... (legacy subscriptions only)
+    STRIPE_PRICE_AGENCY_ANNUAL  price_... (legacy subscriptions only)
+    STRIPE_LEGACY_PRICE_*       comma-separated retired Price IDs, by plan/interval
     DOMAIN_URL                  https://viralvibes.fyi  (no trailing slash)
 """
 
@@ -27,18 +29,28 @@ DOMAIN_URL: str = os.environ.get("DOMAIN_URL", "http://localhost:5001").rstrip("
 # ---------------------------------------------------------------------------
 # Price → plan mapping
 # ---------------------------------------------------------------------------
-# Maps Stripe price_id → (plan_name, billing_interval)
+# Maps current and explicitly retained retired Stripe Price IDs to
+# (plan_name, billing_interval). Legacy variables accept comma-separated IDs.
 def _configured_price_to_plan() -> dict[str, tuple[str, str]]:
-    return {
-        k: v
-        for k, v in {
-            os.environ.get("STRIPE_PRICE_PRO_MONTHLY", ""): ("pro", "month"),
-            os.environ.get("STRIPE_PRICE_PRO_ANNUAL", ""): ("pro", "year"),
-            os.environ.get("STRIPE_PRICE_AGENCY_MONTHLY", ""): ("agency", "month"),
-            os.environ.get("STRIPE_PRICE_AGENCY_ANNUAL", ""): ("agency", "year"),
-        }.items()
-        if k
-    }
+    mapping: dict[str, tuple[str, str]] = {}
+    price_vars = (
+        ("STRIPE_LEGACY_PRICE_PRO_MONTHLY", "pro", "month", True),
+        ("STRIPE_LEGACY_PRICE_PRO_ANNUAL", "pro", "year", True),
+        ("STRIPE_LEGACY_PRICE_AGENCY_MONTHLY", "agency", "month", True),
+        ("STRIPE_LEGACY_PRICE_AGENCY_ANNUAL", "agency", "year", True),
+        ("STRIPE_PRICE_AGENCY_MONTHLY", "agency", "month", False),
+        ("STRIPE_PRICE_AGENCY_ANNUAL", "agency", "year", False),
+        ("STRIPE_PRICE_PRO_MONTHLY", "pro", "month", False),
+        ("STRIPE_PRICE_PRO_ANNUAL", "pro", "year", False),
+    )
+    for env_name, plan, interval, multiple in price_vars:
+        configured = os.environ.get(env_name, "")
+        price_ids = configured.split(",") if multiple else [configured]
+        for price_id in price_ids:
+            price_id = price_id.strip()
+            if price_id:
+                mapping[price_id] = (plan, interval)
+    return mapping
 
 
 # Plan hierarchy — used for gate comparisons (higher index = more access)
@@ -50,8 +62,6 @@ PLAN_RANK: dict[str, int] = {"free": 0, "pro": 1, "agency": 2}
 _REQUIRED_PRICE_VARS = (
     "STRIPE_PRICE_PRO_MONTHLY",
     "STRIPE_PRICE_PRO_ANNUAL",
-    "STRIPE_PRICE_AGENCY_MONTHLY",
-    "STRIPE_PRICE_AGENCY_ANNUAL",
 )
 
 _log = _logging.getLogger(__name__)

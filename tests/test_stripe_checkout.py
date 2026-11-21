@@ -10,6 +10,7 @@ import main
 from db import get_latest_canceled_subscription
 from routes import stripe_checkout
 from services import stripe_service
+from services.pricing import PRO_PRICE_CENTS
 from views.my_dashboards import render_my_dashboards_page
 
 
@@ -76,19 +77,28 @@ async def test_checkout_rejects_product_id_as_price_before_calling_stripe(monkey
     [
         ("pro", "month", "STRIPE_PRICE_PRO_MONTHLY"),
         ("pro", "year", "STRIPE_PRICE_PRO_ANNUAL"),
-        ("agency", "month", "STRIPE_PRICE_AGENCY_MONTHLY"),
-        ("agency", "year", "STRIPE_PRICE_AGENCY_ANNUAL"),
     ],
 )
-async def test_checkout_creates_trial_session_for_each_paid_plan(
+async def test_checkout_creates_trial_session_for_each_pro_interval(
     monkeypatch, plan, interval, price_env
 ):
-    """Every configured plan interval reaches Stripe with its price and 7-day trial."""
+    """Every configured Pro interval reaches Stripe with its price and 7-day trial."""
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_checkout")
     monkeypatch.setenv(price_env, "price_test_selected")
     mock_session = MagicMock()
     mock_session.url = "https://checkout.stripe.com/pay/session_123"
     create_session = MagicMock(return_value=mock_session)
+    monkeypatch.setattr(
+        stripe_checkout.stripe.Price,
+        "retrieve",
+        MagicMock(
+            return_value=SimpleNamespace(
+                unit_amount=PRO_PRICE_CENTS[interval],
+                currency="usd",
+                recurring=SimpleNamespace(interval=interval, interval_count=1),
+            )
+        ),
+    )
     monkeypatch.setattr(stripe_checkout.stripe.checkout.Session, "create", create_session)
 
     response = await stripe_checkout._do_checkout(
@@ -244,9 +254,17 @@ def test_price_lookups_follow_environment_changes(monkeypatch):
         "STRIPE_PRICE_PRO_ANNUAL": "price_new_pro_year",
         "STRIPE_PRICE_AGENCY_MONTHLY": "price_new_agency_month",
         "STRIPE_PRICE_AGENCY_ANNUAL": "price_new_agency_year",
+        "STRIPE_LEGACY_PRICE_PRO_MONTHLY": "price_old_pro_month, price_older_pro_month",
+        "STRIPE_LEGACY_PRICE_PRO_ANNUAL": "price_old_pro_year",
+        "STRIPE_LEGACY_PRICE_AGENCY_MONTHLY": "price_old_agency_month",
+        "STRIPE_LEGACY_PRICE_AGENCY_ANNUAL": "price_old_agency_year",
     }
     for key, value in env_values.items():
         monkeypatch.setenv(key, value)
 
     assert stripe_service.get_price_for_plan("pro", "month") == "price_new_pro_month"
     assert stripe_service.get_plan_for_price("price_new_pro_month") == ("pro", "month")
+    assert stripe_service.get_plan_for_price("price_old_pro_month") == ("pro", "month")
+    assert stripe_service.get_plan_for_price("price_older_pro_month") == ("pro", "month")
+    assert stripe_service.get_plan_for_price("price_old_pro_year") == ("pro", "year")
+    assert stripe_service.get_plan_for_price("price_old_agency_month") == ("agency", "month")
