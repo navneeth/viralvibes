@@ -943,8 +943,10 @@ def compare_creators_route(request, user_id: str | None = None):
 
     Returns an error Div when either creator ID is missing or not found.
     """
-    id_a = request.query_params.get("a", "")
-    id_b = request.query_params.get("b", "")
+    raw_id_a = request.query_params.get("a", "")
+    raw_id_b = request.query_params.get("b", "")
+    id_a = _parse_compare_id(raw_id_a)
+    id_b = _parse_compare_id(raw_id_b)
 
     def _not_found(cid):
         return Div(
@@ -952,6 +954,21 @@ def compare_creators_route(request, user_id: str | None = None):
             P(f"No creator with ID {cid!r} exists.", cls="text-muted-foreground"),
             A(
                 "← Browse creators",
+                href="/creators",
+                cls="mt-4 inline-flex text-sm font-medium text-primary hover:underline",
+            ),
+            cls="max-w-2xl mx-auto px-4 py-24 text-center",
+        )
+
+    if (raw_id_a and not id_a) or (raw_id_b and not id_b):
+        return Div(
+            H2("Invalid creator ID", cls="text-xl font-bold text-foreground mb-2"),
+            P(
+                "Choose creators from the site so the comparison link contains valid creator IDs.",
+                cls="text-muted-foreground",
+            ),
+            A(
+                "Search creators →",
                 href="/creators",
                 cls="mt-4 inline-flex text-sm font-medium text-primary hover:underline",
             ),
