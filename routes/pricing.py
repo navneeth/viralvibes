@@ -14,6 +14,7 @@ _PRICING = {
         "monthly": f"${PRO_PRICE_USD['month']}",
         "annual": f"${PRO_PRICE_USD['year'] // 12}",
         "annual_total": f"${PRO_PRICE_USD['year']}",
+        "annual_savings": f"${PRO_PRICE_USD['month'] * 12 - PRO_PRICE_USD['year']}",
     },
     "free": {},
 }
@@ -26,8 +27,9 @@ _TOGGLE_SCRIPT = Script(
 (function () {{
     var annual = true;
     var data = {{
-        'pro-price':      ['{_PRICING["pro"]["annual"]}', '{_PRICING["pro"]["monthly"]}'],
-        'pro-billing':    ['{_PRICING["pro"]["annual_total"]} billed annually', 'Billed monthly'],
+        'pro-price':      ['{_PRICING["pro"]["annual_total"]}', '{_PRICING["pro"]["monthly"]}'],
+        'pro-unit':       ['/yr', '/mo'],
+        'pro-billing':    ['Equivalent to {_PRICING["pro"]["annual"]}/month', 'Billed monthly'],
     }};
     function apply(announce) {{
         var i = annual ? 0 : 1;
@@ -38,6 +40,16 @@ _TOGGLE_SCRIPT = Script(
         toggle.classList.toggle('bg-red-500', annual);
         toggle.classList.toggle('bg-muted-foreground/40', !annual);
         toggle.setAttribute('aria-pressed', String(annual));
+        var monthlyLabel = document.getElementById('billing-monthly-label');
+        var annualLabel = document.getElementById('billing-annual-label');
+        if (monthlyLabel && annualLabel) {{
+            monthlyLabel.classList.toggle('font-semibold', !annual);
+            monthlyLabel.classList.toggle('text-foreground', !annual);
+            monthlyLabel.classList.toggle('text-muted-foreground', annual);
+            annualLabel.classList.toggle('font-semibold', annual);
+            annualLabel.classList.toggle('text-foreground', annual);
+            annualLabel.classList.toggle('text-muted-foreground', !annual);
+        }}
         // Only update the sr-only live region on explicit user interaction
         if (announce) {{
             var label = document.getElementById('billing-period-text');
@@ -63,10 +75,6 @@ _TOGGLE_SCRIPT = Script(
 
 def _check(color: str = "green") -> UkIcon:
     return UkIcon("check", cls=f"w-4 h-4 text-{color}-500 mt-0.5 flex-shrink-0")
-
-
-def _no() -> Span:
-    return Span("—", cls="text-muted-foreground text-sm")
 
 
 def _feature(text: str, bold: bool = False, color: str = "green") -> Li:
@@ -138,7 +146,7 @@ def _checkout_hint(is_authenticated: bool) -> P | None:
         return None
     return P(
         "Google sign-in first; Stripe checkout follows.",
-        cls="text-xs text-muted-foreground text-center -mt-5 mb-6",
+        cls="text-xs text-muted-foreground text-center mt-2 mb-8",
     )
 
 
@@ -157,7 +165,7 @@ def _pro_card(is_authenticated: bool) -> Div:
             P("Pro", cls="text-sm font-semibold text-red-600 uppercase tracking-wider mb-2"),
             Div(
                 Span(id="pro-price", cls="text-5xl font-extrabold text-foreground"),
-                Span("/mo", cls="text-muted-foreground text-sm ml-1 mb-2"),
+                Span(id="pro-unit", cls="text-muted-foreground text-sm ml-1 mb-2"),
                 cls="flex items-end",
             ),
             P(id="pro-billing", cls="text-xs text-muted-foreground mt-1"),
@@ -169,7 +177,11 @@ def _pro_card(is_authenticated: bool) -> Div:
             Button(
                 cta_label,
                 type="submit",
-                cls=(ButtonT.primary, "block w-full text-center font-semibold text-sm py-2.5 mb-8"),
+                cls=(
+                    ButtonT.primary,
+                    "block w-full text-center font-semibold text-sm py-2.5"
+                    + (" mb-8" if is_authenticated else ""),
+                ),
             ),
             method="post",
             action="/billing/checkout",
@@ -195,7 +207,11 @@ def _pro_card(is_authenticated: bool) -> Div:
 
 def _billing_toggle() -> Div:
     return Div(
-        Span("Monthly", cls="text-sm font-medium text-muted-foreground"),
+        Span(
+            "Monthly",
+            id="billing-monthly-label",
+            cls="text-sm font-medium text-muted-foreground transition-colors",
+        ),
         Button(
             Span(
                 id="toggle-thumb",
@@ -209,9 +225,13 @@ def _billing_toggle() -> Div:
             aria_pressed="true",
         ),
         Div(
-            Span("Annual", cls="text-sm font-semibold text-foreground"),
             Span(
-                "2 months free",
+                "Annual",
+                id="billing-annual-label",
+                cls="text-sm font-semibold text-foreground transition-colors",
+            ),
+            Span(
+                f"Save {_PRICING['pro']['annual_savings']}/year",
                 cls=(
                     "ml-1.5 px-1.5 py-0.5 text-xs font-semibold rounded-full "
                     "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
@@ -226,61 +246,6 @@ def _billing_toggle() -> Div:
             cls="sr-only",
         ),
         cls="flex items-center justify-center mb-14",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Feature comparison table
-# ---------------------------------------------------------------------------
-
-
-def _yes(color: str = "green") -> Div:
-    return Div(UkIcon("check", cls=f"w-4 h-4 text-{color}-500 mx-auto"))
-
-
-def _comparison_table() -> Div:
-    def row(label, free, pro):
-        return Tr(
-            Td(label, cls="py-3 pr-6 text-muted-foreground text-sm"),
-            Td(free, cls="py-3 px-4 text-center"),
-            Td(pro, cls="py-3 px-4 text-center"),
-        )
-
-    rows = [
-        row("Creator discovery & rankings", _yes(), _yes("red")),
-        row("Creator profiles & Growth Blueprint", _yes(), _yes("red")),
-        row("Side-by-side comparison", _yes(), _yes("red")),
-        row("Playlist analysis", _yes(), _yes("red")),
-        row("Saved playlist dashboards", _yes(), _yes("red")),
-        row("Outreach workspace & contact export", _yes(), _yes("red")),
-        row("Playlist analysis export (CSV & JSON)", _no(), _yes("red")),
-        row("Saved creator Watchlist Pulse", _no(), _yes("red")),
-    ]
-
-    return Div(
-        H2("Compare plans", cls="text-2xl font-bold text-foreground text-center mb-8"),
-        Div(
-            Table(
-                Thead(
-                    Tr(
-                        Th(
-                            "Feature",
-                            cls="text-left py-3 pr-6 text-muted-foreground font-medium text-sm w-1/2",
-                        ),
-                        Th(
-                            "Free",
-                            cls="text-center py-3 px-4 text-foreground font-semibold text-sm",
-                        ),
-                        Th("Pro", cls="text-center py-3 px-4 text-red-600 font-semibold text-sm"),
-                        cls="border-b-2 border-border",
-                    ),
-                ),
-                Tbody(*rows, cls="divide-y divide-border"),
-                cls="w-full border-collapse",
-            ),
-            cls="overflow-x-auto",
-        ),
-        cls="mt-20",
     )
 
 
@@ -311,7 +276,7 @@ def _bottom_cta(is_authenticated: bool) -> Div:
             href=cta_href,
             cls="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold transition-colors",
         ),
-        cls="mt-20 bg-muted rounded-2xl px-8 py-10 text-center border border-border",
+        cls="mt-10 bg-muted rounded-2xl px-8 py-10 text-center border border-border",
     )
 
 
@@ -370,8 +335,6 @@ def pricing_page_content(error: str = "", *, is_authenticated: bool) -> Div:
             "Pro includes a 7-day free trial \u00b7 Cancel anytime \u00b7 No hidden fees",
             cls="text-center text-sm text-muted-foreground mt-10",
         ),
-        # ── Feature comparison table ──────────────────────────────────────
-        _comparison_table(),
         # ── Bottom CTA ────────────────────────────────────────────────────
         _bottom_cta(is_authenticated),
         # ── Billing toggle script ─────────────────────────────────────────
