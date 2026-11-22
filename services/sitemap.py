@@ -14,6 +14,7 @@ from xml.dom import minidom
 
 from db import _db_execute_readonly
 from constants import SITE_BASE_URL
+from db_lists import get_top_countries_with_counts
 from services.rankings import iter_ranking_sitemap_paths
 from utils.blog import get_posts
 
@@ -128,6 +129,18 @@ def build_sitemap_xml(
         ET.SubElement(url_el, "lastmod").text = today
         ET.SubElement(url_el, "changefreq").text = changefreq
         ET.SubElement(url_el, "priority").text = priority
+
+    country_codes = dict.fromkeys(
+        str(country_code).strip().lower()
+        for country_code, _count in get_top_countries_with_counts(limit=500)
+        if country_code and str(country_code).strip()
+    )
+    for country_code in country_codes:
+        url_el = ET.SubElement(urlset, "url")
+        ET.SubElement(url_el, "loc").text = urljoin(BASE_URL, f"/lists/country/{country_code}")
+        ET.SubElement(url_el, "lastmod").text = today
+        ET.SubElement(url_el, "changefreq").text = "weekly"
+        ET.SubElement(url_el, "priority").text = "0.6"
 
     for post in get_posts(published_only=True):
         url_el = ET.SubElement(urlset, "url")

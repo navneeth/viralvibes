@@ -18,8 +18,9 @@ _NS = "http://www.sitemaps.org/schemas/sitemap/0.9"
 
 
 @pytest.fixture(autouse=True)
-def no_blog_posts(monkeypatch):
+def isolate_sitemap_sources(monkeypatch):
     monkeypatch.setattr("services.sitemap.get_posts", lambda **kwargs: [])
+    monkeypatch.setattr("services.sitemap.get_top_countries_with_counts", lambda **kwargs: [])
 
 
 def _parse_locs(xml: str) -> list[str]:
@@ -69,6 +70,34 @@ class TestBuildSitemapXml:
         xml = build_sitemap_xml([])
         locs = _parse_locs(xml)
         assert len(locs) == len(STATIC_ROUTES) + len(iter_ranking_sitemap_paths())
+
+    def test_country_list_urls_include_all_hub_countries(self, monkeypatch):
+        monkeypatch.setattr(
+            "services.sitemap.get_top_countries_with_counts",
+            lambda *, limit: (
+                [("US", 10), ("GB", 5), ("JP", 3)]
+                if limit == 500
+                else pytest.fail(f"unexpected country limit: {limit}")
+            ),
+        )
+
+        locs = _parse_locs(build_sitemap_xml([]))
+
+        assert {
+            "https://www.viralvibes.fyi/lists/country/us",
+            "https://www.viralvibes.fyi/lists/country/gb",
+            "https://www.viralvibes.fyi/lists/country/jp",
+        }.issubset(locs)
+
+    def test_country_list_urls_are_unique(self, monkeypatch):
+        monkeypatch.setattr(
+            "services.sitemap.get_top_countries_with_counts",
+            lambda **kwargs: [("US", 10), ("us", 2)],
+        )
+
+        locs = _parse_locs(build_sitemap_xml([]))
+
+        assert locs.count("https://www.viralvibes.fyi/lists/country/us") == 1
 
     def test_programmatic_ranking_urls_included(self):
         locs = _parse_locs(build_sitemap_xml([]))
