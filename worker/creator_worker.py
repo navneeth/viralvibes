@@ -1992,6 +1992,13 @@ def _update_creator_snapshot(
     )
 
 
+def _format_partial_sync_error(update_error: Exception) -> str:
+    return (
+        f"Partial sync: full update failed ({type(update_error).__name__}, "
+        f"code={getattr(update_error, 'code', 'unknown')}): {update_error}"
+    )[:2000]
+
+
 async def handle_sync_job(
     job_id: int,
     creator_id: str,
@@ -2390,6 +2397,7 @@ async def handle_sync_job(
                 f"skipping {len(missing_fields)} unavailable columns: {missing_fields}"
             )
 
+        partial_sync = False
         # STAGE 4: Write to DB
         try:
             result = _update_creator_snapshot(creator_id, update_payload, snapshot_started_at)
@@ -2403,6 +2411,7 @@ async def handle_sync_job(
                 logger.info(f"{job_tag} ✅ DB updated ({len(update_payload)} fields written)")
 
         except Exception as update_error:
+            partial_sync = True
             # FALLBACK: Try with minimal core fields
             metrics.db_errors += 1
             logger.warning(f"{job_tag} ⚠️  Full update failed: {update_error}")
@@ -2415,7 +2424,7 @@ async def handle_sync_job(
                 "channel_name": full_payload.get("channel_name"),
                 "country_code": full_payload.get("country_code"),
                 "sync_status": "synced_partial",
-                "sync_error_message": "Schema mismatch — synced with basic fields only",
+                "sync_error_message": _format_partial_sync_error(update_error),
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
                 "last_synced_at": snapshot_started_at.isoformat(),
             }
@@ -2460,7 +2469,14 @@ async def handle_sync_job(
                 )
                 metrics.syncs_failed += 1
                 return False
-            logger.info(f"{job_tag} ✅ Sync COMPLETED successfully for {channel_id}")
+            if partial_sync:
+                logger.warning(
+                    "%s PARTIAL sync for %s; core fields saved, full update still requires recovery",
+                    job_tag,
+                    channel_id,
+                )
+            else:
+                logger.info(f"{job_tag} ✅ Sync COMPLETED successfully for {channel_id}")
             metrics.syncs_processed += 1
             return True
 

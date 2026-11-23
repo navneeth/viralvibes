@@ -9,8 +9,8 @@ Coverage:
   5. GET /creators?page=999  — out-of-range page redirects to last valid page
 """
 
-from html.parser import HTMLParser
 from copy import deepcopy
+from html.parser import HTMLParser
 
 import pytest
 from starlette.testclient import TestClient
@@ -18,8 +18,131 @@ from starlette.testclient import TestClient
 import main
 
 
+@pytest.mark.parametrize(
+    "status,archived,expected",
+    [
+        ("synced", None, 1),
+        ("synced_partial", None, 1),
+        ("pending", None, None),
+        ("failed", None, None),
+        ("synced", "2026-11-01", None),
+    ],
+)
+def test_country_rank_only_requested_for_eligible_profiles(monkeypatch, status, archived, expected):
+    from routes import creators as creator_routes
+
+    calls = []
+    monkeypatch.setattr(
+        creator_routes,
+        "get_country_creator_rank",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or 1,
+    )
+    creator = {
+        "id": "creator-1",
+        "channel_name": "Creator",
+        "current_subscribers": 100,
+        "country_code": "GB",
+        "sync_status": status,
+        "archived_at": archived,
+    }
+    assert creator_routes._get_context_ranks(creator)["country_rank"] == expected
+    if expected:
+        assert calls == [(("creator-1",), {})]
+    else:
+        assert calls == []
+
+
+def test_country_rank_uses_database_eligibility_and_exact_order(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import db
+
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=2)
+    monkeypatch.setattr(db, "supabase_client", client)
+    assert db.get_country_creator_rank("creator-1") == 2
+    client.rpc.assert_called_once_with("get_country_creator_rank", {"p_creator_id": "creator-1"})
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=None)
+    assert db.get_country_creator_rank("creator-1") is None
+
+
+@pytest.mark.parametrize(
+    "filter_key,filter_value",
+    [
+        ("country_code", "GB"),
+        ("default_language", "en"),
+        ("primary_category", "Music"),
+    ],
+)
+def test_legacy_creator_rank_preserves_three_argument_query(monkeypatch, filter_key, filter_value):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import db
+
+    query = MagicMock()
+    for method in ("select", "eq", "gt", "limit"):
+        getattr(query, method).return_value = query
+    query.execute.return_value = SimpleNamespace(count=4)
+    client = MagicMock()
+    client.table.return_value = query
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    assert db.get_creator_rank(100, filter_key, filter_value) == 5
+    query.select.assert_called_once_with("id", count="estimated")
+    query.eq.assert_any_call("sync_status", "synced")
+    query.eq.assert_any_call(filter_key, filter_value)
+    query.gt.assert_called_once_with("current_subscribers", 100)
+    client.rpc.assert_not_called()
+
+
+def test_country_rank_failure_does_not_fall_back_to_inconsistent_count(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import db
+
+    client = MagicMock()
+    client.rpc.return_value.execute.side_effect = RuntimeError("country rank RPC unavailable")
+    monkeypatch.setattr(db, "supabase_client", client)
+
+    assert db.get_country_creator_rank("creator-1") is None
+    client.table.assert_not_called()
+
+
+def test_context_ranks_keep_language_and_category_on_legacy_path(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from routes import creators as creator_routes
+
+    country_rank = MagicMock(return_value=2)
+    segment_rank = MagicMock(return_value=3)
+    monkeypatch.setattr(creator_routes, "get_country_creator_rank", country_rank)
+    monkeypatch.setattr(creator_routes, "get_creator_rank", segment_rank)
+    creator = {
+        "id": "creator-1",
+        "channel_name": "Creator",
+        "current_subscribers": 100,
+        "country_code": "GB",
+        "sync_status": "synced",
+        "default_language": "en",
+        "primary_category": "Music",
+    }
+
+    assert creator_routes._get_context_ranks(creator) == {
+        "country_rank": 2,
+        "language_rank": 3,
+        "category_rank": 3,
+    }
+    country_rank.assert_called_once_with("creator-1")
+    segment_rank.assert_any_call(100, "default_language", "en")
+    segment_rank.assert_any_call(100, "primary_category", "Music")
+    assert segment_rank.call_count == 2
+
+
 def test_video_deep_dive_is_read_only_bounded_and_escapes_titles():
     from fasthtml.common import to_xml
+
     from components.video_deep_dive import render_video_deep_dive
 
     videos = [
@@ -52,6 +175,7 @@ def test_video_deep_dive_is_read_only_bounded_and_escapes_titles():
 
 def test_video_deep_dive_distinguishes_uncollected_empty_and_invalid_snapshots():
     from fasthtml.common import to_xml
+
     from components.video_deep_dive import render_video_deep_dive
 
     assert render_video_deep_dive({}) is None
@@ -66,6 +190,7 @@ def test_video_deep_dive_distinguishes_uncollected_empty_and_invalid_snapshots()
 
 def test_video_deep_dive_missing_metrics_are_not_zero_or_honesty_labels():
     from fasthtml.common import to_xml
+
     from components.video_deep_dive import render_video_deep_dive
 
     html = to_xml(
@@ -89,6 +214,7 @@ def test_video_deep_dive_missing_metrics_are_not_zero_or_honesty_labels():
 
 def test_topic_preview_labels_legacy_source_and_upload_date():
     from fasthtml.common import to_xml
+
     from views.creators import _render_content_dna_preview
 
     html = to_xml(
@@ -106,6 +232,7 @@ def test_topic_preview_labels_legacy_source_and_upload_date():
 
 def test_topic_preview_escapes_phrases_and_labels_known_source():
     from fasthtml.common import to_xml
+
     from views.creators import _render_content_dna_preview
 
     html = to_xml(
@@ -655,7 +782,9 @@ class TestCreatorProfile:
         from datetime import datetime, timezone
         from types import SimpleNamespace
         from unittest.mock import MagicMock
+
         from fasthtml.common import to_xml
+
         import routes.creators as routes
         from services import video_snapshot_demand as demand
 

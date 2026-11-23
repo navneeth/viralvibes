@@ -18,6 +18,7 @@ from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 from monsterui.all import *
 
+from constants import BROWSEABLE_SYNC_STATUSES
 from db import (
     add_creator_by_handle,
     add_favourite_creator,
@@ -30,6 +31,7 @@ from db import (
     get_creator_add_request_status,
     get_creator_hero_stats,
     get_creator_rank,
+    get_country_creator_rank,
     get_creator_stats,
     get_creators,
     get_embedding_peers,
@@ -703,7 +705,13 @@ def _get_context_ranks(creator: dict) -> dict:
     category = creator.get("primary_category", "")
 
     tasks: dict[str, tuple[str, str]] = {}
-    if subs and country:
+    if (
+        subs > 0
+        and country
+        and creator.get("channel_name")
+        and creator.get("sync_status") in BROWSEABLE_SYNC_STATUSES
+        and not creator.get("archived_at")
+    ):
         tasks["country_rank"] = ("country_code", country)
     if subs and language:
         tasks["language_rank"] = ("default_language", language)
@@ -720,7 +728,11 @@ def _get_context_ranks(creator: dict) -> dict:
 
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures = {
-            pool.submit(get_creator_rank, subs, key, val): name
+            (
+                pool.submit(get_country_creator_rank, creator.get("id"))
+                if key == "country_code"
+                else pool.submit(get_creator_rank, subs, key, val)
+            ): name
             for name, (key, val) in tasks.items()
         }
         for future in as_completed(futures):
