@@ -25,8 +25,6 @@ import argparse
 import logging
 import sys
 
-from secrets_loader import load_secrets
-
 from db import (
     archive_permanently_failed_creators,
     init_supabase,
@@ -37,6 +35,7 @@ from db import (
     refresh_total_categories,
     setup_logging,
 )
+from secrets_loader import load_secrets
 
 # Reuse the two queuing functions directly from creator_worker to avoid
 # duplicating logic. They depend only on supabase_client and queue_creator_sync,
@@ -69,6 +68,11 @@ def _parse_args() -> argparse.Namespace:
         "--priority-preview",
         action="store_true",
         help="Preview the shared scheduler without inserting jobs",
+    )
+    parser.add_argument(
+        "--check-recovery-health",
+        action="store_true",
+        help="Fail after scheduling if incomplete creators are overdue or exhausted",
     )
     parser.add_argument(
         "--unsynced-batch",
@@ -132,6 +136,8 @@ def _parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.priority_preview and args.priority_batch is None:
         parser.error("--priority-preview requires --priority-batch")
+    if args.check_recovery_health and args.priority_batch is None:
+        parser.error("--check-recovery-health requires --priority-batch")
     if args.priority_preview and args.snapshot_refresh_apply:
         parser.error("--priority-preview cannot apply snapshot refreshes")
     if args.priority_batch is not None and (args.no_unsynced or args.no_stale or args.no_invalid):
@@ -139,6 +145,34 @@ def _parse_args() -> argparse.Namespace:
     if args.snapshot_refresh_apply and not args.snapshot_refresh_batch:
         parser.error("--snapshot-refresh-apply requires --snapshot-refresh-batch > 0")
     return args
+
+
+def _check_recovery_health(client) -> bool:
+    """Report scheduler health and return whether incomplete work is healthy."""
+    response = client.rpc("get_creator_recovery_health").execute()
+    rows = response.data or []
+    if not rows or not isinstance(rows[0], dict):
+        raise RuntimeError("Recovery health RPC returned no usable row")
+
+    health = rows[0]
+    overdue = int(health.get("overdue_incomplete") or 0)
+    exhausted = int(health.get("exhausted_partial") or 0)
+    oldest = health.get("oldest_incomplete_since")
+    logger.info(
+        "Recovery health: overdue_incomplete=%d exhausted_partial=%d oldest_incomplete_since=%s",
+        overdue,
+        exhausted,
+        oldest or "none",
+    )
+    if overdue or exhausted:
+        logger.error(
+            "Recovery health check failed: %d overdue incomplete creator(s), "
+            "%d exhausted partial sync(s)",
+            overdue,
+            exhausted,
+        )
+        return False
+    return True
 
 
 def main() -> None:
@@ -153,6 +187,7 @@ def main() -> None:
 
     logger.info("✅ Supabase connected")
     total_queued = 0
+    recovery_health_ok = True
 
     archived = 0 if args.priority_preview else archive_permanently_failed_creators()
     if archived:
@@ -211,6 +246,9 @@ def main() -> None:
     else:
         logger.info("── Pass 1: never-synced skipped (--no-unsynced)")
 
+    if args.check_recovery_health:
+        recovery_health_ok = _check_recovery_health(client)
+
     # ── 2. Stale synced creators ──────────────────────────────────────────────
     if args.priority_batch is not None:
         logger.info("Legacy stale pass replaced by shared scheduler")
@@ -245,7 +283,9 @@ def main() -> None:
         logger.info("── Pass 3: invalid/failed skipped (--no-invalid)")
 
     # ── 4. Refresh category box plot stats cache ─────────────────────────────
-    if not args.no_stats:
+    if args.priority_preview:
+        logger.info("── Maintenance refreshes skipped for read-only priority preview")
+    elif not args.no_stats:
         logger.info("── Pass 4: refreshing category stats cache")
         refreshed = refresh_category_stats_cache()
         logger.info(f"   Refreshed: {refreshed} categories")
@@ -253,7 +293,9 @@ def main() -> None:
         logger.info("── Pass 4: category stats skipped (--no-stats)")
 
     # ── 5. Refresh hero stats materialized views ──────────────────────────────
-    if not args.no_stats:
+    if args.priority_preview:
+        logger.info("── Pass 5: hero stats refresh skipped (read-only preview)")
+    elif not args.no_stats:
         logger.info("── Pass 5: refreshing hero stats materialized views")
         result = refresh_hero_stats_cache()
         if result["success"]:
@@ -264,7 +306,9 @@ def main() -> None:
     else:
         logger.info("── Pass 5: hero stats skipped (--no-stats)")
 
-    if not args.no_stats:
+    if args.priority_preview:
+        logger.info("── Sync coverage refresh skipped (read-only preview)")
+    elif not args.no_stats:
         logger.info("── Refreshing creator sync coverage snapshot")
         refresh_creator_sync_coverage(client=client)
 
@@ -273,7 +317,9 @@ def main() -> None:
     # takes ~4s and exceeds PostgREST's statement timeout when bundled with
     # the fast materialized view refreshes. Controlled solely by --no-categories
     # so that --no-stats (which skips Passes 4–5) does not silently disable it.
-    if not args.no_categories:
+    if args.priority_preview:
+        logger.info("── Pass 6: total_categories recount skipped (read-only preview)")
+    elif not args.no_categories:
         logger.info("── Pass 6: recounting total_categories")
         count = refresh_total_categories()
         logger.info(f"   total_categories: {count}")
@@ -281,6 +327,8 @@ def main() -> None:
         logger.info("── Pass 6: total_categories skipped (--no-categories)")
 
     logger.info(f"✅ Bootstrap complete — {total_queued} total creators queued")
+    if not recovery_health_ok:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

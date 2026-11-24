@@ -10,7 +10,10 @@ name: Creator Stats Worker
 #   - Processes up to 700 jobs per run (within 84% of daily quota)
 #   - Fresh Python process per job (prevents httplib2 memory corruption)
 #   - Early exit when queue exhausted (saves Actions minutes)
-#   - Bootstraps small batches on startup (safety net if bootstrap delayed)
+#   - Consumes jobs admitted by the shared bootstrap scheduler
+#     Startup/periodic legacy admissions are disabled here so they cannot
+#     bypass its recovery priorities or queue cap. If bootstrap fails, inspect
+#     its logs and rerun it; this workflow still consumes already-queued jobs.
 #
 # Quota budget: 700 jobs × 3 units = 2,100/run × 4 runs/day = 8,400/day (84% of 10k limit)
 
@@ -42,6 +45,9 @@ jobs:
       # Quota math: WORKER_MAX_JOBS × 3 units × 4 runs/day must stay ≤ 10,000.
       # Current: 700 × 3 × 4 = 8,400 (84%). Update the header comment if changed.
       WORKER_MAX_JOBS: "700"
+      # Admission belongs to bootstrap; standalone workers retain the legacy
+      # startup/periodic safety net when this setting is absent.
+      CREATOR_WORKER_EXTERNAL_SCHEDULER: "true"
 
       # Each Python process exits after 1 job (EXIT_AFTER_JOB=True).
       # MAX_RUNTIME is a per-process safety ceiling only.
@@ -81,7 +87,7 @@ jobs:
           PURGED_CHANNELS=0
 
           while [ $JOBS_PROCESSED -lt $MAX_JOBS ]; do
-            # First iteration: run diagnosis + queue unsynced creators.
+            # First iteration: run diagnosis; bootstrap owns queue admission.
             # Subsequent: skip to save DB round trips.
             if [ $JOBS_PROCESSED -eq 0 ] && [ $EMPTY_RUNS -eq 0 ]; then
               unset CREATOR_WORKER_SKIP_DIAGNOSIS

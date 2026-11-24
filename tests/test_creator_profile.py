@@ -19,16 +19,20 @@ import main
 
 
 @pytest.mark.parametrize(
-    "status,archived,expected",
+    "status,archived,channel_name,expected",
     [
-        ("synced", None, 1),
-        ("synced_partial", None, 1),
-        ("pending", None, None),
-        ("failed", None, None),
-        ("synced", "2026-11-01", None),
+        ("synced", None, "Creator", 1),
+        ("synced_partial", None, "Creator", 1),
+        ("pending", None, "Creator", None),
+        ("failed", None, "Creator", None),
+        ("synced", "2026-11-01", "Creator", None),
+        ("synced", None, "", None),
+        ("synced", None, "   ", None),
     ],
 )
-def test_country_rank_only_requested_for_eligible_profiles(monkeypatch, status, archived, expected):
+def test_country_rank_only_requested_for_eligible_profiles(
+    monkeypatch, status, archived, channel_name, expected
+):
     from routes import creators as creator_routes
 
     calls = []
@@ -39,7 +43,7 @@ def test_country_rank_only_requested_for_eligible_profiles(monkeypatch, status, 
     )
     creator = {
         "id": "creator-1",
-        "channel_name": "Creator",
+        "channel_name": channel_name,
         "current_subscribers": 100,
         "country_code": "GB",
         "sync_status": status,

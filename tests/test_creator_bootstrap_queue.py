@@ -447,6 +447,50 @@ def test_bootstrap_shared_scheduler_replaces_legacy_passes(monkeypatch, preview,
     legacy.assert_not_called()
 
 
+def test_priority_preview_skips_persistent_maintenance(monkeypatch):
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=[])
+    maintenance = MagicMock()
+    monkeypatch.setattr(bootstrap, "init_supabase", lambda: client)
+    monkeypatch.setattr(bootstrap, "archive_permanently_failed_creators", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_category_stats_cache", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_hero_stats_cache", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_creator_sync_coverage", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_total_categories", maintenance)
+    monkeypatch.setattr(
+        bootstrap.sys,
+        "argv",
+        ["bootstrap", "--priority-batch", "700", "--priority-preview"],
+    )
+
+    bootstrap.main()
+
+    maintenance.assert_not_called()
+
+
+def test_bootstrap_recovery_health_flag_requires_priority_scheduler(monkeypatch):
+    monkeypatch.setattr(bootstrap.sys, "argv", ["bootstrap", "--check-recovery-health"])
+
+    with pytest.raises(SystemExit):
+        bootstrap._parse_args()
+
+
+@pytest.mark.parametrize(
+    "row, expected",
+    [
+        ({"overdue_incomplete": 0, "exhausted_partial": 0}, True),
+        ({"overdue_incomplete": 1, "exhausted_partial": 0}, False),
+        ({"overdue_incomplete": 0, "exhausted_partial": 2}, False),
+    ],
+)
+def test_bootstrap_recovery_health_check_reports_failures(row, expected):
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=[row])
+
+    assert bootstrap._check_recovery_health(client) is expected
+    client.rpc.assert_called_once_with("get_creator_recovery_health")
+
+
 def test_bootstrap_skips_queueing_when_terminal_archival_fails(monkeypatch):
     client = MagicMock()
     queue_unsynced = MagicMock()

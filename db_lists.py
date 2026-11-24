@@ -250,6 +250,7 @@ class CountryPageResult(NamedTuple):
 # evicted by clear_category_creators_cache() (called after a worker refresh).
 # ---------------------------------------------------------------------------
 _CATEGORY_CREATORS_TTL_SECONDS = 600  # 10 min
+_COUNTRY_CREATORS_TTL_SECONDS = 60  # 1 min
 _CategoryCreatorsValue = list[dict] | TopicCategoryPageResult
 
 _category_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
@@ -1149,7 +1150,7 @@ def get_country_creators(
         cached_entry = _country_creators_cache.get(cache_key)
     if cached_entry is not None:
         ts, cached_result = cached_entry
-        if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
+        if now - ts < _COUNTRY_CREATORS_TTL_SECONDS:
             # Cache always stores CountryPageResult; extract list if needed
             return cached_result if return_count else cached_result.creators
 

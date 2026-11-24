@@ -875,7 +875,8 @@ def test_invalid_pilot_allowlist_fails_before_enqueue(pilot_client, ids):
     pilot_client.rpc.assert_not_called()
 
 
-def test_worker_initialization_retains_startup_maintenance(monkeypatch):
+@pytest.mark.parametrize("external_scheduler", [False, True])
+def test_worker_initialization_gates_startup_admission(monkeypatch, external_scheduler):
     client = MagicMock()
     monkeypatch.setattr(creator_worker, "init_supabase", lambda: client)
     monkeypatch.setattr(creator_worker, "supabase_client", None)
@@ -891,6 +892,10 @@ def test_worker_initialization_retains_startup_maintenance(monkeypatch):
         lambda: {"total_columns": 0, "missing_count": 0},
     )
     monkeypatch.delenv("CREATOR_WORKER_SKIP_DIAGNOSIS", raising=False)
+    if external_scheduler:
+        monkeypatch.setenv("CREATOR_WORKER_EXTERNAL_SCHEDULER", "true")
+    else:
+        monkeypatch.delenv("CREATOR_WORKER_EXTERNAL_SCHEDULER", raising=False)
     reset = MagicMock()
     diagnose = MagicMock()
     enqueue = MagicMock(return_value=0)
@@ -902,4 +907,7 @@ def test_worker_initialization_retains_startup_maintenance(monkeypatch):
 
     reset.assert_called_once()
     diagnose.assert_called_once()
-    enqueue.assert_called_once()
+    if external_scheduler:
+        enqueue.assert_not_called()
+    else:
+        enqueue.assert_called_once()

@@ -9,6 +9,7 @@ WHERE creator.archived_at IS NULL
   AND creator.sync_status IN ('synced', 'synced_partial')
   AND creator.country_code ~ '^[A-Z]{2}$'
   AND creator.channel_name IS NOT NULL
+  AND btrim(creator.channel_name) <> ''
   AND creator.current_subscribers > 0;
 
 REVOKE ALL ON public.country_list_creators FROM PUBLIC;
@@ -17,23 +18,45 @@ GRANT SELECT ON public.country_list_creators TO anon, authenticated, service_rol
 CREATE OR REPLACE FUNCTION public.get_country_preview_creators(
     p_country_codes text[], p_limit_per_country integer DEFAULT 5
 )
+-- Keep the original row type so existing callers of this public RPC remain
+-- compatible. PostgreSQL rejects changing SETOF public.creators to RETURNS TABLE
+-- with CREATE OR REPLACE; a new versioned RPC is required for a narrower shape.
 RETURNS SETOF public.creators
-LANGUAGE sql STABLE SECURITY DEFINER
+LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-    SELECT creator.*
+BEGIN
+    IF cardinality(COALESCE(p_country_codes, ARRAY[]::text[])) > 100 THEN
+        RAISE EXCEPTION 'At most 100 country codes may be requested';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM unnest(COALESCE(p_country_codes, ARRAY[]::text[])) requested(country_code)
+        WHERE requested.country_code IS NULL
+           OR requested.country_code !~ '^[A-Z]{2}$'
+    ) THEN
+        RAISE EXCEPTION 'Country codes must be two uppercase letters';
+    END IF;
+
+    RETURN QUERY
+    SELECT listed.*
     FROM (
         SELECT DISTINCT country_code
         FROM unnest(COALESCE(p_country_codes, ARRAY[]::text[])) requested(country_code)
     ) requested
     CROSS JOIN LATERAL (
-        SELECT listed.* FROM public.country_list_creators AS listed
-        WHERE listed.country_code = requested.country_code
-        ORDER BY listed.current_subscribers DESC, listed.id
+        SELECT preview.* FROM public.country_list_creators AS preview
+        WHERE preview.country_code = requested.country_code
+        ORDER BY preview.current_subscribers DESC, preview.id
         LIMIT GREATEST(LEAST(COALESCE(p_limit_per_country, 0), 100), 0)
-    ) creator
-    ORDER BY creator.country_code, creator.current_subscribers DESC, creator.id;
+    ) listed
+    ORDER BY listed.country_code, listed.current_subscribers DESC, listed.id;
+END;
 $$;
+
+REVOKE ALL ON FUNCTION public.get_country_preview_creators(text[], integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_country_preview_creators(text[], integer)
+TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_top_countries_with_counts(p_limit integer DEFAULT 10)
 RETURNS TABLE (country_code text, creator_count bigint)
@@ -44,7 +67,7 @@ AS $$
     FROM public.country_list_creators AS listed
     GROUP BY listed.country_code
     ORDER BY count(*) DESC, listed.country_code
-    LIMIT GREATEST(LEAST(COALESCE(p_limit, 0), 300), 0);
+    LIMIT GREATEST(LEAST(COALESCE(p_limit, 0), 500), 0);
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_country_creator_rank(p_creator_id uuid)
