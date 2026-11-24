@@ -55,7 +55,7 @@ VALUES (lpad('11', 32, '0')::uuid, 'failed', 'priority_enqueue', 'sync_stats', 3
 INSERT INTO public.creator_sync_jobs(creator_id, status, source, job_type, retry_count, completed_at)
 VALUES (lpad('13', 32, '0')::uuid, 'failed', 'video_snapshot_refresh', 'sync_stats', 3, now());
 DO $$
-DECLARE total bigint; health record;
+DECLARE total bigint; jobs_before bigint; health record;
 BEGIN
     IF (SELECT count(*) FROM public.creator_recovery_candidates()) <> 6 THEN
         RAISE EXCEPTION 'Candidate filtering failed';
@@ -70,13 +70,17 @@ BEGIN
     IF (SELECT eligible_creators_without_job FROM public.creator_sync_coverage_snapshot) <> 6 THEN
         RAISE EXCEPTION 'Coverage does not follow the active scheduler policy';
     END IF;
+    SELECT count(*) INTO jobs_before FROM public.creator_sync_jobs;
     SELECT sum(selected) INTO total FROM public.enqueue_creator_syncs(4, 10000, 1000, true);
-    IF total <> 4 OR (SELECT count(*) FROM public.creator_sync_jobs) <> 2 THEN
-        RAISE EXCEPTION 'Dry run modified jobs or picked wrong count';
+    IF total <> 4 THEN
+        RAISE EXCEPTION 'Dry run picked the wrong count: expected 4, got %', total;
+    END IF;
+    IF (SELECT count(*) FROM public.creator_sync_jobs) <> jobs_before THEN
+        RAISE EXCEPTION 'Dry run modified creator_sync_jobs';
     END IF;
     PERFORM public.enqueue_creator_syncs(4, 10000, 1000, NULL);
-    IF (SELECT count(*) FROM public.creator_sync_jobs) <> 2 THEN
-        RAISE EXCEPTION 'NULL preview inserted jobs';
+    IF (SELECT count(*) FROM public.creator_sync_jobs) <> jobs_before THEN
+        RAISE EXCEPTION 'NULL preview modified creator_sync_jobs';
     END IF;
     PERFORM public.enqueue_creator_syncs(4, 10000, 1000, false);
     IF NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('2', 32, '0')::uuid)
