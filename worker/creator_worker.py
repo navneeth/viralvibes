@@ -99,6 +99,12 @@ EMPTY_QUEUE_BACKOFF_BASE = int(
 )  # Start at 30s when queue is empty
 EMPTY_QUEUE_BACKOFF_MAX = int(os.getenv("CREATOR_WORKER_EMPTY_BACKOFF_MAX", "300"))  # Cap at 5 min
 
+
+def _external_scheduler_enabled() -> bool:
+    """Whether creator job admission is delegated to the bootstrap scheduler."""
+    return os.getenv("CREATOR_WORKER_EXTERNAL_SCHEDULER", "").strip().lower() == "true"
+
+
 # YouTube API quota metering (standard quota is 10,000 units/day).
 # Guard against misconfigured or non-positive quotas to avoid divide-by-zero
 # and misleading "remaining" / percentage calculations downstream.
@@ -1992,6 +1998,13 @@ def _update_creator_snapshot(
     )
 
 
+def _format_partial_sync_error(update_error: Exception) -> str:
+    return (
+        f"Partial sync: full update failed ({type(update_error).__name__}, "
+        f"code={getattr(update_error, 'code', 'unknown')}): {update_error}"
+    )[:2000]
+
+
 async def handle_sync_job(
     job_id: int,
     creator_id: str,
@@ -2390,6 +2403,7 @@ async def handle_sync_job(
                 f"skipping {len(missing_fields)} unavailable columns: {missing_fields}"
             )
 
+        partial_sync = False
         # STAGE 4: Write to DB
         try:
             result = _update_creator_snapshot(creator_id, update_payload, snapshot_started_at)
@@ -2403,6 +2417,7 @@ async def handle_sync_job(
                 logger.info(f"{job_tag} ✅ DB updated ({len(update_payload)} fields written)")
 
         except Exception as update_error:
+            partial_sync = True
             # FALLBACK: Try with minimal core fields
             metrics.db_errors += 1
             logger.warning(f"{job_tag} ⚠️  Full update failed: {update_error}")
@@ -2415,7 +2430,7 @@ async def handle_sync_job(
                 "channel_name": full_payload.get("channel_name"),
                 "country_code": full_payload.get("country_code"),
                 "sync_status": "synced_partial",
-                "sync_error_message": "Schema mismatch — synced with basic fields only",
+                "sync_error_message": _format_partial_sync_error(update_error),
                 "last_updated_at": datetime.now(timezone.utc).isoformat(),
                 "last_synced_at": snapshot_started_at.isoformat(),
             }
@@ -2460,7 +2475,14 @@ async def handle_sync_job(
                 )
                 metrics.syncs_failed += 1
                 return False
-            logger.info(f"{job_tag} ✅ Sync COMPLETED successfully for {channel_id}")
+            if partial_sync:
+                logger.warning(
+                    "%s PARTIAL sync for %s; core fields saved, full update still requires recovery",
+                    job_tag,
+                    channel_id,
+                )
+            else:
+                logger.info(f"{job_tag} ✅ Sync COMPLETED successfully for {channel_id}")
             metrics.syncs_processed += 1
             return True
 
@@ -2713,14 +2735,17 @@ async def init():
     if os.getenv("CREATOR_WORKER_SKIP_DIAGNOSIS", "").lower() != "true":
         _diagnose_creator_db_state()
 
-        # Bootstrap unsynced creators on first run
-        logger.info("─" * 60)
-        logger.info("🔄 STARTUP: Queuing never-synced creators...")
-        unsynced_count = _queue_unsynced_creators(batch_size=500)
-        if unsynced_count > 0:
-            logger.info(f"✅ Queued {unsynced_count} never-synced creators for first sync")
+        if _external_scheduler_enabled():
+            logger.info("Startup queue admission skipped; external recovery scheduler is enabled")
         else:
-            logger.info("✅ All creators have been synced at least once")
+            # Keep legacy startup recovery for local and existing worker deployments.
+            logger.info("─" * 60)
+            logger.info("🔄 STARTUP: Queuing never-synced creators...")
+            unsynced_count = _queue_unsynced_creators(batch_size=500)
+            if unsynced_count > 0:
+                logger.info(f"✅ Queued {unsynced_count} never-synced creators for first sync")
+            else:
+                logger.info("✅ All creators have been synced at least once")
     else:
         logger.debug("Skipping DB diagnosis (CREATOR_WORKER_SKIP_DIAGNOSIS=true)")
 
@@ -2756,43 +2781,55 @@ async def process_creator_syncs():
             logger.info(f"Max runtime ({MAX_RUNTIME}s) exceeded — exiting")
             break
 
-        # ── Periodic: queue invalid/failed + never-synced creators ────────────
+        # ── Periodic: legacy queue admission ─────────────────────────────────
         if time.time() - last_periodic_check > PERIODIC_CHECK_INTERVAL:
-            logger.info("─" * 50)
-            logger.info("⏰ PERIODIC CHECK: Queuing creators that need sync...")
-
-            try:
-                archived_count = await asyncio.to_thread(archive_permanently_failed_creators)
-            except Exception:
-                logger.exception(
-                    "Terminal creator archival failed; skipping queue maintenance this pass"
+            if _external_scheduler_enabled():
+                logger.info(
+                    "Periodic queue admission skipped; external recovery scheduler is enabled"
                 )
             else:
-                if archived_count:
-                    logger.info("Archived %d creators that exhausted sync retries", archived_count)
+                logger.info("─" * 50)
+                logger.info("⏰ PERIODIC CHECK: Queuing creators that need sync...")
 
-                # Retry previously synced invalid/failed creators.
-                invalid_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
-                logger.info("  queue_invalid_creators_for_retry: %d queued", invalid_count)
+                try:
+                    archived_count = await asyncio.to_thread(archive_permanently_failed_creators)
+                except Exception:
+                    logger.exception(
+                        "Terminal creator archival failed; skipping queue maintenance this pass"
+                    )
+                else:
+                    if archived_count:
+                        logger.info(
+                            "Archived %d creators that exhausted sync retries", archived_count
+                        )
 
-                # Queue valid never-synced creators after terminal failures are archived.
-                unsynced_count = _queue_unsynced_creators(batch_size=500)
-                total_queued = invalid_count + unsynced_count
-                logger.info(
-                    "✅ Periodic check complete: %d total creators queued "
-                    "(%d retry, %d first-time/never-synced)",
-                    total_queued,
-                    invalid_count,
-                    unsynced_count,
-                )
+                    # Retry previously synced invalid/failed creators.
+                    invalid_count = queue_invalid_creators_for_retry(hours_since_last_sync=24)
+                    logger.info("  queue_invalid_creators_for_retry: %d queued", invalid_count)
+
+                    # Queue valid never-synced creators after terminal failures are archived.
+                    unsynced_count = _queue_unsynced_creators(batch_size=500)
+                    total_queued = invalid_count + unsynced_count
+                    logger.info(
+                        "✅ Periodic check complete: %d total creators queued "
+                        "(%d retry, %d first-time/never-synced)",
+                        total_queued,
+                        invalid_count,
+                        unsynced_count,
+                    )
             last_periodic_check = time.time()
 
         # ── Extended: refresh stale but healthy syncs ──────────────────────────
         if time.time() - last_extended_refresh > EXTENDED_REFRESH_INTERVAL:
-            logger.info("─" * 50)
-            logger.info("⏰ EXTENDED REFRESH: Queuing stale synced creators...")
-            stale_count = _queue_creators_for_extended_refresh(days_since_last_sync=7)
-            logger.info(f"✅ Extended refresh: {stale_count} stale creator(s) queued")
+            if _external_scheduler_enabled():
+                logger.info(
+                    "Extended refresh admission skipped; external recovery scheduler is enabled"
+                )
+            else:
+                logger.info("─" * 50)
+                logger.info("⏰ EXTENDED REFRESH: Queuing stale synced creators...")
+                stale_count = _queue_creators_for_extended_refresh(days_since_last_sync=7)
+                logger.info(f"✅ Extended refresh: {stale_count} stale creator(s) queued")
             last_extended_refresh = time.time()
 
         # ── Progress report — only at INFO when metrics have changed ──────────

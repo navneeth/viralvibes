@@ -22,6 +22,33 @@ on:
         required: false
 
 jobs:
+  creator-recovery-sql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test creator recovery and country eligibility migrations
+        run: psql -v ON_ERROR_STOP=1 -f db/tests/creator_recovery_scheduler.sql
+
   run-tests:
     runs-on: ubuntu-latest
     permissions:

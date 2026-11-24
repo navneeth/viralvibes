@@ -250,6 +250,7 @@ class CountryPageResult(NamedTuple):
 # evicted by clear_category_creators_cache() (called after a worker refresh).
 # ---------------------------------------------------------------------------
 _CATEGORY_CREATORS_TTL_SECONDS = 600  # 10 min
+_COUNTRY_CREATORS_TTL_SECONDS = 60  # 1 min
 _CategoryCreatorsValue = list[dict] | TopicCategoryPageResult
 
 _category_creators_cache: dict[tuple, tuple[float, _CategoryCreatorsValue]] = {}
@@ -1134,12 +1135,9 @@ def get_country_creators(
     """
     Paginated creator listing for a country detail page.
 
-    This intentionally mirrors the By Country preview cards: a creator is
-    listable when it has sync_status='synced', a country_code, channel_name,
-    and positive subscribers. The generic get_creators() path uses an IN() sync
-    filter and gracefully returns empty on filtered statement timeouts; for
-    large countries that made public country pages look empty even though the
-    country cards had creators.
+    The country_list_creators view owns eligibility for country previews,
+    pages, counts, and profile ranks. It includes non-archived synced and
+    synced_partial creators with a country, name, and positive subscribers.
     """
     normalized_country = str(country_code or "").strip().upper()
     if len(normalized_country) != 2:
@@ -1152,7 +1150,7 @@ def get_country_creators(
         cached_entry = _country_creators_cache.get(cache_key)
     if cached_entry is not None:
         ts, cached_result = cached_entry
-        if now - ts < _CATEGORY_CREATORS_TTL_SECONDS:
+        if now - ts < _COUNTRY_CREATORS_TTL_SECONDS:
             # Cache always stores CountryPageResult; extract list if needed
             return cached_result if return_count else cached_result.creators
 
@@ -1169,12 +1167,9 @@ def get_country_creators(
 
     try:
         query = (
-            supabase_client.table("creators")
+            supabase_client.table("country_list_creators")
             .select("*", count="exact" if return_count else None)
             .eq("country_code", normalized_country)
-            .eq("sync_status", "synced")
-            .not_.is_("channel_name", "null")
-            .gt("current_subscribers", 0)
             .order("current_subscribers", desc=True)
             .order("id")
             .limit(limit)

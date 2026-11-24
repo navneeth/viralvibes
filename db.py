@@ -29,6 +29,7 @@ from tenacity import (
     wait_exponential,
     wait_exponential_jitter,
 )
+
 from constants import (
     BROWSEABLE_SYNC_STATUSES,
     CREATOR_REDISCOVERY_THRESHOLD_DAYS,
@@ -2221,6 +2222,27 @@ def get_category_leaderboard(category: str, limit: int = 5) -> list[dict]:
         return []
 
 
+def get_country_creator_rank(creator_id: str) -> int | None:
+    """Return an exact, list-eligible country rank, or None when unavailable.
+
+    Migration 098 owns target eligibility and deterministic subscriber/ID
+    ordering. Never fall back to the legacy count: it can badge a creator
+    excluded from the country list.
+    """
+    if not supabase_client or not creator_id:
+        return None
+    try:
+        response = _db_execute_readonly(
+            lambda: supabase_client.rpc(
+                "get_country_creator_rank", {"p_creator_id": creator_id}
+            ).execute()
+        )
+        return int(response.data) if response.data is not None else None
+    except Exception:
+        logger.exception("Error computing country rank for creator %s", creator_id)
+        return None
+
+
 def get_creator_rank(
     current_subscribers: int,
     filter_key: str,
@@ -3099,10 +3121,12 @@ def get_embedding_peers(
 
             def fetch_batch(columns):
                 return _db_execute(
-                    lambda: supabase_client.table(CREATOR_TABLE)
-                    .select(columns)
-                    .in_("id", batch)
-                    .execute()
+                    lambda: (
+                        supabase_client.table(CREATOR_TABLE)
+                        .select(columns)
+                        .in_("id", batch)
+                        .execute()
+                    )
                 )
 
             try:

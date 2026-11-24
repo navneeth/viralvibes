@@ -4,10 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import db
 import worker.bootstrap_creators as bootstrap
 import worker.creator_worker as creator_worker
-import db
-
 
 VALID_CHANNEL_ID = "UC" + "A" * 22
 
@@ -392,6 +391,18 @@ def test_bootstrap_passes_initialized_client_to_queue_helpers(
 @pytest.mark.parametrize(
     "options",
     [
+        ["--priority-preview"],
+        ["--priority-batch", "0"],
+        ["--priority-batch", "701"],
+        ["--priority-batch", "100", "--no-stale"],
+        [
+            "--priority-batch",
+            "100",
+            "--priority-preview",
+            "--snapshot-refresh-batch",
+            "40",
+            "--snapshot-refresh-apply",
+        ],
         ["--snapshot-refresh-batch", "41"],
         ["--snapshot-refresh-batch", "-1"],
         ["--snapshot-refresh-apply"],
@@ -401,6 +412,83 @@ def test_bootstrap_rejects_invalid_snapshot_options(monkeypatch, options):
     monkeypatch.setattr(bootstrap.sys, "argv", ["bootstrap"] + options)
     with pytest.raises(SystemExit):
         bootstrap._parse_args()
+
+
+@pytest.mark.parametrize("preview", [False, True])
+@pytest.mark.parametrize("rpc_error", [False, True])
+def test_bootstrap_shared_scheduler_replaces_legacy_passes(monkeypatch, preview, rpc_error):
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(
+        data=[{"bucket": "1_never_synced", "selected": 2}]
+    )
+    if rpc_error:
+        client.rpc.return_value.execute.side_effect = RuntimeError("scheduler unavailable")
+    monkeypatch.setattr(bootstrap, "init_supabase", lambda: client)
+    monkeypatch.setattr(bootstrap, "archive_permanently_failed_creators", lambda: 0)
+    legacy = MagicMock()
+    monkeypatch.setattr(bootstrap, "_queue_unsynced_creators", legacy)
+    monkeypatch.setattr(bootstrap, "_queue_creators_for_extended_refresh", legacy)
+    monkeypatch.setattr(bootstrap, "queue_invalid_creators_for_retry", legacy)
+    monkeypatch.setattr(
+        bootstrap.sys,
+        "argv",
+        ["bootstrap", "--priority-batch", "700", "--no-stats", "--no-categories"]
+        + (["--priority-preview"] if preview else []),
+    )
+    if rpc_error:
+        with pytest.raises(RuntimeError, match="scheduler unavailable"):
+            bootstrap.main()
+    else:
+        bootstrap.main()
+    client.rpc.assert_called_once_with(
+        "enqueue_creator_syncs",
+        {"p_limit": 700, "p_min_subscribers": 10000, "p_max_queue": 1000, "p_dry_run": preview},
+    )
+    legacy.assert_not_called()
+
+
+def test_priority_preview_skips_persistent_maintenance(monkeypatch):
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=[])
+    maintenance = MagicMock()
+    monkeypatch.setattr(bootstrap, "init_supabase", lambda: client)
+    monkeypatch.setattr(bootstrap, "archive_permanently_failed_creators", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_category_stats_cache", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_hero_stats_cache", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_creator_sync_coverage", maintenance)
+    monkeypatch.setattr(bootstrap, "refresh_total_categories", maintenance)
+    monkeypatch.setattr(
+        bootstrap.sys,
+        "argv",
+        ["bootstrap", "--priority-batch", "700", "--priority-preview"],
+    )
+
+    bootstrap.main()
+
+    maintenance.assert_not_called()
+
+
+def test_bootstrap_recovery_health_flag_requires_priority_scheduler(monkeypatch):
+    monkeypatch.setattr(bootstrap.sys, "argv", ["bootstrap", "--check-recovery-health"])
+
+    with pytest.raises(SystemExit):
+        bootstrap._parse_args()
+
+
+@pytest.mark.parametrize(
+    "row, expected",
+    [
+        ({"overdue_incomplete": 0, "exhausted_partial": 0}, True),
+        ({"overdue_incomplete": 1, "exhausted_partial": 0}, False),
+        ({"overdue_incomplete": 0, "exhausted_partial": 2}, False),
+    ],
+)
+def test_bootstrap_recovery_health_check_reports_failures(row, expected):
+    client = MagicMock()
+    client.rpc.return_value.execute.return_value = SimpleNamespace(data=[row])
+
+    assert bootstrap._check_recovery_health(client) is expected
+    client.rpc.assert_called_once_with("get_creator_recovery_health")
 
 
 def test_bootstrap_skips_queueing_when_terminal_archival_fails(monkeypatch):

@@ -329,7 +329,7 @@ def test_get_topic_category_country_creators_filters_country_and_category(monkey
     ]
 
 
-def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
+def test_get_country_creators_uses_shared_eligibility_view(monkeypatch):
     fake_client = _FakeSupabaseClient(
         {
             "data": [{"channel_name": "US Channel", "current_subscribers": 100}],
@@ -346,8 +346,8 @@ def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
     assert result.total_count == 1
     assert result.creators[0]["_rank"] == 1
     call = fake_client.calls[0]
+    assert call["table"] == "country_list_creators"
     assert ("country_code", "US") in call["eq"]
-    assert ("sync_status", "synced") in call["eq"]
     assert "in_" not in call
     assert [order["args"] for order in call["order_calls"]] == [
         ("current_subscribers",),

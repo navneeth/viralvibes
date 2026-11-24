@@ -13,20 +13,22 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import pycountry
-
 from fasthtml.common import *
 from fasthtml.common import RedirectResponse
 from monsterui.all import *
 
+from constants import BROWSEABLE_SYNC_STATUSES
+from controllers.auth_routes import require_auth, safe_local_return_url
 from db import (
+    CreatorsResult,
     add_creator_by_handle,
     add_favourite_creator,
     calculate_creator_stats,
-    CreatorsResult,
     find_creator_by_handle,
     get_cached_category_box_stats,
     get_category_leaderboard,
     get_category_peer_benchmarks,
+    get_country_creator_rank,
     get_creator_add_request_status,
     get_creator_hero_stats,
     get_creator_rank,
@@ -39,36 +41,36 @@ from db import (
     remove_favourite_creator,
 )
 from db_lists import (
+    TOTAL_TOPIC_CATEGORIES,
     get_top_categories_with_counts,
     get_top_countries_with_counts,
     get_top_languages_with_counts,
     suggest_primary_categories,
-    TOTAL_TOPIC_CATEGORIES,
 )
 
 # from services.youtube_backend_api import YouTubeBackendAPI
 from services.creator_search_intent import classify_creator_search, normalize_handle
-from controllers.auth_routes import require_auth, safe_local_return_url
+from utils.blueprint import score_all_actions, signals_from_row
+from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
+from views.blueprint import render_blueprint_page
 from views.compare import render_compare_page, render_compare_pick_page
 from views.creators import (
     creator_profile_url,
+    get_topic_category_emoji,
     render_add_creator_result,
     render_add_creator_status_result,
     render_creator_preview,
     render_creator_profile_page,
     render_creators_page,
     render_filter_suggestions,
-    get_topic_category_emoji,
 )
-from utils.blueprint import signals_from_row, score_all_actions
-from views.blueprint import render_blueprint_page
-from utils.creator_metrics import get_country_flag, get_language_emoji, get_language_name
 
 logger = logging.getLogger(__name__)
 
 
 def request_creator_video_snapshot_route(req, sess, creator_id: str):
     from starlette.responses import JSONResponse
+
     from services.video_snapshot_demand import request_video_snapshot
 
     if not sess.get("auth") or not sess.get("user_id"):
@@ -166,7 +168,7 @@ _COUNTRY_PREP_RE = re.compile(
     # Trailing punctuation (!?.,) after the country name is stripped before lookup.
     "(?i)"
     r"\b(?:from|in|based\s+in)\s+"
-    "([a-zA-Z\u00C0-\u017E'.\\-][a-zA-Z\u00C0-\u017E\u2019'.\\- ]{0,40}?)"
+    "([a-zA-Z\u00c0-\u017e'.\\-][a-zA-Z\u00c0-\u017e\u2019'.\\- ]{0,40}?)"
     r"\s*[!?.,]*\s*$"
 )
 
@@ -703,7 +705,13 @@ def _get_context_ranks(creator: dict) -> dict:
     category = creator.get("primary_category", "")
 
     tasks: dict[str, tuple[str, str]] = {}
-    if subs and country:
+    if (
+        subs > 0
+        and country
+        and str(creator.get("channel_name") or "").strip()
+        and creator.get("sync_status") in BROWSEABLE_SYNC_STATUSES
+        and not creator.get("archived_at")
+    ):
         tasks["country_rank"] = ("country_code", country)
     if subs and language:
         tasks["language_rank"] = ("default_language", language)
@@ -720,7 +728,11 @@ def _get_context_ranks(creator: dict) -> dict:
 
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures = {
-            pool.submit(get_creator_rank, subs, key, val): name
+            (
+                pool.submit(get_country_creator_rank, creator.get("id"))
+                if key == "country_code"
+                else pool.submit(get_creator_rank, subs, key, val)
+            ): name
             for name, (key, val) in tasks.items()
         }
         for future in as_completed(futures):
@@ -1438,6 +1450,7 @@ def creators_like_route(request, *, handle: str):
           (the latter prevents indexable empty pages).
     """
     import hashlib
+
     from starlette.responses import Response
 
     from views.creators import render_creators_like_page

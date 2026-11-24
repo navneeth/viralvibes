@@ -6,6 +6,18 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+def test_format_partial_sync_error_includes_diagnostics_and_is_bounded():
+    import worker.creator_worker as creator_worker
+
+    error = RuntimeError("database update failed " + ("x" * 2500))
+    error.code = "23503"
+
+    message = creator_worker._format_partial_sync_error(error)
+
+    assert message.startswith("Partial sync: full update failed (RuntimeError, code=23503):")
+    assert len(message) == 2000
+
+
 @pytest.mark.parametrize("response_value", [True, False])
 def test_coverage_refresh_uses_explicit_client(monkeypatch, response_value):
     import db
