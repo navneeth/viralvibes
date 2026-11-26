@@ -74,13 +74,13 @@ BEGIN
         (lpad('15', 32, '0')::uuid, 'UC' || lpad('15', 22, '0'), 5000,
          'synced', now() - interval '700 days', now() - interval '600 days'),
         (lpad('16', 32, '0')::uuid, 'UC' || lpad('16', 22, '0'), 50000,
-         'synced', now() - interval '300 days', now() - interval '150 days'),
+         'synced', now() - interval '300 days', now() - interval '29 days'),
         (lpad('17', 32, '0')::uuid, 'UC' || lpad('17', 22, '0'), 50000,
-         'synced', now() - interval '300 days', now() - interval '181 days'),
+         'synced', now() - interval '300 days', now() - interval '31 days'),
         (lpad('18', 32, '0')::uuid, 'UC' || lpad('18', 22, '0'), 1000000,
-         'synced', now() - interval '100 days', now() - interval '40 days'),
+         'synced', now() - interval '100 days', now() - interval '29 days'),
         (lpad('19', 32, '0')::uuid, 'UC' || lpad('19', 22, '0'), 1000000,
-         'synced', now() - interval '100 days', now() - interval '46 days'),
+         'synced', now() - interval '100 days', now() - interval '31 days'),
         (lpad('20', 32, '0')::uuid, 'UC' || lpad('20', 22, '0'), 10000000,
          'synced', now() - interval '30 days', now() - interval '13 days'),
         (lpad('21', 32, '0')::uuid, 'UC' || lpad('21', 22, '0'), 10000000,
@@ -98,8 +98,15 @@ BEGIN
         RAISE EXCEPTION 'Subscriber-tier refresh intervals were not enforced';
     END IF;
     PERFORM public.refresh_creator_sync_coverage(10000);
-    IF (SELECT eligible_creators_without_job FROM public.creator_sync_coverage_snapshot) <> 6 THEN
+    IF (SELECT eligible_creators_without_job FROM public.creator_sync_coverage_snapshot) <> 9
+       OR EXISTS (SELECT 1 FROM public.creator_recovery_candidates(10000)
+                  WHERE creator_id = lpad('15', 32, '0')::uuid) THEN
         RAISE EXCEPTION 'Coverage does not follow the active scheduler policy';
+    END IF;
+    PERFORM public.refresh_creator_sync_coverage(0);
+    IF (SELECT eligible_creators_without_job FROM public.creator_sync_coverage_snapshot) <> 10
+       OR (SELECT min_subscribers FROM public.creator_sync_coverage_snapshot) <> 0 THEN
+        RAISE EXCEPTION 'All-creator coverage omitted eligible sub-10K creators';
     END IF;
     SELECT count(*) INTO jobs_before FROM public.creator_sync_jobs;
     SELECT sum(selected) INTO total FROM public.enqueue_creator_syncs(4, 10000, 1000, true);
@@ -116,7 +123,7 @@ BEGIN
     PERFORM public.enqueue_creator_syncs(4, 10000, 1000, false);
     IF NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('2', 32, '0')::uuid)
        OR NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('3', 32, '0')::uuid)
-       OR NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('4', 32, '0')::uuid)
+         OR NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('17', 32, '0')::uuid)
        OR NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('12', 32, '0')::uuid) THEN
         RAISE EXCEPTION 'Recovery, high-impact refresh, or oldest-age allocation failed';
     END IF;
@@ -142,6 +149,36 @@ BEGIN
     IF has_function_privilege('anon', 'public.get_creator_recovery_health(integer)', 'EXECUTE')
        OR has_function_privilege('authenticated', 'public.enqueue_creator_syncs(integer,integer,integer,boolean)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Recovery functions must remain service-role only';
+    END IF;
+END $$;
+ROLLBACK;
+BEGIN;
+INSERT INTO public.creators(id, channel_id, current_subscribers, sync_status, first_seen_at, last_synced_at)
+VALUES
+    (lpad('22', 32, '0')::uuid, 'UC' || lpad('22', 22, '0'), NULL, 'synced', now() - interval '1000 days', now() - interval '600 days'),
+    (lpad('23', 32, '0')::uuid, 'UC' || lpad('23', 22, '0'), 1000000, 'synced', now() - interval '100 days', now() - interval '46 days'),
+    (lpad('24', 32, '0')::uuid, 'UC' || lpad('24', 22, '0'), 50000, 'synced', now() - interval '300 days', now() - interval '181 days'),
+    (lpad('25', 32, '0')::uuid, 'UC' || lpad('25', 22, '0'), 10000000, 'synced', now() - interval '1100 days', now() - interval '1000 days'),
+    (lpad('26', 32, '0')::uuid, 'UC' || lpad('26', 22, '0'), 100, 'pending', now() - interval '100 days', now() - interval '90 days'),
+    (lpad('28', 32, '0')::uuid, 'UC' || lpad('28', 22, '0'), 10000000, 'synced', now() - interval '1100 days', now() - interval '800 days');
+DO $$
+BEGIN
+    PERFORM public.enqueue_creator_syncs(5, 0, 1000, false);
+    IF NOT EXISTS (SELECT 1 FROM public.creator_sync_jobs WHERE creator_id = lpad('22', 32, '0')::uuid) THEN
+        RAISE EXCEPTION 'Unknown subscriber count was excluded from the under-10K reservation';
+    END IF;
+END $$;
+ROLLBACK;
+BEGIN;
+INSERT INTO public.creators(id, channel_id, current_subscribers, sync_status, first_seen_at, last_synced_at)
+VALUES
+    (lpad('30', 32, '0')::uuid, 'UC' || lpad('30', 22, '0'), 10000, 'synced', now() - interval '100 days', now() - interval '29 days'),
+    (lpad('31', 32, '0')::uuid, 'UC' || lpad('31', 22, '0'), 10000, 'synced', now() - interval '100 days', now() - interval '31 days');
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.creator_recovery_candidates(0) WHERE creator_id = lpad('30', 32, '0')::uuid)
+       OR NOT EXISTS (SELECT 1 FROM public.creator_recovery_candidates(0) WHERE creator_id = lpad('31', 32, '0')::uuid) THEN
+        RAISE EXCEPTION '10K creators must use the 30-day refresh interval';
     END IF;
 END $$;
 ROLLBACK;

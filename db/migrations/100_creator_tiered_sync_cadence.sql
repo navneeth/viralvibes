@@ -29,12 +29,8 @@ AS $$
                        THEN creator.last_synced_at + interval '24 hours'
                    WHEN COALESCE(creator.current_subscribers, 0) >= 10000000
                        THEN creator.last_synced_at + interval '14 days'
-                   WHEN COALESCE(creator.current_subscribers, 0) >= 1000000
-                       THEN creator.last_synced_at + interval '45 days'
-                   WHEN COALESCE(creator.current_subscribers, 0) >= 50000
-                       THEN creator.last_synced_at + interval '180 days'
                    WHEN COALESCE(creator.current_subscribers, 0) >= 10000
-                       THEN creator.last_synced_at + interval '365 days'
+                       THEN creator.last_synced_at + interval '30 days'
                    ELSE creator.last_synced_at + interval '540 days'
                END AS eligible_since
         FROM public.creators AS creator
@@ -126,7 +122,7 @@ BEGIN
     ), tier_under_10k AS MATERIALIZED (
         SELECT candidates.* FROM candidates
         WHERE candidates.bucket = '3_stale'
-          AND candidates.current_subscribers < 10000
+                    AND COALESCE(candidates.current_subscribers, 0) < 10000
         ORDER BY candidates.eligible_since, candidates.creator_id
         LIMIT (v_budget * 20) / 100
     ), reserved AS MATERIALIZED (
