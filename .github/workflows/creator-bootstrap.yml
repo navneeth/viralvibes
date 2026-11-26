@@ -10,9 +10,10 @@ name: Creator Bootstrap
 #   2. Worker runs:            00:00, 06:00, 12:00, 18:00 UTC
 #
 # Bootstrap handles:
-#   - Shared recovery/refresh admission for creators with 10,000+ subscribers:
+#   - Shared recovery/refresh admission for all creators, with subscriber-tiered
+#     refresh intervals (14d for 10M+, 30d for 10K+, 540d below 10K):
 #     never-synced (last_synced_at IS NULL), Pending older than 72 hours,
-#     partial syncs older than 24 hours, and stale synced creators (>30 days)
+#     partial syncs older than 24 hours, and tier-due stale creators
 #   - Up to 700 new jobs/run, with 1,000 pending/processing jobs total
 #   - Incomplete recovery health: fail visibly after 7 days or 3 partial writes
 #     after admitting work, so the independently scheduled worker can repair it

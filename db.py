@@ -4907,7 +4907,7 @@ RPC_DISTINCT_SYNCED_CATEGORIES = "get_distinct_synced_categories"
 
 
 def refresh_creator_sync_coverage(
-    min_subscribers: int = 10000,
+    min_subscribers: int = 0,
     *,
     client: Optional[SupabaseLike] = None,
 ) -> bool:

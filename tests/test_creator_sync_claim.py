@@ -19,15 +19,17 @@ def test_format_partial_sync_error_includes_diagnostics_and_is_bounded():
 
 
 @pytest.mark.parametrize("response_value", [True, False])
-def test_coverage_refresh_uses_explicit_client(monkeypatch, response_value):
+@pytest.mark.parametrize("min_subscribers", [None, 10000])
+def test_coverage_refresh_uses_explicit_client(monkeypatch, response_value, min_subscribers):
     import db
 
     client = MagicMock()
     client.rpc.return_value.execute.return_value = SimpleNamespace(data=response_value)
     monkeypatch.setattr(db, "supabase_client", None)
-    assert db.refresh_creator_sync_coverage(client=client) is response_value
+    kwargs = {} if min_subscribers is None else {"min_subscribers": min_subscribers}
+    assert db.refresh_creator_sync_coverage(client=client, **kwargs) is response_value
     client.rpc.assert_called_once_with(
-        "refresh_creator_sync_coverage", {"p_min_subscribers": 10000}
+        "refresh_creator_sync_coverage", {"p_min_subscribers": min_subscribers or 0}
     )
 
 
