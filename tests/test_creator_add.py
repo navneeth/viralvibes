@@ -333,12 +333,20 @@ class TestGetCreatorAddRequestStatus:
     def test_failed_when_status_is_failed(self, monkeypatch):
         import db as db_module
 
-        self._patch_jobs_table(monkeypatch, {"status": "failed", "creator_id": None})
+        self._patch_jobs_table(
+            monkeypatch,
+            {
+                "status": "failed",
+                "creator_id": None,
+                "error_message": "YouTube could not find this handle.",
+            },
+        )
 
         result = db_module.get_creator_add_request_status("@mrbeast")
         assert result is not None
         assert result["status"] == "failed"
         assert result["creator_id"] is None
+        assert result["error_message"] == "YouTube could not find this handle."
 
     def test_processing_when_pending(self, monkeypatch):
         import db as db_module
@@ -353,9 +361,79 @@ class TestGetCreatorAddRequestStatus:
         import db as db_module
 
         self._patch_jobs_table(monkeypatch, {"status": "processing", "creator_id": None})
-
         result = db_module.get_creator_add_request_status("@mrbeast")
         assert result["status"] == "processing"
+
+    def test_stale_pending_job_is_failed(self, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        import db as db_module
+
+        stale = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+        self._patch_jobs_table(
+            monkeypatch,
+            {"status": "pending", "creator_id": None, "created_at": stale},
+        )
+
+        result = db_module.get_creator_add_request_status("@mrbeast")
+
+        assert result == {
+            "status": "failed",
+            "creator_id": None,
+            "error_message": "This request timed out before it could be completed. Please retry.",
+        }
+
+    def test_pending_job_with_scheduled_retry_is_not_stale(self, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        import db as db_module
+
+        created_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        retry_at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
+        self._patch_jobs_table(
+            monkeypatch,
+            {
+                "status": "pending",
+                "creator_id": None,
+                "created_at": created_at,
+                "retry_at": retry_at,
+            },
+        )
+
+        result = db_module.get_creator_add_request_status("@mrbeast")
+
+        assert result["status"] == "processing"
+
+    def test_recent_pending_job_is_not_stale_while_waiting_for_worker(self, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        import db as db_module
+
+        created_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        self._patch_jobs_table(
+            monkeypatch,
+            {"status": "pending", "creator_id": None, "created_at": created_at},
+        )
+
+        result = db_module.get_creator_add_request_status("@mrbeast")
+
+        assert result["status"] == "processing"
+
+    def test_stale_processing_job_is_failed(self, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        import db as db_module
+
+        started_at = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+        self._patch_jobs_table(
+            monkeypatch,
+            {"status": "processing", "creator_id": None, "started_at": started_at},
+        )
+
+        result = db_module.get_creator_add_request_status("@mrbeast")
+
+        assert result["status"] == "failed"
+        assert "timed out" in result["error_message"].lower()
 
     def test_no_job_row_returns_processing(self, monkeypatch):
         """Empty result set = timing race right after submission — should keep polling."""
@@ -518,9 +596,11 @@ class TestHandleResolveAndAddJob:
         monkeypatch.setattr(cw, "mark_creator_sync_processing", lambda jid: True)
 
         failed_jobs = []
-        monkeypatch.setattr(
-            cw, "mark_creator_sync_failed", lambda jid, error=None: failed_jobs.append(jid)
-        )
+
+        def mark_failed(jid, error=None, *, permanent=False):
+            failed_jobs.append((jid, permanent))
+
+        monkeypatch.setattr(cw, "mark_creator_sync_failed", mark_failed)
 
         mock_resolver = AsyncMock()
         mock_resolver.resolve_handle_to_channel_id = AsyncMock(return_value=None)
@@ -528,7 +608,7 @@ class TestHandleResolveAndAddJob:
 
         result = await cw.handle_resolve_and_add_job(job_id=5, input_query="@ghost_channel")
         assert result is False
-        assert 5 in failed_jobs
+        assert failed_jobs == [(5, True)]
         assert cw.metrics.syncs_processed == 0
         assert cw.metrics.syncs_failed == 1
 
@@ -583,6 +663,19 @@ class TestCreatorsRequestEndpoint:
         # from the DB layer (supabase unavailable).  Either way the response
         # must NOT be a success card containing the add-status poll URL.
         assert "/creators/add-status" not in r.text
+
+    def test_failed_status_renders_specific_error(self):
+        from fasthtml.common import to_xml
+        from views.creators import render_add_creator_status_result
+
+        html = to_xml(
+            render_add_creator_status_result(
+                status="failed",
+                error_message="YouTube could not find this handle.",
+            )
+        )
+
+        assert "YouTube could not find this handle." in html
 
     def test_missing_q_returns_error_partial(self, authenticated_client):
         r = authenticated_client.post("/creators/request", data={"q": ""})

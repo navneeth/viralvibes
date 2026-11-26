@@ -1946,7 +1946,7 @@ async def handle_resolve_and_add_job(
     except ChannelNotFoundException as exc:
         err = str(exc)
         logger.warning("%s ❌ Channel not found: %s", job_tag, err)
-        mark_creator_sync_failed(job_id, error=err)
+        mark_creator_sync_failed(job_id, error=err, permanent=True)
         metrics.syncs_failed += 1
         return False
 

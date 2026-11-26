@@ -239,9 +239,32 @@ class TestListPageTitleCounts:
     def test_country_title_formats_count_with_commas(self, client, monkeypatch):
         """Thousands separator must be applied — 4821 renders as '4,821'."""
         monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 4821))
-        r = client.get("/lists/country/US")
+        r = client.get("/lists/country/us")
         assert r.status_code == 200
         assert "4,821" in r.text
+
+    def test_country_uppercase_slug_redirect_preserves_query(self, client):
+        response = client.get("/lists/country/US?page=2", follow_redirects=False)
+        assert response.status_code == 301
+        assert response.headers["location"] == "/lists/country/us?page=2"
+
+    def test_country_count_failure_keeps_creator_rows_visible(self):
+        from fasthtml.common import to_xml
+        from views.lists import render_country_detail_page
+
+        html = to_xml(
+            render_country_detail_page(
+                country_code="US",
+                creators=[{"channel_name": "US Channel", "current_subscribers": 123}],
+                total_count=0,
+                total_pages=2,
+                count_degraded=True,
+            )
+        )
+
+        assert "US Channel" in html
+        assert "Creator count temporarily unavailable" in html
+        assert "No creators from United States yet." not in html
 
     def test_category_title_includes_count_when_nonzero(self, client, monkeypatch):
         """Category title must contain count suffix when route returns > 0."""

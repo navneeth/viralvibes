@@ -1363,6 +1363,36 @@ _HANDLE_RE = re.compile(r"^@[a-zA-Z0-9._-]{1,100}$")
 # Per-user rate limit: max requests per window
 _ADD_REQUEST_LIMIT = int(os.getenv("CREATOR_ADD_REQUEST_LIMIT", "5"))
 _ADD_REQUEST_WINDOW_HOURS = int(os.getenv("CREATOR_ADD_REQUEST_WINDOW_HOURS", "1"))
+_ADD_REQUEST_STALE_AFTER = timedelta(minutes=15)
+
+
+def _creator_add_request_is_stale(row: dict) -> bool:
+    if row.get("status") == "pending":
+        retry_at = row.get("retry_at") or row.get("next_retry_at")
+        if retry_at:
+            try:
+                retry_time = datetime.fromisoformat(str(retry_at).replace("Z", "+00:00"))
+                if retry_time.tzinfo is None:
+                    retry_time = retry_time.replace(tzinfo=timezone.utc)
+                if retry_time > datetime.now(timezone.utc):
+                    return False
+            except (TypeError, ValueError):
+                pass
+
+    timestamp = (
+        row.get("started_at")
+        if row.get("status") == "processing"
+        else row.get("created_at") or row.get("started_at")
+    )
+    if not timestamp:
+        return False
+    try:
+        started = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - started > _ADD_REQUEST_STALE_AFTER
 
 
 def _validate_creator_input(q: str) -> tuple[bool, str]:
@@ -1404,9 +1434,9 @@ def queue_creator_add_request(
     Validations performed (all enforced before any DB write):
         1. Input matches UC ID or @handle format.
         2. Creator not already in ``creators`` table (by channel_id or custom_url).
-        3. No pending ``resolve_and_add`` job for the same ``input_query`` exists
-           (enforced by partial unique index). A duplicate pending job is treated
-           as success so the UI can keep polling the existing request.
+        3. No active ``resolve_and_add`` job for the same ``input_query`` exists.
+           A recent pending or processing job is treated as success so the UI can
+           keep polling it; a stale job is marked failed before retrying.
         4. Per-user rate limit: max ``CREATOR_ADD_REQUEST_LIMIT`` requests per
            ``CREATOR_ADD_REQUEST_WINDOW_HOURS`` hours.
 
@@ -1457,20 +1487,41 @@ def queue_creator_add_request(
         # ── 3. Duplicate pending resolve_and_add? ────────────────────────────
         dup = (
             supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-            .select("id")
+            .select("id,status,created_at,started_at,retry_at,next_retry_at")
             .eq("input_query", normalised)
             .eq("job_type", "resolve_and_add")
-            .eq("status", "pending")
+            .in_("status", ["pending", "processing"])
             .limit(1)
             .execute()
         )
         if dup.data:
-            logger.info(
-                "Creator add request already pending: input=%s user=%s",
-                normalised,
-                user_id,
-            )
-            return True, "queued", None
+            pending_job = dup.data[0]
+            if _creator_add_request_is_stale(pending_job):
+                logger.warning(
+                    "Expiring stale creator add request %s for %s",
+                    pending_job.get("id"),
+                    normalised,
+                )
+                (
+                    supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
+                    .update(
+                        {
+                            "status": "failed",
+                            "error_message": "Request expired before processing.",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    .eq("id", pending_job["id"])
+                    .eq("status", pending_job.get("status", "pending"))
+                    .execute()
+                )
+            else:
+                logger.info(
+                    "Creator add request already pending: input=%s user=%s",
+                    normalised,
+                    user_id,
+                )
+                return True, "queued", None
 
         # ── 4. Rate limit ─────────────────────────────────────────────────────
         window_start = (
@@ -1583,7 +1634,9 @@ def get_creator_add_request_status(
         resp = _db_execute(
             lambda: (
                 supabase_client.table(CREATOR_SYNC_JOBS_TABLE)
-                .select("status,creator_id")
+                .select(
+                    "status,creator_id,created_at,started_at,retry_at,next_retry_at,error_message"
+                )
                 .eq("input_query", normalised)
                 .order("created_at", desc=True)
                 .limit(1)
@@ -1605,7 +1658,20 @@ def get_creator_add_request_status(
 
         raw_status = row.get("status", "")
         if raw_status == "failed":
-            return {"status": "failed", "creator_id": None}
+            return {
+                "status": "failed",
+                "creator_id": None,
+                "error_message": str(row.get("error_message") or "")[:300],
+            }
+
+        # A worker can lose a process while a job is in `processing`/`pending`
+        # state. Do not leave the UI polling beyond the stale-request window.
+        if _creator_add_request_is_stale(row):
+            return {
+                "status": "failed",
+                "creator_id": None,
+                "error_message": "This request timed out before it could be completed. Please retry.",
+            }
 
         return {"status": "processing", "creator_id": None}
 
@@ -1894,7 +1960,7 @@ def mark_creator_sync_completed(job_id: int) -> bool:
         return False
 
 
-def mark_creator_sync_failed(job_id: int, error: str) -> bool:
+def mark_creator_sync_failed(job_id: int, error: str, *, permanent: bool = False) -> bool:
     """Mark a creator sync job as failed with retry logic."""
     if not supabase_client:
         logger.warning("Supabase client not available")
@@ -1910,8 +1976,10 @@ def mark_creator_sync_failed(job_id: int, error: str) -> bool:
         )
 
         retry_count = resp.data.get("retry_count", 0) if resp.data else 0
-
-        if retry_count >= CREATOR_WORKER_MAX_RETRIES:
+        if permanent:
+            status = "failed"
+            next_retry = None
+        elif retry_count >= CREATOR_WORKER_MAX_RETRIES:
             status = "failed"
             next_retry = None
             # Rewrite the error message to make clear no more retries are scheduled

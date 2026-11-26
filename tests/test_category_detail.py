@@ -333,8 +333,8 @@ def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
     fake_client = _FakeSupabaseClient(
         {
             "data": [{"channel_name": "US Channel", "current_subscribers": 100}],
-            "count": 1,
-        }
+        },
+        {"data": [], "count": 1},
     )
     semaphore = MagicMock()
     monkeypatch.setattr(sys.modules["db"], "_supabase_request_semaphore", semaphore)
@@ -353,8 +353,55 @@ def test_get_country_creators_filters_country_with_synced_status(monkeypatch):
         ("current_subscribers",),
         ("id",),
     ]
-    semaphore.__enter__.assert_called_once()
-    semaphore.__exit__.assert_called_once()
+    assert semaphore.__enter__.call_count == 2
+    assert semaphore.__exit__.call_count == 2
+
+
+def test_get_country_creators_marks_uncached_query_failure_degraded(monkeypatch):
+    fake_client = _FakeSupabaseClient(Exception("canceling statement due to statement timeout"))
+    monkeypatch.setattr(sys.modules["db"], "_supabase_request_semaphore", MagicMock())
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_country_creators_cache", {})
+
+    result = db_lists.get_country_creators("US", return_count=True)
+
+    assert result.creators == []
+    assert result.total_count == 0
+    assert result.degraded is True
+    assert db_lists._country_creators_cache == {}
+
+
+def test_get_country_creators_does_not_cache_empty_result(monkeypatch):
+    fake_client = _FakeSupabaseClient(
+        {"data": [], "count": 0},
+        {"data": [], "count": 0},
+    )
+    monkeypatch.setattr(sys.modules["db"], "_supabase_request_semaphore", MagicMock())
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_country_creators_cache", {})
+
+    result = db_lists.get_country_creators("US", return_count=True)
+
+    assert result.total_count == 0
+    assert db_lists._country_creators_cache == {}
+
+
+def test_get_country_creators_keeps_page_when_exact_count_fails(monkeypatch):
+    fake_client = _FakeSupabaseClient(
+        {"data": [{"channel_name": "US Channel", "current_subscribers": 100}]},
+        Exception("count query timed out"),
+    )
+    monkeypatch.setattr(sys.modules["db"], "_supabase_request_semaphore", MagicMock())
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_country_creators_cache", {})
+
+    result = db_lists.get_country_creators("US", return_count=True)
+
+    assert len(result.creators) == 1
+    assert result.total_count == 0
+    assert result.degraded is False
+    assert result.count_degraded is True
+    assert db_lists._country_creators_cache == {}
 
 
 # ---------------------------------------------------------------------------
@@ -475,17 +522,56 @@ def test_fetch_country_page_uses_country_specific_query(monkeypatch):
     mock_get = MagicMock(return_value=page_result)
     monkeypatch.setattr(lists_routes, "get_country_creators", mock_get)
 
-    creators, total_count, total_pages = lists_routes._fetch_country_page("us", page=2)
+    creators, total_count, total_pages, degraded, count_degraded = lists_routes._fetch_country_page(
+        "us", page=2
+    )
 
     assert total_count == 42
     assert total_pages == 3
     assert len(creators) == 1
+    assert degraded is False
+    assert count_degraded is False
     mock_get.assert_called_once_with(
         "us",
         limit=20,
         offset=20,
         return_count=True,
     )
+
+
+def test_fetch_country_page_marks_database_failure_degraded(monkeypatch):
+    page_result = db_lists.CountryPageResult(creators=[], total_count=0, degraded=True)
+    monkeypatch.setattr(lists_routes, "get_country_creators", MagicMock(return_value=page_result))
+
+    creators, total_count, total_pages, degraded, count_degraded = lists_routes._fetch_country_page(
+        "US", page=1
+    )
+
+    assert creators == []
+    assert total_count == 0
+    assert total_pages == 1
+    assert degraded is True
+    assert count_degraded is False
+
+
+def test_fetch_country_page_keeps_pagination_when_count_is_degraded(monkeypatch):
+    creators = [{"channel_name": f"US Channel {index}"} for index in range(20)]
+    page_result = db_lists.CountryPageResult(
+        creators=creators,
+        total_count=0,
+        count_degraded=True,
+    )
+    monkeypatch.setattr(lists_routes, "get_country_creators", MagicMock(return_value=page_result))
+
+    result_creators, total_count, total_pages, degraded, count_degraded = (
+        lists_routes._fetch_country_page("US", page=1)
+    )
+
+    assert len(result_creators) == 20
+    assert total_count == 0
+    assert total_pages == 2
+    assert degraded is False
+    assert count_degraded is True
 
 
 def test_fetch_ranking_page_uses_topic_category_country_query(monkeypatch):

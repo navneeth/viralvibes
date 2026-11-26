@@ -294,7 +294,7 @@ def _parse_page(request) -> int:
         return 1
 
 
-def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
+def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int, bool, bool]:
     """
     Fetch one page of creators for a country detail view.
 
@@ -306,7 +306,7 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
         page: 1-based page number.
 
     Returns:
-        ``(creators, total_count, total_pages)`` tuple.
+        ``(creators, total_count, total_pages, degraded, count_degraded)`` tuple.
     """
     result = get_country_creators(
         country_code,
@@ -316,10 +316,14 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     )
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
+    degraded = bool(getattr(result, "degraded", False))
+    count_degraded = bool(getattr(result, "count_degraded", False))
     total_pages = (
         (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
-    return creators, total_count, total_pages
+    if count_degraded:
+        total_pages = page + 1 if len(creators) == DETAIL_PAGE_LIMIT else page
+    return creators, total_count, total_pages, degraded, count_degraded
 
 
 def country_detail_route(request, country_code: str):
@@ -339,7 +343,9 @@ def country_detail_route(request, country_code: str):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+    creators, total_count, total_pages, degraded, count_degraded = _fetch_country_page(
+        country_code, page
+    )
 
     page_content = render_country_detail_page(
         country_code=country_code,
@@ -348,6 +354,8 @@ def country_detail_route(request, country_code: str):
         total_pages=total_pages,
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
+        degraded=degraded,
+        count_degraded=count_degraded,
     )
     return page_content, total_count
 
@@ -372,7 +380,22 @@ def country_detail_more_route(request):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+    creators, total_count, total_pages, degraded, count_degraded = _fetch_country_page(
+        country_code, page
+    )
+    if degraded:
+        return Div(
+            P(
+                "We couldn't load more creators right now. Please try again.",
+                cls="text-sm text-muted-foreground",
+            ),
+            A(
+                "Retry",
+                href=f"/lists/country/{country_code.lower()}/more?page={page}",
+                cls="text-sm text-primary hover:underline",
+            ),
+            cls="space-y-2 py-3",
+        )
 
     return render_country_creators_rows(
         country_code=country_code,

@@ -565,7 +565,7 @@ def test_country_detail_route_returns_tuple(monkeypatch):
     monkeypatch.setattr(
         lists_routes,
         "_fetch_country_page",
-        lambda code, page: ([{"channel_name": "A"}], 47, 2),
+        lambda code, page: ([{"channel_name": "A"}], 47, 2, False, False),
     )
 
     captured = {}
@@ -584,6 +584,27 @@ def test_country_detail_route_returns_tuple(monkeypatch):
     assert page_content["total_count"] == 47
     assert page_content["total_pages"] == 2
     assert total_count == 47
+
+
+def test_country_detail_route_passes_degraded_state_to_view(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "_fetch_country_page",
+        lambda code, page: ([], 0, 1, True, False),
+    )
+    captured = {}
+    monkeypatch.setattr(
+        lists_routes,
+        "render_country_detail_page",
+        lambda **kwargs: captured.update(kwargs) or captured,
+    )
+
+    page_content, total_count = lists_routes.country_detail_route(
+        _req(query_params={"page": "1"}), "US"
+    )
+
+    assert page_content["degraded"] is True
+    assert total_count == 0
 
 
 def test_category_detail_more_route_requires_slug(monkeypatch):

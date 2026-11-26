@@ -1170,6 +1170,7 @@ async def creator_add_status_route(request, sess):
         status=result["status"],
         creator_id=result.get("creator_id") or "",
         input_query=q,
+        error_message=result.get("error_message") or "",
     )
 
 

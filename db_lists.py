@@ -236,6 +236,8 @@ class TopicCategoryPageResult(NamedTuple):
 class CountryPageResult(NamedTuple):
     creators: list[dict]
     total_count: int
+    degraded: bool = False
+    count_degraded: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -1165,12 +1167,12 @@ def get_country_creators(
             )
             cached_result = cached_entry[1]
             return cached_result if return_count else cached_result.creators
-        return CountryPageResult([], 0) if return_count else []
+        return CountryPageResult([], 0, degraded=True) if return_count else []
 
     try:
         query = (
             supabase_client.table("creators")
-            .select("*", count="exact" if return_count else None)
+            .select("*")
             .eq("country_code", normalized_country)
             .eq("sync_status", "synced")
             .not_.is_("channel_name", "null")
@@ -1197,22 +1199,65 @@ def get_country_creators(
             cached_result = cached_entry[1]
             return cached_result if return_count else cached_result.creators
         logger.exception("Error fetching creators for country %s", normalized_country)
-        return CountryPageResult([], 0) if return_count else []
+        return CountryPageResult([], 0, degraded=True) if return_count else []
 
     creators = response.data if response and response.data else []
-    total_count = (getattr(response, "count", 0) or 0) if return_count and response else 0
+    total_count = 0
+    count_degraded = False
+    if return_count:
+        try:
+            count_query = (
+                supabase_client.table("creators")
+                .select("id", count="exact", head=True)
+                .eq("country_code", normalized_country)
+                .eq("sync_status", "synced")
+                .not_.is_("channel_name", "null")
+                .gt("current_subscribers", 0)
+            )
+            with _supabase_request_semaphore:
+                count_response = count_query.execute()
+            total_count = getattr(count_response, "count", 0) or 0
+        except Exception:
+            if not creators:
+                logger.exception(
+                    "Error counting creators for country %s with no page results",
+                    normalized_country,
+                )
+                return CountryPageResult([], 0, degraded=True)
+            logger.exception(
+                "Error counting creators for country %s; returning page rows without a total",
+                normalized_country,
+            )
+            count_degraded = True
+            if cached_entry:
+                total_count = cached_entry[1].total_count
+        if creators and not total_count:
+            count_degraded = True
+        elif total_count and not creators:
+            logger.error(
+                "Country %s count is %d but page %d returned no creators",
+                normalized_country,
+                total_count,
+                offset // limit + 1,
+            )
+            return CountryPageResult([], total_count, degraded=True)
 
     for idx, creator in enumerate(creators, 1):
         creator["_rank"] = offset + idx
 
     # Always store as CountryPageResult; extract on return to match function signature
-    cached_result = CountryPageResult(creators, total_count)
-    with _country_creators_cache_lock:
-        current_entry = _country_creators_cache.get(cache_key)
-        if cache_generation == _country_creators_cache_generation and (
-            current_entry is None or current_entry[0] <= now
-        ):
-            _country_creators_cache[cache_key] = (now, cached_result)
+    cached_result = CountryPageResult(
+        creators,
+        total_count,
+        count_degraded=count_degraded,
+    )
+    if creators and not count_degraded:
+        with _country_creators_cache_lock:
+            current_entry = _country_creators_cache.get(cache_key)
+            if cache_generation == _country_creators_cache_generation and (
+                current_entry is None or current_entry[0] <= now
+            ):
+                _country_creators_cache[cache_key] = (now, cached_result)
     return cached_result if return_count else cached_result.creators
 
 

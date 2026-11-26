@@ -1762,6 +1762,13 @@ def lists_more_languages(req, sess):
 @rt("/lists/country/{country_code}")
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
+    normalized_country = country_code.strip().lower()
+    if len(normalized_country) == 2 and country_code != normalized_country:
+        query = f"?{req.url.query}" if req.url.query else ""
+        return RedirectResponse(
+            f"/lists/country/{normalized_country}{query}",
+            status_code=301,
+        )
     country_name = get_country_name(country_code)
     page_content, total_count = country_detail_route(req, country_code)
     _count_suffix = f" ({total_count:,} channels)" if total_count else ""

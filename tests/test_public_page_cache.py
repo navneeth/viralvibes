@@ -61,7 +61,7 @@ def test_public_pages_cache_only_anonymous_complete_html(
             middleware.session_cookie,
             middleware.signer.sign(b64encode(json.dumps(session).encode())).decode(),
         )
-    request_path = "/lists/country/US" if handler == "lists_country_detail" else canonical
+    request_path = canonical
     response = client.get(request_path, follow_redirects=False)
 
     assert response.status_code == 200
@@ -105,14 +105,14 @@ def test_cache_helper_handles_no_session(public_page_stubs):
 @pytest.mark.parametrize(
     "path",
     [
-        "/lists/country/US",
+        "/lists/country/us",
         "/lists/category/music",
         "/lists/language/en",
         "/lists/categories",
         "/lists/countries",
         "/lists/languages",
         "/rankings/gaming/india",
-        "/lists/country/US?page=2",
+        "/lists/country/us?page=2",
     ],
 )
 def test_anonymous_application_routes_emit_public_cache_headers(public_page_stubs, path):
