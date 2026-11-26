@@ -229,7 +229,7 @@ def main() -> None:
             "enqueue_creator_syncs",
             {
                 "p_limit": args.priority_batch,
-                "p_min_subscribers": 10000,
+                "p_min_subscribers": 0,
                 "p_max_queue": 1000,
                 "p_dry_run": args.priority_preview,
             },

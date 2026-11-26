@@ -442,7 +442,7 @@ def test_bootstrap_shared_scheduler_replaces_legacy_passes(monkeypatch, preview,
         bootstrap.main()
     client.rpc.assert_called_once_with(
         "enqueue_creator_syncs",
-        {"p_limit": 700, "p_min_subscribers": 10000, "p_max_queue": 1000, "p_dry_run": preview},
+        {"p_limit": 700, "p_min_subscribers": 0, "p_max_queue": 1000, "p_dry_run": preview},
     )
     legacy.assert_not_called()
 

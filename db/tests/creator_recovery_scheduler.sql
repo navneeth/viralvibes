@@ -31,6 +31,7 @@ COMMIT;
 \ir ../migrations/097_creator_recovery_scheduler.sql
 \ir ../migrations/098_country_listing_eligibility.sql
 \ir ../migrations/099_country_listing_order_index.sql
+\ir ../migrations/100_creator_tiered_sync_cadence.sql
 BEGIN;
 INSERT INTO public.creators(id, channel_id, current_subscribers, sync_status, first_seen_at, last_synced_at)
 SELECT lpad(number::text, 32, '0')::uuid, 'UC' || lpad(number::text, 22, '0'),
@@ -66,7 +67,37 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Optional snapshot failure incorrectly blocked creator recovery';
     END IF;
-    PERFORM public.refresh_creator_sync_coverage();
+    INSERT INTO public.creators(id, channel_id, current_subscribers, sync_status, first_seen_at, last_synced_at)
+    VALUES
+        (lpad('14', 32, '0')::uuid, 'UC' || lpad('14', 22, '0'), 5000,
+         'synced', now() - interval '700 days', now() - interval '400 days'),
+        (lpad('15', 32, '0')::uuid, 'UC' || lpad('15', 22, '0'), 5000,
+         'synced', now() - interval '700 days', now() - interval '600 days'),
+        (lpad('16', 32, '0')::uuid, 'UC' || lpad('16', 22, '0'), 50000,
+         'synced', now() - interval '300 days', now() - interval '150 days'),
+        (lpad('17', 32, '0')::uuid, 'UC' || lpad('17', 22, '0'), 50000,
+         'synced', now() - interval '300 days', now() - interval '181 days'),
+        (lpad('18', 32, '0')::uuid, 'UC' || lpad('18', 22, '0'), 1000000,
+         'synced', now() - interval '100 days', now() - interval '40 days'),
+        (lpad('19', 32, '0')::uuid, 'UC' || lpad('19', 22, '0'), 1000000,
+         'synced', now() - interval '100 days', now() - interval '46 days'),
+        (lpad('20', 32, '0')::uuid, 'UC' || lpad('20', 22, '0'), 10000000,
+         'synced', now() - interval '30 days', now() - interval '13 days'),
+        (lpad('21', 32, '0')::uuid, 'UC' || lpad('21', 22, '0'), 10000000,
+         'synced', now() - interval '30 days', now() - interval '15 days');
+    IF EXISTS (SELECT 1 FROM public.creator_recovery_candidates(0)
+               WHERE creator_id = lpad('14', 32, '0')::uuid)
+       OR NOT EXISTS (SELECT 1 FROM public.creator_recovery_candidates(0)
+                      WHERE creator_id = lpad('15', 32, '0')::uuid)
+       OR EXISTS (SELECT 1 FROM public.creator_recovery_candidates(0)
+                  WHERE creator_id IN (lpad('16', 32, '0')::uuid, lpad('18', 32, '0')::uuid,
+                                       lpad('20', 32, '0')::uuid))
+       OR (SELECT count(*) FROM public.creator_recovery_candidates(0)
+           WHERE creator_id IN (lpad('17', 32, '0')::uuid, lpad('19', 32, '0')::uuid,
+                                lpad('21', 32, '0')::uuid)) <> 3 THEN
+        RAISE EXCEPTION 'Subscriber-tier refresh intervals were not enforced';
+    END IF;
+    PERFORM public.refresh_creator_sync_coverage(10000);
     IF (SELECT eligible_creators_without_job FROM public.creator_sync_coverage_snapshot) <> 6 THEN
         RAISE EXCEPTION 'Coverage does not follow the active scheduler policy';
     END IF;
