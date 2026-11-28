@@ -103,17 +103,25 @@ def test_compare_page_carries_yt_fx_and_est_badges():
 
 def test_revenue_card_and_profile_use_same_ad_only_estimate():
     from utils.revenue_model import estimate_creator_ad_revenue
-    from views.creators import _render_creator_card, render_creator_profile_page, _format_ad_revenue
+    from views.creators import (
+        _format_ad_revenue_range,
+        _render_creator_card,
+        creator_profile_page_title,
+        render_creator_profile_page,
+    )
 
     creator = _creator(growth_window_days=30)
-    expected = _format_ad_revenue(estimate_creator_ad_revenue(creator).monthly_usd)
+    expected = _format_ad_revenue_range(estimate_creator_ad_revenue(creator))
     card = to_xml(_render_creator_card(creator))
     profile = to_xml(render_creator_profile_page(creator))
 
     assert expected in card
     assert expected in profile
+    assert 'href="/methodology"' in card
+    assert 'href="/methodology"' in profile
     assert "EST. AD REVENUE" in card
-    assert "Est. Monthly Ad Revenue" in profile
+    assert "Est. Monthly Ad Revenue Range" in profile
     assert "Brand deals (est.)" not in profile
     assert "AdSense — long-form" not in profile
     assert "not a confidence interval" in profile
+    assert "$" not in creator_profile_page_title(creator)

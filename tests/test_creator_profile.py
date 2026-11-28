@@ -11,6 +11,7 @@ Coverage:
 
 from copy import deepcopy
 from html.parser import HTMLParser
+import re
 
 import pytest
 from starlette.testclient import TestClient
@@ -524,6 +525,20 @@ class TestCreatorsPage:
         assert r.status_code == 200
         assert "Test Channel" in r.text
 
+    def test_browse_page_shows_earnings_range_and_methodology_link(self, client, monkeypatch):
+        from utils.revenue_model import estimate_creator_ad_revenue
+        from views.creators import _format_ad_revenue_range
+
+        self._patch_creators_db(monkeypatch, expected_return_count=False)
+        response = client.get("/creators")
+        expected_range = _format_ad_revenue_range(estimate_creator_ad_revenue(FAKE_CREATOR))
+
+        assert response.status_code == 200
+        assert expected_range in response.text
+        assert 'href="/methodology"' in response.text
+        title = response.text.split("<title>", 1)[1].split("</title>", 1)[0]
+        assert not re.search(r"\$\s?[\d,]+", title)
+
     def test_browse_page_with_search_query(self, client, monkeypatch):
         """Search query param must not crash the route."""
         self._patch_creators_db(monkeypatch, expected_return_count=True)
@@ -875,6 +890,20 @@ class TestCreatorProfile:
         assert "YouTube stats:" in r.text
         assert 'property="og:image"' in r.text
         assert 'content="https://example.com/thumb.jpg"' in r.text
+
+    def test_profile_displays_earnings_range_and_methodology_link(self, client, monkeypatch):
+        from utils.revenue_model import estimate_creator_ad_revenue
+        from views.creators import _format_ad_revenue_range
+
+        self._patch_profile_db(monkeypatch)
+        response = client.get(f"/creator/{FAKE_CREATOR_UUID}")
+        expected_range = _format_ad_revenue_range(estimate_creator_ad_revenue(FAKE_CREATOR))
+
+        assert response.status_code == 200
+        assert expected_range in response.text
+        assert 'href="/methodology"' in response.text
+        title = response.text.split("<title>", 1)[1].split("</title>", 1)[0]
+        assert not re.search(r"\$\s?[\d,]+", title)
 
     def test_unknown_creator_returns_200_not_500(self, client, monkeypatch):
         """Unknown UUIDs must return a friendly component, not raise a server error."""

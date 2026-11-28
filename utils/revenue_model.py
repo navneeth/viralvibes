@@ -32,7 +32,7 @@ def _number(value: object) -> float | None:
     return number if isfinite(number) and number >= 0 else None
 
 
-# PRIOR: channel country is an audience proxy, not measured viewer geography.
+# PRIOR: owner-set channel country is not measured viewer geography.
 COUNTRY_TIERS = {
     "1": "US GB CA AU DE CH NO SE NL DK IE NZ AT LU IS FI".split(),
     "2": "JP KR FR IT ES AE SA IL SG TW BE HK QA KW PT CZ".split(),

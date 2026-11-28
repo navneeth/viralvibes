@@ -51,7 +51,7 @@ from utils.creator_metrics import (
     get_language_name,
     get_sync_status_badge,
 )
-from utils.revenue_model import estimate_creator_ad_revenue
+from utils.revenue_model import RevenueEstimate, estimate_creator_ad_revenue
 from db import calculate_creator_stats, get_creator_hero_stats
 from services.contact_extractor import extract_social_links
 from services.creator_topics import parse_creator_topics
@@ -2055,10 +2055,24 @@ def _format_ad_revenue(amount: float | None) -> str:
     return f"${format_number(round(amount))}" if amount is not None else "Unavailable"
 
 
+def _format_ad_revenue_range(estimate: RevenueEstimate) -> str:
+    if estimate.low_usd is None or estimate.high_usd is None:
+        return "Unavailable"
+    return f"{_format_ad_revenue(estimate.low_usd)} - {_format_ad_revenue(estimate.high_usd)}"
+
+
+def _earnings_methodology_link() -> A:
+    return A(
+        "How this is estimated",
+        href="/methodology",
+        cls="text-xs text-primary underline underline-offset-2",
+    )
+
+
 def _build_performance_metrics(
     avg_views_per_video: int,
     current_videos: int,
-    estimated_revenue: float | None,
+    revenue_estimate: RevenueEstimate,
     views_per_sub: float,
 ) -> Div:
     """Build performance metrics grid."""
@@ -2113,11 +2127,17 @@ def _build_performance_metrics(
                 cls="flex items-center justify-center gap-1.5",
             ),
             P(
-                _format_ad_revenue(estimated_revenue),
+                _format_ad_revenue_range(revenue_estimate),
                 cls="text-lg font-bold text-green-600 dark:text-green-400 mt-1 truncate",
-                title=f"{_format_ad_revenue(estimated_revenue)} / month; ad revenue only",
+                title=(
+                    f"{_format_ad_revenue_range(revenue_estimate)} / month; "
+                    "ad revenue scenario range only"
+                ),
             ),
-            P("/month est.", cls="text-xs text-green-600 dark:text-green-400"),
+            Div(
+                P("/month scenario range", cls="text-xs text-green-600 dark:text-green-400"),
+                cls="flex flex-col items-center",
+            ),
             cls="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center min-w-0 overflow-hidden",
         ),
         cls="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4",
@@ -2659,7 +2679,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     is_made_for_kids = bool(safe_get_value(creator, "is_made_for_kids", False))
     has_long_upload_status = bool(safe_get_value(creator, "has_long_upload_status", False))
 
-    estimated_revenue = estimate_creator_ad_revenue(creator).monthly_usd
+    revenue_estimate = estimate_creator_ad_revenue(creator)
     keywords = safe_get_value(creator, "keywords", "")
 
     info_strip = _build_info_strip(
@@ -2704,7 +2724,7 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
         _build_primary_metrics(current_subs, subs_change, current_views, views_change),
         # Performance metrics grid: avg views/video, total videos, views/sub, est. revenue
         _build_performance_metrics(
-            avg_views_per_video, current_videos, estimated_revenue, views_per_sub
+            avg_views_per_video, current_videos, revenue_estimate, views_per_sub
         ),
         # Tier 1 — Recent Performance microcard (reach bar, cadence, brand safety)
         _build_recent_performance(
@@ -2756,16 +2776,24 @@ def _render_creator_card(creator: dict, is_favourited: bool = False, compare_a_i
     # No <a> tags exist inside the card body; the YouTube button uses onclick.
     creator_uuid = safe_get_value(creator, "id", "")
     if not creator_uuid:
-        return card
+        return Div(
+            card,
+            Div(_earnings_methodology_link(), cls="flex justify-end px-2 py-1"),
+            cls="min-w-0",
+        )
     _compare_qs = (
         f"&a={quote(compare_a_id, safe='')}"
         if compare_a_id and compare_a_id != creator_uuid
         else ""
     )
-    return A(
-        card,
-        href=f"{creator_profile_url(creator)}?name={quote(channel_name)}{_compare_qs}",
-        cls="block no-underline group min-w-0 w-full",
+    return Div(
+        A(
+            card,
+            href=f"{creator_profile_url(creator)}?name={quote(channel_name)}{_compare_qs}",
+            cls="block no-underline group min-w-0 w-full",
+        ),
+        Div(_earnings_methodology_link(), cls="flex justify-end px-2 py-1"),
+        cls="min-w-0",
     )
 
 
@@ -3607,7 +3635,6 @@ def render_creator_profile_page(
     else:
         upload_cadence = None
     revenue_estimate = estimate_creator_ad_revenue(creator)
-    estimated_revenue = revenue_estimate.monthly_usd
     handle_display = f"@{custom_url.lstrip('@')}" if custom_url else ""
     country_flag = get_country_flag(country_code) if country_code else ""
     lang_emoji = get_language_emoji(language) if language else ""
@@ -3945,11 +3972,9 @@ def render_creator_profile_page(
             "bg-accent",
         ),
         _stat_card(
-            "Est. Ad Revenue",
+            "Est. Ad Revenue Range",
             (
-                f"{_format_ad_revenue(estimated_revenue)}/mo"
-                if estimated_revenue is not None
-                else "Unavailable"
+                f"{_format_ad_revenue_range(revenue_estimate)}/mo"
             ),
             None,
             "text-emerald-600 dark:text-emerald-400",
@@ -4418,25 +4443,17 @@ def render_creator_profile_page(
                 Div(
                     UkIcon("circle-dollar-sign", cls="w-4 h-4 text-emerald-500 mr-1.5"),
                     Span(
-                        "Est. Monthly Ad Revenue",
+                        "Est. Monthly Ad Revenue Range",
                         cls=_CLS_LABEL,
                     ),
                     EstimatedBadge(),
                     cls="flex items-center gap-1.5",
                 ),
                 Span(
-                    _format_ad_revenue(estimated_revenue),
+                    _format_ad_revenue_range(revenue_estimate),
                     cls="text-sm font-bold text-emerald-600 dark:text-emerald-400",
                 ),
                 cls="mb-2 flex-wrap gap-x-3 gap-y-2",
-            ),
-            _perf_row(
-                "Scenario range / month",
-                (
-                    f"{_format_ad_revenue(revenue_estimate.low_usd)} - {_format_ad_revenue(revenue_estimate.high_usd)}"
-                    if estimated_revenue is not None
-                    else "Unavailable"
-                ),
             ),
             P(
                 "Ad revenue only; excludes sponsorships and merchandise. "
@@ -4448,6 +4465,7 @@ def render_creator_profile_page(
                 f"Model: {revenue_estimate.model_version}.",
                 cls="text-xs text-muted-foreground mt-1",
             ),
+            _earnings_methodology_link(),
             cls="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 mt-4",
         ),
         body_cls="p-5",

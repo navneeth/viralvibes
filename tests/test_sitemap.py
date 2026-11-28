@@ -103,6 +103,10 @@ class TestBuildSitemapXml:
         locs = _parse_locs(build_sitemap_xml([]))
         assert "https://www.viralvibes.fyi/rankings/gaming/united-states" in locs
 
+    def test_earnings_methodology_url_is_included(self):
+        locs = _parse_locs(build_sitemap_xml([]))
+        assert "https://www.viralvibes.fyi/methodology" in locs
+
     def test_creator_urls_included_fallback_to_uuid(self):
         """Creators without custom_url fall back to /creator/{id} entries."""
         creators = [

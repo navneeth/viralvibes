@@ -98,6 +98,18 @@ class TestPublicEndpoints:
         for claim in ("Instant Engagement", "Viral Score", "Instant Results", "watch-time"):
             assert claim not in response.text
 
+    def test_methodology_page_is_public_and_explains_estimates(self, client):
+        response = client.get("/methodology")
+
+        assert response.status_code == 200
+        assert "<title>Earnings Methodology | ViralVibes</title>" in response.text
+        assert "snippet.country field" in response.text
+        assert "owner-set" in response.text
+        assert "not a measurement of where the channel's viewers live" in response.text
+        assert "scenario range" in response.text
+        assert "Confidence labels are model diagnostics, not probabilities" in response.text
+        assert not re.search(r"<title>[^<]*\$\s?[\d,]+", response.text)
+
     def test_analysis_restored_sections_render_for_signed_in_user(self, monkeypatch):
         from fasthtml.common import to_xml
 

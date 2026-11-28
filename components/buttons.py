@@ -165,9 +165,9 @@ def ViralVibesButton(
 _EST_REVENUE_DETAIL = (
     "Estimated monthly ad revenue only, excluding sponsorships and merchandise. "
     "Uses public subscriber counts and lifetime views averaged over channel age, "
-    "adjusted by measured view growth where available. Channel country is only an "
-    "audience proxy; audience geography, Shorts mix and monetisation are unknown. "
-    "This is a low-confidence model estimate, not verified earnings from YouTube."
+    "adjusted by measured view growth where available. Country is the owner-set "
+    "channel country, not audience geography. This is a low- or very-low-confidence "
+    "scenario range, not verified earnings or a confidence interval. See /methodology."
 )
 _EST_MOMENTUM_DETAIL = (
     "ViralVibes-computed score derived from 30-day subscriber and view velocity. "

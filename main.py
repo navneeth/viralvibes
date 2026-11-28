@@ -197,6 +197,7 @@ from views.creators import (
 from views.dashboard import render_full_dashboard
 from views.favourites import render_favourites_page
 from views.lists import _list_heart_btn, _unslugify
+from views.methodology import methodology_page_content
 from views.my_dashboards import (
     render_dashboard_page_partial,
     render_my_dashboards_page,
@@ -2603,6 +2604,27 @@ def privacy(req, sess):
             privacy_page_content(),
             cls=ContainerT.xl,
         ),
+    )
+    return _public_cached_response(sess, page, _CC_BLOG)
+
+
+@rt("/methodology")
+def methodology(req, sess):
+    """Public explanation of creator ad-revenue estimates."""
+    title = "Earnings Methodology | ViralVibes"
+    page = Titled(
+        title,
+        *page_seo_tags(
+            title,
+            "How ViralVibes models monthly YouTube ad-revenue scenarios, country and niche RPM, and confidence labels.",
+            "/methodology",
+        ),
+        Container(
+            NavComponent(oauth, req, sess),
+            methodology_page_content(),
+            cls=ContainerT.xl,
+        ),
+        footer(),
     )
     return _public_cached_response(sess, page, _CC_BLOG)
 
