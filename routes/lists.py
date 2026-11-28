@@ -6,7 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
-from fasthtml.common import Div
+from fasthtml.common import A, Div
 
 from db import get_creators, get_user_favourite_list_keys
 from db_lists import (
@@ -284,17 +284,18 @@ def lists_more_languages_route(request):
 # ─────────────────────────────────────────────────────────────────────────────
 
 DETAIL_PAGE_LIMIT = 20  # Creators per page on detail view
+MAX_DETAIL_PAGE = 10_000  # Bound public offsets while allowing very large lists
 
 
 def _parse_page(request) -> int:
-    """Parse and clamp the ?page= query param to a safe 1-based integer."""
+    """Parse and clamp the ?page= query param to a bounded 1-based integer."""
     try:
-        return max(1, int(request.query_params.get("page", "1")))
+        return min(MAX_DETAIL_PAGE, max(1, int(request.query_params.get("page", "1"))))
     except (TypeError, ValueError):
         return 1
 
 
-def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
+def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int, bool]:
     """
     Fetch one page of creators for a country detail view.
 
@@ -306,7 +307,8 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
         page: 1-based page number.
 
     Returns:
-        ``(creators, total_count, total_pages)`` tuple.
+        ``(creators, total_count, total_pages, degraded)`` tuple. ``degraded``
+        distinguishes a failed count/data request from a genuine empty country.
     """
     result = get_country_creators(
         country_code,
@@ -316,10 +318,16 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     )
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
-    total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
-    )
-    return creators, total_count, total_pages
+    degraded = result.degraded if result else True
+    total_pages = max(1, (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT)
+    if len(creators) < DETAIL_PAGE_LIMIT:
+        total_pages = max(1, min(total_pages, page))
+    elif page >= total_pages:
+        # An undercount can be detected when a full page contains rows beyond
+        # the estimate. Otherwise, don't offer a load when the estimate says
+        # the current full page is the final one.
+        total_pages = page + 1 if degraded else max(1, min(total_pages, page))
+    return creators, total_count, total_pages, degraded
 
 
 def country_detail_route(request, country_code: str):
@@ -339,7 +347,7 @@ def country_detail_route(request, country_code: str):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+    creators, total_count, total_pages, degraded = _fetch_country_page(country_code, page)
 
     page_content = render_country_detail_page(
         country_code=country_code,
@@ -348,8 +356,9 @@ def country_detail_route(request, country_code: str):
         total_pages=total_pages,
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
+        degraded=degraded,
     )
-    return page_content, total_count
+    return page_content, total_count, degraded
 
 
 def country_detail_more_route(request):
@@ -372,7 +381,14 @@ def country_detail_more_route(request):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+    creators, total_count, total_pages, degraded = _fetch_country_page(country_code, page)
+
+    if degraded and not creators:
+        return Div(
+            "Couldn't load more creators right now. ",
+            A("Reload this country list", href=f"/lists/country/{country_code.lower()}"),
+            cls="text-sm text-muted-foreground py-4",
+        )
 
     return render_country_creators_rows(
         country_code=country_code,
@@ -381,6 +397,7 @@ def country_detail_more_route(request):
         total_pages=total_pages,
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
+        degraded=degraded,
     )
 
 

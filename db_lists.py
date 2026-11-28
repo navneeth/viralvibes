@@ -236,6 +236,7 @@ class TopicCategoryPageResult(NamedTuple):
 class CountryPageResult(NamedTuple):
     creators: list[dict]
     total_count: int
+    degraded: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -1162,13 +1163,17 @@ def get_country_creators(
                 normalized_country,
             )
             cached_result = cached_entry[1]
+            if return_count:
+                cached_result = cached_result._replace(degraded=True)
             return cached_result if return_count else cached_result.creators
-        return CountryPageResult([], 0) if return_count else []
+        return CountryPageResult([], 0, degraded=True) if return_count else []
 
     try:
         query = (
             supabase_client.table("country_list_creators")
-            .select("*", count="exact" if return_count else None)
+            # A planned count avoids a full exact count scan on very large
+            # countries. The ordered page query still returns the ranked rows.
+            .select("*", count="planned" if return_count else None)
             .eq("country_code", normalized_country)
             .order("current_subscribers", desc=True)
             .order("id")
@@ -1190,18 +1195,61 @@ def get_country_creators(
                 now - cached_entry[0],
             )
             cached_result = cached_entry[1]
+            if return_count:
+                cached_result = cached_result._replace(degraded=True)
             return cached_result if return_count else cached_result.creators
         logger.exception("Error fetching creators for country %s", normalized_country)
-        return CountryPageResult([], 0) if return_count else []
+        return CountryPageResult([], 0, degraded=True) if return_count else []
 
     creators = response.data if response and response.data else []
-    total_count = (getattr(response, "count", 0) or 0) if return_count and response else 0
+    raw_count = getattr(response, "count", None) if return_count and response else None
+    observed_end = offset + len(creators)
+    planned_count = int(raw_count) if raw_count is not None else None
+
+    if return_count and raw_count is None:
+        logger.warning(
+            "Country creator count missing for %s (offset=%s, returned=%s)",
+            normalized_country,
+            offset,
+            len(creators),
+        )
+
+    # A short successful page establishes the end of the list. For an empty
+    # page, the actual total is below its offset; do not inflate it to the
+    # requested offset just because an estimate suggested more rows.
+    if return_count and response is None:
+        total_count = 0
+        degraded = True
+    elif return_count and len(creators) < limit:
+        total_count = (
+            observed_end
+            if creators
+            else min(
+                planned_count if planned_count is not None else max(0, offset - 1),
+                max(0, offset - 1),
+            )
+        )
+        degraded = False
+    elif return_count:
+        total_count = max(planned_count or 0, observed_end)
+        degraded = planned_count is None or planned_count < observed_end
+        if degraded and planned_count is not None:
+            logger.warning(
+                "Country creator count estimate below returned rows for %s "
+                "(estimated=%s, observed_at_least=%s)",
+                normalized_country,
+                planned_count,
+                observed_end,
+            )
+    else:
+        total_count = 0
+        degraded = False
 
     for idx, creator in enumerate(creators, 1):
         creator["_rank"] = offset + idx
 
     # Always store as CountryPageResult; extract on return to match function signature
-    cached_result = CountryPageResult(creators, total_count)
+    cached_result = CountryPageResult(creators, total_count, degraded=degraded)
     with _country_creators_cache_lock:
         current_entry = _country_creators_cache.get(cache_key)
         if cache_generation == _country_creators_cache_generation and (

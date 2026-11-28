@@ -1402,6 +1402,21 @@ def _empty_detail_state(message: str) -> Div:
     )
 
 
+def _country_load_error_state(country_code: str, page: int = 1) -> Div:
+    """Show a retryable error instead of presenting a failed country query as empty."""
+    query = f"?page={page}" if page > 1 else ""
+    return Div(
+        UkIcon("alert-circle", cls="size-10 text-muted-foreground mb-3"),
+        P("We couldn't load this country list right now.", cls="text-sm text-muted-foreground"),
+        A(
+            "Try again",
+            href=f"/lists/country/{country_code.lower()}{query}",
+            cls="mt-3 text-sm text-primary hover:underline",
+        ),
+        cls="mt-6 py-16 flex flex-col items-center justify-center text-center",
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Country Detail Page View
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1414,6 +1429,7 @@ def render_country_detail_page(
     total_pages: int = 1,
     total_count: int = 0,
     page_size: int = 20,
+    degraded: bool = False,
 ) -> Div:
     """
     Render the detailed country-wise creator rankings page.
@@ -1425,7 +1441,7 @@ def render_country_detail_page(
         creators: List of creator dicts for this page
         page: Current page number (1-based)
         total_pages: Total number of pages
-        total_count: Total creator count for this country
+        total_count: Planned estimate, reconciled with the returned page when possible
         page_size: Number of creators per page (must match the route limit)
 
     Returns:
@@ -1438,6 +1454,40 @@ def render_country_detail_page(
     start_rank = (page - 1) * page_size + 1
     end_rank = min(page * page_size, total_count)
 
+    if degraded and not creators:
+        creator_list_content = _country_load_error_state(country_code, page)
+    else:
+        creator_list_content = Div(
+            (
+                P(
+                    "Some list details may be temporarily unavailable. Refresh to try again.",
+                    cls="text-sm text-amber-700 dark:text-amber-300 mb-4",
+                )
+                if degraded
+                else None
+            ),
+            (
+                P(
+                    f"Showing {format_number(start_rank)}–{format_number(end_rank)} of about {format_number(total_count)} creators",
+                    cls="text-sm text-muted-foreground mb-6",
+                )
+                if total_count and creators
+                else (
+                    _empty_detail_state("No more creators on this page.")
+                    if page > 1 and not creators
+                    else None
+                )
+            ),
+            Div(
+                *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
+                id="country-creators-list",
+                cls="space-y-3",
+            ),
+            cls="mt-6",
+        )
+        if not degraded and not total_count:
+            creator_list_content = _empty_detail_state(f"No creators from {country_name} yet.")
+
     return Div(
         # ── Page header ────────────────────────────────────────────────────
         Div(
@@ -1449,7 +1499,11 @@ def render_country_detail_page(
                         cls="text-3xl sm:text-4xl font-bold text-foreground",
                     ),
                     P(
-                        f"{format_number(total_count)} creators from {country_name}",
+                        (
+                            f"Creator count temporarily unavailable for {country_name}"
+                            if degraded
+                            else f"About {format_number(total_count)} creators from {country_name}"
+                        ),
                         cls="text-muted-foreground mt-1",
                     ),
                     cls="flex-1",
@@ -1513,31 +1567,13 @@ def render_country_detail_page(
             "text-sm leading-relaxed text-muted-foreground",
         ),
         # ── Creator list ───────────────────────────────────────────────────
-        (
-            _empty_detail_state(f"No creators from {country_name} yet.")
-            if not total_count
-            else Div(
-                P(
-                    f"Showing {format_number(start_rank)}\u2013{format_number(end_rank)} of {format_number(total_count)} creators",
-                    cls="text-sm text-muted-foreground mb-6",
-                ),
-                Div(
-                    *[
-                        _creator_row(creator, rank=start_rank + i)
-                        for i, creator in enumerate(creators)
-                    ],
-                    id="country-creators-list",
-                    cls="space-y-3",
-                ),
-                cls="mt-6",
-            )
-        ),
+        creator_list_content,
         # ── Load-more pagination ───────────────────────────────────────────
         (
             Div(
                 Button(
                     "Load More Creators",
-                    hx_get=f"/lists/country/{country_code}/more?page={page + 1}",
+                    hx_get=f"/lists/country/{country_code.lower()}/more?page={page + 1}",
                     hx_target="#country-creators-list",
                     hx_swap="beforeend",
                     cls="w-full px-4 py-2 rounded-lg border border-border bg-background hover:bg-accent transition-colors",
@@ -1559,6 +1595,7 @@ def render_country_creators_rows(
     total_pages: int = 1,
     total_count: int = 0,
     page_size: int = 20,
+    degraded: bool = False,
 ) -> tuple:
     """
     Render just the creator rows for the HTMX load-more endpoint.
@@ -1579,6 +1616,16 @@ def render_country_creators_rows(
     """
     start_rank = (page - 1) * page_size + 1
     rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
+    if degraded and creators:
+        button_update = _page_based_load_more_button(
+            endpoint_url=f"/lists/country/{country_code.lower()}/more",
+            section_type="country",
+            page=page,
+            total_pages=total_pages,
+        )
+        return (*rows, button_update)
+    if degraded:
+        return (_country_load_error_state(country_code, page),)
     next_btn = _page_based_load_more_button(
         endpoint_url=f"/lists/country/{country_code}/more",
         section_type="country",
