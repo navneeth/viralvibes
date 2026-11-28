@@ -610,7 +610,7 @@ def test_fetch_country_page_keeps_pagination_when_planned_count_is_low(monkeypat
         lambda *args, **kwargs: SimpleNamespace(
             creators=[{"id": str(i)} for i in range(lists_routes.DETAIL_PAGE_LIMIT)],
             total_count=1,
-            degraded=False,
+            degraded=True,
         ),
     )
 
@@ -618,6 +618,29 @@ def test_fetch_country_page_keeps_pagination_when_planned_count_is_low(monkeypat
 
     assert len(creators) == lists_routes.DETAIL_PAGE_LIMIT
     assert total_count == 1
+    assert total_pages == 2
+    assert degraded is True
+
+
+def test_parse_page_caps_unbounded_offsets():
+    request = _req(query_params={"page": "999999999999"})
+
+    assert lists_routes._parse_page(request) == lists_routes.MAX_DETAIL_PAGE
+
+
+def test_fetch_country_page_does_not_offer_page_after_exact_multiple(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "get_country_creators",
+        lambda *args, **kwargs: SimpleNamespace(
+            creators=[{"id": str(i)} for i in range(lists_routes.DETAIL_PAGE_LIMIT)],
+            total_count=2 * lists_routes.DETAIL_PAGE_LIMIT,
+            degraded=False,
+        ),
+    )
+
+    _, _, total_pages, degraded = lists_routes._fetch_country_page("US", 2)
+
     assert total_pages == 2
     assert degraded is False
 

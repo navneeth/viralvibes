@@ -384,7 +384,7 @@ def test_country_creators_marks_first_fetch_failure_degraded(monkeypatch):
     assert result.degraded is True
 
 
-def test_country_creators_does_not_cache_missing_count_metadata(monkeypatch):
+def test_country_creators_caches_short_page_when_count_metadata_is_missing(monkeypatch, caplog):
     fake_client = _FakeSupabaseClient(
         {"data": [{"channel_name": "US Channel", "current_subscribers": 100}], "count": None}
     )
@@ -393,11 +393,42 @@ def test_country_creators_does_not_cache_missing_count_metadata(monkeypatch):
     monkeypatch.setattr(db_lists, "_country_creators_cache", {})
 
     result = db_lists.get_country_creators("US", return_count=True)
+    second_result = db_lists.get_country_creators("US", return_count=True)
 
     assert len(result.creators) == 1
     assert result.total_count == 1
+    assert result.degraded is False
+    assert second_result == result
+    assert len(fake_client.calls) == 1
+    assert "Country creator count missing" in caplog.text
+
+
+def test_country_creators_reconciles_empty_page_below_estimated_total(monkeypatch):
+    fake_client = _FakeSupabaseClient({"data": [], "count": 100})
+    monkeypatch.setattr(sys.modules["db"], "_supabase_request_semaphore", MagicMock())
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: fake_client)
+    monkeypatch.setattr(db_lists, "_country_creators_cache", {})
+
+    result = db_lists.get_country_creators("US", limit=20, offset=20, return_count=True)
+
+    assert result.total_count == 19
+    assert result.degraded is False
+
+
+def test_country_creators_marks_stale_fallback_degraded(monkeypatch):
+    stale_result = db_lists.CountryPageResult([{"channel_name": "Stale US"}], 1)
+    monkeypatch.setattr(
+        db_lists,
+        "_country_creators_cache",
+        {("US", 20, 0, True): (0.0, stale_result)},
+    )
+    client = _FakeSupabaseClient(TimeoutError("Supabase read timed out"))
+    monkeypatch.setattr(db_lists, "_get_supabase_client", lambda: client)
+
+    result = db_lists.get_country_creators("US", return_count=True)
+
+    assert result.creators[0]["channel_name"] == "Stale US"
     assert result.degraded is True
-    assert db_lists._country_creators_cache == {}
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +552,7 @@ def test_fetch_country_page_uses_country_specific_query(monkeypatch):
     creators, total_count, total_pages, degraded = lists_routes._fetch_country_page("us", page=2)
 
     assert total_count == 42
-    assert total_pages == 3
+    assert total_pages == 2
     assert len(creators) == 1
     assert degraded is False
     mock_get.assert_called_once_with(

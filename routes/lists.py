@@ -284,12 +284,13 @@ def lists_more_languages_route(request):
 # ─────────────────────────────────────────────────────────────────────────────
 
 DETAIL_PAGE_LIMIT = 20  # Creators per page on detail view
+MAX_DETAIL_PAGE = 10_000  # Bound public offsets while allowing very large lists
 
 
 def _parse_page(request) -> int:
-    """Parse and clamp the ?page= query param to a safe 1-based integer."""
+    """Parse and clamp the ?page= query param to a bounded 1-based integer."""
     try:
-        return max(1, int(request.query_params.get("page", "1")))
+        return min(MAX_DETAIL_PAGE, max(1, int(request.query_params.get("page", "1"))))
     except (TypeError, ValueError):
         return 1
 
@@ -318,16 +319,14 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int, b
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
     degraded = result.degraded if result else True
-    total_pages = (
-        (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
-    )
-    # A planned count is an estimate. Use the page size to keep pagination
-    # moving when that estimate is low, and to stop when the query returns a
-    # short page even if the estimate is high.
-    if len(creators) == DETAIL_PAGE_LIMIT:
-        total_pages = max(total_pages, page + 1)
-    else:
-        total_pages = min(total_pages, page)
+    total_pages = max(1, (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT)
+    if len(creators) < DETAIL_PAGE_LIMIT:
+        total_pages = max(1, min(total_pages, page))
+    elif page >= total_pages:
+        # An undercount can be detected when a full page contains rows beyond
+        # the estimate. Otherwise, don't offer a load when the estimate says
+        # the current full page is the final one.
+        total_pages = page + 1 if degraded else max(1, min(total_pages, page))
     return creators, total_count, total_pages, degraded
 
 

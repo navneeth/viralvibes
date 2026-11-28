@@ -1441,7 +1441,7 @@ def render_country_detail_page(
         creators: List of creator dicts for this page
         page: Current page number (1-based)
         total_pages: Total number of pages
-        total_count: Total creator count for this country
+        total_count: Planned estimate, reconciled with the returned page when possible
         page_size: Number of creators per page (must match the route limit)
 
     Returns:
@@ -1471,8 +1471,12 @@ def render_country_detail_page(
                     f"Showing {format_number(start_rank)}–{format_number(end_rank)} of about {format_number(total_count)} creators",
                     cls="text-sm text-muted-foreground mb-6",
                 )
-                if total_count
-                else None
+                if total_count and creators
+                else (
+                    _empty_detail_state("No more creators on this page.")
+                    if page > 1 and not creators
+                    else None
+                )
             ),
             Div(
                 *[_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)],
@@ -1613,7 +1617,13 @@ def render_country_creators_rows(
     start_rank = (page - 1) * page_size + 1
     rows = [_creator_row(creator, rank=start_rank + i) for i, creator in enumerate(creators)]
     if degraded and creators:
-        return tuple(rows)
+        button_update = _page_based_load_more_button(
+            endpoint_url=f"/lists/country/{country_code.lower()}/more",
+            section_type="country",
+            page=page,
+            total_pages=total_pages,
+        )
+        return (*rows, button_update)
     if degraded:
         return (_country_load_error_state(country_code, page),)
     next_btn = _page_based_load_more_button(
