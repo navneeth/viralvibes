@@ -1762,9 +1762,18 @@ def lists_more_languages(req, sess):
 @rt("/lists/country/{country_code}")
 def lists_country_detail(req, sess, country_code: str):
     """Detailed creator rankings for a specific country."""
+    canonical_code = country_code.lower()
+    if country_code != canonical_code:
+        query = getattr(getattr(req, "url", None), "query", "")
+        suffix = f"?{query}" if query else ""
+        return RedirectResponse(
+            f"/lists/country/{canonical_code}{suffix}",
+            status_code=301,
+        )
+
     country_name = get_country_name(country_code)
-    page_content, total_count = country_detail_route(req, country_code)
-    _count_suffix = f" ({total_count:,} channels)" if total_count else ""
+    page_content, total_count, degraded = country_detail_route(req, country_code)
+    _count_suffix = f" (about {total_count:,} channels)" if total_count and not degraded else ""
     _title = f"Top YouTube Creators from {country_name}{_count_suffix} | ViralVibes"
     _desc = (
         f"Browse the top YouTube creators from {country_name}, ranked by subscriber count. "
@@ -1778,6 +1787,8 @@ def lists_country_detail(req, sess, country_code: str):
         ),
         *page_seo_tags(_title, _desc, f"/lists/country/{country_code.lower()}"),
     )
+    if degraded:
+        return _public_cached_response(sess, page, "no-store")
     return _public_cached_response(sess, page, _CC_STD)
 
 

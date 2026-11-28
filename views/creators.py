@@ -1050,7 +1050,7 @@ def _render_hero(stats: dict, filtered_count: int = 0, has_filters: bool = False
                         [
                             A(
                                 get_country_flag(country_code) or "🌍",
-                                href=f"/lists/country/{country_code.upper()}",
+                                href=f"/lists/country/{country_code.lower()}",
                                 title=f"{country_code.upper()}: {count} creators",
                                 cls="text-2xl hover:scale-110 transition-transform inline-block",
                             )
@@ -3409,7 +3409,7 @@ def _render_similar_creators(
         see_all_href = f"/lists/category/{slugify(category)}"
         see_all_label = f"{get_topic_category_emoji(category)} {category}"
     elif country_code:
-        see_all_href = f"/lists/country/{country_code.upper()}"
+        see_all_href = f"/lists/country/{country_code.lower()}"
         see_all_label = f"{get_country_flag(country_code)} {country_code.upper()}"
     else:
         see_all_href = "/creators"
@@ -3828,7 +3828,7 @@ def render_creator_profile_page(
                         (
                             _rank_chip(
                                 f"#{country_rank} {country_flag} {country_code.upper()}",
-                                href=f"/lists/country/{country_code.upper()}",
+                                href=f"/lists/country/{country_code.lower()}",
                                 title=f"#{country_rank} by subscribers in {country_code.upper()}",
                             )
                             if country_rank is not None and country_code
@@ -4646,7 +4646,7 @@ def render_creator_profile_page(
                 Div(
                     A(
                         f"#{country_rank}",
-                        href=f"/lists/country/{country_code.upper()}",
+                        href=f"/lists/country/{country_code.lower()}",
                         cls="text-sm font-bold text-primary hover:underline no-underline",
                         title=f"Ranked #{country_rank} in {country_code.upper()} by subscribers",
                     ),

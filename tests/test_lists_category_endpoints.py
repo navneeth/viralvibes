@@ -565,7 +565,7 @@ def test_country_detail_route_returns_tuple(monkeypatch):
     monkeypatch.setattr(
         lists_routes,
         "_fetch_country_page",
-        lambda code, page: ([{"channel_name": "A"}], 47, 2),
+        lambda code, page: ([{"channel_name": "A"}], 47, 2, True),
     )
 
     captured = {}
@@ -576,7 +576,7 @@ def test_country_detail_route_returns_tuple(monkeypatch):
 
     monkeypatch.setattr(lists_routes, "render_country_detail_page", _render)
 
-    page_content, total_count = lists_routes.country_detail_route(
+    page_content, total_count, degraded = lists_routes.country_detail_route(
         _req(query_params={"page": "1"}), "LT"
     )
 
@@ -584,6 +584,42 @@ def test_country_detail_route_returns_tuple(monkeypatch):
     assert page_content["total_count"] == 47
     assert page_content["total_pages"] == 2
     assert total_count == 47
+    assert page_content["degraded"] is True
+    assert degraded is True
+
+
+def test_country_detail_more_route_shows_retry_when_fetch_fails(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "_fetch_country_page",
+        lambda code, page: ([], 0, 1, True),
+    )
+    request = _req(query_params={"page": "2"})
+    request.country_code = "US"
+
+    result = lists_routes.country_detail_more_route(request)
+
+    assert "Couldn't load more creators" in str(result)
+    assert "/lists/country/us" in str(result)
+
+
+def test_fetch_country_page_keeps_pagination_when_planned_count_is_low(monkeypatch):
+    monkeypatch.setattr(
+        lists_routes,
+        "get_country_creators",
+        lambda *args, **kwargs: SimpleNamespace(
+            creators=[{"id": str(i)} for i in range(lists_routes.DETAIL_PAGE_LIMIT)],
+            total_count=1,
+            degraded=False,
+        ),
+    )
+
+    creators, total_count, total_pages, degraded = lists_routes._fetch_country_page("US", 1)
+
+    assert len(creators) == lists_routes.DETAIL_PAGE_LIMIT
+    assert total_count == 1
+    assert total_pages == 2
+    assert degraded is False
 
 
 def test_category_detail_more_route_requires_slug(monkeypatch):

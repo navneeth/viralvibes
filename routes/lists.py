@@ -6,7 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
-from fasthtml.common import Div
+from fasthtml.common import A, Div
 
 from db import get_creators, get_user_favourite_list_keys
 from db_lists import (
@@ -294,7 +294,7 @@ def _parse_page(request) -> int:
         return 1
 
 
-def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
+def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int, bool]:
     """
     Fetch one page of creators for a country detail view.
 
@@ -306,7 +306,8 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
         page: 1-based page number.
 
     Returns:
-        ``(creators, total_count, total_pages)`` tuple.
+        ``(creators, total_count, total_pages, degraded)`` tuple. ``degraded``
+        distinguishes a failed count/data request from a genuine empty country.
     """
     result = get_country_creators(
         country_code,
@@ -316,10 +317,18 @@ def _fetch_country_page(country_code: str, page: int) -> tuple[list, int, int]:
     )
     creators = result.creators if result else []
     total_count = result.total_count if result else 0
+    degraded = result.degraded if result else True
     total_pages = (
         (total_count + DETAIL_PAGE_LIMIT - 1) // DETAIL_PAGE_LIMIT if total_count > 0 else 1
     )
-    return creators, total_count, total_pages
+    # A planned count is an estimate. Use the page size to keep pagination
+    # moving when that estimate is low, and to stop when the query returns a
+    # short page even if the estimate is high.
+    if len(creators) == DETAIL_PAGE_LIMIT:
+        total_pages = max(total_pages, page + 1)
+    else:
+        total_pages = min(total_pages, page)
+    return creators, total_count, total_pages, degraded
 
 
 def country_detail_route(request, country_code: str):
@@ -339,7 +348,7 @@ def country_detail_route(request, country_code: str):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+    creators, total_count, total_pages, degraded = _fetch_country_page(country_code, page)
 
     page_content = render_country_detail_page(
         country_code=country_code,
@@ -348,8 +357,9 @@ def country_detail_route(request, country_code: str):
         total_pages=total_pages,
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
+        degraded=degraded,
     )
-    return page_content, total_count
+    return page_content, total_count, degraded
 
 
 def country_detail_more_route(request):
@@ -372,7 +382,14 @@ def country_detail_more_route(request):
 
     page = _parse_page(request)
 
-    creators, total_count, total_pages = _fetch_country_page(country_code, page)
+    creators, total_count, total_pages, degraded = _fetch_country_page(country_code, page)
+
+    if degraded and not creators:
+        return Div(
+            "Couldn't load more creators right now. ",
+            A("Reload this country list", href=f"/lists/country/{country_code.lower()}"),
+            cls="text-sm text-muted-foreground py-4",
+        )
 
     return render_country_creators_rows(
         country_code=country_code,
@@ -381,6 +398,7 @@ def country_detail_more_route(request):
         total_pages=total_pages,
         total_count=total_count,
         page_size=DETAIL_PAGE_LIMIT,
+        degraded=degraded,
     )
 
 

@@ -10,8 +10,12 @@ import main
 @pytest.fixture
 def public_page_stubs(monkeypatch):
     monkeypatch.setattr("components.navigation._is_admin", lambda _: False)
-    for name in ("country_detail_route", "category_detail_route"):
-        monkeypatch.setattr(main, name, lambda *args: (P("Cached page content"), 100))
+    monkeypatch.setattr(
+        main, "country_detail_route", lambda *args: (P("Cached page content"), 100, False)
+    )
+    monkeypatch.setattr(
+        main, "category_detail_route", lambda *args: (P("Cached page content"), 100)
+    )
     for name in (
         "categories_explorer_route",
         "countries_explorer_route",
@@ -61,7 +65,7 @@ def test_public_pages_cache_only_anonymous_complete_html(
             middleware.session_cookie,
             middleware.signer.sign(b64encode(json.dumps(session).encode())).decode(),
         )
-    request_path = "/lists/country/US" if handler == "lists_country_detail" else canonical
+    request_path = canonical
     response = client.get(request_path, follow_redirects=False)
 
     assert response.status_code == 200
@@ -85,6 +89,32 @@ def test_public_pages_cache_only_anonymous_complete_html(
         assert "/login?return_url=" in html
 
 
+def test_country_detail_uppercase_path_redirects_to_lowercase(public_page_stubs):
+    from starlette.testclient import TestClient
+
+    response = TestClient(main.app).get("/lists/country/US?page=2", follow_redirects=False)
+
+    assert response.status_code == 301
+    assert response.headers["location"] == "/lists/country/us?page=2"
+
+
+def test_country_detail_does_not_cache_degraded_page(monkeypatch):
+    from starlette.testclient import TestClient
+    from fasthtml.common import P
+
+    monkeypatch.setattr(
+        main,
+        "country_detail_route",
+        lambda *args: (P("Temporary list error"), 0, True),
+    )
+
+    response = TestClient(main.app).get("/lists/country/us")
+
+    assert response.status_code == 200
+    assert "Temporary list error" in response.text
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_cache_helper_handles_no_session(public_page_stubs):
     from fasthtml.common import fast_app
     from starlette.testclient import TestClient
@@ -105,14 +135,14 @@ def test_cache_helper_handles_no_session(public_page_stubs):
 @pytest.mark.parametrize(
     "path",
     [
-        "/lists/country/US",
+        "/lists/country/us",
         "/lists/category/music",
         "/lists/language/en",
         "/lists/categories",
         "/lists/countries",
         "/lists/languages",
         "/rankings/gaming/india",
-        "/lists/country/US?page=2",
+        "/lists/country/us?page=2",
     ],
 )
 def test_anonymous_application_routes_emit_public_cache_headers(public_page_stubs, path):

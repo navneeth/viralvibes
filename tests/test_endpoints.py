@@ -223,7 +223,7 @@ class TestListPageTitleCounts:
 
     def test_country_title_includes_count_when_nonzero(self, client, monkeypatch):
         """Title must contain the comma-formatted count when route returns > 0."""
-        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 233))
+        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 233, False))
         r = client.get("/lists/country/LT")
         assert r.status_code == 200
         assert "233" in r.text
@@ -231,15 +231,15 @@ class TestListPageTitleCounts:
 
     def test_country_title_omits_suffix_when_count_zero(self, client, monkeypatch):
         """Title must NOT include '(0 channels)' when route returns 0."""
-        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 0))
+        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 0, False))
         r = client.get("/lists/country/LT")
         assert r.status_code == 200
         assert "(0 channels)" not in r.text
 
     def test_country_title_formats_count_with_commas(self, client, monkeypatch):
         """Thousands separator must be applied — 4821 renders as '4,821'."""
-        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 4821))
-        r = client.get("/lists/country/US")
+        monkeypatch.setattr(main, "country_detail_route", lambda req, code: ("", 4821, False))
+        r = client.get("/lists/country/us")
         assert r.status_code == 200
         assert "4,821" in r.text
 
